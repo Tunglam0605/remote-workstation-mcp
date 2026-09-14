@@ -9,59 +9,93 @@
 - managed allowlisted process execution
 - audit log and security regression tests
 
-## v0.2 — Vendor-neutral / multi-client foundation
+## v0.2 — Vendor-neutral / multi-client foundation ✅
 
 - AI-vendor-neutral core terminology
 - capability discovery through `capabilities_list`
-- client audit tags for dedicated profiles (observability only)
+- client audit tags for dedicated profiles
 - optimistic file concurrency with SHA-256 preconditions
 - multi-agent architecture documentation and regression tests
 
-## v0.3 — Workstation UX + interoperability validation
+## v0.3 — Workstation UX + managed distribution ✅
 
 - executable/tool discovery
-- richer file/text search
+- bounded file/name/text search
 - incremental process output cursors
-- build/test task profiles
-- compatibility test matrix for ChatGPT, Codex, Claude Code and other MCP clients
-- release/update infrastructure
+- owner-defined build/test task profiles
+- managed Linux user installation
+- version slots, health checks and rollback
+- GitHub Release package/checksum pipeline
+- scheduled update checks with opt-in auto-update modes
 
-## v0.4 — SSH and remote machines
+## v0.4 — SSH remote machines ✅
 
 - named owner-approved hosts
-- ssh-agent based authentication
-- persistent remote process sessions
-- per-host policy
+- `ssh-agent` or local identity-file authentication
+- BatchMode and host-key checking
+- forwarding disabled
+- per-host executable allowlists
+- bounded `ssh_probe` and `ssh_exec`
+- secret redaction and SSH regression tests
 
-## v0.5 — Trusted client identity and permission elevation
+## v0.5 — Usable security-sensitive beta ✅
 
-- authenticated client/principal identity
-- per-client roles and capabilities
-- read-only / workspace / elevated / full-control modes
-- time-limited capability leases
-- local approval broker
-- privileged helper separated from the MCP process
+- permission status model
+- locally issued time-limited elevation/full-control leases
+- optional client-bound leases
+- host filesystem tools behind full-control gates
+- raw user-level shell behind full-control gates
+- managed service hardening with `NoNewPrivileges=true`
+- owner-controlled lease grant/revoke scripts
+- operational/client documentation
 
-## v0.6 — Concurrent agent workloads
+`v0.5` intentionally does **not** expose root/Administrator execution. Full control means the permissions of the OS account running the agent.
 
+## v0.6 — Authenticated identities + concurrent engineering sessions
+
+- transport-authenticated principal identity where supported
+- per-client roles/capability policy instead of observability tags alone
 - session/task ownership
-- Git worktree isolation
-- conflict detection and safe merge/review handoff
+- Git worktree creation and lifecycle
+- safe merge/review handoff between agents
+- stronger conflict detection for non-file resources
 
-## v0.7+ — Engineering adapters
+## v0.7 — Engineering adapters
 
-- Git write operations
-- Docker
-- serial/USB
-- OpenOCD/GDB/ST-Link
-- STM32/ESP32 workflows
-- ROS 2 tooling
+- typed Git write operations with policy gates
+- Docker/container workflows
+- serial/USB discovery and bounded I/O
+- OpenOCD / GDB / ST-Link adapters
+- STM32 / ESP32 build-flash-debug workflows
+- ROS 2 process/topic/service adapters
 - pluggable vendor/debug tools
 
-## v0.8+ — Agent orchestration
+Raw shell will remain available only as an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
+
+## v0.8 — Isolated privileged helper + stronger sandboxing
+
+- separately isolated privileged helper for narrowly scoped root/admin operations
+- explicit owner approval protocol
+- capability-specific sudo/root contracts rather than unrestricted privileged shell
+- optional container/namespace sandbox for untrusted build/test workloads
+- release artifact signing, provenance and SBOM
+
+## v0.9 — Multi-agent orchestration
 
 - task broker
 - agent registry
 - delegation contracts
 - result aggregation
-- agent-to-agent workflows without weakening the workstation policy boundary
+- worktree-aware parallel execution
+- agent-to-agent workflows without weakening workstation policy
+
+## v1.0 — Stable workstation control plane
+
+Target criteria:
+
+- compatibility validation across major MCP clients
+- reproducible install/update/rollback
+- hardened policy and identity model
+- stable tool contracts
+- operational documentation and migration guidance
+- security review of workspace, SSH, update, full-control and privileged-helper boundaries

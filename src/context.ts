@@ -2,6 +2,9 @@ import path from 'node:path';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { GitAdapter } from './adapters/git.js';
 import { ProcessManager } from './adapters/process-manager.js';
+import { SearchAdapter } from './adapters/search.js';
+import { TaskAdapter } from './adapters/tasks.js';
+import { ToolDiscoveryAdapter } from './adapters/tool-discovery.js';
 import { loadPolicy } from './config.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
@@ -16,6 +19,7 @@ export async function createContext() {
     clientId: process.env.RWMCP_CLIENT_ID ?? 'unknown',
     clientType: process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client'
   };
+  const processes = new ProcessManager(policy, paths);
   return {
     config,
     policy,
@@ -24,7 +28,10 @@ export async function createContext() {
     audit: new AuditLogger(auditPath, actor),
     fs: new FilesystemAdapter(policy, paths),
     git: new GitAdapter(policy, paths),
-    processes: new ProcessManager(policy, paths)
+    processes,
+    search: new SearchAdapter(policy, paths),
+    tools: new ToolDiscoveryAdapter(policy),
+    tasks: new TaskAdapter(policy, processes)
   };
 }
 

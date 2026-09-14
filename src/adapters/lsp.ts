@@ -72,6 +72,14 @@ class JsonRpcClient {
     return !this.exited && this.child.exitCode === null;
   }
 
+  close(): void {
+    if (!this.exited) {
+      this.exited = true;
+      this.failAll(new Error('Language server session closed.'));
+      this.child.kill();
+    }
+  }
+
   request(method: string, params: unknown): Promise<unknown> {
     if (!this.isAlive()) return Promise.reject(new Error('Language server is not running.'));
     const id = this.nextId++;
@@ -221,6 +229,11 @@ export class LspAdapter {
     };
   }
 
+  dispose(): void {
+    for (const session of this.sessions.values()) session.client.close();
+    this.sessions.clear();
+  }
+
   listServers(): Array<{ id: string; program: string; languages: Record<string, string> }> {
     return Object.entries(this.config.servers).map(([id, profile]) => ({
       id,
@@ -283,8 +296,9 @@ export class LspAdapter {
     const profile = this.profile(server);
     const ws = this.policy.workspace(workspace);
     this.policy.assertExecute(profile.program);
+    const workspaceRoot = await this.paths.resolveExisting(workspace, '.');
     const child = spawn(profile.program, profile.args ?? [], {
-      cwd: ws.root,
+      cwd: workspaceRoot,
       shell: false,
       windowsHide: true,
       env: buildSafeEnvironment(this.policy.config.process.inheritEnv)
@@ -295,12 +309,12 @@ export class LspAdapter {
       openDocuments: new Map(),
       profileId: server,
       workspaceId: workspace,
-      workspaceRoot: ws.root,
+      workspaceRoot,
       ownerId: owner
     };
     this.sessions.set(key, state);
 
-    const rootUri = pathToFileURL(ws.root).href;
+    const rootUri = pathToFileURL(workspaceRoot).href;
     try {
       await client.request('initialize', {
         processId: process.pid,
@@ -319,7 +333,7 @@ export class LspAdapter {
       return state;
     } catch (error) {
       this.sessions.delete(key);
-      child.kill();
+      client.close();
       throw error;
     }
   }

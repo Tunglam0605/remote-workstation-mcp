@@ -51,3 +51,13 @@ tasks:
     program: cmake
     args: [--build, build]
     cwd: .
+
+# These gates stay disabled even when a full-control lease exists unless
+# the owner explicitly opts in locally. Never enable them in a public/shared config.
+fullControl:
+  allowRawShell: false
+  allowHostFilesystem: false
+
+privileged:
+  allowSudo: false
+  maxRuntimeMs: 600000

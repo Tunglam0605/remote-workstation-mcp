@@ -62,6 +62,9 @@ if (mode !== 'elevated' && mode !== 'full_control') {
 }
 const ttlMs = parseTtl(value('--ttl') ?? '30m');
 const clientId = value('--client-id') ?? process.env.RWMCP_CLIENT_ID;
+if (mode === 'full_control' && !clientId) {
+  throw new Error('full_control requires --client-id (managed install uses client id local-http).');
+}
 const reason = value('--reason');
 const now = new Date();
 const lease = {

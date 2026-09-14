@@ -44,19 +44,19 @@ function Get-ManagedProcess($state) {
 
 function Stop-ProcessTree([int]$rootProcessId) {
   $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId)
-  $queue = New-Object System.Collections.Generic.Queue[int]
+  $queue = New-Object System.Collections.Queue
+  $descendants = New-Object System.Collections.ArrayList
   $queue.Enqueue($rootProcessId)
-  $descendants = New-Object System.Collections.Generic.List[int]
   while ($queue.Count -gt 0) {
-    $parent = $queue.Dequeue()
+    $parent = [int]$queue.Dequeue()
     foreach ($child in @($all | Where-Object { [int]$_.ParentProcessId -eq $parent })) {
       $childId = [int]$child.ProcessId
-      $descendants.Add($childId)
+      [void]$descendants.Add($childId)
       $queue.Enqueue($childId)
     }
   }
   for ($i = $descendants.Count - 1; $i -ge 0; $i--) {
-    Stop-Process -Id $descendants[$i] -Force -ErrorAction SilentlyContinue
+    Stop-Process -Id ([int]$descendants[$i]) -Force -ErrorAction SilentlyContinue
   }
   Stop-Process -Id $rootProcessId -Force -ErrorAction SilentlyContinue
 }
@@ -71,16 +71,18 @@ function Apply-RuntimeEnvironment([string]$runtimeMode) {
   $repoPolicy = Join-Path $Root 'config\policy.yaml'
   $repoHosts = Join-Path $Root 'config\hosts.yaml'
 
-  $env:RWMCP_POLICY = if (Test-Path $externalPolicy) { $externalPolicy } else { $repoPolicy }
-  $env:RWMCP_HOSTS = if (Test-Path $externalHosts) { $externalHosts } else { $repoHosts }
-  $env:RWMCP_AUDIT = Join-Path $UserConfigDir 'audit.jsonl'
-  $env:RWMCP_CLIENT_ID = if ($runtimeMode -eq 'OpenAI') { 'openai-tunnel' } else { 'windows-local' }
-  $env:RWMCP_CLIENT_TYPE = if ($runtimeMode -eq 'OpenAI') { 'chatgpt' } else { 'mcp' }
-
+  if (-not $env:RWMCP_POLICY) { $env:RWMCP_POLICY = if (Test-Path $externalPolicy) { $externalPolicy } else { $repoPolicy } }
+  if (-not $env:RWMCP_HOSTS) { $env:RWMCP_HOSTS = if (Test-Path $externalHosts) { $externalHosts } else { $repoHosts } }
+  if (-not $env:RWMCP_AUDIT) { $env:RWMCP_AUDIT = Join-Path $UserConfigDir 'audit.jsonl' }
+  if (-not $env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID = if ($runtimeMode -eq 'OpenAI') { 'openai-tunnel' } else { 'windows-local' } }
+  if (-not $env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE = if ($runtimeMode -eq 'OpenAI') { 'chatgpt' } else { 'mcp' } }
   if (-not $env:RWMCP_PORT) { $env:RWMCP_PORT = '8765' }
 
+  if (-not (Test-Path $env:RWMCP_POLICY)) { throw "Policy file not found: $($env:RWMCP_POLICY)" }
+  if (-not (Test-Path $env:RWMCP_HOSTS)) { throw "SSH hosts config not found: $($env:RWMCP_HOSTS)" }
+
   if ($runtimeMode -eq 'OpenAI') {
-    if (-not $env:CONTROL_PLANE_TUNNEL_ID) { throw 'Tunnel ID is not configured. Open the Setup Console first.' }
+    if (-not $env:CONTROL_PLANE_TUNNEL_ID) { throw 'Tunnel ID is not configured. Open the Setup & Control Center first.' }
     if (-not $env:CONTROL_PLANE_API_KEY) { throw 'OpenAI runtime API key is not available. Save it with DPAPI or set CONTROL_PLANE_API_KEY.' }
     if (-not $env:CLOUDFLARED_MANAGED) { $env:CLOUDFLARED_MANAGED = 'false' }
     $tunnelBinary = if ($env:RWMCP_OPENAI_TUNNEL_CLIENT) {
@@ -198,8 +200,14 @@ function Stop-Runtime {
 }
 
 function Register-Startup([string]$runtimeMode) {
-  $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
-  $argument = "-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Action Start -Mode $runtimeMode -Root `"$Root`""
+  $stableLauncher = Join-Path $UserConfigDir 'bin\rwmcp.ps1'
+  if (Test-Path $stableLauncher) {
+    $stableAction = if ($runtimeMode -eq 'OpenAI') { 'StartOpenAI' } else { 'Start' }
+    $argument = "-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$stableLauncher`" -Action $stableAction"
+  } else {
+    $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
+    $argument = "-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Action Start -Mode $runtimeMode -Root `"$Root`""
+  }
   $actionObject = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument
   $trigger = New-ScheduledTaskTrigger -AtLogOn
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Days 3650) -MultipleInstances IgnoreNew

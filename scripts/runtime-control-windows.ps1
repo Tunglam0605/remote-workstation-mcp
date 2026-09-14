@@ -23,10 +23,8 @@ $StateDir = Join-Path $UserConfigDir 'runtime'
 $StatePath = Join-Path $StateDir 'supervisor.json'
 $StdoutLog = Join-Path $StateDir 'supervisor.stdout.log'
 $StderrLog = Join-Path $StateDir 'supervisor.stderr.log'
-$StdinNull = Join-Path $StateDir 'empty.stdin'
 $TaskName = 'Remote Workstation MCP'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
-if (-not (Test-Path $StdinNull)) { Set-Content -Path $StdinNull -Value '' -Encoding ascii }
 
 function Read-State {
   if (-not (Test-Path $StatePath)) { return $null }
@@ -197,27 +195,36 @@ function Start-Runtime([string]$runtimeMode) {
   if ($existing.running) { return $existing }
 
   Apply-RuntimeEnvironment $runtimeMode
-  $node = Get-Command node -ErrorAction Stop
-  $entrypoint = if ($runtimeMode -eq 'OpenAI') {
-    Join-Path $Root 'dist\openai-tunnel-cli.js'
-  } else {
-    Join-Path $Root 'dist\cli.js'
-  }
-  if (-not (Test-Path $entrypoint)) { throw "Runtime entrypoint not found: $entrypoint" }
+  $hostScript = Join-Path $Root 'scripts\runtime-host-windows.ps1'
+  if (-not (Test-Path $hostScript)) { throw "Runtime host script not found: $hostScript" }
 
   Remove-Item -Path $StdoutLog, $StderrLog -Force -ErrorAction SilentlyContinue
-  Set-Content -Path $StdinNull -Value '' -Encoding ascii
-  $arguments = @($entrypoint)
-  if ($runtimeMode -eq 'Local') { $arguments += '--http' }
-  $process = Start-Process -FilePath $node.Source -ArgumentList $arguments -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardInput $StdinNull -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog -PassThru
+  $powershell = Get-Command powershell.exe -ErrorAction Stop
+
+  # Do not use Start-Process -RedirectStandardOutput/-RedirectStandardError for
+  # this long-running process. When the control command itself is invoked through
+  # a captured pipe (CI, Node child_process, agent shells), those redirected
+  # handles can keep the caller open until the runtime exits. The detached host
+  # performs file redirection internally instead.
+  $argumentLine = @(
+    '-NoLogo',
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', "`"$hostScript`"",
+    '-Mode', $runtimeMode,
+    '-Root', "`"$Root`"",
+    '-StdoutLog', "`"$StdoutLog`"",
+    '-StderrLog', "`"$StderrLog`""
+  ) -join ' '
+  $process = Start-Process -FilePath $powershell.Source -ArgumentList $argumentLine -WorkingDirectory $Root -WindowStyle Hidden -PassThru
   $startedAt = [DateTimeOffset]$process.StartTime.ToUniversalTime()
   $state = [ordered]@{
     version = 1
     pid = $process.Id
     mode = $runtimeMode
     root = $Root
-    entrypoint = $entrypoint
-    processPath = $node.Source
+    entrypoint = $hostScript
+    processPath = $powershell.Source
     port = [int]$env:RWMCP_PORT
     startedAt = $startedAt.ToString('o')
   }

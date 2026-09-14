@@ -5,6 +5,8 @@ import { ProcessManager } from './adapters/process-manager.js';
 import { SearchAdapter } from './adapters/search.js';
 import { TaskAdapter } from './adapters/tasks.js';
 import { ToolDiscoveryAdapter } from './adapters/tool-discovery.js';
+import { UpdateAdapter } from './adapters/update.js';
+import { SERVER_VERSION } from './capabilities.js';
 import { loadPolicy } from './config.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
@@ -31,7 +33,8 @@ export async function createContext() {
     processes,
     search: new SearchAdapter(policy, paths),
     tools: new ToolDiscoveryAdapter(policy),
-    tasks: new TaskAdapter(policy, processes)
+    tasks: new TaskAdapter(policy, processes),
+    updates: new UpdateAdapter(SERVER_VERSION)
   };
 }
 

@@ -99,10 +99,14 @@ export async function saveSetupSettings(settings: SetupSettings, options: SetupP
   return file;
 }
 
+function configuredPath(envName: 'RWMCP_POLICY' | 'RWMCP_HOSTS', fallback: string): string {
+  const configured = process.env[envName]?.trim();
+  return path.resolve(configured || fallback);
+}
+
 export async function ensureDefaultPolicy(repoRoot: string, workspaceRoot: string): Promise<{ path: string; created: boolean }> {
-  const configDir = path.join(repoRoot, 'config');
-  const policyPath = path.join(configDir, 'policy.yaml');
-  await fs.mkdir(configDir, { recursive: true });
+  const policyPath = configuredPath('RWMCP_POLICY', path.join(repoRoot, 'config', 'policy.yaml'));
+  await fs.mkdir(path.dirname(policyPath), { recursive: true });
   try {
     await fs.access(policyPath);
     return { path: policyPath, created: false };
@@ -117,9 +121,8 @@ export async function ensureDefaultPolicy(repoRoot: string, workspaceRoot: strin
 }
 
 export async function ensureHostsConfig(repoRoot: string): Promise<{ path: string; created: boolean }> {
-  const configDir = path.join(repoRoot, 'config');
-  const hostsPath = path.join(configDir, 'hosts.yaml');
-  await fs.mkdir(configDir, { recursive: true });
+  const hostsPath = configuredPath('RWMCP_HOSTS', path.join(repoRoot, 'config', 'hosts.yaml'));
+  await fs.mkdir(path.dirname(hostsPath), { recursive: true });
   try {
     await fs.access(hostsPath);
     return { path: hostsPath, created: false };

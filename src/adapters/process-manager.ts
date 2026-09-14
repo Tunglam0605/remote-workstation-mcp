@@ -1,22 +1,40 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
-import type { ProcessSnapshot } from '../model.js';
+import type { OutputChunk, ProcessReadSince, ProcessSnapshot } from '../model.js';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
 
-type Managed = ProcessSnapshot & { child: ChildProcessWithoutNullStreams; timer?: NodeJS.Timeout };
+type Managed = ProcessSnapshot & {
+  child: ChildProcessWithoutNullStreams;
+  timer?: NodeJS.Timeout;
+  stdoutBase: number;
+  stderrBase: number;
+};
 
 export class ProcessManager {
   private readonly processes = new Map<string, Managed>();
 
   constructor(private readonly policy: PolicyEngine, private readonly paths: PathGuard) {}
 
-  private append(current: string, chunk: Buffer): string {
-    const next = current + chunk.toString('utf8');
+  private append(current: string, base: number, chunk: Buffer): { text: string; base: number } {
+    let next = current + chunk.toString('utf8');
+    let nextBase = base;
     const max = this.policy.config.process.maxOutputBytes;
-    return next.length <= max ? next : next.slice(next.length - max);
+    if (next.length > max) {
+      const removed = next.length - max;
+      next = next.slice(removed);
+      nextBase += removed;
+    }
+    return { text: next, base: nextBase };
+  }
+
+  private sliceSince(text: string, base: number, cursor: number): OutputChunk {
+    const normalizedCursor = Math.max(0, cursor);
+    const truncated = normalizedCursor < base;
+    const start = Math.max(normalizedCursor, base) - base;
+    return { text: text.slice(start), nextCursor: base + text.length, truncated };
   }
 
   async start(workspace: string, program: string, args: string[], cwdRelative = '.'): Promise<ProcessSnapshot> {
@@ -40,16 +58,28 @@ export class ProcessManager {
       status: 'running',
       stdout: '',
       stderr: '',
+      stdoutBase: 0,
+      stderrBase: 0,
       exitCode: null,
       startedAt: new Date().toISOString(),
       child
     };
     this.processes.set(id, managed);
-    child.stdout.on('data', chunk => { managed.stdout = this.append(managed.stdout, chunk as Buffer); });
-    child.stderr.on('data', chunk => { managed.stderr = this.append(managed.stderr, chunk as Buffer); });
+    child.stdout.on('data', chunk => {
+      const next = this.append(managed.stdout, managed.stdoutBase, chunk as Buffer);
+      managed.stdout = next.text;
+      managed.stdoutBase = next.base;
+    });
+    child.stderr.on('data', chunk => {
+      const next = this.append(managed.stderr, managed.stderrBase, chunk as Buffer);
+      managed.stderr = next.text;
+      managed.stderrBase = next.base;
+    });
     child.on('error', error => {
       managed.status = 'failed';
-      managed.stderr = this.append(managed.stderr, Buffer.from(`\n${error.message}`));
+      const next = this.append(managed.stderr, managed.stderrBase, Buffer.from(`\n${error.message}`));
+      managed.stderr = next.text;
+      managed.stderrBase = next.base;
       managed.endedAt = new Date().toISOString();
       if (managed.timer) clearTimeout(managed.timer);
     });
@@ -74,6 +104,16 @@ export class ProcessManager {
     return this.snapshot(managed);
   }
 
+  readSince(id: string, stdoutCursor = 0, stderrCursor = 0): ProcessReadSince {
+    const managed = this.processes.get(id);
+    if (!managed) throw new Error(`Unknown process id '${id}'.`);
+    return {
+      process: this.snapshot(managed),
+      stdout: this.sliceSince(managed.stdout, managed.stdoutBase, stdoutCursor),
+      stderr: this.sliceSince(managed.stderr, managed.stderrBase, stderrCursor)
+    };
+  }
+
   list(): ProcessSnapshot[] {
     return [...this.processes.values()].map(item => this.snapshot(item));
   }
@@ -91,7 +131,7 @@ export class ProcessManager {
   }
 
   private snapshot(managed: Managed): ProcessSnapshot {
-    const { child: _child, timer: _timer, ...snapshot } = managed;
+    const { child: _child, timer: _timer, stdoutBase: _stdoutBase, stderrBase: _stderrBase, ...snapshot } = managed;
     return { ...snapshot, args: [...snapshot.args] };
   }
 }

@@ -6,6 +6,8 @@ DATA_HOME="${RWMCP_HOME:-$HOME/.local/share/remote-workstation-mcp}"
 CONFIG_HOME="${RWMCP_CONFIG_HOME:-$HOME/.config/remote-workstation-mcp}"
 SERVICE_DIR="$HOME/.config/systemd/user"
 SERVICE_FILE="$SERVICE_DIR/remote-workstation-mcp.service"
+UPDATE_SERVICE="$SERVICE_DIR/remote-workstation-mcp-update.service"
+UPDATE_TIMER="$SERVICE_DIR/remote-workstation-mcp-update.timer"
 
 for command in node npm tar; do
   command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
@@ -58,6 +60,15 @@ EOF
   echo "Created safe default workspace: $WORKSPACE"
 fi
 
+if [[ ! -f "$CONFIG_HOME/update.env" ]]; then
+  cat > "$CONFIG_HOME/update.env" <<EOF
+# off | notify | auto_patch | auto
+RWMCP_UPDATE_MODE=notify
+RWMCP_UPDATE_REPO=Tunglam0605/remote-workstation-mcp
+EOF
+  chmod 600 "$CONFIG_HOME/update.env"
+fi
+
 if [[ -L "$DATA_HOME/current" || -e "$DATA_HOME/current" ]]; then
   CURRENT_TARGET="$(readlink -f "$DATA_HOME/current" || true)"
   if [[ -n "$CURRENT_TARGET" && -e "$CURRENT_TARGET" ]]; then
@@ -88,9 +99,39 @@ NoNewPrivileges=true
 WantedBy=default.target
 EOF
 
+cat > "$UPDATE_SERVICE" <<EOF
+[Unit]
+Description=Check/update Remote Workstation MCP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-$CONFIG_HOME/update.env
+Environment=RWMCP_HOME=$DATA_HOME
+ExecStart=$NODE_BIN $DATA_HOME/current/scripts/update-user.mjs --scheduled
+UMask=0077
+NoNewPrivileges=true
+EOF
+
+cat > "$UPDATE_TIMER" <<EOF
+[Unit]
+Description=Periodic Remote Workstation MCP update check
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=6h
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target
+EOF
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload
   systemctl --user enable --now remote-workstation-mcp.service
+  systemctl --user enable --now remote-workstation-mcp-update.timer
   sleep 1
   systemctl --user --no-pager --full status remote-workstation-mcp.service || true
 else
@@ -100,6 +141,7 @@ fi
 echo
 echo "Installed: $DATA_HOME/current -> v$VERSION"
 echo "Policy:    $CONFIG_HOME/policy.yaml"
+echo "Updates:   $CONFIG_HOME/update.env (default: notify)"
 echo "MCP:       http://127.0.0.1:8765/mcp"
 echo "Health:    http://127.0.0.1:8765/healthz"
 echo "Put projects you want to expose in $WORKSPACE or edit the local policy explicitly."

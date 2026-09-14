@@ -7,10 +7,12 @@ test('local transports remain compatible when no authenticated principal exists'
   assert.doesNotThrow(() => assertToolScope('fs_write'));
 });
 
-test('read scoped principal can inspect but cannot mutate or execute', () => {
+test('read scoped principal can inspect semantic code but cannot mutate or execute', () => {
   runAsPrincipal({ id: 'reader', type: 'test', scopes: ['workstation.read'], authenticated: true }, () => {
     assert.equal(currentPrincipal()?.id, 'reader');
     assert.doesNotThrow(() => assertToolScope('fs_read'));
+    assert.doesNotThrow(() => assertToolScope('lsp_definition'));
+    assert.doesNotThrow(() => assertToolScope('lsp_diagnostics'));
     assert.throws(() => assertToolScope('fs_write'), /lacks required scope 'workstation.write'/);
     assert.throws(() => assertToolScope('process_start'), /lacks required scope 'workstation.execute'/);
   });

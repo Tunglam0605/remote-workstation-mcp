@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { FilesystemAdapter } from './adapters/filesystem.js';
+import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
+import { HostFilesystemAdapter } from './adapters/host-filesystem.js';
 import { ProcessManager } from './adapters/process-manager.js';
 import { SearchAdapter } from './adapters/search.js';
 import { SshAdapter } from './adapters/ssh.js';
@@ -33,6 +35,8 @@ export async function createContext() {
     actor,
     audit: new AuditLogger(auditPath, actor),
     fs: new FilesystemAdapter(policy, paths),
+    hostFs: new HostFilesystemAdapter(policy),
+    fullControl: new FullControlAdapter(policy),
     git: new GitAdapter(policy, paths),
     processes,
     search: new SearchAdapter(policy, paths),

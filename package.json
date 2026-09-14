@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
@@ -28,6 +28,9 @@
     "start:stdio": "node dist/cli.js --stdio",
     "start:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/start-windows.ps1",
     "setup:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
+    "start:openai": "node dist/openai-tunnel-cli.js",
+    "start:openai:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/start-openai-windows.ps1",
+    "openai:tunnel:install:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/install-openai-tunnel-windows.ps1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "plugin:validate": "node scripts/validate-plugin.mjs",

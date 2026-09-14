@@ -6,9 +6,9 @@ Remote Workstation MCP lets an authorized AI client inspect and edit approved co
 
 > **Security-sensitive beta.** Start with a disposable workspace. Keep full-control gates disabled until local policy, audit records, principal identity and tunnel behavior have been validated.
 
-## Current release: v0.7.3
+## Current release: v0.7.4
 
-The v0.7 line establishes direct workstation control and practical Windows distribution:
+The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path:
 
 - authenticated request principals and workstation scopes;
 - workspace filesystem + optimistic SHA-256 writes;
@@ -23,7 +23,8 @@ The v0.7 line establishes direct workstation control and practical Windows distr
 - local-only Setup & Control Center;
 - checksum-verified per-user Windows release installation;
 - version slots, stable launcher, update pointer and rollback pointer;
-- optional current-user start-at-logon without Administrator privileges.
+- optional current-user start-at-logon without Administrator privileges;
+- `chatgpt_web_status` for first-call verification from ChatGPT Web.
 
 The primary design rule is unchanged: **ChatGPT/GPT Web is a first-class controller. Codex, Claude and other coding agents are optional workers, never a required hop.**
 
@@ -33,8 +34,6 @@ The primary design rule is unchanged: **ChatGPT/GPT Web is a first-class control
 
 A production/new-machine install does **not** require cloning the repository.
 
-Download the release installer, inspect it if desired, then run it:
-
 ```powershell
 $installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
 Invoke-WebRequest `
@@ -43,7 +42,7 @@ Invoke-WebRequest `
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
 
-The installer resolves the release, downloads the package + `SHA256SUMS.txt`, verifies SHA-256, installs a versioned runtime under the current Windows user, installs the pinned OpenAI `tunnel-client`, creates a stable launcher and opens the local Setup & Control Center.
+The installer resolves the latest release, downloads the package + `SHA256SUMS.txt`, verifies SHA-256, installs a versioned runtime under the current Windows user, installs the pinned OpenAI `tunnel-client`, creates a stable launcher and opens the local Setup & Control Center.
 
 Managed Windows layout:
 
@@ -73,13 +72,11 @@ Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the versi
 
 ### Repository-development setup
 
-For contributors or source-tree development:
-
 ```powershell
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.3
+git checkout v0.7.4
 npm run setup:first-run:windows
 ```
 
@@ -89,19 +86,7 @@ npm run setup:first-run:windows
 
 The local web UI binds only to `127.0.0.1`. It uses an ephemeral setup token, rejects non-loopback clients and cross-origin API calls, and is never exposed as an MCP tool or through the OpenAI tunnel.
 
-It supports:
-
-- selecting a free MCP loopback port;
-- choosing the authorized workspace root;
-- storing Tunnel ID and organization context;
-- Windows DPAPI protection for the runtime API key;
-- installing/verifying the pinned OpenAI `tunnel-client`;
-- local MCP start;
-- OpenAI tunnel start;
-- stop/restart;
-- MCP health/version/auth status;
-- tunnel readiness status;
-- enable/disable current-user start-at-logon.
+It supports choosing the authorized workspace, storing Tunnel ID and organization context, protecting the runtime API key with Windows DPAPI, installing/verifying the pinned `tunnel-client`, starting/stopping/restarting the runtime, reporting MCP/tunnel health, and enabling current-user start-at-logon.
 
 It deliberately does **not** expose controls for raw-shell gates, host-wide filesystem gates, Administrator/sudo execution, permission leases or `workstation.full_control` grants.
 
@@ -109,12 +94,12 @@ See [Setup & Control Center](docs/SETUP_CONSOLE.md).
 
 ---
 
-## ChatGPT Web path
+## ChatGPT Web direct-control path
 
 A cloud-hosted ChatGPT session cannot directly reach workstation loopback. Remote Workstation MCP uses an outbound-only OpenAI Secure MCP Tunnel:
 
 ```text
-ChatGPT / OpenAI-hosted MCP consumer
+ChatGPT Web custom MCP app
                 |
         Secure MCP Tunnel
                 |
@@ -131,13 +116,25 @@ ChatGPT / OpenAI-hosted MCP consumer
        workstation adapters
 ```
 
-The workstation MCP never binds publicly. The tunnel is reachability, **not authorization**.
+The workstation MCP never binds publicly. The tunnel provides reachability, **not authorization**. The local MCP bearer is generated for the connection run unless the owner explicitly supplies one. `CONTROL_PLANE_API_KEY` is used by `tunnel-client` but is stripped from the MCP child-process environment.
 
-The local MCP bearer is generated for the connection run unless the owner explicitly supplies one. `CONTROL_PLANE_API_KEY` is used by `tunnel-client` but is stripped from the MCP child process environment.
+After adding the custom app in an eligible ChatGPT Web workspace, the first prompt should be:
 
-ChatGPT custom-app/MCP availability is product/workspace controlled by OpenAI and can change independently of this repository. The workstation/tunnel stack can still be installed and health-checked without that entitlement.
+> Use Remote Workstation. Call `chatgpt_web_status` first. Do not modify anything. Report whether the authenticated control path is verified, the effective scopes, policy mode and authorized workspace names.
 
-See [ChatGPT Web connection](docs/CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md).
+A successful tunnel-backed call should report:
+
+```text
+chatgptWeb.authenticated: true
+chatgptWeb.secureTunnelPrincipal: true
+chatgptWeb.directControlPathVerified: true
+```
+
+Then verify `workspace_list`, a read (`git_status`/`fs_read`), a disposable workspace write/read-back, and one harmless owner-allowlisted task/process. `workstation.full_control` is intentionally excluded from the default tunnel scope.
+
+ChatGPT custom-app/MCP availability is product/workspace controlled by OpenAI and can change independently of this repository. As of September 2026, OpenAI documents full custom MCP write/modify support on ChatGPT Web for Business, Enterprise and Edu. Pro has more limited developer-mode MCP support; Plus should not be assumed to support this full write-capable custom-app flow.
+
+See [ChatGPT Web connection](docs/CHATGPT_WEB.md), [end-to-end acceptance](docs/CHATGPT_WEB_CONTROL.md), and [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md).
 
 ---
 
@@ -208,6 +205,7 @@ Routine engineering operations use typed adapters. Raw shell remains an explicit
 
 | Area | Tools / surface |
 | --- | --- |
+| ChatGPT Web verification | `chatgpt_web_status` |
 | Discovery | `capabilities_list`, `system_info`, `tool_discover`, `update_check` |
 | Workspaces/files | `workspace_list`, `fs_list`, `fs_find`, `fs_search_text`, `fs_read`, `fs_write`, `fs_patch` |
 | Git | `git_status`, `git_diff`, `git_log`, `git_branches`, `git_add`, `git_commit`, `git_branch_create`, `git_branch_switch`, `git_worktree_list`, `git_worktree_add`, `git_worktree_remove` |
@@ -218,7 +216,7 @@ Routine engineering operations use typed adapters. Raw shell remains an explicit
 | Optional full user control | `host_fs_list`, `host_fs_read`, `host_fs_write`, `shell_exec` |
 | Owner-local distribution | Setup & Control Center, Windows release installer, runtime supervisor, update/rollback pointers |
 
-A true PTY/ConPTY layer, DAP/GDB adapters, serial/probe tooling and ROS 2 typed adapters are v0.8 roadmap work.
+A true PTY/ConPTY layer, DAP/GDB adapters, serial/probe tooling and ROS 2 typed adapters are later roadmap work. Plugin-first multi-device pairing is intentionally deferred until the direct ChatGPT Web path is accepted on a real workspace.
 
 ---
 
@@ -296,7 +294,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.3
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.4
 codex plugin marketplace list
 ```
 
@@ -321,6 +319,7 @@ CI validates Linux and Windows builds, tests, plugin manifests, Windows DPAPI pe
 
 - [Setup & Control Center](docs/SETUP_CONSOLE.md)
 - [ChatGPT Web connection](docs/CHATGPT_WEB.md)
+- [ChatGPT Web end-to-end acceptance](docs/CHATGPT_WEB_CONTROL.md)
 - [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md)
 - [Windows runtime](docs/WINDOWS.md)
 - [Plugin installation](docs/PLUGIN_INSTALL.md)

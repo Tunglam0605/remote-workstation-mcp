@@ -22,3 +22,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Smoke-test packed artifact
+        run: bash scripts/smoke-package.sh

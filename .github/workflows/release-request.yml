@@ -40,13 +40,26 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           if git show-ref --verify --quiet "refs/tags/$TAG"; then
-            echo "Tag $TAG already exists."
+            TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
+            test "$TAG_COMMIT" = "$GITHUB_SHA" || {
+              echo "Existing tag $TAG points to $TAG_COMMIT, not release request commit $GITHUB_SHA";
+              exit 1;
+            }
+            echo "Tag $TAG already exists and matches the release commit."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
             git push origin "refs/tags/$TAG"
           fi
+      - name: Checkout exact release tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
       - name: Check whether GitHub Release already exists
         id: existing
         env:
@@ -82,6 +95,11 @@ jobs:
           PACK="$(npm pack --pack-destination release --silent)"
           mv "release/$PACK" "release/remote-workstation-mcp-${TAG}.tgz"
           (cd release && sha256sum "remote-workstation-mcp-${TAG}.tgz" > SHA256SUMS.txt)
+      - name: Smoke-test packed release
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: bash scripts/smoke-package.sh "release/remote-workstation-mcp-${TAG}.tgz"
       - name: Publish GitHub Release
         if: steps.existing.outputs.exists != 'true'
         env:
@@ -92,6 +110,5 @@ jobs:
           gh release create "$TAG" \
             "release/remote-workstation-mcp-${TAG}.tgz" \
             "release/SHA256SUMS.txt" \
-            --target "$GITHUB_SHA" \
             --title "$TAG" \
             --generate-notes

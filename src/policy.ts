@@ -9,12 +9,17 @@ const MODE_RANK: Record<PermissionMode, number> = {
 };
 
 export class PolicyEngine {
-  constructor(readonly config: PolicyConfig, private readonly lease?: PermissionLease) {}
+  constructor(
+    readonly config: PolicyConfig,
+    private readonly lease?: PermissionLease,
+    private readonly clientId = 'unknown'
+  ) {}
 
   private activeLease(now = new Date()): PermissionLease | undefined {
     if (!this.lease) return undefined;
     const expires = Date.parse(this.lease.expiresAt);
     if (!Number.isFinite(expires) || expires <= now.getTime()) return undefined;
+    if (this.lease.clientId && this.lease.clientId !== this.clientId) return undefined;
     return this.lease;
   }
 
@@ -29,12 +34,15 @@ export class PolicyEngine {
     return {
       configuredMode: this.config.mode,
       effectiveMode: this.effectiveMode(now),
+      clientId: this.clientId,
       lease: active ? {
         mode: active.mode,
         issuedAt: active.issuedAt,
         expiresAt: active.expiresAt,
-        reason: active.reason
+        reason: active.reason,
+        clientId: active.clientId
       } : undefined,
+      leasePresentButInactive: Boolean(this.lease && !active),
       fullControlGates: {
         rawShell: this.config.fullControl?.allowRawShell ?? false,
         hostFilesystem: this.config.fullControl?.allowHostFilesystem ?? false,

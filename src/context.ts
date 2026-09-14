@@ -25,10 +25,11 @@ export async function createContext() {
     clientType: process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client'
   };
   const [config, hostsConfig, lease] = await Promise.all([loadPolicy(), loadHosts(), loadPermissionLease()]);
-  const policy = new PolicyEngine(config, lease, () => currentPrincipal()?.id ?? actor.clientId);
+  const currentClientId = () => currentPrincipal()?.id ?? actor.clientId;
+  const policy = new PolicyEngine(config, lease, currentClientId);
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
-  const processes = new ProcessManager(policy, paths);
+  const processes = new ProcessManager(policy, paths, currentClientId);
   return {
     config,
     hostsConfig,

@@ -12,6 +12,7 @@ export interface CapabilityDescriptor {
 export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
   { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update is owner-managed.' },
+  { id: 'transport.providers', status: 'available', tools: [], note: 'The CLI selects a provider behind a common contract. Current providers are local stdio and loopback Streamable HTTP; future secure remote providers must preserve the same auth/policy boundary.' },
   { id: 'transport.auth.http', status: 'available', tools: [], note: 'Optional loopback HTTP bearer authentication establishes a request-scoped principal and workstation read/write/execute/full-control scopes. Full OAuth/public web registration remains planned.' },
   { id: 'workspace.discover', status: 'available', tools: ['workspace_list'] },
   { id: 'filesystem.read', status: 'available', tools: ['fs_list', 'fs_read', 'fs_find', 'fs_search_text'] },

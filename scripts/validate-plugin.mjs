@@ -69,7 +69,8 @@ for (const doc of ['docs/PRIVACY.md', 'docs/PLUGIN_TERMS.md']) {
   await fs.access(path.join(root, doc));
 }
 
-console.log(`Plugin package valid: ${manifest.name} v${manifest.version}`);
-console.log(`Marketplace: ${marketplace.interface?.displayName ?? marketplace.name}`);
-console.log(`Portable MCP: ${portableServer.url}`);
-console.log(`Legacy MCP: ${legacyServer.url}`);
+// Keep success diagnostics on stderr so `npm pack --silent` remains safe to use in command substitution.
+console.error(`Plugin package valid: ${manifest.name} v${manifest.version}`);
+console.error(`Marketplace: ${marketplace.interface?.displayName ?? marketplace.name}`);
+console.error(`Portable MCP: ${portableServer.url}`);
+console.error(`Legacy MCP: ${legacyServer.url}`);

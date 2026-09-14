@@ -7,7 +7,8 @@ const leaseSchema = z.object({
   mode: z.enum(['elevated', 'full_control']),
   issuedAt: z.string().datetime({ offset: true }),
   expiresAt: z.string().datetime({ offset: true }),
-  reason: z.string().max(500).optional()
+  reason: z.string().max(500).optional(),
+  clientId: z.string().min(1).max(128).optional()
 });
 
 export function permissionLeasePath(explicitPath?: string): string {

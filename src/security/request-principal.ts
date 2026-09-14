@@ -16,6 +16,7 @@ export interface RequestPrincipal {
 const storage = new AsyncLocalStorage<RequestPrincipal>();
 
 const TOOL_SCOPES: Record<string, WorkstationScope> = {
+  chatgpt_web_status: 'workstation.read',
   capabilities_list: 'workstation.read',
   system_info: 'workstation.read',
   tool_discover: 'workstation.read',

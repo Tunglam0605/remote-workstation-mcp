@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "remote-workstation",
-  "version": "0.7.3",
-  "description": "Operate an owner-authorized engineering workstation through MCP: inspect and edit files, use semantic code intelligence, run builds and interactive managed processes, inspect Git, use approved SSH hosts, and request only permissions explicitly enabled by the owner.",
+  "version": "0.7.4",
+  "description": "Operate an owner-authorized engineering workstation through MCP: verify the authenticated ChatGPT Web control path, inspect and edit files, use semantic code intelligence, run builds and interactive managed processes, inspect Git, use approved SSH hosts, and request only permissions explicitly enabled by the owner.",
   "author": {
     "name": "Tunglam0605",
     "url": "https://github.com/Tunglam0605"
@@ -26,7 +26,7 @@
       "interface": {
         "displayName": "Remote Workstation",
         "shortDescription": "Operate your authorized engineering workstation",
-        "longDescription": "Use Remote Workstation MCP to inspect and edit approved workspaces, query owner-configured language servers, run build and test tasks, supervise bounded interactive processes, inspect Git state, discover installed development tools, and execute approved commands on configured SSH hosts. ChatGPT can reach a private workstation through the optional outbound-only OpenAI Secure MCP Tunnel path. Dangerous host-level shell and filesystem operations remain disabled unless the owner explicitly enables local policy gates and grants a short-lived client-bound permission lease.",
+        "longDescription": "Use Remote Workstation MCP to verify the authenticated ChatGPT Web control path, inspect and edit approved workspaces, query owner-configured language servers, run build and test tasks, supervise bounded interactive processes, inspect Git state, discover installed development tools, and execute approved commands on configured SSH hosts. ChatGPT can reach a private workstation through the outbound-only OpenAI Secure MCP Tunnel path. Dangerous host-level shell and filesystem operations remain disabled unless the owner explicitly enables local policy gates and grants a short-lived client-bound permission lease.",
         "developerName": "Tunglam0605",
         "category": "Productivity",
         "capabilities": [
@@ -38,7 +38,7 @@
         "privacyPolicyURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PRIVACY.md",
         "termsOfServiceURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PLUGIN_TERMS.md",
         "defaultPrompt": [
-          "Check my Remote Workstation health and list the workspaces I authorized.",
+          "Call chatgpt_web_status first and verify that the authenticated ChatGPT Web control path reached my workstation. Then list the workspaces I authorized.",
           "Find the current build error, make the smallest safe fix, run tests, and show the Git diff.",
           "Use semantic code tools first, then inspect only the files needed."
         ],

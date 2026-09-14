@@ -35,6 +35,27 @@ export interface PolicyConfig {
   tasks?: Record<string, TaskProfileConfig>;
 }
 
+export type SshAuthMode = 'agent' | 'identity_file';
+
+export interface SshHostConfig {
+  id: string;
+  name?: string;
+  hostname: string;
+  port: number;
+  user: string;
+  auth: SshAuthMode;
+  identityFile?: string;
+  strictHostKeyChecking: 'yes' | 'accept-new';
+  remoteRoot?: string;
+  allowPrograms: string[];
+  maxRuntimeMs: number;
+}
+
+export interface HostsConfig {
+  version: 1;
+  hosts: SshHostConfig[];
+}
+
 export interface ProcessSnapshot {
   id: string;
   pid?: number;

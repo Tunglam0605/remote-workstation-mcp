@@ -33,6 +33,18 @@ test('active client-bound lease elevates only matching client', () => {
   assert.equal(different.effectiveMode(), 'workspace');
 });
 
+test('dynamic client identity re-evaluates a client-bound lease per request', () => {
+  let currentClient = 'client-a';
+  const policy = new PolicyEngine(baseConfig(), lease(), () => currentClient);
+  assert.equal(policy.effectiveMode(), 'full_control');
+  assert.equal(policy.status().clientId, 'client-a');
+
+  currentClient = 'client-b';
+  assert.equal(policy.effectiveMode(), 'workspace');
+  assert.equal(policy.status().clientId, 'client-b');
+  assert.equal(policy.status().leasePresentButInactive, true);
+});
+
 test('expired lease never elevates', () => {
   const expired = lease({ expiresAt: new Date(Date.now() - 1000).toISOString() });
   const policy = new PolicyEngine(baseConfig(), expired, 'client-a');

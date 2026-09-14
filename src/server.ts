@@ -43,6 +43,12 @@ export function buildServer(ctx: AppContext): McpServer {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ extra }) => result({ tools: await audited(ctx.audit, 'tool_discover', undefined, () => ctx.tools.discover(extra)) }));
 
+  server.registerTool('update_check', {
+    description: 'Check the official GitHub Releases feed for a newer Remote Workstation MCP version. This never installs an update.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true }
+  }, async () => result(await audited(ctx.audit, 'update_check', undefined, () => ctx.updates.check())));
+
   server.registerTool('workspace_list', {
     description: 'List workspace roots authorized by the local owner policy.',
     inputSchema: z.object({}),

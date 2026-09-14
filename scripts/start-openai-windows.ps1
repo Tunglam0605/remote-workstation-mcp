@@ -4,6 +4,9 @@ Set-StrictMode -Version Latest
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $Root
 
+. (Join-Path $PSScriptRoot 'windows-settings.ps1')
+Apply-RwmcpPersistedEnvironment -Root $Root -IncludeOpenAISecret | Out-Null
+
 $PolicyPath = Join-Path $Root 'config\policy.yaml'
 $HostsPath = Join-Path $Root 'config\hosts.yaml'
 $RuntimeDir = Join-Path $Root 'runtime'
@@ -12,19 +15,19 @@ $TunnelBinary = Join-Path $Root 'runtime\openai-tunnel\tunnel-client.exe'
 $Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8765' }
 
 if (-not (Test-Path $PolicyPath)) {
-  throw "Policy file not found: $PolicyPath. Run 'npm run setup:windows' first."
+  throw "Policy file not found: $PolicyPath. Run 'npm run setup:windows' or 'npm run setup:web:windows' first."
 }
 if (-not (Test-Path $SupervisorPath)) {
   throw "Built OpenAI tunnel supervisor not found: $SupervisorPath. Run 'npm run build' first."
 }
 if (-not (Test-Path $TunnelBinary)) {
-  throw "OpenAI tunnel-client is not installed. Run 'npm run openai:tunnel:install:windows' first."
+  throw "OpenAI tunnel-client is not installed. Run 'npm run openai:tunnel:install:windows' or install it from the Setup Console."
 }
 if (-not $env:CONTROL_PLANE_TUNNEL_ID) {
-  throw 'CONTROL_PLANE_TUNNEL_ID is required. Create/select a tunnel in OpenAI Platform Tunnels and set it in this PowerShell session.'
+  throw 'CONTROL_PLANE_TUNNEL_ID is required. Save it in the Setup Console or set it in this PowerShell session.'
 }
 if (-not $env:CONTROL_PLANE_API_KEY) {
-  throw 'CONTROL_PLANE_API_KEY is required. Set a runtime API key with Tunnels Read + Use permission in this PowerShell session.'
+  throw 'CONTROL_PLANE_API_KEY is required. Save it with Windows DPAPI in the Setup Console or set it in this PowerShell session.'
 }
 
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
@@ -36,9 +39,6 @@ $env:RWMCP_CLIENT_ID = if ($env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID } else {
 $env:RWMCP_CLIENT_TYPE = if ($env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE } else { 'chatgpt' }
 $env:RWMCP_OPENAI_TUNNEL_CLIENT = $TunnelBinary
 
-# Managed Cloudflare runtime material is optional. Fresh logical tunnels may not
-# have it provisioned, so do not make it a startup dependency unless the owner
-# explicitly enables it for a tunnel that has managed runtime material.
 if (-not $env:CLOUDFLARED_MANAGED) {
   $env:CLOUDFLARED_MANAGED = 'false'
 }
@@ -49,6 +49,7 @@ Write-Host "Cloudflared managed runtime: $($env:CLOUDFLARED_MANAGED)"
 if ($env:CONTROL_PLANE_ORGANIZATION_ID) {
   Write-Host "OpenAI organization context: $($env:CONTROL_PLANE_ORGANIZATION_ID)"
 }
+Write-Host "Settings: $(Get-RwmcpSettingsPath)"
 Write-Host 'The supervisor generates a fresh local MCP bearer token unless you explicitly provide RWMCP_HTTP_BEARER_TOKEN.'
 Write-Host 'The OpenAI runtime API key is not forwarded into the MCP child process.'
 Write-Host 'Press Ctrl+C to stop both processes.'

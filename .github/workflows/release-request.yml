@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  create-tag:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
       - name: Validate release request
         id: release
         shell: bash
@@ -30,7 +32,7 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           test "$TAG" = "v$VERSION" || { echo "Requested $TAG but package.json is v$VERSION"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-      - name: Create signed-by-GitHub release tag ref
+      - name: Ensure release tag exists
         env:
           TAG: ${{ steps.release.outputs.tag }}
         shell: bash
@@ -38,10 +40,58 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           if git show-ref --verify --quiet "refs/tags/$TAG"; then
-            echo "Tag $TAG already exists; nothing to do."
-            exit 0
+            echo "Tag $TAG already exists."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
-          git push origin "refs/tags/$TAG"
+      - name: Check whether GitHub Release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install dependencies
+        if: steps.existing.outputs.exists != 'true'
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        if: steps.existing.outputs.exists != 'true'
+        run: npm run typecheck
+      - name: Test
+        if: steps.existing.outputs.exists != 'true'
+        run: npm test
+      - name: Build
+        if: steps.existing.outputs.exists != 'true'
+        run: npm run build
+      - name: Build release assets
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          PACK="$(npm pack --pack-destination release --silent)"
+          mv "release/$PACK" "release/remote-workstation-mcp-${TAG}.tgz"
+          (cd release && sha256sum "remote-workstation-mcp-${TAG}.tgz" > SHA256SUMS.txt)
+      - name: Publish GitHub Release
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          gh release create "$TAG" \
+            "release/remote-workstation-mcp-${TAG}.tgz" \
+            "release/SHA256SUMS.txt" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes

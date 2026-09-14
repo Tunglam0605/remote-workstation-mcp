@@ -7,6 +7,12 @@ export interface WorkspaceConfig {
   readOnly?: boolean;
 }
 
+export interface TaskProfileConfig {
+  program: string;
+  args?: string[];
+  cwd?: string;
+}
+
 export interface PolicyConfig {
   version: 1;
   mode: PermissionMode;
@@ -15,12 +21,18 @@ export interface PolicyConfig {
     maxReadBytes: number;
     maxWriteBytes: number;
   };
+  search?: {
+    maxResults: number;
+    maxFiles: number;
+    maxFileBytes: number;
+  };
   process: {
     allowExecutables: string[];
     inheritEnv: string[];
     maxOutputBytes: number;
     maxRuntimeMs: number;
   };
+  tasks?: Record<string, TaskProfileConfig>;
 }
 
 export interface ProcessSnapshot {
@@ -36,4 +48,16 @@ export interface ProcessSnapshot {
   exitCode: number | null;
   startedAt: string;
   endedAt?: string;
+}
+
+export interface OutputChunk {
+  text: string;
+  nextCursor: number;
+  truncated: boolean;
+}
+
+export interface ProcessReadSince {
+  process: ProcessSnapshot;
+  stdout: OutputChunk;
+  stderr: OutputChunk;
 }

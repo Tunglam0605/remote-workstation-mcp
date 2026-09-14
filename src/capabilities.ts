@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.7.3';
+export const SERVER_VERSION = '0.7.4';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -10,6 +10,7 @@ export interface CapabilityDescriptor {
 }
 
 export const CAPABILITIES: CapabilityDescriptor[] = [
+  { id: 'chatgpt.web_control', status: 'available', tools: ['chatgpt_web_status'], note: 'First-call end-to-end verification for ChatGPT Web. Reports only non-secret host identity, authenticated principal/scopes, effective permissions, policy mode and authorized workspace names.' },
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
   { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update remains owner-controlled.' },
   { id: 'setup.local_web', status: 'available', tools: [], note: 'Owner-operated loopback-only Setup & Control Center persists non-secret workstation settings outside the repository, can protect the OpenAI runtime key with Windows DPAPI, and can start/stop/restart the user-level runtime without exposing these controls through MCP.' },

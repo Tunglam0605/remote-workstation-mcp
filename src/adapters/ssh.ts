@@ -1,0 +1,132 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import type { HostsConfig, SshHostConfig } from '../model.js';
+import { PolicyEngine } from '../policy.js';
+import { buildSafeEnvironment } from '../security/env-filter.js';
+
+const exec = promisify(execFile);
+
+export function quotePosix(value: string): string {
+  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+}
+
+function remoteCwd(host: SshHostConfig, cwd: string): string | undefined {
+  if (cwd === '.' && !host.remoteRoot) return undefined;
+  if (path.posix.isAbsolute(cwd)) throw new Error('SSH cwd must be relative to the configured remoteRoot.');
+  const normalized = path.posix.normalize(cwd);
+  if (normalized === '..' || normalized.startsWith('../')) throw new Error('SSH cwd escapes remoteRoot.');
+  if (!host.remoteRoot) throw new Error(`SSH host '${host.id}' has no remoteRoot; cwd must be '.'.`);
+  if (!path.posix.isAbsolute(host.remoteRoot)) throw new Error(`SSH host '${host.id}' remoteRoot must be absolute.`);
+  return path.posix.join(host.remoteRoot, normalized);
+}
+
+function destination(host: SshHostConfig): string {
+  const hostname = host.hostname.includes(':') && !host.hostname.startsWith('[') ? `[${host.hostname}]` : host.hostname;
+  return `${host.user}@${hostname}`;
+}
+
+export class SshAdapter {
+  constructor(private readonly policy: PolicyEngine, private readonly hostsConfig: HostsConfig) {}
+
+  private host(id: string): SshHostConfig {
+    const host = this.hostsConfig.hosts.find(item => item.id === id);
+    if (!host) throw new Error(`SSH host '${id}' is not authorized by the local owner configuration.`);
+    return host;
+  }
+
+  private assertRemoteExecution(host: SshHostConfig, program: string): void {
+    if (this.policy.config.mode === 'read_only') throw new Error('SSH execution is disabled in read_only mode.');
+    const containsPath = program.includes('/') || program.includes('\\');
+    const allowed = containsPath
+      ? host.allowPrograms.includes(program)
+      : host.allowPrograms.some(item => path.posix.basename(item).toLowerCase() === program.toLowerCase());
+    if (!allowed) throw new Error(`Remote program '${program}' is not allowed for SSH host '${host.id}'.`);
+  }
+
+  private async baseArgs(host: SshHostConfig): Promise<string[]> {
+    const args = [
+      '-T',
+      '-o', 'BatchMode=yes',
+      '-o', 'ClearAllForwardings=yes',
+      '-o', 'PermitLocalCommand=no',
+      '-o', 'RequestTTY=no',
+      '-o', 'ConnectTimeout=8',
+      '-o', `StrictHostKeyChecking=${host.strictHostKeyChecking}`,
+      '-p', String(host.port)
+    ];
+    if (host.auth === 'identity_file') {
+      if (!host.identityFile) throw new Error(`SSH host '${host.id}' is missing identityFile.`);
+      await fs.access(host.identityFile, fs.constants.R_OK);
+      args.push('-i', host.identityFile, '-o', 'IdentitiesOnly=yes');
+    }
+    return args;
+  }
+
+  listHosts() {
+    return this.hostsConfig.hosts.map(host => ({
+      id: host.id,
+      name: host.name ?? host.id,
+      hostname: host.hostname,
+      port: host.port,
+      user: host.user,
+      auth: host.auth,
+      strictHostKeyChecking: host.strictHostKeyChecking,
+      remoteRoot: host.remoteRoot,
+      allowPrograms: [...host.allowPrograms],
+      maxRuntimeMs: host.maxRuntimeMs
+    }));
+  }
+
+  async probe(id: string) {
+    const host = this.host(id);
+    const args = await this.baseArgs(host);
+    args.push('--', destination(host), 'true');
+    const started = Date.now();
+    try {
+      await exec('ssh', args, {
+        timeout: Math.min(host.maxRuntimeMs, 10000),
+        windowsHide: true,
+        env: buildSafeEnvironment([...this.policy.config.process.inheritEnv, 'SSH_AUTH_SOCK'])
+      });
+      return { host: id, reachable: true, durationMs: Date.now() - started };
+    } catch (error) {
+      const e = error as NodeJS.ErrnoException & { stderr?: string };
+      return { host: id, reachable: false, durationMs: Date.now() - started, error: e.stderr?.trim() || e.message };
+    }
+  }
+
+  async execute(id: string, program: string, args: string[] = [], cwd = '.', timeoutMs?: number) {
+    const host = this.host(id);
+    this.assertRemoteExecution(host, program);
+    const base = await this.baseArgs(host);
+    const requestedCwd = remoteCwd(host, cwd);
+    const command = [quotePosix(program), ...args.map(quotePosix)].join(' ');
+    const remoteCommand = requestedCwd
+      ? `cd -- ${quotePosix(requestedCwd)} && exec ${command}`
+      : `exec ${command}`;
+    base.push('--', destination(host), remoteCommand);
+    const effectiveTimeout = Math.min(Math.max(timeoutMs ?? host.maxRuntimeMs, 1), host.maxRuntimeMs);
+    try {
+      const output = await exec('ssh', base, {
+        timeout: effectiveTimeout,
+        maxBuffer: this.policy.config.process.maxOutputBytes,
+        windowsHide: true,
+        env: buildSafeEnvironment([...this.policy.config.process.inheritEnv, 'SSH_AUTH_SOCK'])
+      });
+      return { host: id, program, ok: true, exitCode: 0, stdout: output.stdout, stderr: output.stderr };
+    } catch (error) {
+      const e = error as Error & { code?: number | string; stdout?: string; stderr?: string; killed?: boolean };
+      return {
+        host: id,
+        program,
+        ok: false,
+        exitCode: typeof e.code === 'number' ? e.code : null,
+        killed: Boolean(e.killed),
+        stdout: e.stdout ?? '',
+        stderr: e.stderr ?? e.message
+      };
+    }
+  }
+}

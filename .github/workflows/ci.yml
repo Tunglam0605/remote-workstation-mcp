@@ -87,6 +87,7 @@ jobs:
           $files = @(
             'scripts/install-windows-release.ps1',
             'scripts/runtime-control-windows.ps1',
+            'scripts/runtime-host-windows.ps1',
             'scripts/windows-settings.ps1',
             'scripts/windows-secret.ps1',
             'scripts/setup-web-windows.ps1',

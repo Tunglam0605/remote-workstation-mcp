@@ -40,13 +40,26 @@ jobs:
           set -euo pipefail
           git fetch --tags --force
           if git show-ref --verify --quiet "refs/tags/$TAG"; then
-            echo "Tag $TAG already exists."
+            TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
+            test "$TAG_COMMIT" = "$GITHUB_SHA" || {
+              echo "Existing tag $TAG points to $TAG_COMMIT, not release request commit $GITHUB_SHA";
+              exit 1;
+            }
+            echo "Tag $TAG already exists and matches the release commit."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
             git push origin "refs/tags/$TAG"
           fi
+      - name: Checkout exact release tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
       - name: Check whether GitHub Release already exists
         id: existing
         env:
@@ -82,6 +95,72 @@ jobs:
           PACK="$(npm pack --pack-destination release --silent)"
           mv "release/$PACK" "release/remote-workstation-mcp-${TAG}.tgz"
           (cd release && sha256sum "remote-workstation-mcp-${TAG}.tgz" > SHA256SUMS.txt)
+      - name: Smoke-test packed release
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SMOKE="$RUNNER_TEMP/rwmcp-smoke"
+          PKG="$SMOKE/package"
+          WORKSPACE="$SMOKE/workspace"
+          mkdir -p "$PKG" "$WORKSPACE"
+          tar -xzf "release/remote-workstation-mcp-${TAG}.tgz" --strip-components=1 -C "$PKG"
+          (cd "$PKG" && npm install --omit=dev --no-audit --no-fund)
+          cat > "$SMOKE/policy.yaml" <<EOF
+          version: 1
+          mode: workspace
+          workspaces:
+            - id: smoke
+              root: $WORKSPACE
+              readOnly: false
+          filesystem:
+            maxReadBytes: 1048576
+            maxWriteBytes: 1048576
+          search:
+            maxResults: 20
+            maxFiles: 100
+            maxFileBytes: 1048576
+          process:
+            allowExecutables: [node]
+            inheritEnv: [PATH, HOME, LANG]
+            maxOutputBytes: 65536
+            maxRuntimeMs: 30000
+          tasks: {}
+          fullControl:
+            allowRawShell: false
+            allowHostFilesystem: false
+          privileged:
+            allowSudo: false
+            maxRuntimeMs: 30000
+          EOF
+          cat > "$SMOKE/hosts.yaml" <<EOF
+          version: 1
+          hosts: []
+          EOF
+          RWMCP_POLICY="$SMOKE/policy.yaml" \
+          RWMCP_HOSTS="$SMOKE/hosts.yaml" \
+          RWMCP_LEASE="$SMOKE/lease.json" \
+          RWMCP_AUDIT="$SMOKE/audit.jsonl" \
+          RWMCP_PORT=18765 \
+          RWMCP_CLIENT_ID=release-smoke \
+          node "$PKG/dist/cli.js" --http >"$SMOKE/server.log" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:18765/healthz > "$SMOKE/health.json"; then
+              break
+            fi
+            sleep 0.5
+          done
+          cat "$SMOKE/health.json"
+          grep -q '"ok":true' "$SMOKE/health.json"
+          VERSION="${TAG#v}"
+          grep -q "\"version\":\"$VERSION\"" "$SMOKE/health.json"
+          kill "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
+          trap - EXIT
       - name: Publish GitHub Release
         if: steps.existing.outputs.exists != 'true'
         env:
@@ -92,6 +171,5 @@ jobs:
           gh release create "$TAG" \
             "release/remote-workstation-mcp-${TAG}.tgz" \
             "release/SHA256SUMS.txt" \
-            --target "$GITHUB_SHA" \
             --title "$TAG" \
             --generate-notes

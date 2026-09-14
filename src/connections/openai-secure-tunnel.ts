@@ -88,7 +88,7 @@ export function buildOpenAiTunnelProfile(options: OpenAiTunnelProfileOptions): R
       pid_file: path.join(options.runtimeDir, 'tunnel-client.pid')
     },
     cloudflared: {
-      managed: true
+      managed: false
     },
     mcp: {
       server_urls: [{ channel: 'main', url: options.localEndpoint }],

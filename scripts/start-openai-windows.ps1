@@ -9,6 +9,7 @@ $HostsPath = Join-Path $Root 'config\hosts.yaml'
 $RuntimeDir = Join-Path $Root 'runtime'
 $SupervisorPath = Join-Path $Root 'dist\openai-tunnel-cli.js'
 $TunnelBinary = Join-Path $Root 'runtime\openai-tunnel\tunnel-client.exe'
+$Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8765' }
 
 if (-not (Test-Path $PolicyPath)) {
   throw "Policy file not found: $PolicyPath. Run 'npm run setup:windows' first."
@@ -35,8 +36,19 @@ $env:RWMCP_CLIENT_ID = if ($env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID } else {
 $env:RWMCP_CLIENT_TYPE = if ($env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE } else { 'chatgpt' }
 $env:RWMCP_OPENAI_TUNNEL_CLIENT = $TunnelBinary
 
+# Managed Cloudflare runtime material is optional. Fresh logical tunnels may not
+# have it provisioned, so do not make it a startup dependency unless the owner
+# explicitly enables it for a tunnel that has managed runtime material.
+if (-not $env:CLOUDFLARED_MANAGED) {
+  $env:CLOUDFLARED_MANAGED = 'false'
+}
+
 Write-Host 'Starting Remote Workstation MCP behind OpenAI Secure MCP Tunnel...' -ForegroundColor Green
-Write-Host 'Local MCP stays loopback-only: http://127.0.0.1:8765/mcp'
+Write-Host "Local MCP stays loopback-only: http://127.0.0.1:$Port/mcp"
+Write-Host "Cloudflared managed runtime: $($env:CLOUDFLARED_MANAGED)"
+if ($env:CONTROL_PLANE_ORGANIZATION_ID) {
+  Write-Host "OpenAI organization context: $($env:CONTROL_PLANE_ORGANIZATION_ID)"
+}
 Write-Host 'The supervisor generates a fresh local MCP bearer token unless you explicitly provide RWMCP_HTTP_BEARER_TOKEN.'
 Write-Host 'The OpenAI runtime API key is not forwarded into the MCP child process.'
 Write-Host 'Press Ctrl+C to stop both processes.'

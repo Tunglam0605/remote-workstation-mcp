@@ -6,9 +6,9 @@ The workstation side uses OpenAI Secure MCP Tunnel so the MCP server remains on 
 
 ## Product/workspace availability
 
-ChatGPT custom MCP/app availability, Developer Mode controls, write-capable tool support and workspace publication rules are product/workspace features controlled by OpenAI and can change independently of this repository.
+As of September 2026, OpenAI documents full custom MCP support including write/modify on ChatGPT Web for Business, Enterprise and Edu workspaces. Pro can use more limited developer-mode MCP capabilities, while Plus should not be assumed to support the full write-capable custom-app flow.
 
-A tunnel can be installed and validated even when the current ChatGPT account/workspace does not expose the custom-app UI. Product entitlement is separate from workstation/tunnel health.
+A tunnel can be installed and validated even when the current ChatGPT account/workspace does not expose the required custom-app UI. Product entitlement is separate from workstation/tunnel health.
 
 Useful references:
 
@@ -28,15 +28,7 @@ Invoke-WebRequest `
 powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
 
-The installer opens the local Setup & Control Center. Configure:
-
-1. an unused MCP loopback port;
-2. the authorized workspace root;
-3. OpenAI tunnel ID;
-4. organization ID when applicable;
-5. a restricted runtime API key with the required tunnel permissions;
-6. Windows DPAPI persistence when unattended starts are desired;
-7. managed Cloudflare mode only when the tunnel actually has managed runtime material.
+The installer opens the local Setup & Control Center. Configure the authorized workspace, OpenAI Tunnel ID, organization ID when applicable, and a restricted runtime API key. For unattended starts, store the runtime key with Windows DPAPI and enable start-at-logon.
 
 The installer already installs the pinned, checksum-verified official `tunnel-client`.
 
@@ -67,13 +59,43 @@ When the current ChatGPT workspace exposes custom MCP/app creation:
 
 1. enable Developer Mode according to workspace policy;
 2. open ChatGPT Apps / custom app settings;
-3. create a custom app;
+3. create a custom app named **Remote Workstation**;
 4. choose **Connection: Tunnel**;
 5. select the authorized tunnel or paste its `tunnel_...` ID;
 6. complete discovery while the workstation tunnel remains ready;
 7. review the discovered tool set before wider workspace publication.
 
 The tunnel must be associated with the target workspace when the OpenAI product requires workspace scoping.
+
+## First end-to-end verification
+
+v0.7.4 adds `chatgpt_web_status` specifically for the first call from ChatGPT Web.
+
+Recommended first prompt:
+
+> Use Remote Workstation. Call `chatgpt_web_status` first. Do not modify anything. Report whether the authenticated control path is verified, the effective scopes, policy mode and authorized workspace names.
+
+A successful tunnel-backed result should include:
+
+```text
+ok: true
+chatgptWeb.authenticated: true
+chatgptWeb.secureTunnelPrincipal: true
+chatgptWeb.directControlPathVerified: true
+chatgptWeb.permissions.read: true
+```
+
+The normal secure-tunnel supervisor grants `workstation.read`, `workstation.write` and `workstation.execute` unless the owner narrows `RWMCP_HTTP_SCOPES`. `workstation.full_control` is not granted by default.
+
+After `chatgpt_web_status` passes, verify in this order:
+
+1. `workspace_list`;
+2. `git_status` or `fs_read` in an authorized workspace;
+3. a disposable `fs_write` and read-back;
+4. one harmless allowlisted task/process;
+5. inspect the audit log and confirm the authenticated OpenAI tunnel principal is recorded.
+
+Do not enable raw shell or host filesystem merely to complete acceptance.
 
 ## Authorization model
 
@@ -97,6 +119,21 @@ workstation.read,workstation.write,workstation.execute
 ```
 
 `workstation.full_control` is intentionally not included by default. Host-wide shell/filesystem actions still require the full-control scope, an active client-bound owner lease, and the relevant local dangerous-feature gate.
+
+## Completion boundary before multi-device expansion
+
+The direct ChatGPT Web milestone is complete only when:
+
+- the local Control Center is green;
+- tunnel `/readyz` is green;
+- the custom app is visible in ChatGPT Web;
+- ChatGPT itself calls `chatgpt_web_status` and receives `directControlPathVerified: true`;
+- controlled read/write/execute tests pass inside an authorized workspace;
+- audit shows the authenticated remote principal;
+- no inbound workstation port is exposed;
+- full-control remains off unless explicitly granted by the owner.
+
+See [ChatGPT Web control — end-to-end acceptance](CHATGPT_WEB_CONTROL.md) for the acceptance checklist used before plugin-first multi-device work begins.
 
 ## Plugin package vs ChatGPT custom app
 

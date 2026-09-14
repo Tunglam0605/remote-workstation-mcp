@@ -4,39 +4,49 @@ Remote Workstation MCP is designed so ChatGPT Web can be a **first-class control
 
 The workstation side uses OpenAI Secure MCP Tunnel so the MCP server remains on loopback and no inbound Internet-facing port is required.
 
-## Current ChatGPT product requirement
+## Product/workspace availability
 
-As of September 2026, OpenAI documents full MCP support, including write/modify tools and Developer Mode custom apps, for ChatGPT **Business, Enterprise, and Edu** on the web. Product availability and UI labels can change independently of this repository.
+ChatGPT custom MCP/app availability, Developer Mode controls, write-capable tool support and workspace publication rules are product/workspace features controlled by OpenAI and can change independently of this repository.
 
-Official references:
+A tunnel can be installed and validated even when the current ChatGPT account/workspace does not expose the custom-app UI. Product entitlement is separate from workstation/tunnel health.
 
-- Developer Mode and MCP apps: `https://help.openai.com/en/articles/12584461`
-- ChatGPT connector/app settings: `https://chatgpt.com/#settings/Connectors`
+Useful references:
+
+- Developer Mode / MCP app documentation: `https://help.openai.com/en/articles/12584461`
+- ChatGPT app settings: `https://chatgpt.com/#settings/Connectors`
 - OpenAI Secure MCP Tunnel: `https://github.com/openai/tunnel-client`
 
-A tunnel can be configured and validated even when the current ChatGPT account/workspace is not entitled to attach a custom write-capable MCP app. That product entitlement is separate from workstation/tunnel health.
+## Managed Windows workstation setup
 
-## Workstation setup
-
-On a new Windows machine:
+Recommended new-machine flow:
 
 ```powershell
-npm run setup:windows
-npm run setup:web:windows
+$installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
+Invoke-WebRequest `
+  'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
+  -OutFile $installer
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
 
-In the Setup Console:
+The installer opens the local Setup & Control Center. Configure:
 
-1. choose an unused MCP loopback port;
-2. choose the authorized workspace root;
-3. paste the existing OpenAI tunnel ID or create a tunnel in Platform Tunnels;
-4. set the organization ID when the tunnel is organization-scoped;
-5. create a restricted runtime API key with **Tunnels Read + Use**;
-6. save the runtime key with Windows DPAPI if persistent unattended starts are desired;
-7. install/verify the official `tunnel-client`;
-8. stop the Setup Console after onboarding.
+1. an unused MCP loopback port;
+2. the authorized workspace root;
+3. OpenAI tunnel ID;
+4. organization ID when applicable;
+5. a restricted runtime API key with the required tunnel permissions;
+6. Windows DPAPI persistence when unattended starts are desired;
+7. managed Cloudflare mode only when the tunnel actually has managed runtime material.
 
-Start the connection:
+The installer already installs the pinned, checksum-verified official `tunnel-client`.
+
+Start from the Control Center or stable launcher:
+
+```powershell
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action StartOpenAI
+```
+
+Repository-development equivalent:
 
 ```powershell
 npm run start:openai:windows
@@ -53,17 +63,17 @@ tunnel-client /readyz           -> PASS
 
 ## ChatGPT Web app creation
 
-For an eligible ChatGPT workspace:
+When the current ChatGPT workspace exposes custom MCP/app creation:
 
 1. enable Developer Mode according to workspace policy;
 2. open ChatGPT Apps / custom app settings;
 3. create a custom app;
 4. choose **Connection: Tunnel**;
 5. select the authorized tunnel or paste its `tunnel_...` ID;
-6. complete discovery while `npm run start:openai:windows` remains running;
-7. review the discovered tools before enabling the app for additional workspace users.
+6. complete discovery while the workstation tunnel remains ready;
+7. review the discovered tool set before wider workspace publication.
 
-The tunnel must include the target ChatGPT workspace scope to appear in the connector picker when workspace scoping is required.
+The tunnel must be associated with the target workspace when the OpenAI product requires workspace scoping.
 
 ## Authorization model
 
@@ -80,18 +90,25 @@ ChatGPT
   -> typed adapter
 ```
 
-The default tunnel principal has:
+The normal tunnel profile uses:
 
 ```text
 workstation.read,workstation.write,workstation.execute
 ```
 
-`workstation.full_control` is intentionally not included by default. Host-wide shell/filesystem actions still require all of the following: the full-control scope, an active client-bound owner lease, and the relevant local dangerous-feature gate.
+`workstation.full_control` is intentionally not included by default. Host-wide shell/filesystem actions still require the full-control scope, an active client-bound owner lease, and the relevant local dangerous-feature gate.
 
 ## Plugin package vs ChatGPT custom app
 
-The repository includes a portable Agent Plugin/Codex-compatible package under `plugins/remote-workstation/`. That package is useful for local/plugin-compatible clients and distribution metadata.
+The repository includes portable Agent Plugin/Codex-compatible metadata under `plugins/remote-workstation/`. That package is useful for local/plugin-compatible clients and distribution metadata.
 
-ChatGPT Web custom MCP attachment is not implemented by exposing the repository's local `plugin.json` to the Internet. For ChatGPT Web, the supported private-workstation route is the Secure MCP Tunnel plus ChatGPT custom app/connector setup described above.
+ChatGPT Web is not connected by exposing the local `plugin.json` or workstation port to the Internet. The private-workstation route is:
 
-This distinction is intentional: portable plugin packaging and remote ChatGPT reachability are separate layers.
+```text
+ChatGPT custom app
+        -> Secure MCP Tunnel
+        -> authenticated loopback MCP
+        -> local workstation policy
+```
+
+Portable plugin packaging and remote ChatGPT reachability are deliberately separate layers.

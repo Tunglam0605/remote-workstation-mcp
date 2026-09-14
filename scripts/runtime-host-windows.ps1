@@ -25,17 +25,24 @@ $entrypoint = if ($Mode -eq 'OpenAI') {
 if (-not (Test-Path $entrypoint)) { throw "Runtime entrypoint not found: $entrypoint" }
 
 # This process intentionally remains alive for the lifetime of the runtime child.
-# The control process starts this host with Start-Process and NO stdout/stderr
-# redirection so a caller that captures control-command output does not inherit a
-# long-lived pipe handle. Runtime output is redirected here, inside the detached
-# host process, instead.
+# The parent control command starts this host with no redirected stdio, so callers
+# that capture the control command receive EOF promptly. This host owns the log
+# redirection and waits for the real Node runtime. Using Start-Process here also
+# avoids PowerShell converting normal native stderr diagnostics into terminating
+# ErrorRecord objects when ErrorActionPreference is Stop.
 try {
-  if ($Mode -eq 'Local') {
-    & $node.Source $entrypoint '--http' 1>> $StdoutLog 2>> $StderrLog
-  } else {
-    & $node.Source $entrypoint 1>> $StdoutLog 2>> $StderrLog
-  }
-  exit $LASTEXITCODE
+  $args = @("`"$entrypoint`"")
+  if ($Mode -eq 'Local') { $args += '--http' }
+  $child = Start-Process `
+    -FilePath $node.Source `
+    -ArgumentList ($args -join ' ') `
+    -WorkingDirectory $Root `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $StdoutLog `
+    -RedirectStandardError $StderrLog `
+    -PassThru `
+    -Wait
+  exit $child.ExitCode
 } catch {
   "[$([DateTimeOffset]::UtcNow.ToString('o'))] runtime host failure: $($_.Exception.Message)" | Add-Content -Path $StderrLog -Encoding utf8
   exit 1

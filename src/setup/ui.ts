@@ -16,6 +16,7 @@ export function setupHtml(): string {
     <section class="card"><h2>1. Workstation</h2><div id="status" class="status">Loading…</div></section>
     <section class="card"><h2>2. Runtime</h2>
       <label for="port">MCP loopback port</label><input id="port" type="number" min="1024" max="65535" />
+      <p id="portHelp" class="muted"></p>
       <label for="workspace">Authorized workspace root</label><input id="workspace" />
       <div class="check"><input id="managed" type="checkbox" /><label for="managed" style="margin:0">Use managed Cloudflare runtime material</label></div>
       <p class="muted">Leave managed Cloudflare off unless OpenAI has provisioned managed runtime material for this tunnel.</p>
@@ -52,6 +53,7 @@ async function api(path, options={}) {
 }
 function renderStatus(s){
   $('port').value=s.settings.mcpPort;$('workspace').value=s.settings.workspaceRoot;$('tunnel').value=s.settings.tunnelId||'';$('org').value=s.settings.organizationId||'';$('managed').checked=!!s.settings.cloudflaredManaged;
+  $('portHelp').innerHTML=s.configuredPortAvailable?'<span class="ok">Port '+s.settings.mcpPort+' is available.</span>':'<span class="warn">Configured port is busy. Recommended: '+s.recommendedMcpPort+'.</span>';
   $('status').innerHTML = '<span class="pill">v'+s.version+'</span><span class="pill">'+s.platform+'</span><br>'+
     'Settings: <b>'+escapeHtml(s.settingsPath)+'</b><br>'+
     'Runtime key: <b class="'+(s.runtimeApiKeyStored?'ok':'warn')+'">'+(s.runtimeApiKeyStored?'stored securely':'not stored')+'</b><br>'+

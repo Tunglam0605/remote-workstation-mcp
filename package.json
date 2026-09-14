@@ -28,6 +28,7 @@
     "start:stdio": "node dist/cli.js --stdio",
     "start:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/start-windows.ps1",
     "setup:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
+    "setup:first-run:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/first-run-windows.ps1",
     "setup:web": "node dist/setup-web-cli.js",
     "setup:web:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/setup-web-windows.ps1",
     "start:openai": "node dist/openai-tunnel-cli.js",

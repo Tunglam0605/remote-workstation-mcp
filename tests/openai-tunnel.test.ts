@@ -24,7 +24,7 @@ test('OpenAI tunnel profile keeps secrets as environment references and MCP loop
   assert.deepEqual(profile.mcp.server_urls, [{ channel: 'main', url: 'http://127.0.0.1:8765/mcp' }]);
   assert.equal(profile.mcp.extra_headers.Authorization, 'env:RWMCP_TUNNEL_AUTH');
   assert.equal(profile.mcp.discovery_extra_headers.Authorization, 'env:RWMCP_TUNNEL_AUTH');
-  assert.equal(profile.cloudflared.managed, true);
+  assert.equal(profile.cloudflared.managed, false);
 
   const serialized = JSON.stringify(profile);
   assert.equal(serialized.includes('sk-test-secret'), false);

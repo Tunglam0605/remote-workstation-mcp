@@ -16,7 +16,7 @@ test('search adapter finds file names and text without following symlinks', asyn
   await fs.mkdir(outside);
   await fs.writeFile(path.join(root, 'src', 'motor-control.ts'), 'const speedRef = 42;\n');
   await fs.writeFile(path.join(outside, 'secret.ts'), 'speedRef=999\n');
-  await fs.symlink(outside, path.join(root, 'escape'));
+  await fs.symlink(outside, path.join(root, 'escape'), os.platform() === 'win32' ? 'junction' : 'dir');
   t.after(() => fs.rm(base, { recursive: true, force: true }));
 
   const config: PolicyConfig = {

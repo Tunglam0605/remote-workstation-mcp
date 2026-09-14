@@ -57,7 +57,7 @@ async function checkYaml(target, kind) {
       for (const ws of parsed.workspaces) {
         if (!ws?.root) continue;
         const root = path.resolve(String(ws.root).replace(/^~(?=\/|$)/, home));
-        add(`workspace.${ws.id ?? 'unknown'}`, await exists(root), 'warn', `${root}`);
+        add(`workspace.${ws.id ?? 'unknown'}`, await exists(root), 'warn', root);
       }
     }
   } catch (error) {
@@ -68,9 +68,11 @@ async function checkYaml(target, kind) {
 const nodeMajor = Number(process.versions.node.split('.')[0]);
 add('node.version', nodeMajor >= 22, nodeMajor >= 22 ? 'ok' : 'error', process.version);
 
+const requiredCommands = new Set(['npm', 'tar']);
 for (const command of ['npm', 'git', 'tar', 'curl']) {
   const found = await commandExists(command);
-  add(`command.${command}`, Boolean(found), command === 'git' ? 'warn' : 'error', found ? String(found) : 'not found');
+  const required = requiredCommands.has(command);
+  add(`command.${command}`, Boolean(found), found ? 'ok' : required ? 'error' : 'warn', found ? String(found) : 'not found');
 }
 
 await checkPrivateFile('config.policy.permissions', policyPath, true);

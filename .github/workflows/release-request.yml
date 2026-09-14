@@ -1,0 +1,47 @@
+name: Release Request
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/RELEASE_REQUEST'
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate release request
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$(tr -d '[:space:]' < .github/RELEASE_REQUEST)"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid release tag: $TAG"; exit 1; }
+          VERSION="$(node -p "require('./package.json').version")"
+          test "$TAG" = "v$VERSION" || { echo "Requested $TAG but package.json is v$VERSION"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Create signed-by-GitHub release tag ref
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            echo "Tag $TAG already exists; nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"

@@ -1,0 +1,32 @@
+version: 1
+hosts:
+  - id: robot-pc
+    name: Robot Test PC
+    hostname: 192.168.1.100
+    port: 22
+    user: robot
+    auth: agent
+    strictHostKeyChecking: yes
+    remoteRoot: /home/robot/projects
+    allowPrograms:
+      - git
+      - python3
+      - cmake
+      - ninja
+      - make
+      - systemctl
+      - docker
+    maxRuntimeMs: 600000
+
+  # Example using a local identity file. The key itself is never exposed
+  # through MCP and this local hosts.yaml is ignored by git.
+  # - id: lab-pc
+  #   hostname: 10.0.0.50
+  #   port: 22
+  #   user: engineer
+  #   auth: identity_file
+  #   identityFile: ~/.ssh/id_ed25519_lab
+  #   strictHostKeyChecking: yes
+  #   remoteRoot: /home/engineer/work
+  #   allowPrograms: [git, python3]
+  #   maxRuntimeMs: 600000

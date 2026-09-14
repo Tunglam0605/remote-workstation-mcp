@@ -43,14 +43,4 @@ export function registerFullControlTools(server: McpServer, ctx: AppContext): vo
     inputSchema: z.object({ command: z.string().min(1), cwd: z.string().optional(), timeoutMs: z.number().int().positive().max(24 * 60 * 60 * 1000).optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, async ({ command, cwd, timeoutMs }) => result(await audited(ctx.audit, 'shell_exec', undefined, () => ctx.fullControl.shell(command, cwd, timeoutMs))));
-
-  server.registerTool('admin_exec', {
-    description: 'Execute one local program through non-interactive sudo. Requires full-control owner lease plus privileged.allowSudo=true. Passwords are never accepted or stored.',
-    inputSchema: z.object({
-      program: z.string().min(1),
-      args: z.array(z.string()).max(200).default([]),
-      timeoutMs: z.number().int().positive().max(60 * 60 * 1000).optional()
-    }),
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
-  }, async ({ program, args, timeoutMs }) => result(await audited(ctx.audit, 'admin_exec', undefined, () => ctx.fullControl.admin(program, args, timeoutMs))));
 }

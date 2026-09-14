@@ -11,6 +11,11 @@ const home = os.homedir();
 const dataHome = process.env.RWMCP_HOME ?? path.join(home, '.local/share/remote-workstation-mcp');
 const repository = process.env.RWMCP_UPDATE_REPO ?? 'Tunglam0605/remote-workstation-mcp';
 const checkOnly = process.argv.includes('--check');
+const scheduled = process.argv.includes('--scheduled');
+const updateMode = process.env.RWMCP_UPDATE_MODE ?? 'notify';
+const validModes = new Set(['off', 'notify', 'auto_patch', 'auto']);
+if (!validModes.has(updateMode)) throw new Error(`Invalid RWMCP_UPDATE_MODE '${updateMode}'.`);
+if (scheduled && updateMode === 'off') process.exit(0);
 
 async function readInstalledVersion() {
   try {
@@ -32,6 +37,20 @@ async function latestRelease() {
 
 function normalize(value) {
   return String(value).replace(/^v/, '');
+}
+
+function semver(value) {
+  const match = normalize(value).match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  return match ? { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) } : undefined;
+}
+
+function scheduledMayApply(installed, latest) {
+  if (!scheduled) return true;
+  if (updateMode === 'auto') return true;
+  if (updateMode !== 'auto_patch') return false;
+  const current = installed && semver(installed);
+  const target = semver(latest);
+  return Boolean(current && target && current.major === target.major && current.minor === target.minor && target.patch > current.patch);
 }
 
 async function download(url, target) {
@@ -69,8 +88,9 @@ async function waitForHealth(expectedVersion) {
 const installed = await readInstalledVersion();
 const release = await latestRelease();
 const latest = normalize(release.tag_name);
-console.log(JSON.stringify({ installed, latest, release: release.html_url, updateAvailable: installed !== latest }, null, 2));
-if (checkOnly || installed === latest) process.exit(0);
+const updateAvailable = installed !== latest;
+console.log(JSON.stringify({ installed, latest, release: release.html_url, updateAvailable, mode: updateMode, scheduled }, null, 2));
+if (checkOnly || !updateAvailable || !scheduledMayApply(installed, latest)) process.exit(0);
 
 const tgzAsset = release.assets.find(asset => asset.name === `remote-workstation-mcp-v${latest}.tgz`);
 const sumsAsset = release.assets.find(asset => asset.name === 'SHA256SUMS.txt');

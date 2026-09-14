@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { startSetupServer } from '../src/setup/setup-server.js';
 
-test('Setup Console requires the ephemeral token for API access', async () => {
+test('Setup & Control Center requires the ephemeral token for API access', async () => {
   const setup = await startSetupServer({ repoRoot: process.cwd(), port: 23180, openBrowser: false });
   try {
     const parsed = new URL(setup.url);
@@ -11,7 +11,7 @@ test('Setup Console requires the ephemeral token for API access', async () => {
 
     const page = await fetch(`${base}/`);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Remote Workstation MCP Setup/);
+    assert.match(await page.text(), /Remote Workstation MCP Setup & Control Center/);
 
     const missing = await fetch(`${base}/api/status`);
     assert.equal(missing.status, 403);
@@ -29,7 +29,7 @@ test('Setup Console requires the ephemeral token for API access', async () => {
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.7.2');
+    assert.equal(body.version, '0.7.3');
     assert.ok(Number.isInteger(body.settings.mcpPort));
   } finally {
     await setup.close();

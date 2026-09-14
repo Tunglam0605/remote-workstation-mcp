@@ -41,33 +41,4 @@ export class FullControlAdapter {
       };
     }
   }
-
-  async admin(program: string, args: string[] = [], timeoutMs?: number) {
-    this.policy.assertSudo();
-    if (os.platform() === 'win32') {
-      throw new Error('admin_exec currently supports Linux/macOS sudo only. Windows elevation requires a future privileged helper.');
-    }
-    if (!program || program.startsWith('-')) throw new Error('program must be a valid executable name or absolute path.');
-    const configuredMax = this.policy.config.privileged?.maxRuntimeMs ?? 600000;
-    const effectiveTimeout = Math.min(Math.max(timeoutMs ?? configuredMax, 1), configuredMax);
-    try {
-      const output = await exec('sudo', ['-n', '--', program, ...args], {
-        timeout: effectiveTimeout,
-        maxBuffer: this.policy.config.process.maxOutputBytes,
-        windowsHide: true,
-        env: buildSafeEnvironment(this.policy.config.process.inheritEnv)
-      });
-      return { ok: true, exitCode: 0, stdout: output.stdout, stderr: output.stderr };
-    } catch (error) {
-      const e = error as Error & { code?: number | string; stdout?: string; stderr?: string; killed?: boolean };
-      return {
-        ok: false,
-        exitCode: typeof e.code === 'number' ? e.code : null,
-        killed: Boolean(e.killed),
-        stdout: e.stdout ?? '',
-        stderr: e.stderr ?? e.message,
-        note: 'admin_exec is non-interactive and never accepts a sudo password.'
-      };
-    }
-  }
 }

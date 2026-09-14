@@ -26,6 +26,8 @@ process:
     - cmake
     - ninja
     - make
+    # Add each language-server executable you explicitly approve, for example:
+    # - clangd
   inheritEnv:
     - PATH
     - HOME
@@ -51,6 +53,24 @@ tasks:
     program: cmake
     args: [--build, build]
     cwd: .
+
+# Optional semantic-code layer. A profile is inert until its executable is also
+# present in process.allowExecutables. File extension keys may include or omit '.'.
+lsp:
+  requestTimeoutMs: 10000
+  maxMessageBytes: 2097152
+  diagnosticsSettleMs: 250
+  servers:
+    # clangd:
+    #   program: clangd
+    #   args: [--background-index]
+    #   languages:
+    #     .c: c
+    #     .h: c
+    #     .cc: cpp
+    #     .cpp: cpp
+    #     .cxx: cpp
+    #     .hpp: cpp
 
 # These gates stay disabled even when a full-control lease exists unless
 # the owner explicitly opts in locally. Never enable them in a public/shared config.

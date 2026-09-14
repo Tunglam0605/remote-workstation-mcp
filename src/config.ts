@@ -11,6 +11,13 @@ const taskSchema = z.object({
   cwd: z.string().default('.')
 });
 
+const lspServerSchema = z.object({
+  program: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  languages: z.record(z.string().min(1), z.string().min(1)).default({}),
+  initializationOptions: z.record(z.string(), z.unknown()).optional()
+});
+
 const schema = z.object({
   version: z.literal(1),
   mode: z.enum(['read_only', 'workspace', 'elevated', 'full_control']).default('workspace'),
@@ -36,6 +43,12 @@ const schema = z.object({
     maxRuntimeMs: z.number().int().positive().max(24 * 60 * 60 * 1000).default(10 * 60 * 1000)
   }).default({ allowExecutables: [], inheritEnv: ['PATH', 'HOME', 'LANG', 'TERM', 'TMPDIR', 'TMP', 'TEMP'], maxOutputBytes: 256 * 1024, maxRuntimeMs: 600000 }),
   tasks: z.record(z.string().regex(/^[A-Za-z0-9._-]+$/), taskSchema).default({}),
+  lsp: z.object({
+    servers: z.record(z.string().regex(/^[A-Za-z0-9._-]+$/), lspServerSchema).default({}),
+    requestTimeoutMs: z.number().int().positive().max(60_000).default(10_000),
+    maxMessageBytes: z.number().int().positive().max(16 * 1024 * 1024).default(2 * 1024 * 1024),
+    diagnosticsSettleMs: z.number().int().min(0).max(5_000).default(250)
+  }).default({ servers: {}, requestTimeoutMs: 10_000, maxMessageBytes: 2 * 1024 * 1024, diagnosticsSettleMs: 250 }),
   fullControl: z.object({
     allowRawShell: z.boolean().default(false),
     allowHostFilesystem: z.boolean().default(false)

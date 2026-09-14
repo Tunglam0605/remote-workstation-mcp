@@ -21,6 +21,20 @@ export interface TaskProfileConfig {
   cwd?: string;
 }
 
+export interface LspServerConfig {
+  program: string;
+  args?: string[];
+  languages: Record<string, string>;
+  initializationOptions?: Record<string, unknown>;
+}
+
+export interface LspConfig {
+  servers: Record<string, LspServerConfig>;
+  requestTimeoutMs: number;
+  maxMessageBytes: number;
+  diagnosticsSettleMs: number;
+}
+
 export interface PolicyConfig {
   version: 1;
   mode: PermissionMode;
@@ -41,6 +55,7 @@ export interface PolicyConfig {
     maxRuntimeMs: number;
   };
   tasks?: Record<string, TaskProfileConfig>;
+  lsp?: LspConfig;
   fullControl?: {
     allowRawShell: boolean;
     allowHostFilesystem: boolean;

@@ -4,6 +4,7 @@ import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
 import { HostFilesystemAdapter } from './adapters/host-filesystem.js';
+import { LspAdapter } from './adapters/lsp.js';
 import { ProcessManager } from './adapters/process-manager.js';
 import { SearchAdapter } from './adapters/search.js';
 import { SshAdapter } from './adapters/ssh.js';
@@ -41,6 +42,7 @@ export async function createContext() {
     hostFs: new HostFilesystemAdapter(policy),
     fullControl: new FullControlAdapter(policy),
     git: new GitAdapter(policy, paths),
+    lsp: new LspAdapter(policy, paths, currentClientId),
     processes,
     buildDiagnostics: new BuildDiagnosticsAdapter(processes),
     search: new SearchAdapter(policy, paths),

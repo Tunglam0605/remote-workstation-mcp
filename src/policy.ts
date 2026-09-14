@@ -65,9 +65,7 @@ export class PolicyEngine {
   }
 
   assertExecute(program: string): void {
-    const mode = this.effectiveMode();
-    if (mode === 'read_only') throw new Error('Process execution is disabled in read_only mode.');
-    if (mode === 'full_control') return;
+    if (this.effectiveMode() === 'read_only') throw new Error('Process execution is disabled in read_only mode.');
     const name = path.basename(program).toLowerCase();
     const allowed = this.config.process.allowExecutables.some(item => path.basename(item).toLowerCase() === name);
     if (!allowed) throw new Error(`Executable '${program}' is not in process.allowExecutables.`);

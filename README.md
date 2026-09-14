@@ -18,6 +18,8 @@ v0.7 turns the project from a local MCP runtime into a stronger direct engineeri
 - optional **OpenAI Secure MCP Tunnel** connection provider for ChatGPT/cloud use while the workstation MCP stays bound to `127.0.0.1`;
 - Windows + Linux CI coverage for the direct-control core.
 
+v0.7.1 hardens the first real Windows tunnel path: Windows launchers print the effective `RWMCP_PORT`, managed Cloudflare runtime material is opt-in instead of a startup dependency, organization context is documented, and tunnel readiness verification is explicit.
+
 The OpenAI tunnel path is deliberately outside the workstation execution core: transport, authentication, policy, leases, audit, path protection, process ownership, Git/LSP adapters, and SSH remain local security authorities.
 
 ## Quick start on Windows
@@ -26,22 +28,29 @@ The OpenAI tunnel path is deliberately outside the workstation execution core: t
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.0
+git checkout v0.7.1
 npm run setup:windows
 npm run start:windows
 ```
 
-Verify from another PowerShell window:
+If port `8765` is already used by another local MCP/plugin, select another loopback port before starting:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8765/healthz
+$env:RWMCP_PORT = "8683"
+npm run start:windows
+```
+
+Verify from another PowerShell window using the configured port:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8683/healthz
 ```
 
 Expected fields include:
 
 ```text
 ok      : True
-version : 0.7.0
+version : 0.7.1
 mode    : workspace
 ```
 
@@ -55,13 +64,15 @@ See [Windows runtime](docs/WINDOWS.md) for details.
 
 ## ChatGPT/cloud access through OpenAI Secure MCP Tunnel
 
-A web-hosted ChatGPT session cannot directly reach `127.0.0.1` on your workstation. v0.7 adds an outbound-only Secure MCP Tunnel supervisor rather than asking you to expose port `8765` publicly.
+A web-hosted ChatGPT session cannot directly reach `127.0.0.1` on your workstation. v0.7 adds an outbound-only Secure MCP Tunnel supervisor rather than asking you to expose the workstation MCP port publicly.
 
 On Windows, after normal setup:
 
 ```powershell
 npm run openai:tunnel:install:windows
+$env:RWMCP_PORT = "8683" # optional custom loopback port
 $env:CONTROL_PLANE_TUNNEL_ID = "tunnel_0123456789abcdef0123456789abcdef"
+$env:CONTROL_PLANE_ORGANIZATION_ID = "org_example" # recommended for org-scoped tunnels
 $env:CONTROL_PLANE_API_KEY = "<runtime-api-key>"
 npm run start:openai:windows
 ```
@@ -74,6 +85,8 @@ The installer pins the official OpenAI `tunnel-client` v0.0.14 Windows AMD64 rel
 4. runs `tunnel-client doctor` before daemon startup;
 5. starts the outbound tunnel and waits for its `/readyz` endpoint;
 6. stops MCP and tunnel together when the session ends.
+
+Managed Cloudflare runtime material is optional and disabled by default in v0.7.1. Only set `CLOUDFLARED_MANAGED=true` when the selected logical tunnel actually has managed Cloudflare runtime material provisioned. A `404 Managed Cloudflare tunnel runtime material not found` response is a signal to keep managed mode disabled, not an MCP authentication failure.
 
 The OpenAI runtime API key is **not forwarded into the MCP child process**. The default tunnel principal scopes are `workstation.read,workstation.write,workstation.execute`; full-control still requires explicit full-control scope, a time-limited owner lease, and the corresponding dangerous-feature gate.
 
@@ -101,12 +114,14 @@ The bundled local MCP mapping remains:
 http://127.0.0.1:8765/mcp
 ```
 
+That static mapping is for portable local plugin compatibility. If another local plugin already owns `8765`, either customize the local integration or use the Secure MCP Tunnel path, which follows `RWMCP_PORT` dynamically.
+
 For repo/local plugin development, the workstation runtime must be running on the same machine. For ChatGPT/cloud reachability, use the Secure MCP Tunnel path instead of public port-forwarding.
 
 Example Codex marketplace setup:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.0
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.1
 codex plugin marketplace list
 ```
 

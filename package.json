@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
@@ -9,6 +9,7 @@
   "files": [
     "dist/",
     "config/policy.example.yaml",
+    "config/hosts.example.yaml",
     "scripts/",
     "docs/",
     "README.md",
@@ -49,5 +50,5 @@
     "type": "git",
     "url": "git+https://github.com/Tunglam0605/remote-workstation-mcp.git"
   },
-  "keywords": ["mcp", "ai-agent", "remote", "workstation", "automation", "developer-tools", "multi-agent"]
+  "keywords": ["mcp", "ai-agent", "remote", "workstation", "automation", "developer-tools", "multi-agent", "ssh"]
 }

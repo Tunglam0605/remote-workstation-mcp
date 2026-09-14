@@ -25,7 +25,7 @@ if (useStdio) {
   const app = createMcpExpressApp();
   const nodeHandler = toNodeHandler(createMcpHandler(factory));
   app.get('/', (_req, res) => res.json({ name: 'remote-workstation-mcp', version: SERVER_VERSION, mcp: '/mcp', health: '/healthz' }));
-  app.get('/healthz', (_req, res) => res.json({ ok: true, version: SERVER_VERSION, mode: context.config.mode }));
+  app.get('/healthz', (_req, res) => res.json({ ok: true, version: SERVER_VERSION, mode: context.policy.effectiveMode() }));
   app.all('/mcp', (req, res) => void nodeHandler(req, res, req.body));
   app.listen(port, '127.0.0.1', () => console.error(`[remote-workstation-mcp ${SERVER_VERSION}] http://127.0.0.1:${port}/mcp`));
 }

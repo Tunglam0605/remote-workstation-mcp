@@ -28,6 +28,7 @@ interface SetupSaveRequest extends SetupSettings {
 }
 
 const MAX_BODY_BYTES = 64 * 1024;
+const MCP_PORT_CANDIDATES = [8765, 8683, 8877, 9876, 18765, 19001, 20080];
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body));
@@ -88,6 +89,33 @@ async function directoryExists(dir: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function portAvailable(port: number): Promise<boolean> {
+  return await new Promise<boolean>(resolve => {
+    const probe = net.createServer();
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    probe.once('error', () => finish(false));
+    probe.listen({ host: '127.0.0.1', port, exclusive: true }, () => {
+      probe.close(error => finish(!error));
+    });
+  });
+}
+
+async function recommendedMcpPort(configured: number): Promise<number> {
+  const candidates = [configured, ...MCP_PORT_CANDIDATES.filter(port => port !== configured)];
+  for (const port of candidates) {
+    if (await portAvailable(port)) return port;
+  }
+  for (let port = 21000; port < 21100; port += 1) {
+    if (await portAvailable(port)) return port;
+  }
+  throw new Error('No free loopback MCP port was found in the setup candidate range.');
 }
 
 function runProcess(program: string, args: string[], options: { cwd: string; stdin?: string; maxBytes?: number }): Promise<{ code: number; output: string }> {
@@ -159,12 +187,7 @@ async function openBrowser(url: string): Promise<void> {
 async function listen(server: http.Server, preferredPort: number): Promise<number> {
   const candidates = Array.from({ length: 20 }, (_, index) => preferredPort + index).filter(port => port <= 65535);
   for (const port of candidates) {
-    const ok = await new Promise<boolean>(resolve => {
-      const probe = net.createServer();
-      probe.once('error', () => resolve(false));
-      probe.listen({ host: '127.0.0.1', port, exclusive: true }, () => probe.close(() => resolve(true)));
-    });
-    if (!ok) continue;
+    if (!(await portAvailable(port))) continue;
     try {
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => { server.off('listening', onListening); reject(error); };
@@ -211,7 +234,13 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/status' && req.method === 'GET') {
-        const settings = await loadSetupSettings();
+        const settingsFileExists = await pathExists(setupSettingsPath());
+        let settings = await loadSetupSettings();
+        const configuredPortAvailable = await portAvailable(settings.mcpPort);
+        const recommendedPort = configuredPortAvailable ? settings.mcpPort : await recommendedMcpPort(settings.mcpPort);
+        if (!settingsFileExists && recommendedPort !== settings.mcpPort) {
+          settings = { ...settings, mcpPort: recommendedPort };
+        }
         const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
         const tunnelClient = process.platform === 'win32'
           ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
@@ -221,10 +250,13 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           platform: process.platform,
           nodeVersion: process.version,
           settings,
+          settingsPersisted: settingsFileExists,
           settingsPath: setupSettingsPath(),
           runtimeApiKeyStored: await pathExists(setupSecretPath()),
           tunnelClientInstalled: await pathExists(tunnelClient),
-          workspaceExists: await directoryExists(settings.workspaceRoot)
+          workspaceExists: await directoryExists(settings.workspaceRoot),
+          configuredPortAvailable,
+          recommendedMcpPort: recommendedPort
         });
         return;
       }
@@ -239,6 +271,9 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           organizationId: body.organizationId ?? '',
           cloudflaredManaged: body.cloudflaredManaged ?? false
         });
+        if (!(await portAvailable(settings.mcpPort))) {
+          throw new Error(`MCP port ${settings.mcpPort} is already in use. Choose another loopback port.`);
+        }
         await fs.mkdir(settings.workspaceRoot, { recursive: true });
         const settingsPath = await saveSetupSettings(settings);
         const policy = await ensureDefaultPolicy(repoRoot, settings.workspaceRoot);

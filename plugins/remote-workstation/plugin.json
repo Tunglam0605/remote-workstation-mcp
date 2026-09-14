@@ -38,7 +38,7 @@
         "privacyPolicyURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PRIVACY.md",
         "termsOfServiceURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PLUGIN_TERMS.md",
         "defaultPrompt": [
-          "Call chatgpt_web_status first and verify that the authenticated ChatGPT Web control path reached my workstation. Then list the workspaces I authorized.",
+          "Call chatgpt_web_status first, verify the authenticated ChatGPT Web path, then list my authorized workspaces.",
           "Find the current build error, make the smallest safe fix, run tests, and show the Git diff.",
           "Use semantic code tools first, then inspect only the files needed."
         ],

@@ -55,6 +55,11 @@ export class GitAdapter {
     await this.run(workspace, repoPath, ['check-ref-format', '--branch', branch]);
   }
 
+  private async resolveCommit(workspace: string, repoPath: string, ref: string): Promise<string> {
+    if (!ref || ref.startsWith('-')) throw new Error('Invalid Git start point.');
+    return this.run(workspace, repoPath, ['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]);
+  }
+
   status(workspace: string, repoPath = '.'): Promise<string> {
     return this.run(workspace, repoPath, ['status', '--short', '--branch']);
   }
@@ -93,7 +98,10 @@ export class GitAdapter {
   async add(workspace: string, files: string[], repoPath = '.'): Promise<{ added: string[] }> {
     this.policy.assertWrite(workspace);
     if (files.length === 0) throw new Error('At least one file is required.');
-    for (const file of files) await this.paths.resolveExisting(workspace, file);
+    for (const file of files) {
+      if (path.isAbsolute(file)) throw new Error('Git paths must be repository-relative.');
+      await this.paths.resolveExisting(workspace, path.join(repoPath, file));
+    }
     await this.run(workspace, repoPath, ['add', '--', ...files]);
     return { added: files };
   }
@@ -108,8 +116,9 @@ export class GitAdapter {
   async createBranch(workspace: string, branch: string, startPoint = 'HEAD', repoPath = '.'): Promise<{ branch: string; startPoint: string }> {
     this.policy.assertWrite(workspace);
     await this.validateBranchName(workspace, repoPath, branch);
-    await this.run(workspace, repoPath, ['branch', branch, startPoint]);
-    return { branch, startPoint };
+    const startCommit = await this.resolveCommit(workspace, repoPath, startPoint);
+    await this.run(workspace, repoPath, ['branch', branch, startCommit]);
+    return { branch, startPoint: startCommit };
   }
 
   async switchBranch(workspace: string, branch: string, repoPath = '.'): Promise<{ branch: string }> {
@@ -158,7 +167,8 @@ export class GitAdapter {
     await this.validateBranchName(workspace, repoPath, branch);
     const args = ['worktree', 'add'];
     if (options.createBranch ?? true) {
-      args.push('-b', branch, target, options.startPoint ?? 'HEAD');
+      const startCommit = await this.resolveCommit(workspace, repoPath, options.startPoint ?? 'HEAD');
+      args.push('-b', branch, target, startCommit);
     } else {
       args.push(target, branch);
     }

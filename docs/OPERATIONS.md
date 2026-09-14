@@ -1,6 +1,6 @@
 # Operations guide
 
-This guide covers the managed Linux/Ubuntu installation path for Remote Workstation MCP v0.5.
+This guide covers the managed Linux/Ubuntu installation path for Remote Workstation MCP v0.5.x.
 
 ## 1. Install
 
@@ -10,7 +10,7 @@ cd remote-workstation-mcp
 npm run install:user
 ```
 
-The installer validates/builds the project, installs a versioned runtime, creates safe local configuration, and starts a `systemd --user` service.
+The installer runs typecheck/tests/build, packs the same installable artifact used by releases, installs a versioned runtime, creates safe local configuration, and starts a `systemd --user` service.
 
 Important paths:
 
@@ -29,7 +29,35 @@ Important paths:
 └── update.env
 ```
 
-## 2. Validate service health
+## 2. Run the doctor
+
+After installation, run:
+
+```bash
+npm run doctor
+```
+
+or from the managed installation:
+
+```bash
+node ~/.local/share/remote-workstation-mcp/current/scripts/doctor-user.mjs
+```
+
+Machine-readable output:
+
+```bash
+node ~/.local/share/remote-workstation-mcp/current/scripts/doctor-user.mjs --json
+```
+
+Strict mode returns non-zero for warnings as well as errors:
+
+```bash
+node ~/.local/share/remote-workstation-mcp/current/scripts/doctor-user.mjs --strict
+```
+
+The doctor checks Node/runtime prerequisites, config presence and permissions, YAML parsing, workspace roots, managed version link, systemd service/timer state, and loopback `/healthz`.
+
+## 3. Validate service health
 
 ```bash
 systemctl --user status remote-workstation-mcp.service
@@ -51,7 +79,7 @@ Audit events:
 tail -f ~/.local/share/remote-workstation-mcp/runtime/audit.jsonl
 ```
 
-## 3. Configure workspaces
+## 4. Configure workspaces
 
 Edit:
 
@@ -87,6 +115,12 @@ process:
   maxRuntimeMs: 600000
 
 tasks: {}
+fullControl:
+  allowRawShell: false
+  allowHostFilesystem: false
+privileged:
+  allowSudo: false
+  maxRuntimeMs: 600000
 ```
 
 After policy changes:
@@ -95,7 +129,7 @@ After policy changes:
 systemctl --user restart remote-workstation-mcp.service
 ```
 
-## 4. Configure SSH hosts
+## 5. Configure SSH hosts
 
 Edit:
 
@@ -113,7 +147,7 @@ ssh user@host
 
 Then use MCP `ssh_probe` before `ssh_exec`.
 
-## 5. Build/test task profiles
+## 6. Build/test task profiles
 
 Add stable repeated operations to `tasks` instead of asking an AI to reconstruct long command lines every time.
 
@@ -131,9 +165,9 @@ tasks:
 
 The program must also be present in `process.allowExecutables`.
 
-## 6. Temporary full user-level control
+## 7. Temporary full user-level control
 
-Keep these gates absent/false during normal operation:
+Keep these gates false during normal operation:
 
 ```yaml
 fullControl:
@@ -167,7 +201,7 @@ node ~/.local/share/remote-workstation-mcp/current/scripts/grant-permission.mjs 
 
 The lease also expires automatically.
 
-## 7. Updates
+## 8. Updates
 
 Default scheduled mode is `notify`.
 
@@ -187,7 +221,7 @@ Manual update:
 node ~/.local/share/remote-workstation-mcp/current/scripts/update-user.mjs
 ```
 
-The updater downloads official GitHub Release assets, verifies SHA-256, installs into a new version slot, restarts the service, checks health and rolls back on failure.
+The updater downloads official GitHub Release assets, verifies SHA-256, installs into a new version slot, restarts the service, checks health and rolls back on failure. It is upgrade-only: it will not silently downgrade to an older release.
 
 Automatic modes are opt-in:
 
@@ -200,7 +234,9 @@ auto
 
 For security-sensitive systems, prefer `notify` and review release notes before updating.
 
-## 8. Rollback
+## 9. Rollback
+
+Rollback is the explicit downgrade mechanism:
 
 ```bash
 bash ~/.local/share/remote-workstation-mcp/current/scripts/rollback-user.sh
@@ -213,11 +249,36 @@ curl -fsS http://127.0.0.1:8765/healthz
 systemctl --user status remote-workstation-mcp.service
 ```
 
-## 9. Common troubleshooting
+## 10. Uninstall
+
+Safe default: disable/remove the user services but preserve local versions, config and audit data:
+
+```bash
+npm run uninstall:user
+```
+
+or:
+
+```bash
+bash ~/.local/share/remote-workstation-mcp/current/scripts/uninstall-user.sh
+```
+
+Destructive purge requires two explicit flags:
+
+```bash
+bash scripts/uninstall-user.sh --purge --yes
+```
+
+That permanently removes both the managed data directory and local configuration directory.
+
+## 11. Common troubleshooting
 
 ### Policy file error
 
+Run the doctor, then inspect logs:
+
 ```bash
+npm run doctor
 journalctl --user -u remote-workstation-mcp.service -n 100 --no-pager
 ```
 
@@ -251,7 +312,7 @@ Check:
 
 Confirm the client is using the correct transport. A cloud client cannot connect directly to workstation loopback. Use a supported secure outbound tunnel/connector.
 
-## 10. Operational recommendations
+## 12. Operational recommendations
 
 - Keep the service account unprivileged.
 - Keep full-control leases short.
@@ -261,3 +322,4 @@ Confirm the client is using the correct transport. A cloud client cannot connect
 - Keep production credentials outside authorized workspaces when possible.
 - Use VM/container isolation for untrusted repositories or build scripts.
 - Do not expose port 8765 directly to the Internet.
+- Run the doctor after installation, updates, or configuration changes.

@@ -22,5 +22,43 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Smoke-test local doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          mkdir -p "$TMP/workspace"
+          cat > "$TMP/policy.yaml" <<EOF
+          version: 1
+          mode: workspace
+          workspaces:
+            - id: smoke
+              root: $TMP/workspace
+              readOnly: false
+          filesystem:
+            maxReadBytes: 1048576
+            maxWriteBytes: 1048576
+          search:
+            maxResults: 20
+            maxFiles: 100
+            maxFileBytes: 1048576
+          process:
+            allowExecutables: [node]
+            inheritEnv: [PATH, HOME, LANG]
+            maxOutputBytes: 65536
+            maxRuntimeMs: 30000
+          tasks: {}
+          EOF
+          cat > "$TMP/hosts.yaml" <<EOF
+          version: 1
+          hosts: []
+          EOF
+          chmod 600 "$TMP/policy.yaml" "$TMP/hosts.yaml"
+          RWMCP_POLICY="$TMP/policy.yaml" \
+          RWMCP_HOSTS="$TMP/hosts.yaml" \
+          RWMCP_CONFIG_HOME="$TMP/config" \
+          RWMCP_HOME="$TMP/data" \
+          node scripts/doctor-user.mjs --json
       - name: Smoke-test packed artifact
         run: bash scripts/smoke-package.sh

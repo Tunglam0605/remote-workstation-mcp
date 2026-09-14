@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
@@ -28,6 +28,8 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "prepack": "npm run build",
     "install:user": "bash scripts/install-user.sh",
+    "doctor": "node scripts/doctor-user.mjs",
+    "uninstall:user": "bash scripts/uninstall-user.sh",
     "update:check": "node scripts/update-user.mjs --check",
     "update:user": "node scripts/update-user.mjs",
     "permission:status": "node scripts/grant-permission.mjs --status",

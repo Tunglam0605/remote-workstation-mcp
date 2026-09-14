@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Operate an owner-authorized engineering workstation through MCP.",
   "author": {
     "name": "Tunglam0605",
@@ -15,7 +15,7 @@
   "interface": {
     "displayName": "Remote Workstation",
     "shortDescription": "Operate your authorized engineering workstation",
-    "longDescription": "Inspect and edit approved workspaces, run builds and tests, supervise processes, inspect Git, discover tools, and use approved SSH hosts through owner-controlled policy.",
+    "longDescription": "Inspect and edit approved workspaces, query semantic code intelligence, run builds and tests, supervise bounded interactive processes, inspect Git, discover tools, and use approved SSH hosts through owner-controlled policy.",
     "developerName": "Tunglam0605",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
@@ -25,7 +25,7 @@
     "defaultPrompt": [
       "Check my workstation health and authorized workspaces.",
       "Find and fix the current build error, then show the diff.",
-      "List approved SSH hosts and probe the host I name."
+      "Use semantic code tools first, then inspect only the files needed."
     ],
     "brandColor": "#10A37F",
     "screenshots": []

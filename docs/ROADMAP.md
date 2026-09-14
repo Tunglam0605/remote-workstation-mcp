@@ -62,39 +62,36 @@
 - privacy and plugin usage disclosures
 - plugin package validation in CI/prepack
 - Windows runtime setup and CI validation
-- explicit separation between local distribution and future universal web/public distribution
 
-The v0.6 local plugin keeps the MCP endpoint on `127.0.0.1`. It does not expose the workstation directly to the Internet.
+The local/repo plugin mapping remains loopback-only and does not publish the workstation directly to the Internet.
 
-## v0.7 — Direct engineering control foundation
+## v0.7 — Direct engineering control foundation ✅
 
 Primary design rule: **ChatGPT/GPT Web is a first-class controller. Codex, Claude and other coding agents are optional workers, never a required hop.**
 
-### Direct-control core
+Completed direct-control foundation:
 
-- transport-authenticated principal identity where supported
-- per-client roles/scopes/capability policy instead of observability tags alone
-- session/task ownership and audit correlation
-- typed Git history/branch/stage/commit operations with workspace policy gates
-- Git worktree creation/removal for isolated concurrent engineering sessions
-- structured build/test diagnostics so raw compiler logs do not have to enter model context
-- persistent terminal/PTY session abstraction with bounded incremental output
-- LSP-backed code intelligence: definitions, references, symbols, hover, diagnostics, rename preview and code actions
-- stronger conflict detection for non-file resources
-- safe merge/review handoff between concurrent sessions
+- request-scoped authenticated HTTP principals and workstation scopes
+- local owner policy + time-limited client-bound leases remain authoritative
+- typed Git history, branches, staging, commits and worktrees
+- structured GCC/Clang/MSVC/CMake build diagnostics
+- principal-owned managed process sessions with bounded incremental output
+- bounded interactive pipe stdin via `process_write` and `process_close_stdin`
+- owner-configured LSP definitions, references, hover, document symbols and diagnostics
+- LSP process/message bounds and workspace-external path redaction
+- transport-provider separation for stdio vs loopback Streamable HTTP
+- connection-provider separation above MCP transport
+- outbound-only OpenAI Secure MCP Tunnel path for ChatGPT/cloud use
+- ephemeral workstation bearer injection into tunnel runtime/discovery requests
+- OpenAI runtime credential separation from the MCP child process
+- verified Windows installer for the pinned official OpenAI `tunnel-client`
+- Linux + Windows CI coverage for the direct-control core
 
-### Transport boundary
-
-- keep local stdio/loopback paths fast for local clients
-- define a transport-provider interface so OpenAI Secure MCP Tunnel, Cloudflare/other HTTPS gateways, and direct HTTPS can be integrated without changing workstation tools
-- authentication terminates before policy/tool execution; transport must never bypass the PolicyEngine
-
-### Token-efficiency rule
-
-Routine tools should return compact structured summaries first. Large logs, source ranges, traces and diagnostics are fetched on demand with explicit bounds/cursors.
+A tunnel connection is reachability, not authorization. The remote path still terminates at the authenticated loopback MCP boundary, then passes through scopes, policy, leases and audit before any workstation adapter executes.
 
 ## v0.8 — Engineering debug and hardware adapters
 
+- true PTY/ConPTY terminal adapter with bounded lifecycle and output
 - DAP session adapter for language-agnostic debugger control
 - GDB/MI adapter for native/source-level debugging
 - Docker/container workflows
@@ -104,22 +101,21 @@ Routine tools should return compact structured summaries first. Large logs, sour
 - crash/fault/register diagnostics
 - RTT/SWO/log streaming through bounded cursors
 - ROS 2 process/topic/service/action/parameter adapters
-- pluggable vendor/debug tools
+- richer LSP rename preview/code-action contracts
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
-## v0.9 — Public web connection + workstation automation
+## v0.9 — Workstation automation + public distribution hardening
 
-- secure authenticated outbound workstation pairing/relay for ChatGPT Web
-- remote HTTPS MCP/app registration path suitable for public plugin review
-- transport providers with health, reconnect and revocation controls
 - browser/Chrome DevTools adapter
 - Playwright/browser testing adapter
-- Windows UI Automation adapter as a fallback when no CLI/API/debug protocol exists
+- Windows UI Automation adapter as fallback when no CLI/API/debug protocol exists
 - separately isolated privileged helper for narrowly scoped root/admin operations
-- explicit owner approval protocol
+- explicit owner approval protocol for privileged operations
 - capability-specific sudo/root contracts rather than unrestricted privileged shell
 - optional container/namespace sandbox for untrusted build/test workloads
+- public Plugin Directory/App registration documentation and review readiness
+- reconnect/revocation observability for remote connection providers
 - release artifact signing, provenance and SBOM
 
 ## v0.10 — Optional multi-agent delegation
@@ -130,6 +126,7 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 - delegation contracts, progress events and cancellation
 - result aggregation
 - worktree-aware parallel execution
+- non-file resource conflict detection and safe merge/review handoff
 - agent-to-agent workflows without weakening workstation policy
 
 ## v1.0 — Stable workstation control plane
@@ -142,4 +139,4 @@ Target criteria:
 - stable direct-control tool contracts
 - operational documentation and migration guidance
 - public/private distribution story with clear trust boundaries
-- security review of workspace, SSH, update, full-control, public relay, UI automation and privileged-helper boundaries
+- security review of workspace, SSH, update, full-control, remote connection, UI automation and privileged-helper boundaries

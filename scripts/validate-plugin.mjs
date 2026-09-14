@@ -45,11 +45,14 @@ assert(['ON_INSTALL', 'ON_USE'].includes(entry.policy?.authentication), 'marketp
 
 const portableServer = mcp.mcpServers?.['remote-workstation'];
 const legacyServer = legacyMcp.mcpServers?.['remote-workstation'];
-for (const [label, server] of [['portable', portableServer], ['legacy', legacyServer]]) {
-  assert(server, `${label} MCP mapping is missing`);
-  assert(server.type === 'streamable-http', `${label} MCP transport must be streamable-http`);
-  assert(server.url === 'http://127.0.0.1:8765/mcp', `${label} MCP URL must remain loopback-only`);
-}
+assert(portableServer, 'portable MCP mapping is missing');
+assert(portableServer.type === 'streamable-http', 'portable MCP transport must be streamable-http');
+assert(portableServer.url === 'http://127.0.0.1:8765/mcp', 'portable MCP URL must remain loopback-only');
+assert(legacyServer, 'legacy MCP mapping is missing');
+assert(legacyServer.type === 'http', 'legacy MCP transport must be http');
+assert(legacyServer.url === 'http://127.0.0.1:8765/mcp', 'legacy MCP URL must remain loopback-only');
+assert(compat.mcpServers === './.mcp.json', 'compatibility manifest must reference ./.mcp.json');
+assert(compat.skills === './skills/', 'compatibility manifest must reference ./skills/');
 
 const skill = await fs.readFile(skillPath, 'utf8');
 assert(skill.startsWith('---\n'), 'workstation operator skill needs YAML frontmatter');
@@ -62,6 +65,11 @@ for (const prompt of openai.interface.defaultPrompt) {
   assert(typeof prompt === 'string' && prompt.length <= 128, 'each default prompt must be at most 128 characters');
 }
 
+for (const doc of ['docs/PRIVACY.md', 'docs/PLUGIN_TERMS.md']) {
+  await fs.access(path.join(root, doc));
+}
+
 console.log(`Plugin package valid: ${manifest.name} v${manifest.version}`);
 console.log(`Marketplace: ${marketplace.interface?.displayName ?? marketplace.name}`);
-console.log(`Local MCP: ${portableServer.url}`);
+console.log(`Portable MCP: ${portableServer.url}`);
+console.log(`Legacy MCP: ${legacyServer.url}`);

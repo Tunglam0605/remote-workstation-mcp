@@ -105,7 +105,7 @@ The setup browser is an owner-local bootstrap surface, not an MCP capability exp
 
 ## v0.7.3 — Managed Windows distribution + local control center ✅
 
-- production Windows installation from signed-source GitHub Release assets without requiring a repository clone
+- production Windows installation from GitHub Release assets without requiring a repository clone
 - SHA-256 verification before release-package extraction
 - current-user version slots with stable `current` / `previous` pointers and owner-triggered rollback
 - policy, SSH hosts, settings, audit data and DPAPI secrets persist outside application version slots
@@ -119,7 +119,20 @@ The setup browser is an owner-local bootstrap surface, not an MCP capability exp
 
 Windows distribution operations remain owner-local. They are not MCP tools and cannot grant full-control scopes, enable dangerous policy gates or create permission leases.
 
+## v0.7.4 — ChatGPT Web end-to-end control acceptance ✅
+
+- `chatgpt_web_status` proves that a request reached the workstation through the authenticated ChatGPT/OpenAI tunnel principal
+- the verification response reports non-secret host identity, effective scopes, policy mode and authorized workspace names
+- the tool is explicitly classified as `workstation.read` and audited like every other remote action
+- ChatGPT Web setup documentation now has a deterministic first-call and safe read/write/execute acceptance sequence
+- direct-control completion criteria are explicit before any multi-device/plugin-first expansion begins
+- full-control remains excluded from the default tunnel scope and is not required for acceptance
+
+The v0.7.4 milestone is considered complete at runtime only after ChatGPT Web itself calls `chatgpt_web_status` and reports `directControlPathVerified: true`, followed by controlled read/write/execute checks in an owner-authorized workspace.
+
 ## v0.8 — Engineering debug and hardware adapters
+
+This work begins **after** the direct ChatGPT Web control path above is accepted on a real ChatGPT workspace.
 
 - true PTY/ConPTY terminal adapter with bounded lifecycle and output
 - DAP session adapter for language-agnostic debugger control
@@ -148,8 +161,15 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 - reconnect/revocation observability for remote connection providers
 - release artifact signing, provenance and SBOM
 
-## v0.10 — Optional multi-agent delegation
+## v0.10 — Optional plugin-first multi-device / agent delegation
 
+Only begin this phase after v0.7.4 ChatGPT Web acceptance is complete.
+
+- one ChatGPT app/plugin installation with paired workstation identities
+- short-lived one-time device pairing
+- outbound authenticated device sessions and revocable per-device credentials
+- stable MCP Hub router preserving principal/scopes/policy/audit
+- Windows one-click paired-agent bootstrap
 - generic agent provider interface
 - task broker and agent registry
 - Codex/Claude/OpenHands/custom workers as optional providers

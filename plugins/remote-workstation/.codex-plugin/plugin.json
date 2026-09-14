@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Operate an owner-authorized engineering workstation through MCP.",
   "author": {
     "name": "Tunglam0605",
@@ -15,7 +15,7 @@
   "interface": {
     "displayName": "Remote Workstation",
     "shortDescription": "Operate your authorized engineering workstation",
-    "longDescription": "Inspect and edit approved workspaces, query semantic code intelligence, run builds and tests, supervise bounded interactive processes, inspect Git, discover tools, and use approved SSH hosts through owner-controlled policy.",
+    "longDescription": "Verify the authenticated ChatGPT Web path, inspect and edit approved workspaces, query semantic code intelligence, run builds and tests, supervise bounded interactive processes, inspect Git, discover tools, and use approved SSH hosts through owner-controlled policy.",
     "developerName": "Tunglam0605",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
@@ -23,7 +23,7 @@
     "privacyPolicyURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PRIVACY.md",
     "termsOfServiceURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PLUGIN_TERMS.md",
     "defaultPrompt": [
-      "Check my workstation health and authorized workspaces.",
+      "Call chatgpt_web_status first, verify the connection, and list my authorized workspaces.",
       "Find and fix the current build error, then show the diff.",
       "Use semantic code tools first, then inspect only the files needed."
     ],

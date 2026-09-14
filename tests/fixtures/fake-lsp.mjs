@@ -1,5 +1,6 @@
 let buffer = Buffer.alloc(0);
 let openedUri = null;
+let failsafe = null;
 
 function send(payload) {
   const json = JSON.stringify(payload);
@@ -10,9 +11,15 @@ function response(id, result) {
   send({ jsonrpc: '2.0', id, result });
 }
 
+function scheduleExit(delayMs) {
+  if (failsafe) clearTimeout(failsafe);
+  failsafe = setTimeout(() => process.exit(0), delayMs);
+}
+
 function onMessage(message) {
   if (message.method === 'initialize') {
     response(message.id, { capabilities: { definitionProvider: true, referencesProvider: true, hoverProvider: true, documentSymbolProvider: true } });
+    scheduleExit(1500);
     return;
   }
   if (message.method === 'textDocument/didOpen') {
@@ -44,7 +51,7 @@ function onMessage(message) {
   }
   if (message.method === 'textDocument/documentSymbol') {
     response(message.id, [{ name: 'demo', kind: 12, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } }, selectionRange: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } } }]);
-    setTimeout(() => process.exit(0), 20);
+    scheduleExit(20);
   }
 }
 

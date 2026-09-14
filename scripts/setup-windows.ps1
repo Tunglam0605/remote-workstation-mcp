@@ -105,9 +105,12 @@ Write-Host 'Validating plugin package...'
 npm run plugin:validate
 
 Write-Host ''
-Write-Host 'Windows setup complete.' -ForegroundColor Green
-Write-Host "Workspace: $Workspace"
-Write-Host 'Start the MCP service in the foreground with:'
+Write-Host 'Windows runtime bootstrap complete.' -ForegroundColor Green
+Write-Host "Default workspace: $Workspace"
+Write-Host ''
+Write-Host 'Recommended next step: open the local Setup Console.'
+Write-Host '  npm run setup:web:windows' -ForegroundColor Cyan
+Write-Host ''
+Write-Host 'The Setup Console can select a free MCP port, persist the tunnel/org settings, install tunnel-client, and store the runtime API key with Windows DPAPI.'
+Write-Host 'For headless/local-only use you can still run:'
 Write-Host '  npm run start:windows' -ForegroundColor Cyan
-Write-Host 'Then verify from a second PowerShell window:'
-Write-Host '  Invoke-RestMethod http://127.0.0.1:8765/healthz' -ForegroundColor Cyan

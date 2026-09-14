@@ -80,6 +80,40 @@ jobs:
       - run: npm run build
       - name: Validate plugin package
         run: npm run plugin:validate
+      - name: Smoke-test persisted setup state and DPAPI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $configDir = Join-Path $env:LOCALAPPDATA 'RemoteWorkstationMCP'
+          $secretDir = Join-Path $configDir 'secrets'
+          New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
+          $settingsPath = Join-Path $configDir 'settings.json'
+          @{
+            version = 1
+            mcpPort = 18765
+            workspaceRoot = (Join-Path $env:RUNNER_TEMP 'rwmcp-persisted-workspace')
+            tunnelId = 'tunnel_0123456789abcdef0123456789abcdef'
+            organizationId = 'org-ci'
+            cloudflaredManaged = $false
+          } | ConvertTo-Json | Set-Content -Path $settingsPath -Encoding utf8
+
+          . (Join-Path $PWD 'scripts\windows-settings.ps1')
+          Remove-Item Env:RWMCP_PORT -ErrorAction SilentlyContinue
+          Remove-Item Env:CONTROL_PLANE_TUNNEL_ID -ErrorAction SilentlyContinue
+          Remove-Item Env:CONTROL_PLANE_ORGANIZATION_ID -ErrorAction SilentlyContinue
+          Apply-RwmcpPersistedEnvironment -Root $PWD | Out-Null
+          if ($env:RWMCP_PORT -ne '18765') { throw "Persisted MCP port was not loaded: $($env:RWMCP_PORT)" }
+          if ($env:CONTROL_PLANE_TUNNEL_ID -ne 'tunnel_0123456789abcdef0123456789abcdef') { throw 'Persisted tunnel id was not loaded.' }
+          if ($env:CONTROL_PLANE_ORGANIZATION_ID -ne 'org-ci') { throw 'Persisted organization id was not loaded.' }
+
+          $secretPath = Get-RwmcpSecretPath
+          $testSecret = 'sk-test-rwmcp-dpapi-0123456789abcdef'
+          $testSecret | & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-secret.ps1 -Action Set -Path $secretPath
+          if ($LASTEXITCODE -ne 0) { throw 'DPAPI secret write failed.' }
+          $roundTrip = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-secret.ps1 -Action Get -Path $secretPath
+          if ($LASTEXITCODE -ne 0) { throw 'DPAPI secret read failed.' }
+          if ($roundTrip.Trim() -ne $testSecret) { throw 'DPAPI secret round-trip mismatch.' }
+          Remove-Item -Path $configDir -Recurse -Force
       - name: Smoke-test loopback HTTP runtime
         shell: pwsh
         run: |

@@ -53,6 +53,7 @@ export interface PolicyConfig {
     inheritEnv: string[];
     maxOutputBytes: number;
     maxRuntimeMs: number;
+    maxInputBytes?: number;
   };
   tasks?: Record<string, TaskProfileConfig>;
   lsp?: LspConfig;
@@ -97,9 +98,16 @@ export interface ProcessSnapshot {
   status: 'running' | 'exited' | 'stopped' | 'failed';
   stdout: string;
   stderr: string;
+  stdinOpen: boolean;
   exitCode: number | null;
   startedAt: string;
   endedAt?: string;
+}
+
+export interface ProcessInputResult {
+  id: string;
+  acceptedBytes: number;
+  stdinOpen: boolean;
 }
 
 export interface OutputChunk {

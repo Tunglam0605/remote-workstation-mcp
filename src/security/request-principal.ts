@@ -48,6 +48,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   task_run: 'workstation.execute',
   build_diagnostics: 'workstation.read',
   process_start: 'workstation.execute',
+  process_write: 'workstation.execute',
+  process_close_stdin: 'workstation.execute',
   process_read: 'workstation.read',
   process_read_since: 'workstation.read',
   process_list: 'workstation.read',

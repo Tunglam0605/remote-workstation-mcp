@@ -39,6 +39,8 @@ process:
     - TEMP
   maxOutputBytes: 262144
   maxRuntimeMs: 600000
+  # Upper bound for one stdin write and queued stdin backpressure.
+  maxInputBytes: 65536
 
 tasks:
   node-test:

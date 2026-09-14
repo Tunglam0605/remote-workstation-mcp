@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
-import type { OutputChunk, ProcessReadSince, ProcessSnapshot } from '../model.js';
+import type { OutputChunk, ProcessInputResult, ProcessReadSince, ProcessSnapshot } from '../model.js';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
@@ -80,6 +80,7 @@ export class ProcessManager {
       status: 'running',
       stdout: '',
       stderr: '',
+      stdinOpen: true,
       stdoutBase: 0,
       stderrBase: 0,
       exitCode: null,
@@ -98,8 +99,12 @@ export class ProcessManager {
       managed.stderr = next.text;
       managed.stderrBase = next.base;
     });
+    child.stdin.on('close', () => {
+      managed.stdinOpen = false;
+    });
     child.on('error', error => {
       managed.status = 'failed';
+      managed.stdinOpen = false;
       const next = this.append(managed.stderr, managed.stderrBase, Buffer.from(`\n${error.message}`));
       managed.stderr = next.text;
       managed.stderrBase = next.base;
@@ -108,6 +113,7 @@ export class ProcessManager {
     });
     child.on('close', code => {
       if (managed.status === 'running') managed.status = 'exited';
+      managed.stdinOpen = false;
       managed.exitCode = code;
       managed.endedAt = new Date().toISOString();
       if (managed.timer) clearTimeout(managed.timer);
@@ -115,9 +121,48 @@ export class ProcessManager {
     managed.timer = setTimeout(() => {
       if (managed.status === 'running') {
         managed.status = 'stopped';
+        managed.stdinOpen = false;
         child.kill('SIGTERM');
       }
     }, this.policy.config.process.maxRuntimeMs);
+    return this.snapshot(managed);
+  }
+
+  write(id: string, input: string, appendNewline = false): ProcessInputResult {
+    const managed = this.owned(id);
+    if (managed.status !== 'running') throw new Error(`Process '${id}' is not running.`);
+    if (!managed.stdinOpen || managed.child.stdin.destroyed || managed.child.stdin.writableEnded) {
+      managed.stdinOpen = false;
+      throw new Error(`stdin for process '${id}' is closed.`);
+    }
+
+    const payload = appendNewline ? `${input}\n` : input;
+    const bytes = Buffer.byteLength(payload, 'utf8');
+    const max = this.policy.config.process.maxInputBytes ?? 64 * 1024;
+    if (bytes > max) throw new Error(`stdin payload exceeds process.maxInputBytes (${max}).`);
+    if (managed.child.stdin.writableLength + bytes > max) {
+      throw new Error(`stdin backpressure limit exceeded (${max} queued bytes maximum).`);
+    }
+
+    try {
+      managed.child.stdin.write(payload, 'utf8', error => {
+        if (error) managed.stdinOpen = false;
+      });
+    } catch (error) {
+      managed.stdinOpen = false;
+      throw error;
+    }
+    return { id, acceptedBytes: bytes, stdinOpen: managed.stdinOpen };
+  }
+
+  closeStdin(id: string): ProcessSnapshot {
+    const managed = this.owned(id);
+    if (managed.stdinOpen && !managed.child.stdin.destroyed && !managed.child.stdin.writableEnded) {
+      managed.stdinOpen = false;
+      managed.child.stdin.end();
+    } else {
+      managed.stdinOpen = false;
+    }
     return this.snapshot(managed);
   }
 
@@ -145,6 +190,7 @@ export class ProcessManager {
     const managed = this.owned(id);
     if (managed.status === 'running') {
       managed.status = 'stopped';
+      managed.stdinOpen = false;
       managed.child.kill('SIGTERM');
       managed.endedAt = new Date().toISOString();
       if (managed.timer) clearTimeout(managed.timer);

@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.3.0';
+export const SERVER_VERSION = '0.4.0';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -18,7 +18,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'git.inspect', status: 'available', tools: ['git_status', 'git_diff'] },
   { id: 'process.execute', status: 'available', tools: ['process_start', 'process_read', 'process_read_since', 'process_list', 'process_stop'], note: 'Executable allowlist; shell=false.' },
   { id: 'task.run', status: 'available', tools: ['task_list', 'task_run'], note: 'Owner-defined build/test profiles still pass executable policy.' },
-  { id: 'remote.ssh', status: 'planned', tools: [] },
+  { id: 'remote.ssh', status: 'available', tools: ['ssh_hosts', 'ssh_probe', 'ssh_exec'], note: 'Named owner-approved hosts, BatchMode auth, strict host keys and per-host program allowlists.' },
   { id: 'permission.elevation', status: 'planned', tools: [] },
   { id: 'engineering.debug', status: 'planned', tools: [] },
   { id: 'agent.orchestration', status: 'planned', tools: [] }

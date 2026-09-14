@@ -8,6 +8,7 @@ $PolicyPath = Join-Path $Root 'config\policy.yaml'
 $HostsPath = Join-Path $Root 'config\hosts.yaml'
 $RuntimeDir = Join-Path $Root 'runtime'
 $CliPath = Join-Path $Root 'dist\cli.js'
+$Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8765' }
 
 if (-not (Test-Path $PolicyPath)) {
   throw "Policy file not found: $PolicyPath. Run 'npm run setup:windows' first."
@@ -25,8 +26,8 @@ $env:RWMCP_CLIENT_ID = if ($env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID } else {
 $env:RWMCP_CLIENT_TYPE = if ($env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE } else { 'mcp' }
 
 Write-Host 'Starting Remote Workstation MCP...' -ForegroundColor Green
-Write-Host 'MCP:    http://127.0.0.1:8765/mcp'
-Write-Host 'Health: http://127.0.0.1:8765/healthz'
+Write-Host "MCP:    http://127.0.0.1:$Port/mcp"
+Write-Host "Health: http://127.0.0.1:$Port/healthz"
 Write-Host 'Press Ctrl+C to stop.'
 
 node $CliPath --http

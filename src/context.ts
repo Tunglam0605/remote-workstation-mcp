@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
@@ -39,6 +40,7 @@ export async function createContext() {
     fullControl: new FullControlAdapter(policy),
     git: new GitAdapter(policy, paths),
     processes,
+    buildDiagnostics: new BuildDiagnosticsAdapter(processes),
     search: new SearchAdapter(policy, paths),
     tools: new ToolDiscoveryAdapter(policy),
     tasks: new TaskAdapter(policy, processes),

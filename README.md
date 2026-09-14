@@ -6,7 +6,7 @@ Remote Workstation MCP lets compatible AI clients inspect and edit approved code
 
 > **v0.7 is security-sensitive beta software.** Start with a disposable workspace and keep full-control gates disabled until you have validated your local policy, audit records, and client identity flow.
 
-## What changed in v0.7
+## What changed in v0.7.x
 
 v0.7 turns the project from a local MCP runtime into a stronger direct engineering-control plane:
 
@@ -20,64 +20,65 @@ v0.7 turns the project from a local MCP runtime into a stronger direct engineeri
 
 v0.7.1 hardens the first real Windows tunnel path: Windows launchers print the effective `RWMCP_PORT`, managed Cloudflare runtime material is opt-in instead of a startup dependency, organization context is documented, and tunnel readiness verification is explicit.
 
+v0.7.2 adds the new-machine onboarding layer: a loopback-only Setup Console, persisted non-secret settings outside the repository, Windows DPAPI protection for the OpenAI runtime API key, automatic launcher reuse of saved tunnel/port/org settings, and a dedicated ChatGPT Web custom-app handoff.
+
 The OpenAI tunnel path is deliberately outside the workstation execution core: transport, authentication, policy, leases, audit, path protection, process ownership, Git/LSP adapters, and SSH remain local security authorities.
 
-## Quick start on Windows
+## Recommended Windows setup on a new machine
 
 ```powershell
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.1
+git checkout v0.7.2
 npm run setup:windows
+npm run setup:web:windows
+```
+
+The Setup Console opens locally on `127.0.0.1` and guides the owner through:
+
+- choosing a free MCP loopback port;
+- selecting the authorized workspace root;
+- saving the OpenAI tunnel ID and organization context;
+- optionally storing the runtime API key with Windows DPAPI;
+- installing/verifying the pinned official OpenAI `tunnel-client`;
+- opening the Platform Tunnels, Runtime API keys, and ChatGPT Apps pages.
+
+The Setup Console is an owner-local bootstrap surface only. It is not exposed as an MCP tool or through the Secure MCP Tunnel, and it never provides controls for enabling raw shell/full-control gates or issuing permission leases.
+
+Non-secret settings are persisted at:
+
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\settings.json
+```
+
+The optional encrypted runtime-key blob is stored separately under:
+
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\secrets\openai-runtime-api-key.dpapi
+```
+
+After setup, local-only MCP is simply:
+
+```powershell
 npm run start:windows
 ```
 
-If port `8765` is already used by another local MCP/plugin, select another loopback port before starting:
+and the ChatGPT/OpenAI tunnel path is:
 
 ```powershell
-$env:RWMCP_PORT = "8683"
-npm run start:windows
-```
-
-Verify from another PowerShell window using the configured port:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8683/healthz
-```
-
-Expected fields include:
-
-```text
-ok      : True
-version : 0.7.1
-mode    : workspace
-```
-
-The safe default workspace is:
-
-```text
-%USERPROFILE%\Documents\RemoteWorkspaces
-```
-
-See [Windows runtime](docs/WINDOWS.md) for details.
-
-## ChatGPT/cloud access through OpenAI Secure MCP Tunnel
-
-A web-hosted ChatGPT session cannot directly reach `127.0.0.1` on your workstation. v0.7 adds an outbound-only Secure MCP Tunnel supervisor rather than asking you to expose the workstation MCP port publicly.
-
-On Windows, after normal setup:
-
-```powershell
-npm run openai:tunnel:install:windows
-$env:RWMCP_PORT = "8683" # optional custom loopback port
-$env:CONTROL_PLANE_TUNNEL_ID = "tunnel_0123456789abcdef0123456789abcdef"
-$env:CONTROL_PLANE_ORGANIZATION_ID = "org_example" # recommended for org-scoped tunnels
-$env:CONTROL_PLANE_API_KEY = "<runtime-api-key>"
 npm run start:openai:windows
 ```
 
-The installer pins the official OpenAI `tunnel-client` v0.0.14 Windows AMD64 release and verifies its published SHA-256 before extraction. The supervisor then:
+The Windows launchers reuse saved settings unless an explicit environment variable overrides them.
+
+See [Local Setup Console](docs/SETUP_CONSOLE.md) and [Windows runtime](docs/WINDOWS.md).
+
+## ChatGPT Web access
+
+A web-hosted ChatGPT session cannot directly reach `127.0.0.1` on your workstation. Remote Workstation MCP uses OpenAI Secure MCP Tunnel rather than asking you to expose an inbound public port.
+
+The supervisor:
 
 1. starts Remote Workstation MCP on loopback with bearer authentication;
 2. generates a fresh local MCP bearer unless the owner supplied one;
@@ -86,11 +87,17 @@ The installer pins the official OpenAI `tunnel-client` v0.0.14 Windows AMD64 rel
 5. starts the outbound tunnel and waits for its `/readyz` endpoint;
 6. stops MCP and tunnel together when the session ends.
 
-Managed Cloudflare runtime material is optional and disabled by default in v0.7.1. Only set `CLOUDFLARED_MANAGED=true` when the selected logical tunnel actually has managed Cloudflare runtime material provisioned. A `404 Managed Cloudflare tunnel runtime material not found` response is a signal to keep managed mode disabled, not an MCP authentication failure.
+Managed Cloudflare runtime material is optional and disabled by default. Only set `CLOUDFLARED_MANAGED=true` when the selected logical tunnel actually has managed Cloudflare runtime material provisioned.
 
 The OpenAI runtime API key is **not forwarded into the MCP child process**. The default tunnel principal scopes are `workstation.read,workstation.write,workstation.execute`; full-control still requires explicit full-control scope, a time-limited owner lease, and the corresponding dangerous-feature gate.
 
-See [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md) for the complete trust boundary and current OpenAI setup flow.
+### ChatGPT Web product boundary
+
+As of September 2026, OpenAI documents full custom MCP apps with write/modify and Developer Mode for ChatGPT **Business, Enterprise and Edu** on the web. The workstation/tunnel stack can be configured and verified independently of that product entitlement.
+
+For an eligible workspace, keep `npm run start:openai:windows` running, then create a ChatGPT custom app with **Connection: Tunnel** and select or paste the authorized `tunnel_...` ID.
+
+See [ChatGPT Web custom app / MCP connection](docs/CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md).
 
 ## Plugin package
 
@@ -114,14 +121,14 @@ The bundled local MCP mapping remains:
 http://127.0.0.1:8765/mcp
 ```
 
-That static mapping is for portable local plugin compatibility. If another local plugin already owns `8765`, either customize the local integration or use the Secure MCP Tunnel path, which follows `RWMCP_PORT` dynamically.
+That static mapping is for portable local plugin compatibility. If another local plugin already owns `8765`, either customize the local integration or use the Secure MCP Tunnel path, which follows the configured `RWMCP_PORT` dynamically.
 
-For repo/local plugin development, the workstation runtime must be running on the same machine. For ChatGPT/cloud reachability, use the Secure MCP Tunnel path instead of public port-forwarding.
+Portable plugin packaging and ChatGPT Web attachment are separate layers: ChatGPT Web reaches the private workstation through Secure MCP Tunnel and its custom app/connector setup, not by publishing the local plugin manifest to the Internet.
 
 Example Codex marketplace setup:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.1
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.2
 codex plugin marketplace list
 ```
 
@@ -130,6 +137,12 @@ See [Plugin installation](docs/PLUGIN_INSTALL.md) for packaging and compatibilit
 ## Architecture
 
 ```text
+Owner setup
+Local Setup Console (127.0.0.1 only)
+        |
+        +--> persisted non-secret settings
+        +--> Windows DPAPI runtime key (optional)
+
 Local clients                         OpenAI-hosted clients
 Codex / Cursor / Claude               ChatGPT / Responses / Codex
         |                                      |
@@ -158,8 +171,9 @@ The connection provider does not bypass MCP authorization. File contents, tool o
 
 ## Current capabilities
 
-| Area | MCP tools |
+| Area | MCP tools / surface |
 | --- | --- |
+| Owner setup | local-only Setup Console; persisted settings; Windows DPAPI runtime-key storage |
 | Discovery | `capabilities_list`, `system_info`, `tool_discover`, `update_check` |
 | Workspaces/files | `workspace_list`, `fs_list`, `fs_find`, `fs_search_text`, `fs_read`, `fs_write`, `fs_patch` |
 | Git | `git_status`, `git_diff`, `git_log`, `git_branches`, `git_add`, `git_commit`, `git_branch_create`, `git_branch_switch`, `git_worktree_list`, `git_worktree_add`, `git_worktree_remove` |
@@ -175,6 +189,10 @@ A true PTY/ConPTY terminal layer and an isolated root/Administrator helper are s
 
 - Safe default mode is workspace-scoped.
 - Local policy is never writable through MCP.
+- Setup Console binds only to loopback and requires an ephemeral setup token for mutation/status APIs.
+- Setup Console rejects non-loopback clients and cross-origin browser requests.
+- Persisted non-secret settings live outside the repository; the Windows runtime key is stored separately with current-user DPAPI protection.
+- Setup Console never silently overwrites an existing owner policy or SSH hosts configuration.
 - Workspace paths are canonicalized after symlink/reparse resolution.
 - Normal process execution uses executable + argv with `shell: false` and an owner allowlist.
 - Managed processes and their output/stdin are isolated to the creating authenticated principal or fallback local client profile.
@@ -205,7 +223,7 @@ Core runtime:
 - OpenSSH client when SSH tools are used
 - Windows 10/11 or Linux/Ubuntu
 
-OpenAI Secure MCP Tunnel additionally requires an OpenAI tunnel id, a runtime API key with Tunnels Read + Use, and a supported `tunnel-client` binary. The Windows helper installs and verifies the pinned official release; other platforms can provide `tunnel-client` through `PATH` or `RWMCP_OPENAI_TUNNEL_CLIENT`.
+OpenAI Secure MCP Tunnel additionally requires an OpenAI tunnel id, a runtime API key with Tunnels Read + Use, and a supported `tunnel-client` binary. The Windows Setup Console/installer verifies the pinned official release; other platforms can provide `tunnel-client` through `PATH` or `RWMCP_OPENAI_TUNNEL_CLIENT`.
 
 ## Managed Linux installation
 
@@ -220,7 +238,7 @@ The installer validates/builds the project, installs a versioned runtime, create
 ```text
 ~/.local/share/remote-workstation-mcp/
 ├── versions/<version>/
-├── current -> versions/<version>
+├── current -> versions/<version>/
 ├── previous -> ...
 └── runtime/
 
@@ -363,6 +381,8 @@ bash scripts/rollback-user.sh
 
 ## Documentation
 
+- [Local Setup Console](docs/SETUP_CONSOLE.md)
+- [ChatGPT Web custom app / MCP connection](docs/CHATGPT_WEB.md)
 - [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md)
 - [Windows runtime](docs/WINDOWS.md)
 - [Plugin installation](docs/PLUGIN_INSTALL.md)

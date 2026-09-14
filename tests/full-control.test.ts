@@ -52,7 +52,10 @@ test('raw shell executes only when full-control gate and lease are active', asyn
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const { config, lease } = configured(root);
   const shell = new FullControlAdapter(new PolicyEngine(config, lease, 'test-client'));
-  const result = await shell.shell("printf 'rwmcp-ok'", root, 1000);
-  assert.equal(result.ok, true);
+  const command = os.platform() === 'win32'
+    ? "[Console]::Out.Write('rwmcp-ok')"
+    : "printf 'rwmcp-ok'";
+  const result = await shell.shell(command, root, 1000);
+  assert.equal(result.ok, true, result.stderr);
   assert.equal(result.stdout, 'rwmcp-ok');
 });

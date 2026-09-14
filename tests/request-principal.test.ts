@@ -15,6 +15,18 @@ test('read scoped principal can inspect semantic code but cannot mutate or execu
     assert.doesNotThrow(() => assertToolScope('lsp_diagnostics'));
     assert.throws(() => assertToolScope('fs_write'), /lacks required scope 'workstation.write'/);
     assert.throws(() => assertToolScope('process_start'), /lacks required scope 'workstation.execute'/);
+    assert.throws(() => assertToolScope('process_write'), /lacks required scope 'workstation.execute'/);
+    assert.throws(() => assertToolScope('process_close_stdin'), /lacks required scope 'workstation.execute'/);
+  });
+});
+
+test('execute scoped principal can start and interact with managed processes', () => {
+  runAsPrincipal({ id: 'runner', type: 'test', scopes: ['workstation.execute'], authenticated: true }, () => {
+    assert.doesNotThrow(() => assertToolScope('process_start'));
+    assert.doesNotThrow(() => assertToolScope('process_write'));
+    assert.doesNotThrow(() => assertToolScope('process_close_stdin'));
+    assert.doesNotThrow(() => assertToolScope('process_stop'));
+    assert.throws(() => assertToolScope('fs_write'), /lacks required scope 'workstation.write'/);
   });
 });
 
@@ -23,6 +35,7 @@ test('full-control scope implies workstation read/write/execute/full-control sco
     assert.doesNotThrow(() => assertToolScope('fs_read'));
     assert.doesNotThrow(() => assertToolScope('fs_write'));
     assert.doesNotThrow(() => assertToolScope('process_start'));
+    assert.doesNotThrow(() => assertToolScope('process_write'));
     assert.doesNotThrow(() => assertToolScope('shell_exec'));
   });
 });

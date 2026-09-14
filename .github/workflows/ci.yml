@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  build-test:
+  build-test-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,3 +64,76 @@ jobs:
           node scripts/doctor-user.mjs --json
       - name: Smoke-test packed artifact
         run: bash scripts/smoke-package.sh
+
+  build-test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package.json
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Validate plugin package
+        run: npm run plugin:validate
+      - name: Smoke-test loopback HTTP runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tmp = Join-Path $env:RUNNER_TEMP 'rwmcp-win-smoke'
+          $workspace = Join-Path $tmp 'workspace'
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+          $workspaceYaml = $workspace.Replace('\', '/')
+          $policy = @"
+          version: 1
+          mode: workspace
+          workspaces:
+            - id: smoke
+              root: $workspaceYaml
+              readOnly: false
+          filesystem:
+            maxReadBytes: 1048576
+            maxWriteBytes: 1048576
+          search:
+            maxResults: 20
+            maxFiles: 100
+            maxFileBytes: 1048576
+          process:
+            allowExecutables: [node]
+            inheritEnv: [PATH, USERPROFILE, TEMP, TMP]
+            maxOutputBytes: 65536
+            maxRuntimeMs: 30000
+          tasks: {}
+          "@
+          $hosts = @"
+          version: 1
+          hosts: []
+          "@
+          $policyPath = Join-Path $tmp 'policy.yaml'
+          $hostsPath = Join-Path $tmp 'hosts.yaml'
+          Set-Content -Path $policyPath -Value $policy -Encoding utf8
+          Set-Content -Path $hostsPath -Value $hosts -Encoding utf8
+          $env:RWMCP_POLICY = $policyPath
+          $env:RWMCP_HOSTS = $hostsPath
+          $env:RWMCP_AUDIT = Join-Path $tmp 'audit.jsonl'
+          $env:RWMCP_CLIENT_ID = 'windows-ci'
+          $env:RWMCP_CLIENT_TYPE = 'ci'
+          $process = Start-Process -FilePath node -ArgumentList 'dist/cli.js','--http' -PassThru -WindowStyle Hidden
+          try {
+            $healthy = $false
+            foreach ($attempt in 1..30) {
+              Start-Sleep -Milliseconds 250
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/healthz' -TimeoutSec 2
+                if ($health.ok -eq $true) { $healthy = $true; break }
+              } catch {}
+            }
+            if (-not $healthy) { throw 'Windows loopback MCP health check did not become ready.' }
+            if ($health.mode -ne 'workspace') { throw "Unexpected mode: $($health.mode)" }
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "remote-workstation",
+  "version": "0.6.0",
+  "description": "Operate an owner-authorized engineering workstation through MCP: inspect and edit files, search code, run builds and processes, inspect Git, use approved SSH hosts, and request only the permissions the owner has explicitly enabled.",
+  "author": {
+    "name": "Tunglam0605",
+    "url": "https://github.com/Tunglam0605"
+  },
+  "homepage": "https://github.com/Tunglam0605/remote-workstation-mcp",
+  "repository": "https://github.com/Tunglam0605/remote-workstation-mcp",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "chatgpt",
+    "codex",
+    "workstation",
+    "developer-tools",
+    "remote-control",
+    "ssh",
+    "automation",
+    "multi-agent"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Remote Workstation",
+        "shortDescription": "Operate your authorized engineering workstation",
+        "longDescription": "Use Remote Workstation MCP to inspect and edit approved workspaces, search source code, run build and test tasks, supervise processes, inspect Git state, discover installed development tools, and execute approved commands on configured SSH hosts. Dangerous host-level shell and filesystem operations remain disabled unless the owner explicitly enables local policy gates and grants a short-lived client-bound permission lease.",
+        "developerName": "Tunglam0605",
+        "category": "Productivity",
+        "capabilities": [
+          "Interactive",
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://github.com/Tunglam0605/remote-workstation-mcp",
+        "privacyPolicyURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PRIVACY.md",
+        "termsOfServiceURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PLUGIN_TERMS.md",
+        "defaultPrompt": [
+          "Check my Remote Workstation health and list the workspaces I authorized.",
+          "Find the current build error, make the smallest safe fix, run tests, and show the Git diff.",
+          "List approved SSH hosts and probe the host I name before running a remote command."
+        ],
+        "brandColor": "#10A37F",
+        "screenshots": []
+      }
+    }
+  }
+}

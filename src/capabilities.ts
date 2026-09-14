@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.5.2';
+export const SERVER_VERSION = '0.6.0';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -22,7 +22,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'permission.elevation', status: 'available', tools: ['permission_status'], note: 'Grant/revoke is local-owner-only and never exposed as an MCP tool.' },
   { id: 'full_control.host_filesystem', status: 'available', tools: ['host_fs_list', 'host_fs_read', 'host_fs_write'], note: 'Requires full-control lease plus explicit local policy gate.' },
   { id: 'full_control.shell', status: 'available', tools: ['shell_exec'], note: 'Requires client-bound full-control lease plus explicit raw-shell policy gate.' },
-  { id: 'full_control.admin', status: 'planned', tools: [], note: 'Root/admin control will use a separately isolated privileged helper; it is not exposed by the v0.5 MCP process.' },
+  { id: 'full_control.admin', status: 'planned', tools: [], note: 'Root/admin control will use a separately isolated privileged helper; it is not exposed by the v0.6 MCP process.' },
   { id: 'engineering.debug', status: 'planned', tools: [] },
   { id: 'agent.orchestration', status: 'planned', tools: [] }
 ];

@@ -47,11 +47,26 @@
 - raw user-level shell behind full-control gates
 - managed service hardening with `NoNewPrivileges=true`
 - owner-controlled lease grant/revoke scripts
-- operational/client documentation
+- release artifact smoke tests, doctor and safe uninstall
 
 `v0.5` intentionally does **not** expose root/Administrator execution. Full control means the permissions of the OS account running the agent.
 
-## v0.6 — Authenticated identities + concurrent engineering sessions
+## v0.6 — Installable ChatGPT/Codex plugin ✅
+
+- portable Agent Plugins `plugin.json`
+- portable bundled MCP `mcp.json`
+- `.codex-plugin/plugin.json` compatibility manifest
+- repository marketplace at `.agents/plugins/marketplace.json`
+- workstation-operator skill for safe engineering loops
+- OpenAI install-surface metadata
+- privacy and plugin usage disclosures
+- plugin package validation in CI/prepack
+- ChatGPT desktop/Codex marketplace installation guide
+- explicit separation between local desktop distribution and future universal web/public distribution
+
+The v0.6 local plugin keeps the MCP endpoint on `127.0.0.1`. It does not expose the workstation directly to the Internet.
+
+## v0.7 — Authenticated identities + concurrent engineering sessions
 
 - transport-authenticated principal identity where supported
 - per-client roles/capability policy instead of observability tags alone
@@ -60,7 +75,7 @@
 - safe merge/review handoff between agents
 - stronger conflict detection for non-file resources
 
-## v0.7 — Engineering adapters
+## v0.8 — Engineering adapters
 
 - typed Git write operations with policy gates
 - Docker/container workflows
@@ -72,15 +87,17 @@
 
 Raw shell will remain available only as an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
-## v0.8 — Isolated privileged helper + stronger sandboxing
+## v0.9 — Privileged helper + public web connection layer
 
 - separately isolated privileged helper for narrowly scoped root/admin operations
 - explicit owner approval protocol
 - capability-specific sudo/root contracts rather than unrestricted privileged shell
 - optional container/namespace sandbox for untrusted build/test workloads
+- secure authenticated outbound workstation pairing/relay for ChatGPT web
+- remote HTTPS MCP/app registration path suitable for public plugin review
 - release artifact signing, provenance and SBOM
 
-## v0.9 — Multi-agent orchestration
+## v0.10 — Multi-agent orchestration
 
 - task broker
 - agent registry
@@ -93,9 +110,10 @@ Raw shell will remain available only as an explicitly elevated escape hatch; rou
 
 Target criteria:
 
-- compatibility validation across major MCP clients
+- compatibility validation across major MCP/plugin clients
 - reproducible install/update/rollback
-- hardened policy and identity model
+- hardened policy and authenticated identity model
 - stable tool contracts
 - operational documentation and migration guidance
-- security review of workspace, SSH, update, full-control and privileged-helper boundaries
+- public/private distribution story with clear trust boundaries
+- security review of workspace, SSH, update, full-control, public relay and privileged-helper boundaries

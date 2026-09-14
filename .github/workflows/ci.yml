@@ -22,6 +22,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Validate plugin package
+        run: npm run plugin:validate
       - name: Smoke-test local doctor
         shell: bash
         run: |

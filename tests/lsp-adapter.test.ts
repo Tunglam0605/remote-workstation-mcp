@@ -10,9 +10,25 @@ import { PathGuard } from '../src/security/path-guard.js';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+async function removeEventually(target: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    try {
+      await fs.rm(target, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EBUSY' && code !== 'EPERM') throw error;
+      await sleep(100);
+    }
+  }
+  throw lastError;
+}
+
 test('LSP adapter provides bounded semantic queries and redacts external paths', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-lsp-'));
-  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  t.after(async () => removeEventually(root));
   await fs.writeFile(path.join(root, 'main.cpp'), 'int demo;\nint main() { return demo; }\n', 'utf8');
 
   const executable = path.basename(process.execPath);
@@ -61,7 +77,7 @@ test('LSP adapter provides bounded semantic queries and redacts external paths',
 
 test('LSP adapter requires the configured server executable to be owner-allowlisted', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-lsp-policy-'));
-  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  t.after(async () => removeEventually(root));
   await fs.writeFile(path.join(root, 'main.cpp'), 'int main() {}\n', 'utf8');
 
   const config: PolicyConfig = {

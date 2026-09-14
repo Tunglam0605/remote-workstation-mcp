@@ -66,6 +66,7 @@ process:
     - TMP
   maxOutputBytes: 262144
   maxRuntimeMs: 600000
+  maxInputBytes: 65536
 
 tasks: {}
 

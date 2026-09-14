@@ -23,8 +23,10 @@ $StateDir = Join-Path $UserConfigDir 'runtime'
 $StatePath = Join-Path $StateDir 'supervisor.json'
 $StdoutLog = Join-Path $StateDir 'supervisor.stdout.log'
 $StderrLog = Join-Path $StateDir 'supervisor.stderr.log'
+$StdinNull = Join-Path $StateDir 'empty.stdin'
 $TaskName = 'Remote Workstation MCP'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+if (-not (Test-Path $StdinNull)) { Set-Content -Path $StdinNull -Value '' -Encoding ascii }
 
 function Read-State {
   if (-not (Test-Path $StatePath)) { return $null }
@@ -59,6 +61,33 @@ function Stop-ProcessTree([int]$rootProcessId) {
     Stop-Process -Id ([int]$descendants[$i]) -Force -ErrorAction SilentlyContinue
   }
   Stop-Process -Id $rootProcessId -Force -ErrorAction SilentlyContinue
+}
+
+function Test-StartupTaskRegistered {
+  $schtasks = Get-Command schtasks.exe -ErrorAction SilentlyContinue
+  if (-not $schtasks) { return $false }
+
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $schtasks.Source
+  $psi.Arguments = "/Query /TN `"$TaskName`""
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $probe = New-Object System.Diagnostics.Process
+  $probe.StartInfo = $psi
+  try {
+    [void]$probe.Start()
+    if (-not $probe.WaitForExit(2000)) {
+      try { $probe.Kill() } catch {}
+      return $false
+    }
+    return $probe.ExitCode -eq 0
+  } catch {
+    return $false
+  } finally {
+    $probe.Dispose()
+  }
 }
 
 function Apply-RuntimeEnvironment([string]$runtimeMode) {
@@ -125,8 +154,7 @@ function Runtime-Status {
     } catch {}
   }
 
-  $startupRegistered = $false
-  try { $startupRegistered = $null -ne (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) } catch {}
+  $startupRegistered = Test-StartupTaskRegistered
 
   return [pscustomobject]@{
     running = $null -ne $managed
@@ -158,9 +186,10 @@ function Start-Runtime([string]$runtimeMode) {
   if (-not (Test-Path $entrypoint)) { throw "Runtime entrypoint not found: $entrypoint" }
 
   Remove-Item -Path $StdoutLog, $StderrLog -Force -ErrorAction SilentlyContinue
+  Set-Content -Path $StdinNull -Value '' -Encoding ascii
   $arguments = @($entrypoint)
   if ($runtimeMode -eq 'Local') { $arguments += '--http' }
-  $process = Start-Process -FilePath $node.Source -ArgumentList $arguments -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog -PassThru
+  $process = Start-Process -FilePath $node.Source -ArgumentList $arguments -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardInput $StdinNull -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog -PassThru
   $state = [ordered]@{
     version = 1
     pid = $process.Id

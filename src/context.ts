@@ -18,14 +18,14 @@ import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
 
 export async function createContext() {
-  const [config, hostsConfig, lease] = await Promise.all([loadPolicy(), loadHosts(), loadPermissionLease()]);
-  const policy = new PolicyEngine(config, lease);
-  const paths = new PathGuard(policy);
-  const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const actor = {
     clientId: process.env.RWMCP_CLIENT_ID ?? 'unknown',
     clientType: process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client'
   };
+  const [config, hostsConfig, lease] = await Promise.all([loadPolicy(), loadHosts(), loadPermissionLease()]);
+  const policy = new PolicyEngine(config, lease, actor.clientId);
+  const paths = new PathGuard(policy);
+  const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const processes = new ProcessManager(policy, paths);
   return {
     config,

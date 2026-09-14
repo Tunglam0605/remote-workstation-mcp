@@ -9,7 +9,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $Repo = 'Tunglam0605/remote-workstation-mcp'
-$Base = Join-Path ($env:LOCALAPPDATA ?? (Join-Path $HOME 'AppData\Local')) 'RemoteWorkstationMCP'
+$LocalBase = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }
+$Base = Join-Path $LocalBase 'RemoteWorkstationMCP'
 $VersionsDir = Join-Path $Base 'versions'
 $BinDir = Join-Path $Base 'bin'
 $ConfigDir = Join-Path $Base 'config'
@@ -104,7 +105,9 @@ if ($Rollback) {
 Require-OrInstall 'node' 'OpenJS.NodeJS.LTS'
 Require-OrInstall 'npm' 'OpenJS.NodeJS.LTS'
 Require-OrInstall 'git' 'Git.Git'
-Require-OrInstall 'tar.exe' 'Microsoft.PowerShell'
+if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
+  throw 'Windows tar.exe is required to extract the verified release package.'
+}
 
 $nodeVersion = (& node --version).TrimStart('v')
 $nodeMajor = [int]($nodeVersion.Split('.')[0])
@@ -158,8 +161,12 @@ try {
     try {
       & npm install --omit=dev --no-audit --no-fund --ignore-scripts
       if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE)." }
-      & node dist/cli.js --version | Out-Null
-      if ($LASTEXITCODE -ne 0) { throw 'Installed runtime version check failed.' }
+      $reportedVersion = (& node dist/cli.js --version 2>&1 | Out-String).Trim()
+      if ($LASTEXITCODE -ne 0 -or $reportedVersion -notmatch [regex]::Escape($manifest.version)) {
+        throw "Installed runtime version check failed: $reportedVersion"
+      }
+      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Slot 'scripts\install-openai-tunnel-windows.ps1')
+      if ($LASTEXITCODE -ne 0) { throw 'OpenAI tunnel-client installation failed.' }
     } finally { Pop-Location }
   } else {
     Write-Host "Runtime slot already exists: $Slot" -ForegroundColor Yellow

@@ -6,17 +6,38 @@ import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
 
+type OwnerIdSource = string | (() => string);
+
 type Managed = ProcessSnapshot & {
   child: ChildProcessWithoutNullStreams;
   timer?: NodeJS.Timeout;
   stdoutBase: number;
   stderrBase: number;
+  ownerId: string;
 };
 
 export class ProcessManager {
   private readonly processes = new Map<string, Managed>();
 
-  constructor(private readonly policy: PolicyEngine, private readonly paths: PathGuard) {}
+  constructor(
+    private readonly policy: PolicyEngine,
+    private readonly paths: PathGuard,
+    private readonly ownerIdSource: OwnerIdSource = 'unknown'
+  ) {}
+
+  private ownerId(): string {
+    const value = typeof this.ownerIdSource === 'function' ? this.ownerIdSource() : this.ownerIdSource;
+    return value || 'unknown';
+  }
+
+  private owned(id: string): Managed {
+    const managed = this.processes.get(id);
+    if (!managed || managed.ownerId !== this.ownerId()) {
+      // Deliberately do not reveal whether a process exists for another principal.
+      throw new Error(`Unknown process id '${id}'.`);
+    }
+    return managed;
+  }
 
   private append(current: string, base: number, chunk: Buffer): { text: string; base: number } {
     let next = current + chunk.toString('utf8');
@@ -41,6 +62,7 @@ export class ProcessManager {
     this.policy.workspace(workspace);
     this.policy.assertExecute(program);
     const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
+    const ownerId = this.ownerId();
     const child = spawn(program, args, {
       cwd,
       shell: false,
@@ -62,6 +84,7 @@ export class ProcessManager {
       stderrBase: 0,
       exitCode: null,
       startedAt: new Date().toISOString(),
+      ownerId,
       child
     };
     this.processes.set(id, managed);
@@ -99,14 +122,11 @@ export class ProcessManager {
   }
 
   read(id: string): ProcessSnapshot {
-    const managed = this.processes.get(id);
-    if (!managed) throw new Error(`Unknown process id '${id}'.`);
-    return this.snapshot(managed);
+    return this.snapshot(this.owned(id));
   }
 
   readSince(id: string, stdoutCursor = 0, stderrCursor = 0): ProcessReadSince {
-    const managed = this.processes.get(id);
-    if (!managed) throw new Error(`Unknown process id '${id}'.`);
+    const managed = this.owned(id);
     return {
       process: this.snapshot(managed),
       stdout: this.sliceSince(managed.stdout, managed.stdoutBase, stdoutCursor),
@@ -115,12 +135,14 @@ export class ProcessManager {
   }
 
   list(): ProcessSnapshot[] {
-    return [...this.processes.values()].map(item => this.snapshot(item));
+    const ownerId = this.ownerId();
+    return [...this.processes.values()]
+      .filter(item => item.ownerId === ownerId)
+      .map(item => this.snapshot(item));
   }
 
   stop(id: string): ProcessSnapshot {
-    const managed = this.processes.get(id);
-    if (!managed) throw new Error(`Unknown process id '${id}'.`);
+    const managed = this.owned(id);
     if (managed.status === 'running') {
       managed.status = 'stopped';
       managed.child.kill('SIGTERM');
@@ -131,7 +153,14 @@ export class ProcessManager {
   }
 
   private snapshot(managed: Managed): ProcessSnapshot {
-    const { child: _child, timer: _timer, stdoutBase: _stdoutBase, stderrBase: _stderrBase, ...snapshot } = managed;
+    const {
+      child: _child,
+      timer: _timer,
+      stdoutBase: _stdoutBase,
+      stderrBase: _stderrBase,
+      ownerId: _ownerId,
+      ...snapshot
+    } = managed;
     return { ...snapshot, args: [...snapshot.args] };
   }
 }

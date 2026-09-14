@@ -35,7 +35,15 @@ const schema = z.object({
     maxOutputBytes: z.number().int().positive().max(4 * 1024 * 1024).default(256 * 1024),
     maxRuntimeMs: z.number().int().positive().max(24 * 60 * 60 * 1000).default(10 * 60 * 1000)
   }).default({ allowExecutables: [], inheritEnv: ['PATH', 'HOME', 'LANG', 'TERM', 'TMPDIR', 'TMP', 'TEMP'], maxOutputBytes: 256 * 1024, maxRuntimeMs: 600000 }),
-  tasks: z.record(z.string().regex(/^[A-Za-z0-9._-]+$/), taskSchema).default({})
+  tasks: z.record(z.string().regex(/^[A-Za-z0-9._-]+$/), taskSchema).default({}),
+  fullControl: z.object({
+    allowRawShell: z.boolean().default(false),
+    allowHostFilesystem: z.boolean().default(false)
+  }).default({ allowRawShell: false, allowHostFilesystem: false }),
+  privileged: z.object({
+    allowSudo: z.boolean().default(false),
+    maxRuntimeMs: z.number().int().positive().max(60 * 60 * 1000).default(10 * 60 * 1000)
+  }).default({ allowSudo: false, maxRuntimeMs: 600000 })
 });
 
 function expandHome(value: string): string {

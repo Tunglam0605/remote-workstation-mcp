@@ -35,32 +35,52 @@ function Read-State {
 }
 
 function Get-ManagedProcess($state) {
-  if (-not $state -or -not ($state.PSObject.Properties.Name -contains 'pid')) { return $null }
-  $processId = [int]$state.pid
-  $process = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
-  if (-not $process) { return $null }
-  $expected = if ($state.PSObject.Properties.Name -contains 'entrypoint') { [string]$state.entrypoint } else { '' }
-  if ($expected -and ($process.CommandLine -notlike "*$expected*")) { return $null }
-  return $process
+  if (-not $state) { return $null }
+  $required = @('pid', 'processPath', 'startedAt')
+  foreach ($name in $required) {
+    if (-not ($state.PSObject.Properties.Name -contains $name)) { return $null }
+  }
+
+  try {
+    $process = Get-Process -Id ([int]$state.pid) -ErrorAction Stop
+    $actualPath = [IO.Path]::GetFullPath([string]$process.Path)
+    $expectedPath = [IO.Path]::GetFullPath([string]$state.processPath)
+    if (-not [string]::Equals($actualPath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+
+    $expectedStarted = [DateTimeOffset]::Parse([string]$state.startedAt).UtcDateTime
+    $actualStarted = $process.StartTime.ToUniversalTime()
+    if ([Math]::Abs(($actualStarted - $expectedStarted).TotalSeconds) -gt 10) { return $null }
+    return $process
+  } catch {
+    return $null
+  }
 }
 
 function Stop-ProcessTree([int]$rootProcessId) {
-  $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId)
-  $queue = New-Object System.Collections.Queue
-  $descendants = New-Object System.Collections.ArrayList
-  $queue.Enqueue($rootProcessId)
-  while ($queue.Count -gt 0) {
-    $parent = [int]$queue.Dequeue()
-    foreach ($child in @($all | Where-Object { [int]$_.ParentProcessId -eq $parent })) {
-      $childId = [int]$child.ProcessId
-      [void]$descendants.Add($childId)
-      $queue.Enqueue($childId)
+  $taskkill = Get-Command taskkill.exe -ErrorAction SilentlyContinue
+  if (-not $taskkill) {
+    Stop-Process -Id $rootProcessId -Force -ErrorAction SilentlyContinue
+    return
+  }
+
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $taskkill.Source
+  $psi.Arguments = "/PID $rootProcessId /T /F"
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $killer = New-Object System.Diagnostics.Process
+  $killer.StartInfo = $psi
+  try {
+    [void]$killer.Start()
+    if (-not $killer.WaitForExit(10000)) {
+      try { $killer.Kill() } catch {}
+      throw "Timed out while stopping managed process tree rooted at PID $rootProcessId."
     }
+  } finally {
+    $killer.Dispose()
   }
-  for ($i = $descendants.Count - 1; $i -ge 0; $i--) {
-    Stop-Process -Id ([int]$descendants[$i]) -Force -ErrorAction SilentlyContinue
-  }
-  Stop-Process -Id $rootProcessId -Force -ErrorAction SilentlyContinue
 }
 
 function Test-StartupTaskRegistered {
@@ -158,7 +178,7 @@ function Runtime-Status {
 
   return [pscustomobject]@{
     running = $null -ne $managed
-    pid = if ($managed) { [int]$managed.ProcessId } else { $null }
+    pid = if ($managed) { [int]$managed.Id } else { $null }
     mode = if ($state -and ($state.PSObject.Properties.Name -contains 'mode')) { [string]$state.mode } else { $null }
     root = if ($state -and ($state.PSObject.Properties.Name -contains 'root')) { [string]$state.root } else { $Root }
     port = $port
@@ -190,14 +210,16 @@ function Start-Runtime([string]$runtimeMode) {
   $arguments = @($entrypoint)
   if ($runtimeMode -eq 'Local') { $arguments += '--http' }
   $process = Start-Process -FilePath $node.Source -ArgumentList $arguments -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardInput $StdinNull -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog -PassThru
+  $startedAt = [DateTimeOffset]$process.StartTime.ToUniversalTime()
   $state = [ordered]@{
     version = 1
     pid = $process.Id
     mode = $runtimeMode
     root = $Root
     entrypoint = $entrypoint
+    processPath = $node.Source
     port = [int]$env:RWMCP_PORT
-    startedAt = [DateTimeOffset]::UtcNow.ToString('o')
+    startedAt = $startedAt.ToString('o')
   }
   $state | ConvertTo-Json | Set-Content -Path $StatePath -Encoding utf8
 
@@ -222,7 +244,7 @@ function Start-Runtime([string]$runtimeMode) {
 function Stop-Runtime {
   $state = Read-State
   $managed = Get-ManagedProcess $state
-  if ($managed) { Stop-ProcessTree ([int]$managed.ProcessId) }
+  if ($managed) { Stop-ProcessTree ([int]$managed.Id) }
   Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
   Start-Sleep -Milliseconds 300
   return Runtime-Status

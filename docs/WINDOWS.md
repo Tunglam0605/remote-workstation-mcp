@@ -1,69 +1,160 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.2 validates the core runtime on both Ubuntu and Windows and includes a loopback-only Setup Console plus the outbound OpenAI Secure MCP Tunnel path for ChatGPT/cloud access.
+Remote Workstation MCP v0.7.3 supports two Windows workflows:
+
+1. **managed release installation** for normal/new-machine use;
+2. **repository development** for contributors.
+
+Both keep the MCP endpoint loopback-only and can use the outbound OpenAI Secure MCP Tunnel path.
 
 ## Requirements
 
 - Windows 10/11
+- PowerShell 5.1+ or PowerShell 7+
 - Node.js 22+
 - npm
 - Git
 - OpenSSH client when SSH tools are needed
-- PowerShell 5.1+ or PowerShell 7+
 
-## Recommended new-machine setup
+The managed installer can use `winget` to install Node.js LTS and Git when they are missing.
+
+## Recommended managed installation
+
+```powershell
+$installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
+Invoke-WebRequest `
+  'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
+  -OutFile $installer
+powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
+```
+
+The installer downloads the release package and `SHA256SUMS.txt`, verifies the package digest, installs a versioned runtime slot, installs the pinned OpenAI tunnel-client, writes a stable launcher and opens the local Setup & Control Center.
+
+No Git checkout is required for the managed runtime itself.
+
+Managed state lives under:
+
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\
+```
+
+Application versions are isolated under `versions\vX.Y.Z\`; owner configuration and secrets remain outside those slots.
+
+## Repository-development setup
 
 ```powershell
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.2
-npm run setup:windows
-npm run setup:web:windows
+git checkout v0.7.3
+npm run setup:first-run:windows
 ```
 
-`setup:windows` installs dependencies, runs typecheck/tests/build/plugin validation, and creates a safe default policy/SSH hosts file only when they do not already exist.
+This installs development dependencies, runs typecheck/tests/build/plugin validation and opens the same loopback-only web UI.
 
-`setup:web:windows` opens the owner-local Setup Console on `127.0.0.1`. The UI lets the owner choose a loopback MCP port, workspace root, OpenAI tunnel/org values, install the verified official tunnel-client, and optionally store the OpenAI runtime API key with Windows DPAPI.
+## Setup & Control Center
 
-The default workspace is:
+The UI configures the MCP port, workspace root, OpenAI tunnel ID, organization ID, Cloudflare-managed preference and Windows DPAPI runtime-key persistence.
+
+It also provides owner-local runtime controls:
+
+- start local MCP;
+- start ChatGPT/OpenAI tunnel mode;
+- stop/restart;
+- view MCP health/version/auth;
+- view tunnel readiness;
+- enable/disable current-user start-at-logon.
+
+The UI is not an MCP tool and is never exposed through the tunnel. Full-control gates and permission leases are deliberately excluded.
+
+See [Setup & Control Center](SETUP_CONSOLE.md).
+
+## Stable launcher
+
+Managed installs create:
 
 ```text
-%USERPROFILE%\Documents\RemoteWorkspaces
+%LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1
 ```
 
-Non-secret setup state is stored outside the repo:
+Example:
+
+```powershell
+$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
+& $ctl -Action Setup
+& $ctl -Action StartOpenAI
+& $ctl -Action Status
+& $ctl -Action Stop
+```
+
+The launcher resolves `current.txt`, so start-at-logon and operator commands continue to follow the active version after an update.
+
+## Update and rollback
+
+```powershell
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Update
+```
+
+The installer adds a new verified version slot and moves `current.txt`. If a previous valid slot exists it is recorded in `previous.txt`.
+
+Rollback:
+
+```powershell
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Rollback
+```
+
+This switches the stable pointer back to the previous slot; it does not rewrite policy, hosts, settings, audit data or DPAPI secrets.
+
+## Start at logon
+
+The Control Center can register a Scheduled Task for the current Windows user. The task uses `RunLevel Limited`, runs only after user logon and targets the stable launcher on managed installations.
+
+This feature does not grant Administrator privileges.
+
+## Configuration storage
+
+Non-secret setup state:
 
 ```text
 %LOCALAPPDATA%\RemoteWorkstationMCP\settings.json
 ```
 
-The optional runtime-key secret is stored separately as a current-user DPAPI blob:
+Stable owner config for managed installs:
+
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\config\policy.yaml
+%LOCALAPPDATA%\RemoteWorkstationMCP\config\hosts.yaml
+```
+
+DPAPI-protected runtime key:
 
 ```text
 %LOCALAPPDATA%\RemoteWorkstationMCP\secrets\openai-runtime-api-key.dpapi
 ```
 
-See [Local Setup Console](SETUP_CONSOLE.md).
+Runtime supervisor state/logs:
 
-## Local-only start
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\runtime\
+```
 
-After setup:
+Explicit environment variables remain authoritative over persisted setup values.
+
+## Local-only runtime
+
+Repository development:
 
 ```powershell
 npm run start:windows
 ```
 
-The launcher imports the persisted MCP port when `RWMCP_PORT` is not already set. Explicit environment variables always override saved settings.
+Managed installation:
 
-Example output for a workstation configured on port `8683`:
-
-```text
-MCP:    http://127.0.0.1:8683/mcp
-Health: http://127.0.0.1:8683/healthz
+```powershell
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Start
 ```
 
-Verify from a second PowerShell window:
+Health example:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8683/healthz
@@ -72,64 +163,44 @@ Invoke-RestMethod http://127.0.0.1:8683/healthz
 Expected fields include:
 
 ```text
-ok      : True
-version : 0.7.2
-mode    : workspace
+ok        : True
+version   : 0.7.3
+mode      : workspace
+transport : http-loopback
 ```
 
-A one-session override still works:
+## ChatGPT/OpenAI tunnel runtime
 
-```powershell
-$env:RWMCP_PORT = "9000"
-npm run start:windows
-```
-
-## ChatGPT/cloud start through OpenAI Secure MCP Tunnel
-
-Do **not** expose the local MCP port to the Internet.
-
-The Setup Console can install the pinned official OpenAI tunnel-client. The CLI equivalent is:
-
-```powershell
-npm run openai:tunnel:install:windows
-```
-
-After tunnel settings have been saved in the Setup Console, start with:
+Repository development:
 
 ```powershell
 npm run start:openai:windows
 ```
 
-The launcher reuses saved MCP port, tunnel ID, organization ID, Cloudflare preference, and DPAPI-protected runtime API key unless an explicit environment variable overrides them.
-
-The supervisor keeps MCP bound to loopback, enables bearer authentication, gives the tunnel principal read/write/execute scopes by default, runs `tunnel-client doctor`, starts the tunnel, and waits for `/readyz` before reporting success. The local MCP bearer is generated per run and is not persisted in the tunnel profile. The OpenAI runtime API key is not forwarded into the MCP child process.
-
-Managed Cloudflare runtime material remains optional and disabled by default. Only set:
+Managed installation:
 
 ```powershell
-$env:CLOUDFLARED_MANAGED = "true"
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action StartOpenAI
 ```
 
-when the selected tunnel is known to have managed Cloudflare runtime material provisioned.
+The tunnel path forces bearer authentication on the MCP leg. The local bearer is generated per run unless the owner supplies one. The OpenAI runtime API key is not forwarded into the MCP child process.
 
-See [ChatGPT Web](CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](OPENAI_SECURE_TUNNEL.md) for the complete connection path.
+Managed Cloudflare runtime material is optional and remains disabled unless explicitly selected.
+
+See [ChatGPT Web](CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](OPENAI_SECURE_TUNNEL.md).
 
 ## Windows security notes
 
-The Setup Console binds only to loopback, requires an ephemeral setup token for API calls, rejects cross-origin browser requests, and sends no-store responses. Stop it after onboarding.
+- Setup/control UI binds only to loopback.
+- API calls require an ephemeral setup token and same-origin browser access.
+- Managed stop validates the stored supervisor process before terminating its descendant tree.
+- Background state stores PIDs and operational metadata, not the OpenAI runtime API key.
+- Raw shell and host filesystem capabilities remain disabled by default.
+- Root/Administrator execution is not exposed by the normal MCP runtime.
+- Windows `.cmd`/`.bat` wrappers are not treated as equivalent to native executable execution in the normal process allowlist.
 
-The browser setup flow never exposes controls to enable raw shell, host-wide filesystem access, Administrator execution, or permission leases. Those remain explicit local-owner security operations.
-
-Windows normally restricts creation of symbolic links unless Developer Mode or elevated privileges are enabled. The project's security regression tests use directory junctions on Windows so path-escape protections can be validated without requiring Administrator privileges.
-
-The raw-shell adapter uses PowerShell on Windows and Bash on POSIX systems. Host-level raw shell and host filesystem capabilities remain disabled by default and still require local policy gates plus an active owner-issued permission lease.
-
-## Process execution
-
-Prefer native executables (`git.exe`, `node.exe`, `python.exe`, `cmake.exe`, `ninja.exe`) in Windows process allowlists. Windows `.cmd`/`.bat` wrapper execution is intentionally not treated as equivalent to native executable execution because routing arbitrary arguments through `cmd.exe` changes the shell-injection threat model.
-
-Managed processes support bounded pipe-backed stdin through `process_write` and `process_close_stdin`. This is useful for REPL-like tools and persistent engineering helpers, but it is not a PTY/ConPTY terminal emulator. A true terminal adapter remains a separate future layer.
+Managed process stdin remains pipe-backed; a true PTY/ConPTY adapter is a v0.8 roadmap item.
 
 ## Semantic code intelligence
 
-v0.7.2 supports owner-configured language servers for definition, references, hover, document symbols, and diagnostics. Language servers remain executable-allowlisted and workspace-bounded. Configure them under the `lsp` section of `config/policy.yaml`; see [LSP](LSP.md).
+Owner-configured language servers support definition, references, hover, document symbols and diagnostics. They remain executable-allowlisted and workspace-bounded. See [LSP](LSP.md).

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "remote-workstation",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Operate an owner-authorized engineering workstation through MCP: inspect and edit files, use semantic code intelligence, run builds and interactive managed processes, inspect Git, use approved SSH hosts, and request only permissions explicitly enabled by the owner.",
   "author": {
     "name": "Tunglam0605",
@@ -40,7 +40,7 @@
         "defaultPrompt": [
           "Check my Remote Workstation health and list the workspaces I authorized.",
           "Find the current build error, make the smallest safe fix, run tests, and show the Git diff.",
-          "Use semantic code tools first, then inspect only the files needed for my task."
+          "Use semantic code tools first, then inspect only the files needed."
         ],
         "brandColor": "#10A37F",
         "screenshots": []

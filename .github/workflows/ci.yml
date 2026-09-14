@@ -80,6 +80,33 @@ jobs:
       - run: npm run build
       - name: Validate plugin package
         run: npm run plugin:validate
+      - name: Parse Windows PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            'scripts/install-windows-release.ps1',
+            'scripts/runtime-control-windows.ps1',
+            'scripts/runtime-host-windows.ps1',
+            'scripts/windows-settings.ps1',
+            'scripts/windows-secret.ps1',
+            'scripts/setup-web-windows.ps1',
+            'scripts/start-windows.ps1',
+            'scripts/start-openai-windows.ps1'
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $file),
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count -gt 0) {
+              $messages = ($errors | ForEach-Object { $_.Message }) -join '; '
+              throw "PowerShell parse failed for ${file}: $messages"
+            }
+          }
       - name: Smoke-test persisted setup state and DPAPI
         shell: pwsh
         run: |
@@ -114,6 +141,53 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'DPAPI secret read failed.' }
           if ($roundTrip.Trim() -ne $testSecret) { throw 'DPAPI secret round-trip mismatch.' }
           Remove-Item -Path $configDir -Recurse -Force
+      - name: Smoke-test Windows runtime supervisor
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tmp = Join-Path $env:RUNNER_TEMP 'rwmcp-supervisor-smoke'
+          $workspace = Join-Path $tmp 'workspace'
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+          $workspaceYaml = $workspace.Replace('\', '/')
+          @"
+          version: 1
+          mode: workspace
+          workspaces:
+            - id: smoke
+              root: $workspaceYaml
+              readOnly: false
+          filesystem:
+            maxReadBytes: 1048576
+            maxWriteBytes: 1048576
+          search:
+            maxResults: 20
+            maxFiles: 100
+            maxFileBytes: 1048576
+          process:
+            allowExecutables: [node]
+            inheritEnv: [PATH, USERPROFILE, TEMP, TMP]
+            maxOutputBytes: 65536
+            maxRuntimeMs: 30000
+          tasks: {}
+          "@ | Set-Content -Path (Join-Path $tmp 'policy.yaml') -Encoding utf8
+          "version: 1`nhosts: []`n" | Set-Content -Path (Join-Path $tmp 'hosts.yaml') -Encoding utf8
+          $env:RWMCP_POLICY = Join-Path $tmp 'policy.yaml'
+          $env:RWMCP_HOSTS = Join-Path $tmp 'hosts.yaml'
+          $env:RWMCP_AUDIT = Join-Path $tmp 'audit.jsonl'
+          $env:RWMCP_PORT = '18766'
+          try {
+            $startRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Start -Mode Local -Root $PWD -Json
+            if ($LASTEXITCODE -ne 0) { throw 'Runtime supervisor start failed.' }
+            $start = ($startRaw | Select-Object -Last 1) | ConvertFrom-Json
+            if (-not $start.running -or -not $start.mcpHealthy) { throw "Runtime supervisor did not become healthy: $startRaw" }
+            if ($start.mcpVersion -ne '0.7.3') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
+            $statusRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Status -Root $PWD -Json
+            $status = ($statusRaw | Select-Object -Last 1) | ConvertFrom-Json
+            if (-not $status.running -or -not $status.mcpHealthy) { throw 'Runtime supervisor status check failed.' }
+          } finally {
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Stop -Root $PWD -Json | Out-Null
+          }
       - name: Smoke-test loopback HTTP runtime
         shell: pwsh
         run: |
@@ -156,6 +230,7 @@ jobs:
           $env:RWMCP_AUDIT = Join-Path $tmp 'audit.jsonl'
           $env:RWMCP_CLIENT_ID = 'windows-ci'
           $env:RWMCP_CLIENT_TYPE = 'ci'
+          $env:RWMCP_PORT = '8765'
           $process = Start-Process -FilePath node -ArgumentList 'dist/cli.js','--http' -PassThru -WindowStyle Hidden
           try {
             $healthy = $false

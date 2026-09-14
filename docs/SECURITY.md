@@ -16,16 +16,19 @@ Remote Workstation MCP can read/write files and execute development tools. It ca
 10. **Authenticated principal when configured** — HTTP bearer mode establishes a request-scoped principal with explicit `workstation.read`, `workstation.write`, `workstation.execute` and/or `workstation.full_control` scopes before the MCP handler runs.
 11. **Client-bound lease enforcement** — when an authenticated principal is present, its principal ID is used for client-bound permission lease evaluation; local transports fall back to `RWMCP_CLIENT_ID`.
 12. **Fail-closed authenticated tool classification** — an authenticated principal cannot invoke a newly added tool until that tool has an explicit scope classification.
-13. **Loopback HTTP** — the built-in HTTP service still binds to `127.0.0.1`; bearer authentication is a transport-auth foundation, not permission to expose the raw port to the Internet.
-14. **Owner-local setup surface** — the Setup Console binds only to loopback, uses an ephemeral setup token, rejects non-loopback clients and cross-origin browser requests, and is never registered as an MCP tool.
-15. **Secret separation** — non-secret setup state is stored outside the repository; on Windows the optional OpenAI runtime key is protected with current-user DPAPI and stripped from the MCP child environment.
-16. **Managed service hardening** — the Linux user service runs with restrictive file permissions and `NoNewPrivileges=true`.
+13. **Loopback HTTP** — the built-in HTTP service binds to `127.0.0.1`; bearer authentication is a transport-auth foundation, not permission to expose the raw port to the Internet.
+14. **Owner-local Setup & Control Center** — the browser UI binds only to loopback, uses an ephemeral setup token, rejects non-loopback clients and cross-origin API requests, and is never registered as an MCP tool.
+15. **Narrow runtime control** — local web runtime actions are limited to start/stop/restart/status and current-user start-at-logon registration. They do not accept arbitrary executable/argument input.
+16. **Managed process identity** — the Windows supervisor records the launched executable path and start time; a PID alone is insufficient authority for a later stop operation.
+17. **Secret separation** — non-secret setup state is stored outside the repository; on Windows the optional OpenAI runtime key is protected with current-user DPAPI and stripped from the MCP child environment.
+18. **Version/config separation** — managed Windows application slots are separate from policy, hosts, settings, audit data and DPAPI secrets so an application update does not silently replace owner state.
+19. **Managed service hardening** — the Linux user service runs with restrictive file permissions and `NoNewPrivileges=true`.
 
-## Setup Console boundary
+## Setup & Control Center boundary
 
-The Setup Console exists to onboard a workstation. It is not a general remote administration UI.
+The browser surface is an owner-local bootstrap and runtime-operations UI, not a general remote-administration API.
 
-Its supported mutations are intentionally narrow:
+Supported configuration mutations are intentionally narrow:
 
 - save the loopback MCP port;
 - save the initial workspace path for a new default policy;
@@ -33,13 +36,31 @@ Its supported mutations are intentionally narrow:
 - install the pinned official OpenAI tunnel-client on Windows;
 - optionally store/remove the OpenAI runtime API key using Windows DPAPI.
 
-The browser setup flow does **not** expose controls for raw shell, host-wide filesystem gates, sudo/Administrator enablement, permission-lease issuance, SSH credential creation, or arbitrary command execution.
+Supported runtime operations are also narrow:
 
-An existing `config/policy.yaml` or `config/hosts.yaml` is preserved rather than rewritten by the Setup Console. This prevents a convenience UI from silently weakening an owner-maintained security policy.
+- start the local MCP runtime;
+- start the OpenAI tunnel runtime;
+- stop/restart the managed runtime process tree;
+- inspect MCP health/version/auth and tunnel readiness;
+- register/remove a current-user start-at-logon task.
 
-The setup URL contains an ephemeral token in the URL fragment. The fragment is not sent in the initial HTTP request; browser JavaScript presents it in the `x-rwmcp-setup-token` header for API requests. Stop the Setup Console after onboarding.
+The browser UI does **not** expose controls for raw shell, host-wide filesystem gates, sudo/Administrator enablement, permission-lease issuance, SSH credential creation, arbitrary command execution, or authenticated `workstation.full_control` scope grants.
 
-Do not bind the Setup Console to a LAN interface, publish it through a reverse proxy, or attach it to Secure MCP Tunnel.
+An existing owner policy/hosts configuration is preserved rather than silently rewritten. Managed Windows installs keep these files outside application version slots.
+
+The setup URL contains an ephemeral token in the URL fragment. The fragment is not sent in the initial HTTP request; browser JavaScript presents it in the `x-rwmcp-setup-token` header for API requests. API requests also require a loopback socket and accepted same-origin browser context.
+
+Do not bind the Setup & Control Center to a LAN interface, publish it through a reverse proxy, or attach it to Secure MCP Tunnel.
+
+## Windows runtime supervisor boundary
+
+The current-user Windows supervisor runs the MCP/tunnel runtime without Administrator privilege.
+
+Its state file contains operational metadata such as PID, executable path, start time, mode and port. Before treating a recorded PID as managed, the supervisor verifies the live process executable path and start time. This reduces stale-PID/reuse risk before process-tree termination.
+
+The process tree is stopped with an OS process-tree operation only after that identity check. Runtime stdin/stdout/stderr are detached from the operator console and redirected to owner-local files.
+
+Start-at-logon uses a limited current-user Scheduled Task. Managed installations point the task at the stable launcher rather than a specific version slot, so updates do not leave autostart pinned to an obsolete release.
 
 ## HTTP principal and scope boundary
 
@@ -53,7 +74,7 @@ RWMCP_HTTP_PRINCIPAL_TYPE=mcp-http
 RWMCP_HTTP_SCOPES=workstation.read,workstation.write,workstation.execute
 ```
 
-The current bearer provider represents one locally configured authenticated HTTP principal. It is intended as a safe foundation for a trusted gateway/tunnel and for developing principal-aware policy. It is **not** the final public ChatGPT OAuth flow. A public/registered web connection must use the authentication mechanism required by that integration and map the authenticated identity/scopes into the same request-principal model.
+The current bearer provider represents one locally configured authenticated HTTP principal. It is intended as a safe foundation for a trusted gateway/tunnel and principal-aware policy. Public/registered web connections must use the authentication mechanism required by that integration and map the authenticated identity/scopes into the same request-principal model.
 
 Scope meanings are deliberately coarse and compositional:
 
@@ -93,11 +114,21 @@ For high-risk or untrusted repositories, use an additional VM/container/OS sandb
 
 ## Update security
 
-The managed updater reads GitHub Releases, downloads the versioned package and `SHA256SUMS.txt`, verifies SHA-256, installs into a new version slot, restarts the service, checks `/healthz`, and rolls back to the previous slot when the health check fails.
+### Windows managed release
 
-The default scheduled update mode is `notify`. Automatic modes are opt-in.
+The v0.7.3 Windows installer resolves a GitHub Release, downloads the package and `SHA256SUMS.txt`, verifies SHA-256 before extraction, validates the package version, installs production dependencies in a new per-user version slot, validates the runtime version, and installs the pinned checksum-verified OpenAI tunnel-client.
 
-Checksums protect against accidental/corrupt downloads but are not a complete software-supply-chain trust system. Artifact signing/SBOM/provenance remain future hardening work.
+Only then is the stable `current.txt` pointer moved to that slot. The prior valid slot is retained in `previous.txt` for owner-triggered rollback.
+
+The Windows installer does **not** claim independent publisher authenticity from SHA-256 alone, and it does not silently grant admin privilege or alter full-control policy.
+
+### Linux managed release
+
+The Linux managed updater retains its version-slot, release checksum, health-check and rollback behavior documented in the operations guide.
+
+### Supply-chain limitation
+
+Published checksums protect against accidental/corrupt downloads and mismatches against the release metadata. They are not a complete independent software-supply-chain trust system if the GitHub release channel itself is compromised. Artifact signing, provenance and SBOM remain roadmap hardening work.
 
 ## Never commit
 
@@ -105,11 +136,11 @@ Checksums protect against accidental/corrupt downloads but are not a complete so
 - HTTP bearer tokens
 - SSH private keys or passwords
 - `.env`
-- `config/policy.yaml` or `config/hosts.yaml`
+- owner `policy.yaml` or `hosts.yaml`
 - permission lease files
 - production credentials
 - private infrastructure inventories when sensitive
 
 ## Vulnerability reporting
 
-For issues that could enable policy bypass, secret disclosure, unauthorized command execution, SSH policy escape, authentication/scope bypass, update compromise, setup-token bypass or permission-elevation bypass, use a GitHub Security Advisory rather than a public issue.
+For issues that could enable policy bypass, secret disclosure, unauthorized command execution, SSH policy escape, authentication/scope bypass, update compromise, setup/control-token bypass, managed-process identity bypass or permission-elevation bypass, use a GitHub Security Advisory rather than a public issue.

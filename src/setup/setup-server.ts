@@ -27,6 +27,9 @@ interface SetupSaveRequest extends SetupSettings {
   storeRuntimeApiKey?: boolean;
 }
 
+type RuntimeAction = 'Start' | 'Stop' | 'Restart' | 'RegisterStartup' | 'UnregisterStartup';
+type RuntimeMode = 'Local' | 'OpenAI';
+
 const MAX_BODY_BYTES = 64 * 1024;
 const MCP_PORT_CANDIDATES = [8765, 8683, 8877, 9876, 18765, 19001, 20080];
 
@@ -167,6 +170,31 @@ async function removeWindowsRuntimeKey(repoRoot: string): Promise<void> {
   if (result.code !== 0) throw new Error(result.output || `Secret removal failed with exit code ${result.code}.`);
 }
 
+function parseJsonOutput(output: string): unknown {
+  const lines = output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try { return JSON.parse(lines[index]); } catch {}
+  }
+  throw new Error(output || 'Runtime control returned no JSON status.');
+}
+
+async function windowsRuntimeControl(repoRoot: string, action: RuntimeAction | 'Status', mode: RuntimeMode = 'OpenAI'): Promise<unknown> {
+  if (process.platform !== 'win32') {
+    return { supported: false, running: false, message: 'Windows runtime control is available on Windows only.' };
+  }
+  const script = path.join(repoRoot, 'scripts', 'runtime-control-windows.ps1');
+  const args = [
+    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Action', action,
+    '-Mode', mode,
+    '-Root', repoRoot,
+    '-Json'
+  ];
+  const result = await runProcess('powershell.exe', args, { cwd: repoRoot, maxBytes: 256 * 1024 });
+  if (result.code !== 0) throw new Error(result.output || `Runtime control '${action}' failed with exit code ${result.code}.`);
+  return parseJsonOutput(result.output);
+}
+
 async function openBrowser(url: string): Promise<void> {
   try {
     if (process.platform === 'win32') {
@@ -261,6 +289,20 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         return;
       }
 
+      if (url.pathname === '/api/runtime/status' && req.method === 'GET') {
+        json(res, 200, await windowsRuntimeControl(repoRoot, 'Status'));
+        return;
+      }
+
+      if (url.pathname === '/api/runtime/action' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { action?: string; mode?: string };
+        const actions = new Set<RuntimeAction>(['Start', 'Stop', 'Restart', 'RegisterStartup', 'UnregisterStartup']);
+        if (!body.action || !actions.has(body.action as RuntimeAction)) throw new Error('Unsupported runtime action.');
+        const mode: RuntimeMode = body.mode === 'Local' ? 'Local' : 'OpenAI';
+        json(res, 200, await windowsRuntimeControl(repoRoot, body.action as RuntimeAction, mode));
+        return;
+      }
+
       if (url.pathname === '/api/save' && req.method === 'POST') {
         const body = await readJsonBody(req) as Partial<SetupSaveRequest>;
         const settings = normalizeSetupSettings({
@@ -272,12 +314,12 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           cloudflaredManaged: body.cloudflaredManaged ?? false
         });
         if (!(await portAvailable(settings.mcpPort))) {
-          throw new Error(`MCP port ${settings.mcpPort} is already in use. Choose another loopback port.`);
+          throw new Error(`MCP port ${settings.mcpPort} is already in use. Stop the runtime or choose another loopback port before saving.`);
         }
         await fs.mkdir(settings.workspaceRoot, { recursive: true });
         const settingsPath = await saveSetupSettings(settings);
         const policy = await ensureDefaultPolicy(repoRoot, settings.workspaceRoot);
-        await ensureHostsConfig(repoRoot);
+        const hosts = await ensureHostsConfig(repoRoot);
         if (body.runtimeApiKey) {
           if (body.storeRuntimeApiKey === false) {
             throw new Error('A supplied runtime API key must either be stored securely or omitted. Session-only keys should be set in the terminal environment instead of the setup form.');
@@ -286,7 +328,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         }
         json(res, 200, {
           ok: true,
-          message: `${settingsPath}; ${policy.created ? 'created default policy' : 'existing policy preserved'}.`,
+          message: `${settingsPath}; ${policy.created ? 'created default policy' : 'existing policy preserved'} at ${policy.path}; ${hosts.created ? 'created hosts config' : 'existing hosts config preserved'} at ${hosts.path}.`,
           runtimeApiKeyStored: await pathExists(setupSecretPath())
         });
         return;
@@ -323,7 +365,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
 
   boundPort = await listen(server, preferredPort);
   const url = `http://127.0.0.1:${boundPort}/#token=${encodeURIComponent(token)}`;
-  console.error(`[remote-workstation-mcp] Setup Console: ${url}`);
+  console.error(`[remote-workstation-mcp] Setup & Control Center: ${url}`);
   console.error('[remote-workstation-mcp] Local-only setup token is ephemeral and is not written to disk.');
   if (options.openBrowser !== false) await openBrowser(url);
 

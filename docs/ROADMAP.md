@@ -103,6 +103,22 @@ A tunnel connection is reachability, not authorization. The remote path still te
 
 The setup browser is an owner-local bootstrap surface, not an MCP capability exposed to AI clients.
 
+## v0.7.3 — Managed Windows distribution + local control center ✅
+
+- production Windows installation from signed-source GitHub Release assets without requiring a repository clone
+- SHA-256 verification before release-package extraction
+- current-user version slots with stable `current` / `previous` pointers and owner-triggered rollback
+- policy, SSH hosts, settings, audit data and DPAPI secrets persist outside application version slots
+- stable per-user launcher for setup, runtime control, update and rollback
+- Start Menu entry for the local Setup & Control Center
+- Setup Console upgraded to runtime Control Center with start/stop/restart and health/readiness status
+- optional current-user start-at-logon through a limited Scheduled Task
+- runtime supervisor validates recorded process identity before terminating its descendant tree
+- official pinned OpenAI `tunnel-client` remains checksum-verified and follows the active version slot
+- GitHub Release publishes a standalone `install-windows.ps1` alongside the package and checksums
+
+Windows distribution operations remain owner-local. They are not MCP tools and cannot grant full-control scopes, enable dangerous policy gates or create permission leases.
+
 ## v0.8 — Engineering debug and hardware adapters
 
 - true PTY/ConPTY terminal adapter with bounded lifecycle and output

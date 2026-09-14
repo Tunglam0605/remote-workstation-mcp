@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
@@ -31,6 +31,11 @@
     "setup:first-run:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/first-run-windows.ps1",
     "setup:web": "node dist/setup-web-cli.js",
     "setup:web:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/setup-web-windows.ps1",
+    "install:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-release.ps1",
+    "runtime:status:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/runtime-control-windows.ps1 -Action Status",
+    "runtime:start:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/runtime-control-windows.ps1 -Action Start -Mode Local",
+    "runtime:start:openai:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/runtime-control-windows.ps1 -Action Start -Mode OpenAI",
+    "runtime:stop:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/runtime-control-windows.ps1 -Action Stop",
     "start:openai": "node dist/openai-tunnel-cli.js",
     "start:openai:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/start-openai-windows.ps1",
     "openai:tunnel:install:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/install-openai-tunnel-windows.ps1",

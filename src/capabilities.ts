@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.7.2';
+export const SERVER_VERSION = '0.7.3';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -11,8 +11,9 @@ export interface CapabilityDescriptor {
 
 export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
-  { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update is owner-managed.' },
-  { id: 'setup.local_web', status: 'available', tools: [], note: 'Owner-operated loopback-only Setup Console persists non-secret workstation settings outside the repository and can store the OpenAI runtime key with Windows DPAPI. It is not exposed as an MCP tool.' },
+  { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update remains owner-controlled.' },
+  { id: 'setup.local_web', status: 'available', tools: [], note: 'Owner-operated loopback-only Setup & Control Center persists non-secret workstation settings outside the repository, can protect the OpenAI runtime key with Windows DPAPI, and can start/stop/restart the user-level runtime without exposing these controls through MCP.' },
+  { id: 'installation.windows_managed', status: 'available', tools: [], note: 'Checksum-verified Windows release installer uses versioned per-user runtime slots, a stable launcher, optional start-at-logon, and one-step rollback without requiring a Git checkout for production use.' },
   { id: 'transport.providers', status: 'available', tools: [], note: 'The CLI selects a provider behind a common contract. Current providers are local stdio and loopback Streamable HTTP.' },
   { id: 'connection.openai_secure_tunnel', status: 'available', tools: [], note: 'Optional outbound-only OpenAI Secure MCP Tunnel supervisor keeps the workstation MCP bound to loopback, injects an ephemeral bearer into tunnel runtime headers, and does not forward the OpenAI runtime API key into the MCP child process.' },
   { id: 'transport.auth.http', status: 'available', tools: [], note: 'Optional loopback HTTP bearer authentication establishes a request-scoped principal and workstation read/write/execute/full-control scopes.' },

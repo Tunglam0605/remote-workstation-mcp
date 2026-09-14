@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { assertToolScope, currentPrincipal } from './request-principal.js';
 
 export interface AuditActor {
   clientId: string;
@@ -9,13 +10,24 @@ export interface AuditActor {
 export class AuditLogger {
   constructor(
     private readonly filePath: string,
-    private readonly actor: AuditActor = { clientId: 'unknown', clientType: 'mcp-client' }
+    private readonly fallbackActor: AuditActor = { clientId: 'unknown', clientType: 'mcp-client' }
   ) {}
+
+  private actor(): AuditActor & { authenticated?: boolean; scopes?: string[] } {
+    const principal = currentPrincipal();
+    if (!principal) return this.fallbackActor;
+    return {
+      clientId: principal.id,
+      clientType: principal.type,
+      authenticated: true,
+      scopes: principal.scopes
+    };
+  }
 
   async record(tool: string, ok: boolean, durationMs: number, workspace?: string, error?: unknown): Promise<void> {
     const entry = {
       ts: new Date().toISOString(),
-      actor: this.actor,
+      actor: this.actor(),
       tool,
       workspace,
       ok,
@@ -30,6 +42,7 @@ export class AuditLogger {
 export async function audited<T>(audit: AuditLogger, tool: string, workspace: string | undefined, fn: () => Promise<T>): Promise<T> {
   const started = Date.now();
   try {
+    assertToolScope(tool);
     const result = await fn();
     await audit.record(tool, true, Date.now() - started, workspace);
     return result;

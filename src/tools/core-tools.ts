@@ -18,7 +18,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   }, async () => result(await audited(ctx.audit, 'capabilities_list', undefined, async () => ({
     server: 'remote-workstation-mcp', version: SERVER_VERSION, protocol: 'MCP', vendorNeutral: true,
     actorTag: ctx.actor,
-    identityNote: 'Client tags are observability metadata; local owner policy and permission leases are the authorization authority.',
+    identityNote: 'Authenticated HTTP principals are request-scoped. RWMCP client tags remain fallback observability metadata for local transports; local owner policy and leases remain the authority.',
     capabilities: CAPABILITIES
   }))));
 
@@ -185,23 +185,23 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     description: 'Read current state and current bounded stdout/stderr buffers of a managed process.',
     inputSchema: z.object({ id: z.string().uuid() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(ctx.processes.read(id)));
+  }, async ({ id }) => result(await audited(ctx.audit, 'process_read', undefined, async () => ctx.processes.read(id))));
 
   server.registerTool('process_read_since', {
     description: 'Read only process output produced since caller-provided cursors. Returns next cursors and whether older output was truncated.',
     inputSchema: z.object({ id: z.string().uuid(), stdoutCursor: z.number().int().nonnegative().default(0), stderrCursor: z.number().int().nonnegative().default(0) }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, stdoutCursor, stderrCursor }) => result(ctx.processes.readSince(id, stdoutCursor, stderrCursor)));
+  }, async ({ id, stdoutCursor, stderrCursor }) => result(await audited(ctx.audit, 'process_read_since', undefined, async () => ctx.processes.readSince(id, stdoutCursor, stderrCursor))));
 
   server.registerTool('process_list', {
     description: 'List processes started through this MCP agent.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result({ processes: ctx.processes.list() }));
+  }, async () => result({ processes: await audited(ctx.audit, 'process_list', undefined, async () => ctx.processes.list()) }));
 
   server.registerTool('process_stop', {
     description: 'Stop a managed process with SIGTERM.',
     inputSchema: z.object({ id: z.string().uuid() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(ctx.processes.stop(id)));
+  }, async ({ id }) => result(await audited(ctx.audit, 'process_stop', undefined, async () => ctx.processes.stop(id))));
 }

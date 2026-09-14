@@ -6,6 +6,8 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { SERVER_VERSION } from './capabilities.js';
 import { createContext } from './context.js';
 import { buildServer } from './server.js';
+import { HttpAuthProvider, HttpAuthenticationError, loadHttpAuthFromEnv } from './security/http-auth.js';
+import { runAsPrincipal } from './security/request-principal.js';
 
 if (process.argv.includes('--version') || process.argv.includes('-v')) {
   console.log(SERVER_VERSION);
@@ -22,10 +24,31 @@ if (useStdio) {
 } else {
   const port = Number(process.env.RWMCP_PORT ?? 8765);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('RWMCP_PORT must be a valid TCP port.');
+  const auth = new HttpAuthProvider(loadHttpAuthFromEnv());
   const app = createMcpExpressApp();
   const nodeHandler = toNodeHandler(createMcpHandler(factory));
-  app.get('/', (_req, res) => res.json({ name: 'remote-workstation-mcp', version: SERVER_VERSION, mcp: '/mcp', health: '/healthz' }));
-  app.get('/healthz', (_req, res) => res.json({ ok: true, version: SERVER_VERSION, mode: context.policy.effectiveMode() }));
-  app.all('/mcp', (req, res) => void nodeHandler(req, res, req.body));
-  app.listen(port, '127.0.0.1', () => console.error(`[remote-workstation-mcp ${SERVER_VERSION}] http://127.0.0.1:${port}/mcp`));
+  app.get('/', (_req, res) => res.json({
+    name: 'remote-workstation-mcp',
+    version: SERVER_VERSION,
+    mcp: '/mcp',
+    health: '/healthz',
+    httpAuth: auth.config.mode
+  }));
+  app.get('/healthz', (_req, res) => res.json({ ok: true, version: SERVER_VERSION, mode: context.policy.effectiveMode(), httpAuth: auth.config.mode }));
+  app.all('/mcp', (req, res) => {
+    try {
+      const principal = auth.authenticate(req.headers);
+      const dispatch = () => nodeHandler(req, res, req.body);
+      if (principal) void runAsPrincipal(principal, dispatch);
+      else void dispatch();
+    } catch (error) {
+      if (error instanceof HttpAuthenticationError) {
+        res.setHeader('WWW-Authenticate', 'Bearer realm="remote-workstation-mcp"');
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.listen(port, '127.0.0.1', () => console.error(`[remote-workstation-mcp ${SERVER_VERSION}] http://127.0.0.1:${port}/mcp auth=${auth.config.mode}`));
 }

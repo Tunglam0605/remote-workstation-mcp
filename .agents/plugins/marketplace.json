@@ -1,0 +1,20 @@
+{
+  "name": "tunglam-remote-workstation",
+  "interface": {
+    "displayName": "TungLam Remote Workstation"
+  },
+  "plugins": [
+    {
+      "name": "remote-workstation",
+      "source": {
+        "source": "local",
+        "path": "./plugins/remote-workstation"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

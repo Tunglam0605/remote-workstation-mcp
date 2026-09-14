@@ -61,47 +61,73 @@
 - OpenAI install-surface metadata
 - privacy and plugin usage disclosures
 - plugin package validation in CI/prepack
-- ChatGPT desktop/Codex marketplace installation guide
-- explicit separation between local desktop distribution and future universal web/public distribution
+- Windows runtime setup and CI validation
+- explicit separation between local distribution and future universal web/public distribution
 
 The v0.6 local plugin keeps the MCP endpoint on `127.0.0.1`. It does not expose the workstation directly to the Internet.
 
-## v0.7 — Authenticated identities + concurrent engineering sessions
+## v0.7 — Direct engineering control foundation
+
+Primary design rule: **ChatGPT/GPT Web is a first-class controller. Codex, Claude and other coding agents are optional workers, never a required hop.**
+
+### Direct-control core
 
 - transport-authenticated principal identity where supported
-- per-client roles/capability policy instead of observability tags alone
-- session/task ownership
-- Git worktree creation and lifecycle
-- safe merge/review handoff between agents
+- per-client roles/scopes/capability policy instead of observability tags alone
+- session/task ownership and audit correlation
+- typed Git history/branch/stage/commit operations with workspace policy gates
+- Git worktree creation/removal for isolated concurrent engineering sessions
+- structured build/test diagnostics so raw compiler logs do not have to enter model context
+- persistent terminal/PTY session abstraction with bounded incremental output
+- LSP-backed code intelligence: definitions, references, symbols, hover, diagnostics, rename preview and code actions
 - stronger conflict detection for non-file resources
+- safe merge/review handoff between concurrent sessions
 
-## v0.8 — Engineering adapters
+### Transport boundary
 
-- typed Git write operations with policy gates
+- keep local stdio/loopback paths fast for local clients
+- define a transport-provider interface so OpenAI Secure MCP Tunnel, Cloudflare/other HTTPS gateways, and direct HTTPS can be integrated without changing workstation tools
+- authentication terminates before policy/tool execution; transport must never bypass the PolicyEngine
+
+### Token-efficiency rule
+
+Routine tools should return compact structured summaries first. Large logs, source ranges, traces and diagnostics are fetched on demand with explicit bounds/cursors.
+
+## v0.8 — Engineering debug and hardware adapters
+
+- DAP session adapter for language-agnostic debugger control
+- GDB/MI adapter for native/source-level debugging
 - Docker/container workflows
 - serial/USB discovery and bounded I/O
-- OpenOCD / GDB / ST-Link adapters
+- OpenOCD / ST-Link / J-Link adapters
 - STM32 / ESP32 build-flash-debug workflows
-- ROS 2 process/topic/service adapters
+- crash/fault/register diagnostics
+- RTT/SWO/log streaming through bounded cursors
+- ROS 2 process/topic/service/action/parameter adapters
 - pluggable vendor/debug tools
 
-Raw shell will remain available only as an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
+Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
-## v0.9 — Privileged helper + public web connection layer
+## v0.9 — Public web connection + workstation automation
 
+- secure authenticated outbound workstation pairing/relay for ChatGPT Web
+- remote HTTPS MCP/app registration path suitable for public plugin review
+- transport providers with health, reconnect and revocation controls
+- browser/Chrome DevTools adapter
+- Playwright/browser testing adapter
+- Windows UI Automation adapter as a fallback when no CLI/API/debug protocol exists
 - separately isolated privileged helper for narrowly scoped root/admin operations
 - explicit owner approval protocol
 - capability-specific sudo/root contracts rather than unrestricted privileged shell
 - optional container/namespace sandbox for untrusted build/test workloads
-- secure authenticated outbound workstation pairing/relay for ChatGPT web
-- remote HTTPS MCP/app registration path suitable for public plugin review
 - release artifact signing, provenance and SBOM
 
-## v0.10 — Multi-agent orchestration
+## v0.10 — Optional multi-agent delegation
 
-- task broker
-- agent registry
-- delegation contracts
+- generic agent provider interface
+- task broker and agent registry
+- Codex/Claude/OpenHands/custom workers as optional providers
+- delegation contracts, progress events and cancellation
 - result aggregation
 - worktree-aware parallel execution
 - agent-to-agent workflows without weakening workstation policy
@@ -113,7 +139,7 @@ Target criteria:
 - compatibility validation across major MCP/plugin clients
 - reproducible install/update/rollback
 - hardened policy and authenticated identity model
-- stable tool contracts
+- stable direct-control tool contracts
 - operational documentation and migration guidance
 - public/private distribution story with clear trust boundaries
-- security review of workspace, SSH, update, full-control, public relay and privileged-helper boundaries
+- security review of workspace, SSH, update, full-control, public relay, UI automation and privileged-helper boundaries

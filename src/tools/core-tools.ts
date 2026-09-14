@@ -89,16 +89,73 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   }, async ({ workspace, path, find, replace, expectedOccurrences, expectedSha256 }) => result(await audited(ctx.audit, 'fs_patch', workspace, () => ctx.fs.patch(workspace, path, find, replace, expectedOccurrences, expectedSha256))));
 
   server.registerTool('git_status', {
-    description: 'Run read-only git status in an authorized workspace.',
-    inputSchema: z.object({ workspace: z.string() }),
+    description: 'Run read-only git status in a repository inside an authorized workspace.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.') }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ workspace }) => result({ output: await audited(ctx.audit, 'git_status', workspace, () => ctx.git.status(workspace)) }));
+  }, async ({ workspace, repoPath }) => result({ output: await audited(ctx.audit, 'git_status', workspace, () => ctx.git.status(workspace, repoPath)) }));
 
   server.registerTool('git_diff', {
-    description: 'Run read-only git diff in an authorized workspace.',
-    inputSchema: z.object({ workspace: z.string(), staged: z.boolean().default(false) }),
+    description: 'Run read-only git diff in a repository inside an authorized workspace.',
+    inputSchema: z.object({ workspace: z.string(), staged: z.boolean().default(false), repoPath: z.string().default('.') }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ workspace, staged }) => result({ output: await audited(ctx.audit, 'git_diff', workspace, () => ctx.git.diff(workspace, staged)) }));
+  }, async ({ workspace, staged, repoPath }) => result({ output: await audited(ctx.audit, 'git_diff', workspace, () => ctx.git.diff(workspace, staged, repoPath)) }));
+
+  server.registerTool('git_log', {
+    description: 'Return bounded structured Git history without sending raw log formatting to the model.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.'), maxEntries: z.number().int().positive().max(200).default(20) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, repoPath, maxEntries }) => result({ commits: await audited(ctx.audit, 'git_log', workspace, () => ctx.git.log(workspace, maxEntries, repoPath)) }));
+
+  server.registerTool('git_branches', {
+    description: 'List local Git branches and identify the current branch.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, repoPath }) => result({ branches: await audited(ctx.audit, 'git_branches', workspace, () => ctx.git.branches(workspace, repoPath)) }));
+
+  server.registerTool('git_add', {
+    description: 'Stage explicitly named existing paths. Paths remain constrained to the authorized workspace and no shell is used.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.'), files: z.array(z.string().min(1)).min(1).max(200) }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, repoPath, files }) => result(await audited(ctx.audit, 'git_add', workspace, () => ctx.git.add(workspace, files, repoPath))));
+
+  server.registerTool('git_commit', {
+    description: 'Create a Git commit from the current index. This is blocked for read-only workspaces.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.'), message: z.string().min(1).max(5000) }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, repoPath, message }) => result(await audited(ctx.audit, 'git_commit', workspace, () => ctx.git.commit(workspace, message, repoPath))));
+
+  server.registerTool('git_branch_create', {
+    description: 'Create a local branch from a start point using Git ref validation.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.'), branch: z.string().min(1), startPoint: z.string().default('HEAD') }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, repoPath, branch, startPoint }) => result(await audited(ctx.audit, 'git_branch_create', workspace, () => ctx.git.createBranch(workspace, branch, startPoint, repoPath))));
+
+  server.registerTool('git_branch_switch', {
+    description: 'Switch the source repository to an existing local branch. Prefer worktrees for concurrent engineering sessions.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.'), branch: z.string().min(1) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, repoPath, branch }) => result(await audited(ctx.audit, 'git_branch_switch', workspace, () => ctx.git.switchBranch(workspace, branch, repoPath))));
+
+  server.registerTool('git_worktree_list', {
+    description: 'List linked Git worktrees for a repository.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, repoPath }) => result({ worktrees: await audited(ctx.audit, 'git_worktree_list', workspace, () => ctx.git.worktrees(workspace, repoPath)) }));
+
+  server.registerTool('git_worktree_add', {
+    description: 'Create an isolated sibling worktree inside the authorized workspace. The destination must be outside the source repository.',
+    inputSchema: z.object({
+      workspace: z.string(), repoPath: z.string().default('.'), worktreePath: z.string().min(1), branch: z.string().min(1),
+      createBranch: z.boolean().default(true), startPoint: z.string().default('HEAD')
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, repoPath, worktreePath, branch, createBranch, startPoint }) => result(await audited(ctx.audit, 'git_worktree_add', workspace, () => ctx.git.addWorktree(workspace, worktreePath, branch, { repoPath, createBranch, startPoint }))));
+
+  server.registerTool('git_worktree_remove', {
+    description: 'Remove a linked worktree. force=false is the safe default and refuses dirty worktrees.',
+    inputSchema: z.object({ workspace: z.string(), repoPath: z.string().default('.'), worktreePath: z.string().min(1), force: z.boolean().default(false) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, repoPath, worktreePath, force }) => result(await audited(ctx.audit, 'git_worktree_remove', workspace, () => ctx.git.removeWorktree(workspace, worktreePath, force, repoPath))));
 
   server.registerTool('task_list', {
     description: 'List owner-defined build/test task profiles from local policy.',
@@ -111,6 +168,12 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     inputSchema: z.object({ workspace: z.string(), task: z.string().min(1), extraArgs: z.array(z.string()).max(100).default([]) }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workspace, task, extraArgs }) => result(await audited(ctx.audit, 'task_run', workspace, () => ctx.tasks.run(workspace, task, extraArgs))));
+
+  server.registerTool('build_diagnostics', {
+    description: 'Parse bounded GCC/Clang/MSVC/CMake diagnostics from a managed build/test process into compact structured errors and warnings.',
+    inputSchema: z.object({ id: z.string().uuid(), maxDiagnostics: z.number().int().positive().max(200).default(50) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, maxDiagnostics }) => result(await audited(ctx.audit, 'build_diagnostics', undefined, async () => ctx.buildDiagnostics.report(id, maxDiagnostics))));
 
   server.registerTool('process_start', {
     description: 'Start an executable without a shell. Normal modes require the executable allowlist; full-control owner lease may lift that allowlist.',

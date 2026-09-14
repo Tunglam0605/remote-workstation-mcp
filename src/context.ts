@@ -17,6 +17,7 @@ import { loadPermissionLease } from './permissions.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
+import { currentPrincipal } from './security/request-principal.js';
 
 export async function createContext() {
   const actor = {
@@ -24,7 +25,7 @@ export async function createContext() {
     clientType: process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client'
   };
   const [config, hostsConfig, lease] = await Promise.all([loadPolicy(), loadHosts(), loadPermissionLease()]);
-  const policy = new PolicyEngine(config, lease, actor.clientId);
+  const policy = new PolicyEngine(config, lease, () => currentPrincipal()?.id ?? actor.clientId);
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const processes = new ProcessManager(policy, paths);

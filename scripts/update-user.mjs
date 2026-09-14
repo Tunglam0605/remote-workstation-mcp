@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { compareSemver, isPatchUpgrade, normalizeVersion, parseSemver } from './lib/semver.mjs';
 
 const exec = promisify(execFile);
 const home = os.homedir();
@@ -35,32 +36,11 @@ async function latestRelease() {
   return response.json();
 }
 
-function normalize(value) {
-  return String(value).trim().replace(/^v/, '');
-}
-
-function semver(value) {
-  const match = normalize(value).match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
-  return match ? { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) } : undefined;
-}
-
-function compareSemver(leftValue, rightValue) {
-  const left = semver(leftValue);
-  const right = semver(rightValue);
-  if (!left || !right) throw new Error(`Cannot compare invalid semantic versions '${leftValue}' and '${rightValue}'.`);
-  for (const key of ['major', 'minor', 'patch']) {
-    if (left[key] !== right[key]) return left[key] > right[key] ? 1 : -1;
-  }
-  return 0;
-}
-
 function scheduledMayApply(installed, latest) {
   if (!scheduled) return true;
   if (updateMode === 'auto') return true;
-  if (updateMode !== 'auto_patch') return false;
-  const current = installed && semver(installed);
-  const target = semver(latest);
-  return Boolean(current && target && current.major === target.major && current.minor === target.minor && target.patch > current.patch);
+  if (updateMode !== 'auto_patch' || !installed) return false;
+  return isPatchUpgrade(installed, latest);
 }
 
 async function download(url, target) {
@@ -97,12 +77,12 @@ async function waitForHealth(expectedVersion) {
 
 const installed = await readInstalledVersion();
 const release = await latestRelease();
-const latest = normalize(release.tag_name);
-if (!semver(latest)) throw new Error(`Latest GitHub release tag '${release.tag_name}' is not a supported semantic version.`);
+const latest = normalizeVersion(release.tag_name);
+if (!parseSemver(latest)) throw new Error(`Latest GitHub release tag '${release.tag_name}' is not a supported semantic version.`);
 
 let comparison;
 if (installed !== undefined) {
-  if (!semver(installed)) throw new Error(`Installed version '${installed}' is not a supported semantic version.`);
+  if (!parseSemver(installed)) throw new Error(`Installed version '${installed}' is not a supported semantic version.`);
   comparison = compareSemver(latest, installed);
 }
 const updateAvailable = installed === undefined || comparison > 0;

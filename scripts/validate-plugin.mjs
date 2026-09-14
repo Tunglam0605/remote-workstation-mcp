@@ -54,7 +54,9 @@ assert(legacyServer.url === 'http://127.0.0.1:8765/mcp', 'legacy MCP URL must re
 assert(compat.mcpServers === './.mcp.json', 'compatibility manifest must reference ./.mcp.json');
 assert(compat.skills === './skills/', 'compatibility manifest must reference ./skills/');
 
-const skill = await fs.readFile(skillPath, 'utf8');
+// Git may check out Markdown files with CRLF on Windows, so validate semantic
+// frontmatter instead of requiring one platform's physical line endings.
+const skill = (await fs.readFile(skillPath, 'utf8')).replace(/\r\n/g, '\n');
 assert(skill.startsWith('---\n'), 'workstation operator skill needs YAML frontmatter');
 assert(skill.includes('name: workstation-operator'), 'workstation operator skill name mismatch');
 

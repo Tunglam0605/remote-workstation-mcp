@@ -15,7 +15,7 @@ test('path guard blocks traversal and symlink escape', async t => {
   await fs.mkdir(outside);
   await fs.writeFile(path.join(root, 'ok.txt'), 'ok');
   await fs.writeFile(path.join(outside, 'secret.txt'), 'secret');
-  await fs.symlink(outside, path.join(root, 'escape'));
+  await fs.symlink(outside, path.join(root, 'escape'), os.platform() === 'win32' ? 'junction' : 'dir');
   t.after(() => fs.rm(base, { recursive: true, force: true }));
 
   const config: PolicyConfig = {
@@ -24,7 +24,8 @@ test('path guard blocks traversal and symlink escape', async t => {
     process: { allowExecutables: [], inheritEnv: [], maxOutputBytes: 1024, maxRuntimeMs: 1000 }
   };
   const guard = new PathGuard(new PolicyEngine(config));
-  assert.equal(await guard.resolveExisting('w', 'ok.txt'), path.join(root, 'ok.txt'));
+  const expectedOk = await fs.realpath(path.join(root, 'ok.txt'));
+  assert.equal(await guard.resolveExisting('w', 'ok.txt'), expectedOk);
   await assert.rejects(() => guard.resolveExisting('w', '../outside/secret.txt'));
   await assert.rejects(() => guard.resolveExisting('w', 'escape/secret.txt'));
 });

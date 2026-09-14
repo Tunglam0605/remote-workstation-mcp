@@ -16,7 +16,7 @@ function configured(root: string): { config: PolicyConfig; lease: PermissionLeas
       mode: 'workspace',
       workspaces: [{ id: 'w', root }],
       filesystem: { maxReadBytes: 4096, maxWriteBytes: 4096 },
-      process: { allowExecutables: [], inheritEnv: ['PATH', 'HOME'], maxOutputBytes: 4096, maxRuntimeMs: 2000 },
+      process: { allowExecutables: [], inheritEnv: ['PATH', 'HOME'], maxOutputBytes: 4096, maxRuntimeMs: 15000 },
       fullControl: { allowRawShell: true, allowHostFilesystem: true },
       privileged: { allowSudo: false, maxRuntimeMs: 1000 }
     },
@@ -52,7 +52,10 @@ test('raw shell executes only when full-control gate and lease are active', asyn
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const { config, lease } = configured(root);
   const shell = new FullControlAdapter(new PolicyEngine(config, lease, 'test-client'));
-  const result = await shell.shell("printf 'rwmcp-ok'", root, 1000);
-  assert.equal(result.ok, true);
+  const command = os.platform() === 'win32'
+    ? "[Console]::Out.Write('rwmcp-ok')"
+    : "printf 'rwmcp-ok'";
+  const result = await shell.shell(command, root, os.platform() === 'win32' ? 10000 : 3000);
+  assert.equal(result.ok, true, result.stderr || `shell failed or timed out: ${JSON.stringify(result)}`);
   assert.equal(result.stdout, 'rwmcp-ok');
 });

@@ -44,6 +44,7 @@ function onMessage(message) {
   }
   if (message.method === 'textDocument/documentSymbol') {
     response(message.id, [{ name: 'demo', kind: 12, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } }, selectionRange: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } } }]);
+    setTimeout(() => process.exit(0), 20);
   }
 }
 

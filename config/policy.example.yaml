@@ -11,6 +11,11 @@ filesystem:
   maxReadBytes: 1048576
   maxWriteBytes: 1048576
 
+search:
+  maxResults: 100
+  maxFiles: 5000
+  maxFileBytes: 1048576
+
 process:
   allowExecutables:
     - git
@@ -32,3 +37,17 @@ process:
     - TEMP
   maxOutputBytes: 262144
   maxRuntimeMs: 600000
+
+tasks:
+  node-test:
+    program: npm
+    args: [test]
+    cwd: .
+  node-build:
+    program: npm
+    args: [run, build]
+    cwd: .
+  cmake-build:
+    program: cmake
+    args: [--build, build]
+    cwd: .

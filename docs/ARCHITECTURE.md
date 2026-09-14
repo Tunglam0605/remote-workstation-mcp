@@ -1,36 +1,48 @@
 # Architecture
 
-Remote Workstation MCP is an AI control plane, not a remote-desktop renderer and not a debugger implementation.
+Remote Workstation MCP is an **AI-vendor-neutral engineering control plane**. ChatGPT, Codex, Claude Code, Cursor, VS Code integrations, and custom MCP clients are clients of the same core; none is a privileged part of the domain architecture.
 
 ```text
-ChatGPT / MCP client
-        |
-        v
-MCP transport (stdio or loopback HTTP)
-        |
-        v
-Tool registry
-        |
-        v
-Owner policy
-        |
-        +---- PathGuard ---- Filesystem
-        +---- Exec policy -- Process manager
-        +---- Safe adapter - Git
-        |
-        v
-Local workstation
+AI / agent clients
+      |
+      | MCP (stdio or Streamable HTTP)
+      v
++-----------------------------+
+| MCP interface / tool schema |
++--------------+--------------+
+               |
+               v
++-----------------------------+
+| local owner policy          |
+| capability boundary         |
++--------------+--------------+
+               |
+               v
++-----------------------------+
+| adapters                    |
+| filesystem / git / process  |
++--------------+--------------+
+               |
+               v
+         workstation OS
 ```
 
-## Boundaries
+## Dependency direction
 
-- MCP handlers never execute shell strings directly.
-- Filesystem access is workspace-relative and canonicalized through `realpath`.
-- Process execution uses `spawn(program, argv, { shell: false })` and a local executable allowlist.
-- Child processes inherit an allowlisted environment only; obvious secret variable names are refused even when mistakenly configured.
-- Audit records intentionally exclude file contents, command output and environment values.
-- HTTP binds to loopback only in v0.1. Remote ChatGPT access is expected to use an outbound secure MCP tunnel.
+MCP handlers depend on domain/adapters. Adapters depend on local policy. The policy layer never depends on an AI vendor or prompt semantics.
 
-## Extension path
+## Multi-client rules
 
-Future adapters may expose SSH, serial, ROS 2, STM32, OpenOCD, GDB, Docker and vendor tools. Domain adapters sit behind the same policy and audit layers instead of bypassing them.
+1. MCP compatibility is the interoperability contract; vendor-specific behavior belongs in optional integration documentation only.
+2. File reads return SHA-256 values. Writers may supply `expectedSha256` so stale agents fail instead of silently overwriting newer work.
+3. Audit records include client observability tags. In v0.2 those tags are not authentication identities and MUST NOT be used for authorization.
+4. Future authenticated per-client policy will sit before capability execution; an agent will never grant itself a stronger role.
+5. Concurrent coding work should eventually use isolated Git worktrees rather than several agents editing one tree.
+
+## Remote access
+
+Remote transport is separate from the MCP core. ChatGPT can use an OpenAI Secure MCP Tunnel; other clients may use stdio or another standards-compatible transport. No vendor transport is allowed to become the security authority.
+
+## Future engineering adapters
+
+SSH, Docker, serial/USB, OpenOCD/GDB/ST-Link, STM32/ESP32 and ROS 2 are adapters layered behind the same policy boundary.

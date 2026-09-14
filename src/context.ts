@@ -12,11 +12,16 @@ export async function createContext() {
   const policy = new PolicyEngine(config);
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
+  const actor = {
+    clientId: process.env.RWMCP_CLIENT_ID ?? 'unknown',
+    clientType: process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client'
+  };
   return {
     config,
     policy,
     paths,
-    audit: new AuditLogger(auditPath),
+    actor,
+    audit: new AuditLogger(auditPath, actor),
     fs: new FilesystemAdapter(policy, paths),
     git: new GitAdapter(policy, paths),
     processes: new ProcessManager(policy, paths)

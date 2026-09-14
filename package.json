@@ -6,6 +6,14 @@
   "bin": {
     "remote-workstation-mcp": "dist/cli.js"
   },
+  "files": [
+    "dist/",
+    "config/policy.example.yaml",
+    "scripts/",
+    "docs/",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -16,7 +24,11 @@
     "start": "node dist/cli.js --http",
     "start:stdio": "node dist/cli.js --stdio",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "prepack": "npm run build",
+    "install:user": "bash scripts/install-user.sh",
+    "update:check": "node scripts/update-user.mjs --check",
+    "update:user": "node scripts/update-user.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

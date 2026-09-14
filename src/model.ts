@@ -5,6 +5,7 @@ export interface PermissionLease {
   issuedAt: string;
   expiresAt: string;
   reason?: string;
+  clientId?: string;
 }
 
 export interface WorkspaceConfig {

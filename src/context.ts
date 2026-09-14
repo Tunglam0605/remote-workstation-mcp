@@ -10,13 +10,14 @@ import { UpdateAdapter } from './adapters/update.js';
 import { SERVER_VERSION } from './capabilities.js';
 import { loadPolicy } from './config.js';
 import { loadHosts } from './hosts.js';
+import { loadPermissionLease } from './permissions.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
 
 export async function createContext() {
-  const [config, hostsConfig] = await Promise.all([loadPolicy(), loadHosts()]);
-  const policy = new PolicyEngine(config);
+  const [config, hostsConfig, lease] = await Promise.all([loadPolicy(), loadHosts(), loadPermissionLease()]);
+  const policy = new PolicyEngine(config, lease);
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const actor = {

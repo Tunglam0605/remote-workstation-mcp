@@ -1,0 +1,41 @@
+{
+  "name": "remote-workstation-mcp",
+  "version": "0.1.0",
+  "description": "Secure MCP-based remote workstation agent with owner-controlled permissions.",
+  "type": "module",
+  "bin": {
+    "remote-workstation-mcp": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts --http",
+    "dev:stdio": "tsx src/cli.ts --stdio",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js --http",
+    "start:stdio": "node dist/cli.js --stdio",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/express": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "express": "^5.1.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.3",
+    "tsx": "^4.20.5",
+    "typescript": "^6.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tunglam0605/remote-workstation-mcp.git"
+  },
+  "keywords": ["mcp", "chatgpt", "remote", "workstation", "automation", "developer-tools"]
+}

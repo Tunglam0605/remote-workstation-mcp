@@ -1,0 +1,34 @@
+version: 1
+mode: workspace
+
+workspaces:
+  - id: projects
+    name: Projects
+    root: /home/your-user/Projects
+    readOnly: false
+
+filesystem:
+  maxReadBytes: 1048576
+  maxWriteBytes: 1048576
+
+process:
+  allowExecutables:
+    - git
+    - node
+    - npm
+    - npx
+    - python3
+    - cmake
+    - ninja
+    - make
+  inheritEnv:
+    - PATH
+    - HOME
+    - LANG
+    - LC_ALL
+    - TERM
+    - TMPDIR
+    - TMP
+    - TEMP
+  maxOutputBytes: 262144
+  maxRuntimeMs: 600000

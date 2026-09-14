@@ -1,5 +1,12 @@
 export type PermissionMode = 'read_only' | 'workspace' | 'elevated' | 'full_control';
 
+export interface PermissionLease {
+  mode: 'elevated' | 'full_control';
+  issuedAt: string;
+  expiresAt: string;
+  reason?: string;
+}
+
 export interface WorkspaceConfig {
   id: string;
   name?: string;
@@ -33,6 +40,14 @@ export interface PolicyConfig {
     maxRuntimeMs: number;
   };
   tasks?: Record<string, TaskProfileConfig>;
+  fullControl?: {
+    allowRawShell: boolean;
+    allowHostFilesystem: boolean;
+  };
+  privileged?: {
+    allowSudo: boolean;
+    maxRuntimeMs: number;
+  };
 }
 
 export type SshAuthMode = 'agent' | 'identity_file';

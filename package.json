@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
@@ -29,7 +29,9 @@
     "prepack": "npm run build",
     "install:user": "bash scripts/install-user.sh",
     "update:check": "node scripts/update-user.mjs --check",
-    "update:user": "node scripts/update-user.mjs"
+    "update:user": "node scripts/update-user.mjs",
+    "permission:status": "node scripts/grant-permission.mjs --status",
+    "permission:revoke": "node scripts/grant-permission.mjs --revoke"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",
@@ -50,5 +52,5 @@
     "type": "git",
     "url": "git+https://github.com/Tunglam0605/remote-workstation-mcp.git"
   },
-  "keywords": ["mcp", "ai-agent", "remote", "workstation", "automation", "developer-tools", "multi-agent", "ssh"]
+  "keywords": ["mcp", "ai-agent", "remote", "workstation", "automation", "developer-tools", "multi-agent", "ssh", "remote-control"]
 }

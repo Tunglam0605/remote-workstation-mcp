@@ -17,6 +17,8 @@ cd "$ROOT"
 VERSION="$(node -p "require('./package.json').version")"
 echo "Installing Remote Workstation MCP v$VERSION"
 npm install --no-audit --no-fund
+npm run typecheck
+npm test
 npm run build
 
 TMP="$(mktemp -d)"
@@ -24,6 +26,7 @@ trap 'rm -rf "$TMP"' EXIT
 PACK="$(npm pack --pack-destination "$TMP" --silent)"
 VERSION_DIR="$DATA_HOME/versions/$VERSION"
 mkdir -p "$VERSION_DIR" "$DATA_HOME/runtime" "$CONFIG_HOME" "$SERVICE_DIR"
+chmod 700 "$DATA_HOME" "$DATA_HOME/runtime" "$CONFIG_HOME" || true
 rm -rf "$VERSION_DIR"/*
 tar -xzf "$TMP/$PACK" --strip-components=1 -C "$VERSION_DIR"
 (
@@ -55,9 +58,23 @@ process:
   maxOutputBytes: 262144
   maxRuntimeMs: 600000
 tasks: {}
+fullControl:
+  allowRawShell: false
+  allowHostFilesystem: false
+privileged:
+  allowSudo: false
+  maxRuntimeMs: 600000
 EOF
   chmod 600 "$CONFIG_HOME/policy.yaml"
   echo "Created safe default workspace: $WORKSPACE"
+fi
+
+if [[ ! -f "$CONFIG_HOME/hosts.yaml" ]]; then
+  cat > "$CONFIG_HOME/hosts.yaml" <<EOF
+version: 1
+hosts: []
+EOF
+  chmod 600 "$CONFIG_HOME/hosts.yaml"
 fi
 
 if [[ ! -f "$CONFIG_HOME/update.env" ]]; then
@@ -88,7 +105,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$DATA_HOME/current
 Environment=RWMCP_POLICY=$CONFIG_HOME/policy.yaml
+Environment=RWMCP_HOSTS=$CONFIG_HOME/hosts.yaml
+Environment=RWMCP_LEASE=$DATA_HOME/runtime/permission-lease.json
 Environment=RWMCP_AUDIT=$DATA_HOME/runtime/audit.jsonl
+Environment=RWMCP_CLIENT_ID=local-http
+Environment=RWMCP_CLIENT_TYPE=managed-http
 ExecStart=$NODE_BIN $DATA_HOME/current/dist/cli.js --http
 Restart=on-failure
 RestartSec=3
@@ -135,12 +156,15 @@ if command -v systemctl >/dev/null 2>&1; then
   sleep 1
   systemctl --user --no-pager --full status remote-workstation-mcp.service || true
 else
-  echo "systemctl is not available; run manually: $NODE_BIN $DATA_HOME/current/dist/cli.js --http"
+  echo "systemctl is not available; run manually:"
+  echo "  RWMCP_POLICY=$CONFIG_HOME/policy.yaml RWMCP_HOSTS=$CONFIG_HOME/hosts.yaml RWMCP_LEASE=$DATA_HOME/runtime/permission-lease.json RWMCP_CLIENT_ID=local-http $NODE_BIN $DATA_HOME/current/dist/cli.js --http"
 fi
 
 echo
 echo "Installed: $DATA_HOME/current -> v$VERSION"
 echo "Policy:    $CONFIG_HOME/policy.yaml"
+echo "SSH hosts: $CONFIG_HOME/hosts.yaml"
+echo "Lease:     $DATA_HOME/runtime/permission-lease.json"
 echo "Updates:   $CONFIG_HOME/update.env (default: notify)"
 echo "MCP:       http://127.0.0.1:8765/mcp"
 echo "Health:    http://127.0.0.1:8765/healthz"

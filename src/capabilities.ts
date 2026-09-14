@@ -11,6 +11,7 @@ export interface CapabilityDescriptor {
 
 export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
+  { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install is owner-managed.' },
   { id: 'workspace.discover', status: 'available', tools: ['workspace_list'] },
   { id: 'filesystem.read', status: 'available', tools: ['fs_list', 'fs_read', 'fs_find', 'fs_search_text'] },
   { id: 'filesystem.write', status: 'available', tools: ['fs_write', 'fs_patch'], note: 'Workspace policy and optimistic SHA-256 checks apply.' },

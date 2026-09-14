@@ -38,9 +38,9 @@
         "privacyPolicyURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PRIVACY.md",
         "termsOfServiceURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PLUGIN_TERMS.md",
         "defaultPrompt": [
-          "Check whether my Remote Workstation MCP is healthy and list the workspaces I have authorized.",
-          "Inspect the current project, find the build problem, make the smallest safe fix, run the configured tests, and show me the resulting Git diff.",
-          "List the approved SSH hosts and probe the one I name before running any remote command."
+          "Check my Remote Workstation health and list the workspaces I authorized.",
+          "Find the current build error, make the smallest safe fix, run tests, and show the Git diff.",
+          "List approved SSH hosts and probe the host I name before running a remote command."
         ],
         "brandColor": "#10A37F",
         "screenshots": []

@@ -23,7 +23,7 @@ export function buildServer(ctx: AppContext): McpServer {
   }, async () => result(await audited(ctx.audit, 'capabilities_list', undefined, async () => ({
     server: 'remote-workstation-mcp', version: SERVER_VERSION, protocol: 'MCP', vendorNeutral: true,
     actorTag: ctx.actor,
-    identityNote: 'RWMCP_CLIENT_ID/RWMCP_CLIENT_TYPE are audit tags only in v0.2; they are not authentication or authorization identities.',
+    identityNote: 'Client tags are observability metadata only; local owner policy is the authorization authority.',
     capabilities: CAPABILITIES
   }))));
 
@@ -37,6 +37,12 @@ export function buildServer(ctx: AppContext): McpServer {
     node: process.version, mode: ctx.config.mode
   }))));
 
+  server.registerTool('tool_discover', {
+    description: 'Discover common development/debug executables installed on the workstation and whether local policy allows executing them.',
+    inputSchema: z.object({ extra: z.array(z.string().min(1)).max(50).default([]) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ extra }) => result({ tools: await audited(ctx.audit, 'tool_discover', undefined, () => ctx.tools.discover(extra)) }));
+
   server.registerTool('workspace_list', {
     description: 'List workspace roots authorized by the local owner policy.',
     inputSchema: z.object({}),
@@ -48,6 +54,18 @@ export function buildServer(ctx: AppContext): McpServer {
     inputSchema: z.object({ workspace: z.string(), path: z.string().default('.') }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, path }) => result(await audited(ctx.audit, 'fs_list', workspace, () => ctx.fs.list(workspace, path))));
+
+  server.registerTool('fs_find', {
+    description: 'Find files by path/name substring within an authorized workspace. Search is bounded and skips symlinks, .git and node_modules.',
+    inputSchema: z.object({ workspace: z.string(), query: z.string().min(1), path: z.string().default('.'), maxResults: z.number().int().positive().max(1000).optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, query, path, maxResults }) => result({ matches: await audited(ctx.audit, 'fs_find', workspace, () => ctx.search.findFiles(workspace, query, path, maxResults)) }));
+
+  server.registerTool('fs_search_text', {
+    description: 'Search UTF-8 text files within an authorized workspace and return bounded line matches.',
+    inputSchema: z.object({ workspace: z.string(), query: z.string().min(1), path: z.string().default('.'), caseSensitive: z.boolean().default(false), maxResults: z.number().int().positive().max(1000).optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, query, path, caseSensitive, maxResults }) => result({ matches: await audited(ctx.audit, 'fs_search_text', workspace, () => ctx.search.searchText(workspace, query, path, caseSensitive, maxResults)) }));
 
   server.registerTool('fs_read', {
     description: 'Read a UTF-8 text file inside an authorized workspace and return its SHA-256 for optimistic concurrency.',
@@ -79,6 +97,18 @@ export function buildServer(ctx: AppContext): McpServer {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, staged }) => result({ output: await audited(ctx.audit, 'git_diff', workspace, () => ctx.git.diff(workspace, staged)) }));
 
+  server.registerTool('task_list', {
+    description: 'List owner-defined build/test task profiles from local policy.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () => result({ tasks: await audited(ctx.audit, 'task_list', undefined, async () => ctx.tasks.list()) }));
+
+  server.registerTool('task_run', {
+    description: 'Run an owner-defined task profile in an authorized workspace. Program execution remains subject to the executable allowlist.',
+    inputSchema: z.object({ workspace: z.string(), task: z.string().min(1), extraArgs: z.array(z.string()).max(100).default([]) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, task, extraArgs }) => result(await audited(ctx.audit, 'task_run', workspace, () => ctx.tasks.run(workspace, task, extraArgs))));
+
   server.registerTool('process_start', {
     description: 'Start an owner-approved executable without a shell. The executable must be allowlisted in local policy.',
     inputSchema: z.object({ workspace: z.string(), program: z.string().min(1), args: z.array(z.string()).default([]), cwd: z.string().default('.') }),
@@ -86,10 +116,16 @@ export function buildServer(ctx: AppContext): McpServer {
   }, async ({ workspace, program, args, cwd }) => result(await audited(ctx.audit, 'process_start', workspace, () => ctx.processes.start(workspace, program, args, cwd))));
 
   server.registerTool('process_read', {
-    description: 'Read current state and captured stdout/stderr of a managed process.',
+    description: 'Read current state and current bounded stdout/stderr buffers of a managed process.',
     inputSchema: z.object({ id: z.string().uuid() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id }) => result(ctx.processes.read(id)));
+
+  server.registerTool('process_read_since', {
+    description: 'Read only process output produced since caller-provided cursors. Returns next cursors and whether older output was truncated.',
+    inputSchema: z.object({ id: z.string().uuid(), stdoutCursor: z.number().int().nonnegative().default(0), stderrCursor: z.number().int().nonnegative().default(0) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, stdoutCursor, stderrCursor }) => result(ctx.processes.readSince(id, stdoutCursor, stderrCursor)));
 
   server.registerTool('process_list', {
     description: 'List processes started through this MCP agent.',

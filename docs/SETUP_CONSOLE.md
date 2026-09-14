@@ -6,11 +6,21 @@ The Setup Console is **not** an MCP tool and is never exposed through the OpenAI
 
 ## Windows first-use flow
 
+After cloning the repository and checking out the release, the shortest path is:
+
 ```powershell
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
 git checkout v0.7.2
+npm run setup:first-run:windows
+```
+
+That command performs the validated runtime bootstrap and then opens the local Setup Console.
+
+The two phases can also be run separately:
+
+```powershell
 npm run setup:windows
 npm run setup:web:windows
 ```
@@ -23,13 +33,15 @@ npm run setup:web:windows
 
 The web flow can configure:
 
-- MCP loopback port (`RWMCP_PORT` equivalent);
+- MCP loopback port (`RWMCP_PORT` equivalent), with automatic free-port recommendation when the current port is already occupied;
 - authorized workspace root for a new default policy;
 - OpenAI Secure MCP Tunnel ID;
 - OpenAI organization ID;
 - managed Cloudflare runtime opt-in/out;
 - official OpenAI `tunnel-client` installation on Windows;
 - OpenAI runtime API key storage using the current Windows user's DPAPI protection.
+
+This explicitly handles machines where another local MCP/plugin already owns port `8765`; the wizard can recommend alternatives such as `8683`, `8877`, or another free loopback port.
 
 Non-secret settings are stored outside the repository at:
 

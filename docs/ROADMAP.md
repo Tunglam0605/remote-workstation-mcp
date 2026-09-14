@@ -89,6 +89,20 @@ Completed direct-control foundation:
 
 A tunnel connection is reachability, not authorization. The remote path still terminates at the authenticated loopback MCP boundary, then passes through scopes, policy, leases and audit before any workstation adapter executes.
 
+## v0.7.2 — ChatGPT Web onboarding + new-machine setup ✅
+
+- loopback-only owner Setup Console for first-run workstation onboarding
+- ephemeral setup token, same-origin check, no-store responses and loopback client enforcement
+- persisted non-secret workstation settings outside the repository
+- Windows DPAPI protection for the OpenAI runtime API key
+- Windows launchers automatically reuse saved MCP port, tunnel id, organization id and cloudflared preference
+- Setup Console can install/verify the pinned official OpenAI `tunnel-client`
+- existing owner policy and SSH host config are never silently overwritten
+- dedicated ChatGPT Web custom app guide and connector handoff
+- explicit separation between portable plugin packaging and ChatGPT Web tunnel attachment
+
+The setup browser is an owner-local bootstrap surface, not an MCP capability exposed to AI clients.
+
 ## v0.8 — Engineering debug and hardware adapters
 
 - true PTY/ConPTY terminal adapter with bounded lifecycle and output

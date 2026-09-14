@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
@@ -26,6 +26,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli.js --http",
     "start:stdio": "node dist/cli.js --stdio",
+    "start:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/start-windows.ps1",
+    "setup:windows": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "plugin:validate": "node scripts/validate-plugin.mjs",

@@ -1,7 +1,7 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.1.0",
-  "description": "Secure MCP-based remote workstation agent with owner-controlled permissions.",
+  "version": "0.2.0",
+  "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
     "remote-workstation-mcp": "dist/cli.js"
@@ -37,5 +37,5 @@
     "type": "git",
     "url": "git+https://github.com/Tunglam0605/remote-workstation-mcp.git"
   },
-  "keywords": ["mcp", "chatgpt", "remote", "workstation", "automation", "developer-tools"]
+  "keywords": ["mcp", "ai-agent", "remote", "workstation", "automation", "developer-tools", "multi-agent"]
 }

@@ -1,12 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+export interface AuditActor {
+  clientId: string;
+  clientType: string;
+}
+
 export class AuditLogger {
-  constructor(private readonly filePath: string) {}
+  constructor(
+    private readonly filePath: string,
+    private readonly actor: AuditActor = { clientId: 'unknown', clientType: 'mcp-client' }
+  ) {}
 
   async record(tool: string, ok: boolean, durationMs: number, workspace?: string, error?: unknown): Promise<void> {
     const entry = {
       ts: new Date().toISOString(),
+      actor: this.actor,
       tool,
       workspace,
       ok,

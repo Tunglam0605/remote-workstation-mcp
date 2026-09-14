@@ -17,7 +17,29 @@ Remote Workstation MCP can read/write files and execute development tools. It ca
 11. **Client-bound lease enforcement** — when an authenticated principal is present, its principal ID is used for client-bound permission lease evaluation; local transports fall back to `RWMCP_CLIENT_ID`.
 12. **Fail-closed authenticated tool classification** — an authenticated principal cannot invoke a newly added tool until that tool has an explicit scope classification.
 13. **Loopback HTTP** — the built-in HTTP service still binds to `127.0.0.1`; bearer authentication is a transport-auth foundation, not permission to expose the raw port to the Internet.
-14. **Managed service hardening** — the Linux user service runs with restrictive file permissions and `NoNewPrivileges=true`.
+14. **Owner-local setup surface** — the Setup Console binds only to loopback, uses an ephemeral setup token, rejects non-loopback clients and cross-origin browser requests, and is never registered as an MCP tool.
+15. **Secret separation** — non-secret setup state is stored outside the repository; on Windows the optional OpenAI runtime key is protected with current-user DPAPI and stripped from the MCP child environment.
+16. **Managed service hardening** — the Linux user service runs with restrictive file permissions and `NoNewPrivileges=true`.
+
+## Setup Console boundary
+
+The Setup Console exists to onboard a workstation. It is not a general remote administration UI.
+
+Its supported mutations are intentionally narrow:
+
+- save the loopback MCP port;
+- save the initial workspace path for a new default policy;
+- save OpenAI tunnel/organization identifiers and the managed-Cloudflare preference;
+- install the pinned official OpenAI tunnel-client on Windows;
+- optionally store/remove the OpenAI runtime API key using Windows DPAPI.
+
+The browser setup flow does **not** expose controls for raw shell, host-wide filesystem gates, sudo/Administrator enablement, permission-lease issuance, SSH credential creation, or arbitrary command execution.
+
+An existing `config/policy.yaml` or `config/hosts.yaml` is preserved rather than rewritten by the Setup Console. This prevents a convenience UI from silently weakening an owner-maintained security policy.
+
+The setup URL contains an ephemeral token in the URL fragment. The fragment is not sent in the initial HTTP request; browser JavaScript presents it in the `x-rwmcp-setup-token` header for API requests. Stop the Setup Console after onboarding.
+
+Do not bind the Setup Console to a LAN interface, publish it through a reverse proxy, or attach it to Secure MCP Tunnel.
 
 ## HTTP principal and scope boundary
 
@@ -90,4 +112,4 @@ Checksums protect against accidental/corrupt downloads but are not a complete so
 
 ## Vulnerability reporting
 
-For issues that could enable policy bypass, secret disclosure, unauthorized command execution, SSH policy escape, authentication/scope bypass, update compromise or permission-elevation bypass, use a GitHub Security Advisory rather than a public issue.
+For issues that could enable policy bypass, secret disclosure, unauthorized command execution, SSH policy escape, authentication/scope bypass, update compromise, setup-token bypass or permission-elevation bypass, use a GitHub Security Advisory rather than a public issue.

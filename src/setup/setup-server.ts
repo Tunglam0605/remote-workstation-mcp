@@ -1,10 +1,13 @@
-import { spawn } from 'node:child_process';
+﻿import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
+import { loadHosts } from '../hosts.js';
+import { PairingStore } from '../pairing/pairing-store.js';
+import { PairingBootstrapAdapter } from '../pairing/pairing-bootstrap.js';
 import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
 import {
   applyOwnerPermissionMode,
@@ -358,6 +361,45 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         return;
       }
 
+      if (url.pathname === '/api/devices/pairing' && req.method === 'GET') {
+        const hosts = await loadHosts();
+        const pairing = new PairingStore();
+        json(res, 200, {
+          devices: await pairing.listDevices(),
+          pending: await pairing.listPending(),
+          bootstrapHosts: hosts.hosts.map(host => ({ id: host.id, name: host.name ?? host.id, hostname: host.hostname, platform: 'ssh' }))
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/devices/pairing-code' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { requestedName?: string; bootstrapHostId?: string; ttlSeconds?: number };
+        const pairing = new PairingStore();
+        json(res, 200, await pairing.createCode({
+          requestedName: body.requestedName,
+          bootstrapHostId: body.bootstrapHostId,
+          ttlSeconds: body.ttlSeconds
+        }));
+        return;
+      }
+
+      if (url.pathname === '/api/devices/bootstrap-ssh' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { hostId?: string; code?: string; name?: string };
+        if (!body.hostId || !body.code) throw new Error('hostId and pairing code are required.');
+        const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
+        const hosts = await loadHosts();
+        const pairing = new PairingStore();
+        const bootstrap = new PairingBootstrapAdapter(hosts, pairing, packageJson.version);
+        json(res, 200, await bootstrap.bootstrapSsh({ hostId: body.hostId, code: body.code, name: body.name }));
+        return;
+      }
+
+      const revokeDevice = url.pathname.match(/^\/api\/devices\/([A-Za-z0-9._-]+)\/revoke$/);
+      if (revokeDevice && req.method === 'POST') {
+        const pairing = new PairingStore();
+        json(res, 200, await pairing.revoke(revokeDevice[1]!));
+        return;
+      }
       if (url.pathname === '/api/update/status' && req.method === 'GET') {
         json(res, 200, await windowsUpdateControl(repoRoot, 'Status'));
         return;

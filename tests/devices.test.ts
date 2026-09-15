@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DeviceRegistryAdapter } from '../src/adapters/devices.js';
 
@@ -61,4 +61,34 @@ test('device exec routes only to registered remote devices', async () => {
   assert.equal(result.device, 'ubuntu-lab');
   assert.equal(result.ok, true);
   await assert.rejects(() => registry.execute('missing', 'git'), /not registered/);
+});
+
+test('paired device identity replaces its bootstrap SSH host and routes through that transport', async () => {
+  const pairing = {
+    listDevices: async () => [{
+      id: 'dev_ubuntu_lab', name: 'Ubuntu Vision PC', hostname: 'lab-host', platform: 'linux', arch: 'x86_64',
+      version: '0.8.2', capabilities: ['paired.identity', 'ssh.bootstrap'], bootstrapTransport: 'ssh' as const,
+      bootstrapHostId: 'ubuntu-lab', credentialIssuedAt: '2026-09-15T10:00:00Z', pairedAt: '2026-09-15T10:00:00Z',
+      lastSeenAt: '2026-09-15T10:00:00Z'
+    }],
+    getActiveDevice: async (id: string) => id === 'dev_ubuntu_lab' ? {
+      id, name: 'Ubuntu Vision PC', hostname: 'lab-host', platform: 'linux', arch: 'x86_64', version: '0.8.2',
+      capabilities: ['paired.identity', 'ssh.bootstrap'], bootstrapTransport: 'ssh' as const, bootstrapHostId: 'ubuntu-lab',
+      credentialIssuedAt: '2026-09-15T10:00:00Z', pairedAt: '2026-09-15T10:00:00Z', lastSeenAt: '2026-09-15T10:00:00Z'
+    } : undefined
+  };
+  const registry = new DeviceRegistryAdapter(fakeSsh() as never, pairing as never);
+  const devices = await registry.list(true);
+  assert.equal(devices.some(device => device.id === 'ubuntu-lab'), false);
+  const paired = devices.find(device => device.id === 'dev_ubuntu_lab');
+  assert.equal(paired?.transport, 'paired_ssh');
+  assert.equal(paired?.online, true);
+  assert.equal(paired?.version, '0.8.2');
+  const probe = await registry.probe('dev_ubuntu_lab');
+  assert.equal(probe.transport, 'paired_ssh');
+  assert.equal(probe.routedVia, 'ubuntu-lab');
+  const exec = await registry.execute('dev_ubuntu_lab', 'git', ['status'], '.', 500);
+  assert.equal(exec.transport, 'paired_ssh');
+  assert.equal(exec.routedVia, 'ubuntu-lab');
+  assert.equal(exec.ok, true);
 });

@@ -1,4 +1,4 @@
-import path from 'node:path';
+﻿import path from 'node:path';
 import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
 import { DeviceRegistryAdapter } from './adapters/devices.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
@@ -16,6 +16,7 @@ import { SERVER_VERSION } from './capabilities.js';
 import { loadPolicy } from './config.js';
 import { loadHosts } from './hosts.js';
 import { loadPermissionLease } from './permissions.js';
+import { PairingStore } from './pairing/pairing-store.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
@@ -33,6 +34,7 @@ export async function createContext() {
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const processes = new ProcessManager(policy, paths, currentClientId);
   const ssh = new SshAdapter(policy, hostsConfig);
+  const pairing = new PairingStore();
   return {
     config,
     hostsConfig,
@@ -51,7 +53,8 @@ export async function createContext() {
     tools: new ToolDiscoveryAdapter(policy),
     tasks: new TaskAdapter(policy, processes),
     ssh,
-    devices: new DeviceRegistryAdapter(ssh),
+    pairing,
+    devices: new DeviceRegistryAdapter(ssh, pairing),
     updates: new UpdateAdapter(SERVER_VERSION)
   };
 }

@@ -1,28 +1,49 @@
 # Remote Workstation MCP
 
-**Install once. Connect ChatGPT. Start with Windows. Update automatically.**
+**Install once on each workstation. Connect each node directly to ChatGPT. No SSH hub required.**
 
-Remote Workstation MCP (RWMCP) securely connects ChatGPT to a Windows engineering workstation. The local owner decides what ChatGPT may read, modify, or execute, while the workstation MCP itself stays bound to loopback instead of being exposed directly to the Internet.
+Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux engineering workstations. Each machine can run as an independent Direct Node with its own outbound OpenAI Secure MCP Tunnel. The local owner decides what ChatGPT may read, modify, or execute, while the workstation MCP itself stays bound to loopback instead of being exposed directly to the Internet.
 
 ## Current release
 
-**v0.8.1**
+**v0.8.3**
 
-Default managed Windows endpoints:
+v0.8.3 makes **Direct Multi-Node** the preferred multi-device topology:
+
+```text
+                         ChatGPT Web
+                    /        |         \
+                   /         |          \
+          Secure Tunnel  Secure Tunnel  Secure Tunnel
+               |             |              |
+          Windows Laptop   Ubuntu PC      Vision PC
+              RWMCP          RWMCP           RWMCP
+```
+
+Every workstation has its own stable device identity, its own Tunnel ID, its own local policy/audit boundary, and its own ChatGPT custom MCP app. Routine multi-device control no longer depends on one laptop acting as an SSH gateway or on the machines sharing a LAN/VPN.
+
+New in v0.8.3:
+
+- stable local `device-identity.json` independent of DHCP/IP changes;
+- `workstation_identity` for deterministic target resolution;
+- identity included in `chatgpt_web_status` and `system_info`;
+- preferred direct-node instructions when multiple Remote Workstation apps are selected;
+- SHA-256-verified OpenAI tunnel-client installation for Linux amd64/arm64;
+- managed Linux Direct Node service through `systemd --user` with automatic restart/reconnect;
+- legacy Hub/SSH/pairing tools retained only for bootstrap and explicitly requested gateway workflows.
+
+OpenAI documents that ChatGPT can invoke multiple first-party and third-party apps in a single prompt. For private/local MCP servers, Secure MCP Tunnel keeps the MCP server private while providing ChatGPT reachability. Each independent tunnel should use its own Tunnel ID.
+
+See [Multi-device control](docs/MULTI_DEVICE.md).
+
+Default managed Windows endpoints remain:
 
 - MCP: `127.0.0.1:8683`
 - Control Center: `127.0.0.1:8684`
 - automatic updates: enabled
 - update channel: `stable`
-- update check: at Windows sign-in when due, at most once per 12 hours
 
-## v0.8 multi-device Hub
-
-The v0.8 series moves multi-device control into the stable release: one ChatGPT Web connection reaches an always-on Remote Workstation Hub, which can route owner-approved operations to registered office devices without exposing those devices directly to the Internet.
-
-The Hub-gateway MVP adds `device_list`, `device_probe`, and `device_exec`, plus Windows tunnel watchdog/reconnect hardening and explicit `ONLINE / RECONNECTING / OFFLINE` state. v0.8.1 also self-heals the stable Windows launcher after managed upgrades so launcher behavior cannot lag behind the active runtime slot. See [Multi-device Hub](docs/MULTI_DEVICE.md) for architecture, setup and the security boundary.
-
-For an upgraded ChatGPT custom MCP app, start a fresh chat or reconnect the app once so ChatGPT refreshes the MCP tool schema and discovers the new `device_*` tools.
+Linux Direct Nodes use the managed per-user RWMCP install plus `remote-workstation-mcp-openai.service`.
 
 ## New user path: from zero to READY
 
@@ -46,14 +67,13 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.1 release contains:
+The v0.8.3 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.1.tgz`
+- `remote-workstation-mcp-v0.8.3.tgz`
 - `SHA256SUMS.txt`
 
-![GitHub Release v0.8.1](docs/images/v0.8.1/09-github-release-v081.png)
 
 Double-click `install-windows.cmd`. The installer checks prerequisites, downloads the verified release package, installs the runtime and OpenAI tunnel client, creates the stable launcher, configures startup, initializes automatic stable updates, and opens the local Control Center.
 

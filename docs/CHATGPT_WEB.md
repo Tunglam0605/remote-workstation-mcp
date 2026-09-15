@@ -18,7 +18,7 @@ Current OpenAI references:
 
 Before creating the ChatGPT app, the workstation side should already have:
 
-- RWMCP v0.8.1 installed;
+- RWMCP v0.8.3 installed;
 - one OpenAI Secure MCP Tunnel ID;
 - one restricted Runtime API key with Tunnels Read + Use;
 - `tunnel-client` installed by the RWMCP managed installer;
@@ -91,7 +91,7 @@ The managed wizard:
 6. waits for MCP health and tunnel `/readyz`;
 7. enables current-user start-at-logon.
 
-A ready v0.8.1 workstation should show:
+A ready v0.8.3 workstation should show:
 
 ```text
 MCP          HEALTHY
@@ -120,17 +120,19 @@ Workspace settings -> Apps -> Create
 
 Enterprise/Edu workspaces may additionally use RBAC to control who can use Developer Mode or access a published custom app.
 
-## v0.8.1 multi-device tool refresh
+## v0.8.3 Direct Multi-Node refresh
 
-If this app was already connected before upgrading from an older runtime, start a fresh ChatGPT chat or reconnect the custom MCP app once after the workstation reaches v0.8.1. ChatGPT discovers the MCP tool schema when the app/session is established, so an existing chat can continue showing the older tool list.
+If this app was already connected before upgrading, start a fresh ChatGPT chat or reconnect the custom MCP app once after the workstation reaches v0.8.3 so ChatGPT refreshes the MCP schema.
 
-After refresh, the multi-device MVP exposes:
+Each workstation should use its own Tunnel ID and its own clearly named custom MCP app, for example:
 
-- `device_list` — discover the local Hub plus registered devices;
-- `device_probe` — check one device's reachability;
-- `device_exec` — run one owner-allowlisted program on a registered remote device.
+- `Remote Workstation - TungLam Laptop`
+- `Remote Workstation - Ubuntu Vision PC`
+- `Remote Workstation - Office PC 65`
 
-The legacy `ssh_hosts`, `ssh_probe`, and `ssh_exec` tools remain available for explicit SSH workflows.
+Use `workstation_identity` or `chatgpt_web_status` to confirm which workstation an app controls. When multiple Remote Workstation apps are selected for one message, ChatGPT can target each machine directly; routine multi-device work no longer needs `device_exec` or an SSH gateway.
+
+The legacy `device_list`, `device_probe`, `device_exec`, `ssh_hosts`, `ssh_probe`, and `ssh_exec` tools remain available for bootstrap and explicit gateway workflows.
 
 ## Step 5 - Create the Remote Workstation app
 
@@ -139,7 +141,7 @@ While the workstation tunnel is READY:
 1. Open ChatGPT Web.
 2. Open **Settings -> Apps**.
 3. Choose **Create** / **Add custom app**.
-4. Set the name to **Remote Workstation**.
+4. Set the name to the value recommended by `workstation_identity` / Control Center, for example **Remote Workstation - TungLam Laptop**.
 5. Choose **Tunnel** as the connection method.
 6. Select the provisioned tunnel or paste the exact `tunnel_...` ID.
 7. Run discovery while the workstation remains online.

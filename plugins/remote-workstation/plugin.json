@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "remote-workstation",
-  "version": "0.8.2",
-  "description": "Operate one or more owner-authorized engineering workstations through MCP: verify ChatGPT Web control, route to registered devices, inspect and edit files, run builds, use semantic code intelligence, Git, SSH, and owner-approved full-control workflows.",
+  "version": "0.8.3",
+  "description": "Operate owner-authorized engineering workstations through independent direct MCP nodes: verify ChatGPT Web control, route to registered devices, inspect and edit files, run builds, use semantic code intelligence, Git, SSH, and owner-approved full-control workflows.",
   "author": {
     "name": "Tunglam0605",
     "url": "https://github.com/Tunglam0605"

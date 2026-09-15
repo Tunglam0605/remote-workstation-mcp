@@ -14,6 +14,7 @@ import { ToolDiscoveryAdapter } from './adapters/tool-discovery.js';
 import { UpdateAdapter } from './adapters/update.js';
 import { SERVER_VERSION } from './capabilities.js';
 import { loadPolicy } from './config.js';
+import { loadOrCreateDeviceIdentity } from './device-identity.js';
 import { loadHosts } from './hosts.js';
 import { loadPermissionLease } from './permissions.js';
 import { PairingStore } from './pairing/pairing-store.js';
@@ -27,7 +28,12 @@ export async function createContext() {
     clientId: process.env.RWMCP_CLIENT_ID ?? 'unknown',
     clientType: process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client'
   };
-  const [config, hostsConfig, lease] = await Promise.all([loadPolicy(), loadHosts(), loadPermissionLease()]);
+  const [config, hostsConfig, lease, identity] = await Promise.all([
+    loadPolicy(),
+    loadHosts(),
+    loadPermissionLease(),
+    loadOrCreateDeviceIdentity()
+  ]);
   const currentClientId = () => currentPrincipal()?.id ?? actor.clientId;
   const policy = new PolicyEngine(config, lease, currentClientId);
   const paths = new PathGuard(policy);
@@ -41,6 +47,7 @@ export async function createContext() {
     policy,
     paths,
     actor,
+    identity,
     audit: new AuditLogger(auditPath, actor),
     fs: new FilesystemAdapter(policy, paths),
     hostFs: new HostFilesystemAdapter(policy),
@@ -54,7 +61,7 @@ export async function createContext() {
     tasks: new TaskAdapter(policy, processes),
     ssh,
     pairing,
-    devices: new DeviceRegistryAdapter(ssh, pairing),
+    devices: new DeviceRegistryAdapter(ssh, pairing, identity),
     updates: new UpdateAdapter(SERVER_VERSION)
   };
 }

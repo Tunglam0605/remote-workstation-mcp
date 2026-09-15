@@ -21,6 +21,9 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="accessMode"/);
     assert.match(pageText, /id="autoUpdate"/);
     assert.match(pageText, /id="checkUpdate"/);
+    assert.match(pageText, /id="devicePairingCard"/);
+    assert.match(pageText, /id="createPairingCode"/);
+    assert.match(pageText, /id="pairSelectedHost"/);
     assert.match(pageText, /id="openSetup"/);
     assert.match(pageText, /<dialog class="gw-modal setup-modal" id="setupModal">/);
     assert.match(pageText, /<dialog class="gw-modal confirm-modal" id="fullAccessConfirmModal">/);
@@ -64,7 +67,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.8.1');
+    assert.equal(body.version, '0.8.2');
     assert.ok(Number.isInteger(body.settings.mcpPort));
   } finally {
     await setup.close();

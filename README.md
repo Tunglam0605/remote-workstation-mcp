@@ -1,4 +1,4 @@
-﻿# Remote Workstation MCP
+# Remote Workstation MCP
 
 **Install once. Connect ChatGPT. Start with Windows. Update automatically.**
 
@@ -16,6 +16,11 @@ Default managed Windows endpoints:
 - update channel: `stable`
 - update check: at Windows sign-in when due, at most once per 12 hours
 
+## v0.8.0 multi-device source milestone
+
+The next release line moves multi-device control forward: one ChatGPT Web connection reaches an always-on Remote Workstation Hub, which can route owner-approved operations to registered office devices without exposing those devices directly to the Internet.
+
+The initial Hub-gateway MVP adds `device_list`, `device_probe`, and `device_exec`, plus Windows tunnel watchdog/reconnect hardening and explicit `ONLINE / RECONNECTING / OFFLINE` state. See [Multi-device Hub](docs/MULTI_DEVICE.md) for the architecture and security boundary.
 ## New user path: from zero to READY
 
 A first-time user only needs to complete this flow once:
@@ -274,6 +279,7 @@ If another process owns `8684`, RWMCP does not report a false READY state. It re
 
 ## Documentation
 
+- [Multi-device Hub](docs/MULTI_DEVICE.md)
 - [Windows quick start](docs/QUICKSTART_WINDOWS.md)
 - [ChatGPT Web custom app setup](docs/CHATGPT_WEB.md)
 - [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md)

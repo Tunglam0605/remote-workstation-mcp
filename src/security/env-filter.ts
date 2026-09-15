@@ -9,6 +9,7 @@ const WINDOWS_RUNTIME_ENV = [
   'USERPROFILE',
   'APPDATA',
   'LOCALAPPDATA',
+  'ProgramData',
   'TEMP',
   'TMP',
   'PSModulePath'

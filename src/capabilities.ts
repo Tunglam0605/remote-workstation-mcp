@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.7.10';
+export const SERVER_VERSION = '0.8.0';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -18,6 +18,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'transport.providers', status: 'available', tools: [], note: 'The CLI selects a provider behind a common contract. Current providers are local stdio and loopback Streamable HTTP.' },
   { id: 'connection.openai_secure_tunnel', status: 'available', tools: [], note: 'Optional outbound-only OpenAI Secure MCP Tunnel supervisor keeps the workstation MCP bound to loopback, injects an ephemeral bearer into tunnel runtime headers, and does not forward the OpenAI runtime API key into the MCP child process.' },
   { id: 'transport.auth.http', status: 'available', tools: [], note: 'Optional loopback HTTP bearer authentication establishes a request-scoped principal and workstation read/write/execute/full-control scopes.' },
+  { id: 'multi_device.hub_gateway', status: 'available', tools: ['device_list', 'device_probe', 'device_exec'], note: 'MVP multi-device routing: one ChatGPT connection reaches the local hub, which can route allowlisted operations to owner-registered SSH devices without exposing those devices directly to the Internet.' },
   { id: 'workspace.discover', status: 'available', tools: ['workspace_list'] },
   { id: 'filesystem.read', status: 'available', tools: ['fs_list', 'fs_read', 'fs_find', 'fs_search_text'] },
   { id: 'filesystem.write', status: 'available', tools: ['fs_write', 'fs_patch'], note: 'Workspace policy and optimistic SHA-256 checks apply.' },

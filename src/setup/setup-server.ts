@@ -204,6 +204,25 @@ async function windowsRuntimeControl(repoRoot: string, action: RuntimeAction | '
   return parseJsonOutput(result.output);
 }
 
+function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'OpenAI'): { accepted: true; action: 'Restart'; mode: RuntimeMode } {
+  if (process.platform !== 'win32') {
+    throw new Error('Windows runtime restart handoff is available on Windows only.');
+  }
+  const script = path.join(repoRoot, 'scripts', 'runtime-restart-handoff-windows.ps1');
+  const child = spawn('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Root', repoRoot, '-Mode', mode
+  ], {
+    cwd: repoRoot,
+    shell: false,
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore'
+  });
+  child.unref();
+  return { accepted: true, action: 'Restart', mode };
+}
+
 async function windowsUpdateControl(repoRoot: string, action: 'Status' | 'Check' | 'Enable' | 'Disable'): Promise<unknown> {
   if (process.platform !== 'win32') {
     return { supported: false, enabled: false, message: 'Windows update control is available on Windows only.' };
@@ -450,6 +469,10 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const actions = new Set<RuntimeAction>(['Start', 'Stop', 'Restart', 'RegisterStartup', 'UnregisterStartup']);
         if (!body.action || !actions.has(body.action as RuntimeAction)) throw new Error('Unsupported runtime action.');
         const mode: RuntimeMode = body.mode === 'Local' ? 'Local' : 'OpenAI';
+        if (body.action === 'Restart') {
+          json(res, 202, scheduleWindowsRuntimeRestart(repoRoot, mode));
+          return;
+        }
         json(res, 200, await windowsRuntimeControl(repoRoot, body.action as RuntimeAction, mode));
         return;
       }

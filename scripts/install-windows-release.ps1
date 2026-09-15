@@ -160,7 +160,11 @@ switch ($Action) {
   'StartOpenAI' { Invoke-Runtime 'Start' 'OpenAI' $Root }
   'Boot' { Invoke-SafeBoot }
   'Stop' { Invoke-Runtime 'Stop' 'OpenAI' $Root }
-  'Restart' { Invoke-Runtime 'Restart' 'OpenAI' $Root }
+  'Restart' {
+    $safeRestart = Join-Path $Root 'scripts\safe-restart-windows.ps1'
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $safeRestart -Root $Root -Mode OpenAI
+    if ($LASTEXITCODE -ne 0) { throw "Safe runtime restart failed with exit code $LASTEXITCODE." }
+  }
   'Status' { Invoke-Runtime 'Status' 'OpenAI' $Root }
   'AutostartOn' { Invoke-Runtime 'RegisterStartup' 'OpenAI' $Root }
   'AutostartOff' { Invoke-Runtime 'UnregisterStartup' 'OpenAI' $Root }

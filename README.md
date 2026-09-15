@@ -1,8 +1,8 @@
-# Remote Workstation MCP
+﻿# Remote Workstation MCP
 
-**Install once. Start with Windows. Update automatically.**
+**Install once. Connect ChatGPT. Start with Windows. Update automatically.**
 
-Remote Workstation MCP (RWMCP) lets an authorized AI client such as ChatGPT securely inspect and operate a Windows engineering workstation under permissions selected by the local owner.
+Remote Workstation MCP (RWMCP) securely connects ChatGPT to a Windows engineering workstation. The local owner decides what ChatGPT may read, modify, or execute, while the workstation MCP itself stays bound to loopback instead of being exposed directly to the Internet.
 
 ## Current release
 
@@ -12,81 +12,203 @@ Default managed Windows endpoints:
 
 - MCP: `127.0.0.1:8683`
 - Control Center: `127.0.0.1:8684`
+- automatic updates: enabled
 - update channel: `stable`
-- automatic updates: enabled by default
+- update check: at Windows sign-in when due, at most once per 12 hours
 
-## Quick install on Windows
+## New user path: from zero to READY
 
-### Step 1 - Download the installer
+A first-time user only needs to complete this flow once:
+
+```text
+Download installer
+      -> install RWMCP
+      -> create OpenAI Secure MCP Tunnel
+      -> create restricted Runtime API key
+      -> enter Tunnel ID + Organization ID + API key in Control Center
+      -> Prepare this PC for ChatGPT
+      -> add the custom MCP app in ChatGPT Web
+      -> verify chatgpt_web_status
+      -> READY
+```
+
+After that, RWMCP starts with Windows and maintains the tunnel automatically.
+
+## 1. Download the Windows installer
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The release also publishes `install-windows.ps1`, `remote-workstation-mcp-v0.7.10.tgz`, and `SHA256SUMS.txt`.
+The v0.7.10 release contains:
 
-### Step 2 - Run the installer once
+- `install-windows.cmd`
+- `install-windows.ps1`
+- `remote-workstation-mcp-v0.7.10.tgz`
+- `SHA256SUMS.txt`
 
-Double-click `install-windows.cmd`.
+![GitHub Release v0.7.10](docs/images/v0.7.10-r2/09-github-release-v0710.png)
 
-The installer automatically:
+Double-click `install-windows.cmd`. The installer checks prerequisites, downloads the verified release package, installs the runtime and OpenAI tunnel client, creates the stable launcher, configures startup, initializes automatic stable updates, and opens the local Control Center.
 
-- checks prerequisites and can install Node.js LTS and Git through `winget` when missing;
-- downloads the stable release package from GitHub Releases;
-- verifies SHA-256 before installation;
-- installs the runtime into a versioned per-user slot;
-- installs/verifies the OpenAI `tunnel-client`;
-- creates the stable launcher;
-- configures current-user startup;
-- enables stable automatic updates;
-- opens the local Control Center.
+Normal users do **not** need to clone this repository or run `npm install`.
 
-No repository clone is required for normal use.
+## 2. Create an OpenAI Secure MCP Tunnel
 
-### Step 3 - First-time setup
+RWMCP keeps the workstation MCP on `127.0.0.1`. ChatGPT reaches it through an outbound OpenAI Secure MCP Tunnel.
 
-The Control Center opens locally at `http://127.0.0.1:8684`.
+Open OpenAI Platform **Tunnels**:
 
-![Control Center](docs/images/v0.7.10/01-control-center-home.png)
+`https://platform.openai.com/settings/organization/tunnels`
 
-Open **Settings**. Enter the authorized workspace root and owner-specific OpenAI connection values, then choose **Prepare this PC for ChatGPT**.
+Create a tunnel for this workstation, for example `Remote Workstation - Engineering PC`, then copy the generated ID:
 
-![Quick setup](docs/images/v0.7.10/02-settings-quick-setup.png)
+```text
+tunnel_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
 
-The saved runtime API key is protected with Windows DPAPI and is never read back into the browser.
+The account/role creating or managing the tunnel needs the relevant **Tunnels Read + Manage** permission. The runtime user that will operate the tunnel needs **Tunnels Read + Use**.
 
-### Step 4 - Configure the connection
+> Keep each production workstation on its own tunnel when practical. It gives cleaner revocation, auditing, and failure isolation.
 
-Settings contains the current production sections for workstation configuration, OpenAI connection, runtime control, and advanced configuration.
+## 3. Create the Runtime API key
 
-![Connection settings](docs/images/v0.7.10/03-settings-connection.png)
+Open OpenAI Platform **Runtime API keys**:
 
-The daily dashboard intentionally stays small: **Connection**, **Access mode**, and **Settings**.
+`https://platform.openai.com/settings/organization/api-keys`
 
-### Step 5 - Verify READY
+Create a **Restricted** runtime key and grant only:
 
-A healthy workstation shows MCP healthy, OpenAI tunnel ready, bearer authentication enabled, start-at-logon enabled, and the green ChatGPT-ready state.
+- **Tunnels: Read**
+- **Tunnels: Use**
 
-![Ready state](docs/images/v0.7.10/07-ready-state.png)
+Copy the key once and keep it private.
+
+Do **not** use an OpenAI Admin API key as the long-lived RWMCP runtime key. Admin keys are only needed for administrative tunnel CRUD workflows.
+
+## 4. Configure the local Control Center
+
+The Control Center opens locally at:
+
+```text
+http://127.0.0.1:8684
+```
+
+![Control Center v0.7.10](docs/images/v0.7.10-r2/01-control-center-home-r2.png)
+
+Open **Settings**.
+
+![Quick setup](docs/images/v0.7.10-r2/02-settings-quick-setup-r2.png)
+
+Enter:
+
+1. **Authorized workspace root** - the folder normal Workspace-mode tools may access.
+2. **Tunnel ID** - the `tunnel_...` value created above.
+3. **Organization ID** - when your tunnel/account is organization-scoped or the account can address multiple organizations.
+4. **Runtime API key** - the restricted Tunnels Read + Use key.
+5. Keep **Store runtime key with Windows DPAPI** enabled for normal managed Windows use.
+
+![OpenAI connection settings](docs/images/v0.7.10-r2/03-settings-connection-r2.png)
+
+Then choose **Prepare this PC for ChatGPT**.
+
+The wizard saves the non-secret configuration, protects the runtime key with Windows DPAPI, verifies `tunnel-client`, starts MCP + the Secure MCP Tunnel, waits for readiness, and enables start-at-logon.
+
+![Runtime controls](docs/images/v0.7.10-r2/04-settings-runtime-r2.png)
+
+## 5. Add Remote Workstation to ChatGPT Web
+
+OpenAI currently calls this a **custom MCP app**. Older UI or documentation may call it a connector or plugin.
+
+Current OpenAI documentation places custom MCP app setup under **ChatGPT Settings / Workspace Settings -> Apps**. Developer Mode may need to be enabled first, depending on the workspace and plan.
+
+Typical flow:
+
+1. Open ChatGPT Web.
+2. Open **Settings -> Apps**.
+3. Enable **Developer Mode** if your workspace requires it.
+4. Choose **Create** / **Add custom app**.
+5. Name it **Remote Workstation**.
+6. Choose the **Tunnel** connection type.
+7. Select the authorized tunnel or paste the same `tunnel_...` ID configured in RWMCP.
+8. Keep the workstation Control Center in READY state while ChatGPT performs MCP discovery.
+9. Review the discovered RWMCP tools before publishing or enabling the app for other users.
+
+Direct settings entry point currently used by OpenAI:
+
+`https://chatgpt.com/#settings/Connectors`
+
+Product UI and plan availability can change independently of RWMCP. As of September 2026, OpenAI documents full MCP write/modify support on ChatGPT Web for Business, Enterprise and Edu workspaces; Pro has more limited developer-mode MCP support. Check the current OpenAI Developer Mode documentation before a wider deployment.
+
+Detailed guide: [ChatGPT Web custom app setup](docs/CHATGPT_WEB.md).
+
+## 6. Verify the end-to-end connection
+
+When the workstation is configured correctly, the Control Center shows MCP healthy, tunnel READY, bearer authentication enabled, and start-at-logon ON.
+
+![READY state](docs/images/v0.7.10-r2/07-ready-state-r2.png)
+
+In ChatGPT, invoke the Remote Workstation app and ask:
+
+> Use Remote Workstation. Call `chatgpt_web_status` first. Do not modify anything. Report whether the authenticated control path is verified, the effective scopes, policy mode and authorized workspace names.
+
+A healthy result includes:
+
+```text
+ok: true
+chatgptWeb.authenticated: true
+chatgptWeb.secureTunnelPrincipal: true
+chatgptWeb.directControlPathVerified: true
+```
+
+Then verify `workspace_list` before allowing writes or execution.
+
+## Access modes
+
+RWMCP exposes exactly three owner-selected access modes:
+
+| Mode | Meaning |
+| --- | --- |
+| **Read only** | Inspect files, Git state, status, and diagnostics. No writes or program execution. |
+| **Workspace** | Read, write, and execute approved workflows inside owner-authorized workspaces. Recommended default. |
+| **Full access** | Host filesystem and raw shell using the permissions of the current Windows user. |
+
+**Full Access is not Administrator.**
+
+Administrator execution is a separate one-shot path:
+
+```text
+AI request
+   -> local owner approval in Control Center
+   -> Windows RunAs / UAC
+   -> one approved privileged execution
+```
+
+![Full access confirmation](docs/images/v0.7.10-r2/06-full-access-confirm-r2.png)
+
+A mode change cannot silently grant Administrator rights.
 
 ## After first setup
 
 After the first successful setup, you do **not** need to:
 
 - run the installer again;
+- clone the repository;
 - run `git pull`;
 - run `npm install` or `npm build`;
-- launch PowerShell manually on every boot;
-- set up the OpenAI tunnel again after every restart.
+- launch PowerShell manually on each boot;
+- recreate the tunnel after every restart;
+- re-enter the runtime API key after each update.
 
-RWMCP will:
+RWMCP automatically:
 
-- start automatically when the Windows user signs in;
-- start the MCP runtime;
-- reconnect the OpenAI Secure MCP Tunnel;
-- preserve owner configuration and DPAPI-protected secrets outside version slots;
-- check the stable release channel when due;
-- install verified updates into a new version slot;
-- verify MCP health and tunnel readiness;
-- automatically roll back if the new runtime does not become healthy.
+- starts after the Windows user signs in;
+- starts the MCP runtime;
+- reconnects the OpenAI Secure MCP Tunnel;
+- keeps owner configuration and DPAPI-protected secrets outside version slots;
+- checks the stable release channel when due;
+- downloads and SHA-256 verifies release packages;
+- installs updates into a new version slot;
+- verifies MCP health and tunnel readiness;
+- automatically rolls back to the previous slot when candidate activation fails.
 
 Windows startup uses:
 
@@ -102,63 +224,26 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run
         +--> verify health/readiness
 ```
 
-## Access modes
+## Automatic stable updates
 
-RWMCP exposes exactly three owner-selected access modes:
+Advanced settings exposes **Automatic stable updates** and **Check for updates**.
 
-| Mode | Meaning |
-| --- | --- |
-| **Read only** | Inspect files, Git state, status, and diagnostics. No file writes or program execution. |
-| **Workspace** | Read, write, and execute approved workflows inside owner-authorized workspaces. Recommended default. |
-| **Full access** | Host filesystem and raw shell using the permissions of the current Windows user. |
+![Advanced settings](docs/images/v0.7.10-r2/05-settings-advanced-r2.png)
 
-**Full Access is not Administrator.**
+![Automatic stable updates](docs/images/v0.7.10-r2/08-auto-update-r2.png)
 
-Administrator execution is a separate one-shot flow:
+Managed defaults:
 
 ```text
-AI request
-   -> local owner approval in Control Center
-   -> Windows RunAs / UAC
-   -> one approved privileged execution
+enabled            = true
+channel            = stable
+checkOnStartup     = true
+checkIntervalHours = 12
 ```
 
-A mode switch can never silently grant Administrator rights.
+Production updates come from GitHub Releases. RWMCP does not `git pull` a production source tree. It downloads the release package and checksum manifest, verifies SHA-256, installs a new slot, switches the active pointer, validates health/readiness, and rolls back automatically on failure.
 
-![Full access confirmation](docs/images/v0.7.10/06-full-access-confirm.png)
-
-## Control Center
-
-Production v0.7.10 uses a dedicated loopback Control Center on port `8684`.
-
-The Settings modal currently contains these sections:
-
-- **Quick setup for ChatGPT**
-- **Workstation**
-- **OpenAI connection**
-- **Runtime status**
-- **Configuration**
-- **Advanced settings**
-
-Advanced settings includes **Automatic stable updates** and **Check for updates**.
-
-![Advanced settings](docs/images/v0.7.10/05-settings-advanced.png)
-
-![Automatic stable updates](docs/images/v0.7.10/08-auto-update.png)
-
-## Automatic updates and rollback
-
-Managed Windows installs use these defaults:
-
-- `enabled = true`
-- `channel = stable`
-- `checkOnStartup = true`
-- `checkIntervalHours = 12`
-- distribution source: official GitHub Releases
-
-Production does **not** update by running `git pull` in a source tree. The update flow downloads the release package and `SHA256SUMS.txt`, verifies SHA-256, installs a new version slot, switches the stable pointer, starts the candidate, verifies MCP health + tunnel readiness, and rolls back on failure.
-
-Typical layout:
+## Managed Windows layout
 
 ```text
 %LOCALAPPDATA%\RemoteWorkstationMCP\
@@ -168,7 +253,6 @@ Typical layout:
     update-windows.ps1
   config\
   runtime\
-  audit\
   secrets\
   versions\
     v0.7.9\
@@ -177,53 +261,31 @@ Typical layout:
   previous.txt
   update.json
   settings.json
+  audit.jsonl
 ```
 
-Owner policy, settings, audit data, SSH host configuration, update state, and DPAPI secrets are stored outside application version slots.
+The stable launcher resolves `current.txt`, so startup follows the active version automatically after an update or rollback.
 
 ## v0.7.10 Control Center port ownership hardening
 
-The default Control Center port is `8684`.
+The default Control Center port is `8684`. v0.7.10 verifies that the listener on that port belongs to the managed Control Center process tree before reporting it healthy.
 
-v0.7.10 verifies that the listener on `8684` belongs to the managed Control Center process tree before reporting it healthy. If another process owns the port, RWMCP does not claim a false READY state and reports the conflicting process/PID so the owner can close that application or select another Control Center port in Advanced settings.
-
-## Stable launcher commands
-
-```powershell
-$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
-
-& $ctl -Action Setup
-& $ctl -Action Start
-& $ctl -Action StartOpenAI
-& $ctl -Action Boot
-& $ctl -Action Stop
-& $ctl -Action Restart
-& $ctl -Action Status
-& $ctl -Action AutostartOn
-& $ctl -Action AutostartOff
-& $ctl -Action UpdateCheck
-& $ctl -Action AutoUpdateOn
-& $ctl -Action AutoUpdateOff
-& $ctl -Action Update
-& $ctl -Action Rollback
-```
-
-These are owner-local maintenance commands. Normal users should not need them after first setup.
+If another process owns `8684`, RWMCP does not report a false READY state. It reports the conflicting PID so the owner can close the application or choose another Control Center port in Advanced settings.
 
 ## Documentation
 
 - [Windows quick start](docs/QUICKSTART_WINDOWS.md)
+- [ChatGPT Web custom app setup](docs/CHATGPT_WEB.md)
+- [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md)
 - [Windows managed runtime](docs/WINDOWS.md)
 - [Setup & Control Center](docs/SETUP_CONSOLE.md)
-- [ChatGPT Web connection](docs/CHATGPT_WEB.md)
-- [OpenAI Secure MCP Tunnel](docs/OPENAI_SECURE_TUNNEL.md)
 - [Operations](docs/OPERATIONS.md)
 - [Security](docs/SECURITY.md)
 - [Architecture](docs/ARCHITECTURE.md)
 
 ## Development setup
 
-Contributors can still work from a Git checkout:
+The Git workflow below is for contributors only; it is not required for a normal installed workstation.
 
 ```powershell
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
@@ -233,8 +295,6 @@ npm run typecheck
 npm test
 npm run build
 ```
-
-This development workflow is separate from the managed production installer.
 
 ## License
 

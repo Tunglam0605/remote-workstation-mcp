@@ -1,8 +1,8 @@
-# ChatGPT Web control — end-to-end acceptance
+﻿# ChatGPT Web control - end-to-end acceptance
 
-This document defines the completion boundary for the direct ChatGPT Web control path before multi-device Hub/pairing work begins.
+This checklist verifies the complete Remote Workstation MCP v0.7.10 path from ChatGPT Web to the private workstation.
 
-## Supported architecture
+## Supported path
 
 ```text
 ChatGPT Web custom MCP app
@@ -15,82 +15,89 @@ bearer-authenticated loopback MCP
         |
 Remote Workstation MCP
         |
-owner-authorized files / Git / processes / SSH / LSP
+owner-selected access mode + policy + audit
+        |
+workstation adapters
 ```
 
-The workstation never opens an inbound public port. The local MCP stays bound to `127.0.0.1` and is authenticated with an ephemeral bearer injected by the tunnel supervisor.
+The workstation MCP remains on loopback. Do not expose the MCP or Control Center ports directly to the Internet.
 
-## Workstation-side completion criteria
+## Workstation-side prerequisites
 
-The local Setup & Control Center must show:
+The local Control Center should show:
 
-- MCP healthy;
-- HTTP auth `bearer`;
-- tunnel `READY`;
-- start-at-logon enabled when persistent use is desired;
+- MCP `HEALTHY`;
+- HTTP authentication `bearer`;
+- Tunnel `READY`;
+- start-at-logon ON for persistent use;
 - authorized workspace configured;
-- restricted OpenAI tunnel runtime key stored with Windows DPAPI when persistence is enabled.
+- restricted Runtime API key stored with Windows DPAPI when persistence is enabled.
 
-When these conditions are green, the workstation side is complete.
+Use a Runtime API key with **Tunnels Read + Use**. Do not use a long-lived Admin API key for the normal tunnel daemon.
 
-## ChatGPT-side setup
+## ChatGPT-side prerequisites
 
-ChatGPT cannot connect directly to a localhost MCP server. For a private/on-prem/dev-machine MCP server, use Secure MCP Tunnel and create a custom MCP app in ChatGPT Web.
+In a supported ChatGPT workspace:
 
-In an eligible ChatGPT workspace:
+1. enable Developer Mode when required;
+2. open **Settings -> Apps**;
+3. create the **Remote Workstation** custom MCP app;
+4. choose the Secure MCP Tunnel connection path;
+5. select or paste the same workstation Tunnel ID;
+6. review discovered tools before wider publication.
 
-1. enable Developer Mode according to workspace policy;
-2. create a custom app;
-3. choose the Secure MCP Tunnel connection path;
-4. select/paste the workstation Tunnel ID;
-5. review the exposed tools and publish/enable the app for the intended workspace users.
-
-OpenAI product entitlement and workspace administration are independent of this repository. Full custom MCP write/modify support is currently documented for ChatGPT Business, Enterprise and Edu on web. Pro has more limited developer-mode MCP support; Plus should not be assumed to support this full write-capable custom-app flow.
+OpenAI product entitlement is independent of workstation health. See [ChatGPT Web custom app setup](CHATGPT_WEB.md) for current plan notes and detailed steps.
 
 ## First verification prompt
 
-After the custom app is added, start with:
+Start read-only:
 
 > Use Remote Workstation and call `chatgpt_web_status`. Do not modify anything yet. Report whether the authenticated control path is verified, the effective scopes, policy mode and authorized workspace names.
 
-A successful tunnel-backed call should report:
+A successful tunnel-backed response should report:
 
 ```text
 ok: true
 chatgptWeb.authenticated: true
 chatgptWeb.secureTunnelPrincipal: true
 chatgptWeb.directControlPathVerified: true
-permissions.read: true
 ```
 
-The default secure-tunnel supervisor also grants `workstation.write` and `workstation.execute`, so those should be true unless the owner intentionally narrowed `RWMCP_HTTP_SCOPES`.
-
-`fullControl` must remain false by default.
+Then call `workspace_list` and confirm only expected owner-authorized workspaces are visible.
 
 ## Safe functional acceptance sequence
 
 Run these checks in order:
 
-1. `chatgpt_web_status` — prove authenticated ChatGPT/OpenAI -> tunnel -> workstation path.
-2. `workspace_list` — confirm only owner-authorized workspaces are visible.
-3. `git_status` or `fs_read` — confirm read path.
-4. create a disposable test file with `fs_write`, then read it back — confirm write path.
-5. run an owner-allowlisted harmless process/task — confirm execute path.
-6. delete/revert the disposable test artifact through an allowed typed operation or manually if no delete tool is enabled.
+1. `chatgpt_web_status` - prove the authenticated ChatGPT -> tunnel -> workstation path.
+2. `workspace_list` - confirm workspace scope.
+3. `git_status` or `fs_read` - confirm read access.
+4. In Workspace mode, create a disposable file with `fs_write`, then read it back - confirm controlled write access.
+5. Run one harmless owner-approved process/task - confirm controlled execute access.
+6. Remove or revert the disposable artifact through an allowed typed operation or manually.
+7. Check the local audit log and confirm the authenticated tunnel principal is recorded.
 
-Do not enable raw shell or host filesystem merely to pass acceptance. Those remain separate full-control gates and leases.
+Do not switch to Full access just to pass this acceptance test.
 
-## Acceptance result
+## Access-mode expectations
 
-The direct ChatGPT Web control milestone is complete only when all of the following are true:
+- **Read only**: read verification should pass; write/execute should be blocked.
+- **Workspace**: approved read/write/execute inside configured workspaces should pass.
+- **Full access**: host filesystem and raw shell become available as the current Windows user when corresponding local gates are enabled.
 
-- local runtime health is green;
+Full access is not Administrator. Administrator remains a separate local-owner approval plus Windows UAC flow.
+
+## Completion criteria
+
+The direct ChatGPT Web control path is accepted when:
+
+- local MCP health is green;
 - Secure MCP Tunnel readiness is green;
-- the custom app is visible in ChatGPT Web;
-- `chatgpt_web_status` reports `directControlPathVerified: true` from ChatGPT itself;
-- read, controlled write and controlled execute tests pass inside an authorized workspace;
-- audit entries identify the authenticated ChatGPT/OpenAI tunnel principal;
+- the custom app is visible and usable in ChatGPT Web;
+- `chatgpt_web_status` reports `directControlPathVerified: true`;
+- expected read/write/execute behavior matches the selected access mode;
+- audit identifies the authenticated tunnel principal;
 - no inbound workstation port is exposed;
-- full-control capabilities remain disabled unless the owner explicitly grants them.
+- Administrator execution still requires one-shot local approval and UAC.
 
-Only after this direct path is accepted should the project expand into plugin-first multi-device Hub/pairing mode.
+Once these checks pass, normal daily use should not require reopening PowerShell or repeating tunnel setup.

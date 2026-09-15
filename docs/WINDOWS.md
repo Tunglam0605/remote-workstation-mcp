@@ -1,4 +1,4 @@
-# Windows managed runtime
+﻿# Windows managed runtime
 
 Remote Workstation MCP v0.7.10 supports a managed one-time Windows installation for normal users and a separate source-repository workflow for contributors.
 
@@ -184,9 +184,9 @@ The production v0.7.10 Settings modal currently contains:
 
 Advanced settings includes the MCP/Control Center ports, managed runtime option, **Automatic stable updates**, and **Check for updates**.
 
-![Runtime settings](images/v0.7.10/04-settings-runtime.png)
+![Runtime settings](images/v0.7.10-r2/04-settings-runtime-r2.png)
 
-![Advanced settings](images/v0.7.10/05-settings-advanced.png)
+![Advanced settings](images/v0.7.10-r2/05-settings-advanced-r2.png)
 
 ## Access mode and Administrator boundary
 

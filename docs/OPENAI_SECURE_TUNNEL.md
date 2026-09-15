@@ -1,10 +1,10 @@
 # OpenAI Secure MCP Tunnel
 
-Remote Workstation MCP v0.7.2 can connect a private workstation to ChatGPT, Codex, the Responses API, or other OpenAI-hosted MCP consumers through OpenAI's Secure MCP Tunnel without opening the workstation MCP port to the public Internet.
+Remote Workstation MCP v0.7.10 connects a private Windows workstation to supported OpenAI-hosted MCP consumers through OpenAI Secure MCP Tunnel while keeping the workstation MCP bound to loopback.
 
-The workstation MCP remains bound to `127.0.0.1`. The tunnel is an **outbound-only connection provider** above the local Streamable HTTP transport; it does not replace workstation policy, leases, audit, path protection, process ownership, Git/LSP adapters, or SSH controls.
+The tunnel is outbound from the workstation. It provides reachability, not unrestricted authorization: RWMCP still applies authenticated scopes, local access mode/policy, path guards, process restrictions, Administrator approval rules, and audit logging.
 
-## Trust boundary
+## Network model
 
 ```text
 ChatGPT / OpenAI-hosted MCP consumer
@@ -15,182 +15,227 @@ ChatGPT / OpenAI-hosted MCP consumer
               |
  Authorization: Bearer <ephemeral local token>
               |
-  127.0.0.1:<RWMCP_PORT>/mcp
+      127.0.0.1:8683/mcp
               |
  authenticated request principal
               |
- policy -> lease -> audit -> workstation adapters
+       local RWMCP policy
+              |
+             audit
+              |
+      workstation adapters
 ```
 
-The supervisor creates a fresh local MCP bearer token for each run unless the owner explicitly provides `RWMCP_HTTP_BEARER_TOKEN`. The generated tunnel profile stores only the environment reference `env:RWMCP_TUNNEL_AUTH`, never the bearer itself.
+No router port-forwarding or public workstation listener is required.
 
-`CONTROL_PLANE_API_KEY` is required by `tunnel-client`, but the supervisor removes `CONTROL_PLANE_API_KEY`, `OPENAI_ADMIN_KEY`, `OPENAI_API_KEY`, and `RWMCP_TUNNEL_AUTH` from the MCP child environment.
+## Values you need
 
-## OpenAI prerequisites
+### Tunnel ID
 
-Create or select a Secure MCP Tunnel in OpenAI Platform and obtain:
+Create or inspect it at:
 
-- `CONTROL_PLANE_TUNNEL_ID` — tunnel id beginning with `tunnel_`.
-- `CONTROL_PLANE_API_KEY` — runtime API key whose principal has Tunnels **Read** and **Use**.
-- `CONTROL_PLANE_ORGANIZATION_ID` — recommended when the tunnel is organization-scoped or the account can address multiple organizations.
+`https://platform.openai.com/settings/organization/tunnels`
 
-Useful setup pages:
+The ID uses the form:
 
-- Tunnels: `https://platform.openai.com/settings/organization/tunnels`
-- Runtime API keys: `https://platform.openai.com/settings/organization/api-keys`
-- ChatGPT connector settings: `https://chatgpt.com/#settings/Connectors`
-
-## Windows first-use path
-
-```powershell
-cd "$HOME\Documents\remote-workstation-mcp"
-git checkout v0.7.2
-npm run setup:windows
-npm run setup:web:windows
+```text
+tunnel_<32-hex-characters>
 ```
 
-The Setup Console can configure the loopback MCP port, tunnel ID, organization ID, Cloudflare preference, install the verified official tunnel-client, and optionally store the runtime API key with Windows DPAPI.
+RWMCP stores this as non-secret setup state.
 
-Non-secret values are persisted outside the repository at:
+### Runtime API key
+
+Create it at:
+
+`https://platform.openai.com/settings/organization/api-keys`
+
+Use a **Restricted** runtime key with:
+
+```text
+Tunnels Read
+Tunnels Use
+```
+
+This is the key used by `tunnel-client doctor` and `tunnel-client run` and corresponds to `CONTROL_PLANE_API_KEY`.
+
+Do not use an OpenAI Admin API key for the long-running runtime process. Admin keys are only needed for tunnel administration workflows.
+
+### Organization ID
+
+Set the Organization ID when the tunnel is organization-scoped or the account can address more than one organization. The Control Center persists this non-secret identifier outside application version slots.
+
+## Permission model
+
+Recommended OpenAI permission split:
+
+| Actor | Tunnel permissions |
+| --- | --- |
+| Runtime user / daemon principal | Read + Use |
+| Tunnel manager | Read + Manage |
+| Manager who also runs/attaches the tunnel | Read + Manage + Use |
+
+A tunnel intended for a specific ChatGPT workspace should be scoped/associated appropriately so authorized app users can select it.
+
+## v0.7.10 managed Windows setup
+
+The recommended production path does not require a Git checkout.
+
+1. Download `install-windows.cmd` from the v0.7.10 GitHub Release.
+2. Run it once.
+3. Open the local Control Center at `http://127.0.0.1:8684`.
+4. Enter workspace root, Tunnel ID, Organization ID when applicable, and the restricted Runtime API key.
+5. Keep **Store runtime key with Windows DPAPI** enabled.
+6. Choose **Prepare this PC for ChatGPT**.
+
+The managed installer already installs and verifies the pinned official `tunnel-client` build.
+
+Non-secret setup values are stored outside the repository under:
 
 ```text
 %LOCALAPPDATA%\RemoteWorkstationMCP\settings.json
 ```
 
-The optional runtime key is stored separately as a current-user DPAPI blob. It is not written to `settings.json`, the repository, the generated tunnel profile, or command-line arguments.
+The runtime key is stored separately as a current-user DPAPI blob:
 
-The official tunnel-client Windows AMD64 installer remains available directly:
-
-```powershell
-npm run openai:tunnel:install:windows
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\secrets\openai-runtime-api-key.dpapi
 ```
 
-After setup, start the configured path with:
-
-```powershell
-npm run start:openai:windows
-```
-
-Explicit environment variables still override persisted setup values for one-off sessions.
-
-## Cloudflared behavior
-
-Managed Cloudflare runtime material is **optional**. v0.7.2 does not require it by default because a normal logical tunnel may not have managed Cloudflare runtime material provisioned.
-
-The generated profile contains:
-
-```yaml
-cloudflared:
-  managed: false
-```
-
-The CLI also defaults `CLOUDFLARED_MANAGED=false` unless the owner explicitly set it. To opt in for a tunnel that is known to have managed Cloudflare runtime material:
-
-```powershell
-$env:CLOUDFLARED_MANAGED = "true"
-```
-
-If the control plane returns `404 Managed Cloudflare tunnel runtime material not found`, keep `CLOUDFLARED_MANAGED=false`; this is not an MCP authentication failure.
+The decrypted key is not read back into the browser after saving.
 
 ## Startup sequence
 
-The supervisor:
+When RWMCP starts OpenAI mode, the managed runtime performs this sequence:
 
-1. Starts Remote Workstation MCP on `127.0.0.1:<RWMCP_PORT>` with bearer authentication forced on.
-2. Waits for `/healthz`.
-3. Generates a tunnel-client profile containing environment references for secrets.
-4. Runs `tunnel-client doctor --profile-file ... --explain`.
-5. Starts `tunnel-client run --profile-file ...`.
-6. Waits for the tunnel client's `/readyz` endpoint.
-7. Stops MCP and tunnel together when either process exits or the owner presses `Ctrl+C`.
+1. start Remote Workstation MCP on loopback with bearer authentication;
+2. wait for local MCP `/healthz`;
+3. generate a fresh local MCP bearer unless the owner supplied one explicitly;
+4. build the tunnel profile using secret references rather than embedding the bearer in the profile;
+5. run tunnel-client diagnostics;
+6. start `tunnel-client`;
+7. wait for tunnel-client `/readyz`;
+8. report READY only after the expected local and tunnel health checks pass.
 
-The default authenticated tunnel scopes are:
+The OpenAI runtime API key is not forwarded into the MCP child-process environment.
+
+## Automatic startup
+
+Managed Windows installations register the stable launcher in:
 
 ```text
-workstation.read,workstation.write,workstation.execute,workstation.admin_request
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 ```
 
-Do not add `workstation.full_control` just to make setup easier. Full-control tools still require the authenticated scope, an owner-issued time-limited client-bound lease, and the relevant local dangerous-feature gate.
+The entry invokes:
 
-## Verify readiness
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1 -Action Boot
+```
 
-If the port is persisted by the Setup Console, inspect the launcher output or `%LOCALAPPDATA%\RemoteWorkstationMCP\settings.json` to identify it.
+Boot checks the stable update channel when due, then starts RWMCP and the OpenAI tunnel and verifies readiness.
 
-Local MCP health example:
+## Verify locally
+
+RWMCP MCP health:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8683/healthz
 ```
 
-Expected tunnel mode includes:
+Expected managed tunnel operation includes an installed v0.7.10 runtime and bearer-authenticated MCP transport.
+
+The Control Center should show:
 
 ```text
-ok       : True
-version  : 0.7.2
-httpAuth : bearer
+MCP       HEALTHY
+Tunnel    READY
+Auth      bearer
 ```
 
-Tunnel-client health:
+For most users, the Control Center is the preferred health view. Direct tunnel-client commands are mainly for deeper diagnostics.
+
+## ChatGPT Web attachment
+
+Only create/test the ChatGPT custom MCP app after the workstation tunnel is READY.
+
+Typical current product flow:
+
+1. enable Developer Mode if required by the workspace;
+2. open ChatGPT **Settings -> Apps**;
+3. create a custom MCP app named **Remote Workstation**;
+4. choose **Tunnel**;
+5. select or paste the same `tunnel_...` ID;
+6. review discovered tools;
+7. verify `chatgpt_web_status` before writes/execution.
+
+See [ChatGPT Web custom app setup](CHATGPT_WEB.md).
+
+## Managed Cloudflare material
+
+Managed Cloudflare runtime material is optional. Leave the related option disabled unless OpenAI explicitly provisioned managed runtime material for the tunnel.
+
+If diagnostics return a message equivalent to managed Cloudflare runtime material not found, keep managed Cloudflare disabled. This does not by itself mean the MCP bearer or RWMCP policy is invalid.
+
+## Security boundary
+
+The tunnel does not bypass local authorization.
+
+The default secure path separates:
+
+- OpenAI tunnel authentication;
+- request-scoped RWMCP principal/scopes;
+- owner-selected Read only / Workspace / Full access mode;
+- local full-control gates;
+- Administrator approval;
+- audit.
+
+Full access is not Administrator. Administrator requests still require local owner approval and Windows RunAs/UAC.
+
+## Common failures
+
+### `401` or `403` from the tunnel control plane
+
+Check the Runtime API key and confirm its principal has Tunnels Read + Use for the target tunnel and intended scope.
+
+### Tunnel ID rejected
+
+Confirm the ID was copied from OpenAI Tunnels management and uses the expected `tunnel_...` format.
+
+### Tunnel starts but ChatGPT discovery fails
+
+Confirm:
+
+- local MCP health passes;
+- tunnel `/readyz` is ready;
+- ChatGPT uses the same tunnel ID;
+- tunnel workspace association is correct;
+- the current ChatGPT workspace supports the required custom MCP app capability.
+
+### MCP port conflict
+
+Use the Control Center's port recommendation or configure another loopback MCP port.
+
+### Control Center port 8684 is occupied
+
+v0.7.10 verifies that a listener on 8684 actually belongs to the managed Control Center process tree. A foreign listener is rejected instead of being reported as healthy, and the conflicting PID is surfaced for troubleshooting.
+
+## Manual stable-launcher operations
 
 ```powershell
-.\runtime\openai-tunnel\tunnel-client.exe health `
-  --url-file .\runtime\openai-tunnel\health-url
+$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
+& $ctl -Action Status
+& $ctl -Action StartOpenAI
+& $ctl -Action Restart
+& $ctl -Action UpdateCheck
 ```
 
-Successful startup requires both `Healthz: PASS` and `Readyz: PASS`.
+Normal installed users should rarely need these after first setup.
 
-## ChatGPT Web connection
+## References
 
-Only configure the ChatGPT custom app after `tunnel-client` reports `/readyz` as HTTP 200. Keep the supervisor running for connector discovery and subsequent MCP calls.
-
-For an eligible ChatGPT workspace:
-
-1. enable Developer Mode according to workspace policy;
-2. open ChatGPT Apps/custom app settings;
-3. create a custom app;
-4. select **Connection: Tunnel**;
-5. select the authorized tunnel or paste its `tunnel_...` ID;
-6. review the discovered tool set before wider workspace publication.
-
-As of September 2026, OpenAI documents full custom MCP apps with write/modify for ChatGPT Business, Enterprise and Edu on the web. Workstation/tunnel readiness is independent of that product entitlement.
-
-See [ChatGPT Web](CHATGPT_WEB.md).
-
-## Linux and other platforms
-
-Install a supported `tunnel-client` binary, put it in `PATH` or set `RWMCP_OPENAI_TUNNEL_CLIENT`, then run:
-
-```bash
-export RWMCP_OPENAI_TUNNEL_CLIENT=/absolute/path/to/tunnel-client
-export CONTROL_PLANE_TUNNEL_ID=tunnel_0123456789abcdef0123456789abcdef
-export CONTROL_PLANE_ORGANIZATION_ID=org_example
-export CONTROL_PLANE_API_KEY='<runtime-api-key>'
-export RWMCP_PORT=8765
-npm run build
-npm run start:openai
-```
-
-The local web Setup Console can run cross-platform, but persistent API-key storage is currently Windows-DPAPI-specific. On other platforms keep the runtime key in a suitable OS secret manager or the process environment.
-
-## Generated runtime files
-
-The provider uses `runtime/openai-tunnel/` by default:
-
-```text
-profile.yaml              # no API key or bearer-token literal
-health-url                # tunnel-client local health URL
-tunnel-client.ndjson      # operator diagnostics
-```
-
-The directory can be changed with `RWMCP_OPENAI_TUNNEL_DIR`; the tunnel binary can be overridden with `RWMCP_OPENAI_TUNNEL_CLIENT`.
-
-## Failure handling
-
-- `doctor` passes but `run` fails with `401/403`: verify runtime-key principal Tunnels Read + Use and organization/workspace association.
-- `404 Managed Cloudflare tunnel runtime material not found`: leave `CLOUDFLARED_MANAGED=false` unless managed material has actually been provisioned.
-- `EADDRINUSE`: use the Setup Console's free-port recommendation or choose another `RWMCP_PORT`.
-- `EACCES`: choose a non-reserved Windows port.
-- local MCP returns `401` while tunnel mode is starting: expected; bearer authentication is active.
-- `Readyz` is not 200: inspect `runtime/openai-tunnel/tunnel-client.ndjson` and the local tunnel-client UI URL from `health-url`.
-
-A failed tunnel never causes Remote Workstation MCP to bind publicly.
+- OpenAI `tunnel-client`: `https://github.com/openai/tunnel-client`
+- Tunnels management: `https://platform.openai.com/settings/organization/tunnels`
+- Runtime API keys: `https://platform.openai.com/settings/organization/api-keys`
+- ChatGPT app settings: `https://chatgpt.com/#settings/Connectors`
+- OpenAI Developer Mode / MCP app help: `https://help.openai.com/en/articles/12584461`

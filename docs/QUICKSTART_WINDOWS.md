@@ -1,104 +1,115 @@
-# Windows quick start - install once
+﻿# Windows quick start - one-time setup
 
-Remote Workstation MCP v0.7.10 is designed so a new Windows PC needs one setup session. After that, RWMCP starts with Windows sign-in and keeps itself on the stable release channel.
+This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.7.10.
+
+## Before you start
+
+You need:
+
+- Windows 10/11;
+- access to the latest RWMCP GitHub Release;
+- an OpenAI Platform organization/workspace that can use Secure MCP Tunnel;
+- a ChatGPT workspace/account that exposes the custom MCP app flow required for your use case.
 
 ## 1. Download the installer
 
-**Goal:** get the one-time bootstrap.
+From the latest GitHub Release, download `install-windows.cmd`.
 
-From the latest GitHub Release, download:
+![Release assets](images/v0.7.10-r2/09-github-release-v0710.png)
 
-```text
-install-windows.cmd
-```
+Double-click it. The installer handles the production runtime, tunnel client, stable launcher, startup entry, and stable auto-update initialization.
 
-Double-click it. The bootstrap verifies the PowerShell installer before the managed installation continues.
+## 2. Create the OpenAI tunnel
 
-## 2. Run the installer
+Open:
 
-**Goal:** install the production runtime without cloning the repository.
+`https://platform.openai.com/settings/organization/tunnels`
 
-The installer checks prerequisites, downloads and SHA-256-verifies the stable release, installs it under `%LOCALAPPDATA%\RemoteWorkstationMCP`, installs/verifies the OpenAI tunnel client, creates the stable launcher, configures startup/auto-update, and opens the Control Center.
+Create a tunnel for this workstation and copy its `tunnel_...` ID.
 
-## 3. Confirm the Control Center opens
+Tunnel managers need the relevant Tunnels Read + Manage permission. Runtime users need Tunnels Read + Use.
 
-**Goal:** verify the local owner UI is running.
+## 3. Create the restricted Runtime API key
 
-Open `http://127.0.0.1:8684` if it did not open automatically.
+Open:
 
-![Control Center](images/v0.7.10/01-control-center-home.png)
+`https://platform.openai.com/settings/organization/api-keys`
 
-The page should show Connection status, Access mode, and the Settings button.
+Create a **Restricted** runtime key with:
 
-## 4. Open Settings
+- Tunnels Read
+- Tunnels Use
 
-**Goal:** enter the few values that are specific to this PC/owner.
+Do not use a long-lived Admin API key for RWMCP runtime operation.
 
-Open **Settings** and use **Quick setup for ChatGPT**.
+## 4. Open the Control Center
 
-![Quick setup](images/v0.7.10/02-settings-quick-setup.png)
+The managed installer opens:
 
-Configure the authorized workspace root, Tunnel ID, Organization ID when applicable, and the restricted runtime API key. Leave Windows DPAPI storage enabled unless you intentionally manage the key another way.
+`http://127.0.0.1:8684`
 
-![Connection](images/v0.7.10/03-settings-connection.png)
+![Control Center](images/v0.7.10-r2/01-control-center-home-r2.png)
 
-Choose **Prepare this PC for ChatGPT**. The wizard saves configuration, verifies `tunnel-client`, starts the secure tunnel, waits for readiness, and enables start-at-logon.
+Open **Settings**.
 
-## 5. Select the access mode
+![Quick setup](images/v0.7.10-r2/02-settings-quick-setup-r2.png)
 
-**Goal:** choose the least privilege needed for daily work.
+## 5. Configure the connection
 
-- **Read only** - view/inspect only.
-- **Workspace** - read/write/execute approved workflows inside authorized workspaces.
-- **Full access** - host filesystem + raw shell as the current Windows user.
+Enter the authorized workspace, Tunnel ID, Organization ID when applicable, and the restricted Runtime API key.
 
-Full Access is **not** Administrator. Selecting it requires confirmation.
+![Connection settings](images/v0.7.10-r2/03-settings-connection-r2.png)
 
-![Full access confirmation](images/v0.7.10/06-full-access-confirm.png)
+Keep Windows DPAPI storage enabled for the normal managed installation and choose **Prepare this PC for ChatGPT**.
 
-Administrator actions use a separate flow: AI request -> local owner approval -> Windows UAC -> one-shot privileged execution.
+The wizard verifies the tunnel client, starts the runtime, waits for tunnel readiness, and enables start-at-logon.
 
-## 6. Verify READY
+![Runtime](images/v0.7.10-r2/04-settings-runtime-r2.png)
 
-**Goal:** confirm the workstation side is complete.
+## 6. Add the custom MCP app to ChatGPT Web
 
-A ready system shows MCP healthy, tunnel ready, bearer authentication enabled, and start-at-logon ON.
+Open ChatGPT Web and use the current **Settings -> Apps** / custom app flow. Depending on the workspace, enable **Developer Mode** first.
 
-![Ready](images/v0.7.10/07-ready-state.png)
+Create an app named **Remote Workstation**, choose **Tunnel**, and select or paste the same `tunnel_...` ID.
 
-## 7. Check automatic updates
+Keep the workstation READY during discovery. Review the discovered tools before enabling the app broadly.
 
-**Goal:** verify maintenance is automatic.
+See [ChatGPT Web custom app setup](CHATGPT_WEB.md) for current plan notes and a detailed walkthrough.
 
-Open **Settings > Configuration > Advanced settings**. `Automatic stable updates` is enabled by default and `Check for updates` is available for an owner-triggered check.
+## 7. Choose an access mode
 
-![Automatic updates](images/v0.7.10/08-auto-update.png)
+Use **Workspace** for normal engineering work.
 
-Defaults are stable channel, startup checks enabled, and a 12-hour check interval.
+- **Read only**: inspect only.
+- **Workspace**: read/write/execute within authorized workspaces.
+- **Full access**: host filesystem + raw shell as the current Windows user.
 
-## 8. Close the window or reboot once
+Full access is **not** Administrator.
 
-**Goal:** prove that daily use does not require setup again.
+![Full access confirmation](images/v0.7.10-r2/06-full-access-confirm-r2.png)
 
-You can close the Control Center browser window. RWMCP is supervised separately.
+## 8. Verify READY
 
-At the next Windows sign-in the current-user startup entry runs:
+The green READY state means MCP health, bearer authentication, and tunnel readiness have passed.
 
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1 -Action Boot
-```
+![Ready](images/v0.7.10-r2/07-ready-state-r2.png)
 
-`Boot` checks for a stable update when due, starts the MCP runtime, reconnects the OpenAI tunnel, and verifies health/readiness.
+In ChatGPT, call `chatgpt_web_status` first, then `workspace_list`.
 
-After the first setup you do **not** need to rerun the installer, run `git pull`, run `npm install`, rebuild the project, reopen PowerShell, or configure the tunnel every time Windows starts.
+## 9. Reboot test
 
-## If something is not READY
+Restart Windows or sign out/in once. RWMCP should return automatically without rerunning setup.
 
-Run:
+Startup uses the current-user registry `Run` key and the stable launcher `rwmcp.ps1 -Action Boot`.
 
-```powershell
-$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
-& $ctl -Action Status
-```
+## 10. From now on
 
-Then see [Windows runtime](WINDOWS.md) and [Setup & Control Center](SETUP_CONSOLE.md).
+You do not need to rerun the installer, `git pull`, `npm install`, rebuild RWMCP, reopen PowerShell on every boot, or recreate the tunnel after each restart.
+
+Automatic stable updates are enabled by default and checked at startup when due.
+
+![Automatic updates](images/v0.7.10-r2/08-auto-update-r2.png)
+
+If a newly installed release fails MCP/tunnel health verification, RWMCP automatically returns to the previous known-good slot.
+
+For deeper Windows diagnostics see [Windows runtime](WINDOWS.md) and [Setup & Control Center](SETUP_CONSOLE.md).

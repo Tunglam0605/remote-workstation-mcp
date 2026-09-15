@@ -1,6 +1,6 @@
 # OpenAI Secure MCP Tunnel
 
-Remote Workstation MCP v0.7.10 connects a private Windows workstation to supported OpenAI-hosted MCP consumers through OpenAI Secure MCP Tunnel while keeping the workstation MCP bound to loopback.
+Remote Workstation MCP v0.8.1 connects a private Windows workstation to supported OpenAI-hosted MCP consumers through OpenAI Secure MCP Tunnel while keeping the workstation MCP bound to loopback.
 
 The tunnel is outbound from the workstation. It provides reachability, not unrestricted authorization: RWMCP still applies authenticated scopes, local access mode/policy, path guards, process restrictions, Administrator approval rules, and audit logging.
 
@@ -77,11 +77,11 @@ Recommended OpenAI permission split:
 
 A tunnel intended for a specific ChatGPT workspace should be scoped/associated appropriately so authorized app users can select it.
 
-## v0.7.10 managed Windows setup
+## v0.8.1 managed Windows setup
 
 The recommended production path does not require a Git checkout.
 
-1. Download `install-windows.cmd` from the v0.7.10 GitHub Release.
+1. Download `install-windows.cmd` from the v0.8.1 GitHub Release.
 2. Run it once.
 3. Open the local Control Center at `http://127.0.0.1:8684`.
 4. Enter workspace root, Tunnel ID, Organization ID when applicable, and the restricted Runtime API key.
@@ -143,7 +143,7 @@ RWMCP MCP health:
 Invoke-RestMethod http://127.0.0.1:8683/healthz
 ```
 
-Expected managed tunnel operation includes an installed v0.7.10 runtime and bearer-authenticated MCP transport.
+Expected managed tunnel operation includes an installed v0.8.1 runtime and bearer-authenticated MCP transport.
 
 The Control Center should show:
 

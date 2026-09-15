@@ -204,6 +204,23 @@ async function windowsRuntimeControl(repoRoot: string, action: RuntimeAction | '
   return parseJsonOutput(result.output);
 }
 
+async function windowsUpdateControl(repoRoot: string, action: 'Status' | 'Check' | 'Enable' | 'Disable'): Promise<unknown> {
+  if (process.platform !== 'win32') {
+    return { supported: false, enabled: false, message: 'Windows update control is available on Windows only.' };
+  }
+  const script = path.join(repoRoot, 'scripts', 'update-windows.ps1');
+  if (!(await pathExists(script))) {
+    return { supported: false, enabled: false, message: 'Windows update helper is not installed in this runtime.' };
+  }
+  const result = await runProcess('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Action', action,
+    '-Json'
+  ], { cwd: repoRoot, maxBytes: 128 * 1024 });
+  if (result.code !== 0) throw new Error(result.output || `Windows update action '${action}' failed with exit code ${result.code}.`);
+  return parseJsonOutput(result.output);
+}
+
 async function openBrowser(url: string): Promise<void> {
   try {
     if (process.platform === 'win32') {
@@ -319,6 +336,23 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           configuredPortOwnedByManagedRuntime,
           recommendedMcpPort: recommendedPort
         });
+        return;
+      }
+
+      if (url.pathname === '/api/update/status' && req.method === 'GET') {
+        json(res, 200, await windowsUpdateControl(repoRoot, 'Status'));
+        return;
+      }
+
+      if (url.pathname === '/api/update/check' && req.method === 'POST') {
+        json(res, 200, await windowsUpdateControl(repoRoot, 'Check'));
+        return;
+      }
+
+      if (url.pathname === '/api/update/config' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { enabled?: boolean };
+        if (typeof body.enabled !== 'boolean') throw new Error('enabled must be a boolean.');
+        json(res, 200, await windowsUpdateControl(repoRoot, body.enabled ? 'Enable' : 'Disable'));
         return;
       }
 

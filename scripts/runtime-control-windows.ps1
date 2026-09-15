@@ -314,7 +314,10 @@ function Stop-Runtime {
 function Get-StartupCommand([string]$runtimeMode) {
   $stableLauncher = Join-Path $UserConfigDir 'bin\rwmcp.ps1'
   if (Test-Path $stableLauncher) {
-    $stableAction = if ($runtimeMode -eq 'OpenAI') { 'StartOpenAI' } else { 'Start' }
+    # OpenAI mode boots through the stable launcher so each login can apply a
+    # verified stable update before the runtime starts. Local-only mode keeps
+    # the direct Start action because it does not use the cloud tunnel.
+    $stableAction = if ($runtimeMode -eq 'OpenAI') { 'Boot' } else { 'Start' }
     return "powershell.exe -NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$stableLauncher`" -Action $stableAction"
   }
 

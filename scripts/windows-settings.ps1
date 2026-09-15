@@ -44,6 +44,12 @@ function Apply-RwmcpPersistedEnvironment([string]$Root, [switch]$IncludeOpenAISe
     if (-not $env:RWMCP_PORT -and $settings.PSObject.Properties.Name -contains 'mcpPort') {
       $env:RWMCP_PORT = [string]$settings.mcpPort
     }
+    if (-not $env:RWMCP_SETUP_PORT -and $settings.PSObject.Properties.Name -contains 'controlPort') {
+      $env:RWMCP_SETUP_PORT = [string]$settings.controlPort
+    }
+    if (-not $env:RWMCP_HTTP_SCOPES -and $settings.PSObject.Properties.Name -contains 'httpScopes' -and $settings.httpScopes) {
+      $env:RWMCP_HTTP_SCOPES = (@($settings.httpScopes) -join ',')
+    }
     if (-not $env:CONTROL_PLANE_TUNNEL_ID -and $settings.PSObject.Properties.Name -contains 'tunnelId' -and $settings.tunnelId) {
       $env:CONTROL_PLANE_TUNNEL_ID = [string]$settings.tunnelId
     }
@@ -53,6 +59,10 @@ function Apply-RwmcpPersistedEnvironment([string]$Root, [switch]$IncludeOpenAISe
     if (-not $env:CLOUDFLARED_MANAGED -and $settings.PSObject.Properties.Name -contains 'cloudflaredManaged') {
       $env:CLOUDFLARED_MANAGED = if ([bool]$settings.cloudflaredManaged) { 'true' } else { 'false' }
     }
+  }
+  if (-not $env:RWMCP_SETUP_PORT) { $env:RWMCP_SETUP_PORT = '8684' }
+  if (-not $env:RWMCP_LEASE) {
+    $env:RWMCP_LEASE = Join-Path (Get-RwmcpUserConfigDir) 'runtime\permission-lease.json'
   }
   if ($IncludeOpenAISecret -and -not $env:CONTROL_PLANE_API_KEY) {
     $stored = Import-RwmcpRuntimeKey -Root $Root

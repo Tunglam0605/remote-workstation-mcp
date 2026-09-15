@@ -1,8 +1,10 @@
 # Local Setup & Control Center
 
-Remote Workstation MCP v0.7.5 provides an owner-operated **Setup & Control Center** for Windows while keeping it outside the MCP tool surface.
+Remote Workstation MCP provides an owner-operated **Setup & Control Center** for Windows while keeping privileged control APIs outside the MCP tool surface.
 
-The Control Center is **not** exposed through the OpenAI tunnel. It binds only to `127.0.0.1`, uses an ephemeral setup token, rejects non-loopback clients, applies a same-origin check, sends `Cache-Control: no-store`, and never offers controls for full-control policy gates or permission leases.
+The managed layout uses two loopback ports by default: MCP on `127.0.0.1:8683` and the Control Center on `127.0.0.1:8684`. Browser navigation to `http://127.0.0.1:8683/` or `/setup` redirects locally to the dedicated Control Center. The OpenAI tunnel continues to target only the MCP `/mcp` endpoint.
+
+The Control Center rejects non-loopback clients and cross-origin API calls. Each Control Center process generates an ephemeral in-memory CSRF token and embeds it only in the locally served page; the token is not persisted and is not placed in the URL.
 
 ## Recommended Windows installation
 
@@ -54,12 +56,16 @@ Managed Windows installs use:
 ├── runtime\
 │   ├── supervisor.json
 │   ├── supervisor.stdout.log
-│   └── supervisor.stderr.log
+│   ├── supervisor.stderr.log
+│   ├── control-center.json
+│   ├── control-center.stdout.log
+│   ├── control-center.stderr.log
+│   └── permission-lease.json
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
-    ├── v0.7.4\
-    └── v0.7.5\
+    ├── v0.7.5\
+    └── v0.7.6\
 ```
 
 Policy/hosts/settings/secrets are therefore not replaced when the application version changes.
@@ -69,12 +75,16 @@ Policy/hosts/settings/secrets are therefore not replaced when the application ve
 The web flow can configure:
 
 - MCP loopback port (`RWMCP_PORT` equivalent), with automatic free-port recommendation;
+- dedicated Control Center loopback port (default `8684`);
 - authorized workspace root for a new default policy;
 - OpenAI Secure MCP Tunnel ID;
 - OpenAI organization ID;
 - managed Cloudflare runtime opt-in/out;
 - official OpenAI `tunnel-client` installation on Windows;
-- OpenAI runtime API key storage using current-user Windows DPAPI.
+- OpenAI runtime API key storage using current-user Windows DPAPI;
+- OpenAI tunnel scopes for workspace write, execution and `workstation.full_control`;
+- the local host-filesystem and raw-shell gates;
+- short owner-issued `full_control` leases bound to `openai-tunnel` with preset TTLs of 10, 30 or 60 minutes.
 
 This explicitly handles machines where another local MCP/plugin already owns port `8765`; the UI can recommend alternatives such as `8683`, `8877`, or another free loopback port.
 
@@ -97,7 +107,7 @@ The Control Center provides owner-local controls for:
 - inspect MCP health, version, HTTP auth and tunnel readiness;
 - enable/disable start-at-logon for the current Windows user.
 
-The background supervisor state/logs are stored outside the version slot under the per-user runtime directory. The supervisor validates its recorded process before stopping a process tree so a stale PID file is not treated as sufficient authority.
+The MCP/tunnel supervisor and the Control Center supervisor are separate processes. Stopping or restarting the MCP runtime does not stop the Control Center that issued the action. Their state/logs are stored outside the version slot under the per-user runtime directory, and each supervisor validates its recorded process identity before stopping a process tree.
 
 Starting with v0.7.5, start-at-logon uses the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry entry rather than requiring `Register-ScheduledTask`. This avoids `Access is denied` on standard-user Windows installations while preserving a non-elevated, current-user startup boundary. Managed installs point that entry at the stable launcher, so a later version-slot switch does not leave startup pinned to an old release.
 
@@ -134,14 +144,12 @@ The Setup & Control Center never silently overwrites an existing owner policy or
 
 ## Security boundary
 
-The browser UI deliberately does **not** provide controls for:
+The Control Center may change dangerous permissions, but it does **not** bypass the authorization model. Full-control tools still require all applicable layers:
 
-- `fullControl.allowRawShell`;
-- host-wide filesystem access;
-- sudo/Administrator execution;
-- permission lease creation/extension;
-- authenticated `workstation.full_control` scope grants.
+1. the authenticated tunnel principal has `workstation.full_control`;
+2. the relevant local gate is enabled (`allowHostFilesystem` and/or `allowRawShell`);
+3. a non-expired `full_control` lease exists and is bound to `openai-tunnel`.
 
-Those remain explicit local-owner security operations outside the web UI.
+The UI exposes these as explicit owner actions with warning styling and short lease TTLs. Administrator/sudo remains unavailable and is not exposed by the normal runtime. Defaults remain `read/write/execute`, both dangerous gates off, and no full-control lease.
 
-Do not bind the Control Center to a LAN address, publish it through a reverse proxy, or expose it through the Secure MCP Tunnel.
+Do not bind the Control Center to a LAN address, publish it through a reverse proxy, or expose its privileged APIs through the Secure MCP Tunnel. Keep it on its dedicated `127.0.0.1` port.

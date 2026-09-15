@@ -6,6 +6,12 @@ import net from 'node:net';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
 import {
+  applyPermissionConfig,
+  grantFullControlLease,
+  readPermissionState,
+  revokePermissionLease
+} from './permissions.js';
+import {
   ensureDefaultPolicy,
   ensureHostsConfig,
   loadSetupSettings,
@@ -20,6 +26,7 @@ export interface SetupServerOptions {
   repoRoot?: string;
   port?: number;
   openBrowser?: boolean;
+  strictPort?: boolean;
 }
 
 interface SetupSaveRequest extends SetupSettings {
@@ -31,7 +38,7 @@ type RuntimeAction = 'Start' | 'Stop' | 'Restart' | 'RegisterStartup' | 'Unregis
 type RuntimeMode = 'Local' | 'OpenAI';
 
 const MAX_BODY_BYTES = 64 * 1024;
-const MCP_PORT_CANDIDATES = [8765, 8683, 8877, 9876, 18765, 19001, 20080];
+const MCP_PORT_CANDIDATES = [8683, 8877, 9876, 8765, 18765, 19001, 20080];
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const data = Buffer.from(JSON.stringify(body));
@@ -212,8 +219,10 @@ async function openBrowser(url: string): Promise<void> {
   }
 }
 
-async function listen(server: http.Server, preferredPort: number): Promise<number> {
-  const candidates = Array.from({ length: 20 }, (_, index) => preferredPort + index).filter(port => port <= 65535);
+async function listen(server: http.Server, preferredPort: number, strictPort = false): Promise<number> {
+  const candidates = strictPort
+    ? [preferredPort]
+    : Array.from({ length: 20 }, (_, index) => preferredPort + index).filter(port => port <= 65535);
   for (const port of candidates) {
     if (!(await portAvailable(port))) continue;
     try {
@@ -253,7 +262,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${boundPort}`);
       if (url.pathname === '/' && req.method === 'GET') {
-        html(res, setupHtml());
+        html(res, setupHtml(token));
         return;
       }
       if (req.headers['x-rwmcp-setup-token'] !== token) {
@@ -264,7 +273,13 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       if (url.pathname === '/api/status' && req.method === 'GET') {
         const settingsFileExists = await pathExists(setupSettingsPath());
         let settings = await loadSetupSettings();
-        const configuredPortAvailable = await portAvailable(settings.mcpPort);
+        const configuredPortFree = await portAvailable(settings.mcpPort);
+        let configuredPortOwnedByManagedRuntime = false;
+        if (!configuredPortFree && process.platform === 'win32') {
+          const runtime = await windowsRuntimeControl(repoRoot, 'Status') as { running?: boolean; port?: number };
+          configuredPortOwnedByManagedRuntime = runtime.running === true && runtime.port === settings.mcpPort;
+        }
+        const configuredPortAvailable = configuredPortFree || configuredPortOwnedByManagedRuntime;
         const recommendedPort = configuredPortAvailable ? settings.mcpPort : await recommendedMcpPort(settings.mcpPort);
         if (!settingsFileExists && recommendedPort !== settings.mcpPort) {
           settings = { ...settings, mcpPort: recommendedPort };
@@ -284,8 +299,55 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable,
+          configuredPortFree,
+          configuredPortOwnedByManagedRuntime,
           recommendedMcpPort: recommendedPort
         });
+        return;
+      }
+
+      if (url.pathname === '/api/permissions' && req.method === 'GET') {
+        json(res, 200, await readPermissionState(repoRoot));
+        return;
+      }
+
+      if (url.pathname === '/api/permissions/config' && req.method === 'POST') {
+        const body = await readJsonBody(req) as {
+          httpScopes?: string[];
+          allowHostFilesystem?: boolean;
+          allowRawShell?: boolean;
+        };
+        if (!Array.isArray(body.httpScopes)) throw new Error('httpScopes must be an array.');
+        const state = await applyPermissionConfig(repoRoot, {
+          httpScopes: body.httpScopes,
+          allowHostFilesystem: body.allowHostFilesystem === true,
+          allowRawShell: body.allowRawShell === true
+        });
+        // Runtime actions are launched as children of this persistent Control Center.
+        // Refresh the inherited scope environment immediately so a following Restart
+        // uses the just-saved owner choice instead of the scope snapshot from startup.
+        process.env.RWMCP_HTTP_SCOPES = state.httpScopes.join(',');
+        json(res, 200, { ...state, restartRequired: true });
+        return;
+      }
+
+      if (url.pathname === '/api/permissions/lease' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { ttlMinutes?: number };
+        const state = await readPermissionState(repoRoot);
+        if (!state.httpScopes.includes('workstation.full_control')) {
+          throw new Error('Enable and apply workstation.full_control before issuing a full-control lease.');
+        }
+        if (!state.allowHostFilesystem && !state.allowRawShell) {
+          throw new Error('Enable and apply at least one local full-control gate before issuing a lease.');
+        }
+        const lease = await grantFullControlLease(Number(body.ttlMinutes), 'openai-tunnel');
+        json(res, 200, { lease, restartRequired: true });
+        return;
+      }
+
+      if (url.pathname === '/api/permissions/lease' && req.method === 'DELETE') {
+        await revokePermissionLease();
+        json(res, 200, { ok: true, restartRequired: true });
         return;
       }
 
@@ -305,16 +367,29 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
 
       if (url.pathname === '/api/save' && req.method === 'POST') {
         const body = await readJsonBody(req) as Partial<SetupSaveRequest>;
+        const currentSettings = await loadSetupSettings();
         const settings = normalizeSetupSettings({
+          ...currentSettings,
           version: 1,
           mcpPort: body.mcpPort,
           workspaceRoot: body.workspaceRoot,
           tunnelId: body.tunnelId ?? '',
           organizationId: body.organizationId ?? '',
-          cloudflaredManaged: body.cloudflaredManaged ?? false
+          cloudflaredManaged: body.cloudflaredManaged ?? false,
+          controlPort: body.controlPort ?? currentSettings.controlPort,
+          httpScopes: body.httpScopes ?? currentSettings.httpScopes
         });
-        if (!(await portAvailable(settings.mcpPort))) {
-          throw new Error(`MCP port ${settings.mcpPort} is already in use. Stop the runtime or choose another loopback port before saving.`);
+        const mcpPortFree = await portAvailable(settings.mcpPort);
+        let managedRuntimeOwnsPort = false;
+        if (!mcpPortFree && process.platform === 'win32') {
+          const runtime = await windowsRuntimeControl(repoRoot, 'Status') as { running?: boolean; port?: number };
+          managedRuntimeOwnsPort = runtime.running === true && runtime.port === settings.mcpPort;
+        }
+        if (!mcpPortFree && !managedRuntimeOwnsPort) {
+          throw new Error(`MCP port ${settings.mcpPort} is already in use by another process. Stop it or choose another loopback port before saving.`);
+        }
+        if (settings.controlPort !== boundPort && !(await portAvailable(settings.controlPort))) {
+          throw new Error(`Control Center port ${settings.controlPort} is already in use. Choose another loopback port before saving.`);
         }
         await fs.mkdir(settings.workspaceRoot, { recursive: true });
         const settingsPath = await saveSetupSettings(settings);
@@ -363,10 +438,10 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
     }
   });
 
-  boundPort = await listen(server, preferredPort);
-  const url = `http://127.0.0.1:${boundPort}/#token=${encodeURIComponent(token)}`;
+  boundPort = await listen(server, preferredPort, options.strictPort === true);
+  const url = `http://127.0.0.1:${boundPort}/`;
   console.error(`[remote-workstation-mcp] Setup & Control Center: ${url}`);
-  console.error('[remote-workstation-mcp] Local-only setup token is ephemeral and is not written to disk.');
+  console.error('[remote-workstation-mcp] Local-only CSRF token is ephemeral, embedded into the served page, and is not written to disk.');
   if (options.openBrowser !== false) await openBrowser(url);
 
   return {

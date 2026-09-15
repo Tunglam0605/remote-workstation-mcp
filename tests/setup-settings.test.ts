@@ -21,10 +21,18 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
     cloudflaredManaged: false
   });
   assert.equal(settings.mcpPort, 8683);
+  assert.equal(settings.controlPort, 8684);
+  assert.deepEqual(settings.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute']);
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.throws(() => normalizeSetupSettings({ mcpPort: 80, workspaceRoot: workspace }), /1024/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: 'relative/path' }), /absolute/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, tunnelId: 'tunnel_bad' }), /tunnelId/);
+  assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, controlPort: 80 }), /1024/);
+  assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, httpScopes: ['workstation.write'] }), /workstation.read/);
+  assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, controlPort: 8683, workspaceRoot: workspace }), /different loopback ports/);
+
+  const migrated = normalizeSetupSettings({ mcpPort: 8684, workspaceRoot: workspace });
+  assert.equal(migrated.controlPort, 8685);
 });
 
 test('setup settings persist outside the repository and round-trip', async () => {
@@ -35,11 +43,35 @@ test('setup settings persist outside the repository and round-trip', async () =>
     workspaceRoot: path.join(base, 'workspace'),
     tunnelId: '',
     organizationId: '',
-    cloudflaredManaged: false
+    cloudflaredManaged: false,
+    controlPort: 9684,
+    httpScopes: ['workstation.read', 'workstation.execute', 'workstation.full_control']
   }, options);
   const file = await saveSetupSettings(settings, options);
   assert.equal(file, setupSettingsPath(options));
   assert.deepEqual(await loadSetupSettings(options), settings);
+});
+
+
+test('setup settings tolerate a UTF-8 BOM written by Windows PowerShell', async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-settings-bom-'));
+  const options = { env: { XDG_CONFIG_HOME: base } as NodeJS.ProcessEnv, platform: 'linux' as NodeJS.Platform, homeDir: base };
+  const file = setupSettingsPath(options);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const payload = JSON.stringify({
+    version: 1,
+    mcpPort: 8683,
+    controlPort: 8684,
+    workspaceRoot: path.join(base, 'workspace'),
+    tunnelId: '',
+    organizationId: '',
+    cloudflaredManaged: false,
+    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute']
+  });
+  await fs.writeFile(file, `\uFEFF${payload}`, 'utf8');
+  const loaded = await loadSetupSettings(options);
+  assert.equal(loaded.mcpPort, 8683);
+  assert.equal(loaded.controlPort, 8684);
 });
 
 test('default policy bootstrap never overwrites an existing owner policy', async () => {

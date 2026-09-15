@@ -4,14 +4,31 @@ import path from 'node:path';
 import { z } from 'zod';
 
 export const SETUP_SETTINGS_VERSION = 1 as const;
+export const DEFAULT_CONTROL_PORT = 8684 as const;
+export const DEFAULT_HTTP_SCOPES = [
+  'workstation.read',
+  'workstation.write',
+  'workstation.execute'
+] as const;
+
+const workstationScopeSchema = z.enum([
+  'workstation.read',
+  'workstation.write',
+  'workstation.execute',
+  'workstation.full_control'
+]);
 
 export const setupSettingsSchema = z.object({
   version: z.literal(SETUP_SETTINGS_VERSION).default(SETUP_SETTINGS_VERSION),
-  mcpPort: z.number().int().min(1024).max(65535).default(8765),
+  mcpPort: z.number().int().min(1024).max(65535).default(8683),
   workspaceRoot: z.string().trim().min(1).max(4096),
   tunnelId: z.string().trim().max(128).default(''),
   organizationId: z.string().trim().max(128).default(''),
-  cloudflaredManaged: z.boolean().default(false)
+  cloudflaredManaged: z.boolean().default(false),
+  controlPort: z.number().int().min(1024).max(65535).default(DEFAULT_CONTROL_PORT),
+  httpScopes: z.array(workstationScopeSchema).min(1).default([...DEFAULT_HTTP_SCOPES])
+    .refine(scopes => scopes.includes('workstation.read'), { message: 'httpScopes must include workstation.read.' })
+    .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' })
 });
 
 export type SetupSettings = z.infer<typeof setupSettingsSchema>;
@@ -54,17 +71,24 @@ export function setupSecretPath(options: SetupPathOptions = {}): string {
 
 export function normalizeSetupSettings(input: unknown, options: SetupPathOptions = {}): SetupSettings {
   const raw = (input && typeof input === 'object') ? input as Record<string, unknown> : {};
+  const requestedMcpPort = raw.mcpPort ?? 8683;
+  const migratedControlPort = raw.controlPort ?? (requestedMcpPort === DEFAULT_CONTROL_PORT ? DEFAULT_CONTROL_PORT + 1 : DEFAULT_CONTROL_PORT);
   const parsed = setupSettingsSchema.parse({
     version: raw.version ?? SETUP_SETTINGS_VERSION,
-    mcpPort: raw.mcpPort ?? 8765,
+    mcpPort: requestedMcpPort,
     workspaceRoot: raw.workspaceRoot ?? defaultWorkspaceRoot(options),
     tunnelId: raw.tunnelId ?? '',
     organizationId: raw.organizationId ?? '',
-    cloudflaredManaged: raw.cloudflaredManaged ?? false
+    cloudflaredManaged: raw.cloudflaredManaged ?? false,
+    controlPort: migratedControlPort,
+    httpScopes: raw.httpScopes ?? [...DEFAULT_HTTP_SCOPES]
   });
 
   if (!path.isAbsolute(parsed.workspaceRoot)) {
     throw new Error('workspaceRoot must be an absolute path.');
+  }
+  if (parsed.mcpPort === parsed.controlPort) {
+    throw new Error('mcpPort and controlPort must use different loopback ports.');
   }
   if (parsed.tunnelId && !/^tunnel_[0-9a-f]{32}$/.test(parsed.tunnelId)) {
     throw new Error("tunnelId must be empty or match 'tunnel_' followed by 32 lowercase hexadecimal characters.");
@@ -78,7 +102,8 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
 export async function loadSetupSettings(options: SetupPathOptions = {}): Promise<SetupSettings> {
   const file = setupSettingsPath(options);
   try {
-    const raw = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+    const text = await fs.readFile(file, 'utf8');
+    const raw = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown;
     return normalizeSetupSettings(raw, options);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

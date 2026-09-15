@@ -212,6 +212,18 @@ function Runtime-Status {
 }
 
 function Start-Runtime([string]$runtimeMode) {
+  # Keep the owner-only Control Center on a separate loopback port/process so
+  # runtime Stop/Restart cannot tear down the page that issued the action.
+  $controlScript = Join-Path $Root 'scripts\control-center-windows.ps1'
+  if (Test-Path $controlScript) {
+    try {
+      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $controlScript -Action Start -Root $Root -Json | Out-Null
+      if ($LASTEXITCODE -ne 0) { Write-Warning 'Local Control Center did not start; continuing with the MCP runtime.' }
+    } catch {
+      Write-Warning "Local Control Center start failed; continuing with the MCP runtime: $($_.Exception.Message)"
+    }
+  }
+
   $existing = Runtime-Status
   if ($existing.running) {
     if ($runtimeMode -eq 'OpenAI' -and $existing.mode -ne 'OpenAI') {

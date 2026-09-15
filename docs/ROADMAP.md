@@ -92,7 +92,7 @@ A tunnel connection is reachability, not authorization. The remote path still te
 ## v0.7.2 — ChatGPT Web onboarding + new-machine setup ✅
 
 - loopback-only owner Setup Console for first-run workstation onboarding
-- ephemeral setup token, same-origin check, no-store responses and loopback client enforcement
+- ephemeral in-memory CSRF token, same-origin check, no-store responses and loopback client enforcement
 - persisted non-secret workstation settings outside the repository
 - Windows DPAPI protection for the OpenAI runtime API key
 - Windows launchers automatically reuse saved MCP port, tunnel id, organization id and cloudflared preference
@@ -139,6 +139,17 @@ The v0.7.4 milestone is considered complete at runtime only after ChatGPT Web it
 - add Windows CI coverage for register/unregister start-at-logon without Administrator privileges
 
 This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC for ChatGPT` should finish with MCP healthy, tunnel ready, bearer auth active and start-at-logon enabled without requiring Administrator rights.
+
+## v0.7.6 — Persistent Control Center + owner permission UX ✅
+
+- keep MCP transport and owner Control Center on separate loopback ports (default `8683` / `8684`)
+- redirect local browser navigation from the MCP root or `/setup` to the Control Center while preserving MCP/API behavior
+- run the Control Center as an independent supervised process so runtime restart does not tear down the page
+- bilingual English/Vietnamese UI with browser-language default and persisted manual selection
+- expose explicit owner controls for tunnel scopes, host-filesystem/raw-shell gates, and short `full_control` leases bound to `openai-tunnel`
+- preserve the three-layer full-control model: authenticated scope + local gate + active client-bound lease
+- tolerate Windows UTF-8 BOM settings files and distinguish managed-runtime port ownership from unrelated port conflicts
+- retain safe defaults: read/write/execute enabled, host-wide gates off, no full-control lease, Administrator/sudo unavailable
 
 ## v0.8 — Engineering debug and hardware adapters
 

@@ -214,6 +214,16 @@ Only begin this phase after ChatGPT Web acceptance is complete.
 - non-file resource conflict detection and safe merge/review handoff
 - agent-to-agent workflows without weakening workstation policy
 
+## v0.7.8 — Tung Lam Control Center refresh ✅
+
+- apply the `TungLamvsWebUI-Skills` visual invariants to the local Setup & Control Center
+- dark mode by default with remembered light/dark theme toggle
+- emerald/cyan industrial control-plane palette, responsive system status strip and hover/focus glow
+- keep the daily surface mode-first: Read only / Workspace / Full access
+- move Administrator approval into a native modal while preserving exact command/reason review and UAC
+- keep detailed setup/runtime controls collapsed under Setup & advanced
+- tolerate protected Windows entries during host filesystem directory listing
+
 ## v1.0 — Stable workstation control plane
 
 Target criteria:

@@ -1,6 +1,6 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.7 supports two Windows workflows:
+Remote Workstation MCP v0.7.8 supports two Windows workflows:
 
 1. **managed release installation** for normal/new-machine use;
 2. **repository development** for contributors.
@@ -46,7 +46,7 @@ Application versions are isolated under `versions\vX.Y.Z\`; owner configuration 
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.7
+git checkout v0.7.8
 npm run setup:first-run:windows
 ```
 
@@ -164,7 +164,7 @@ Expected fields include:
 
 ```text
 ok        : True
-version   : 0.7.7
+version   : 0.7.8
 mode      : workspace
 transport : http-loopback
 ```

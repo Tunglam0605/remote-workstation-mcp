@@ -17,14 +17,26 @@ export class HostFilesystemAdapter {
     const entries = await fs.readdir(target, { withFileTypes: true });
     return Promise.all(entries.map(async entry => {
       const full = path.join(target, entry.name);
-      const stat = await fs.lstat(full);
-      return {
-        name: entry.name,
-        path: full,
-        type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : entry.isSymbolicLink() ? 'symlink' : 'other',
-        size: stat.size,
-        mtime: stat.mtime.toISOString()
-      };
+      try {
+        const stat = await fs.lstat(full);
+        return {
+          name: entry.name,
+          path: full,
+          type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : entry.isSymbolicLink() ? 'symlink' : 'other',
+          size: stat.size,
+          mtime: stat.mtime.toISOString()
+        };
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
+        return {
+          name: entry.name,
+          path: full,
+          type: 'inaccessible',
+          size: null,
+          mtime: null,
+          error: code
+        };
+      }
     }));
   }
 

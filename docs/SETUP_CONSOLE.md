@@ -66,10 +66,24 @@ Managed Windows installs use:
 │   └── openai-runtime-api-key.dpapi
 └── versions\
     ├── v0.7.6\
-    └── v0.7.7\
+    └── v0.7.8\
 ```
 
 Policy/hosts/settings/secrets are therefore not replaced when the application version changes.
+
+## Control Center visual system
+
+Starting with v0.7.8, the local Control Center applies the `TungLamvsWebUI-Skills` design system while preserving the same loopback/security boundary:
+
+- dark mode by default with a remembered light/dark toggle;
+- deep navy/slate canvas with emerald health/action accents and cyan identity/focus accents;
+- compact system-status strip and a single daily access-mode selector;
+- hover lift/glow and focus glow for interactive controls;
+- responsive layout for desktop and narrow screens;
+- pending Administrator requests appear as a native modal so normal setup detail stays out of the daily workflow;
+- all setup/runtime details remain collapsed under **Setup & advanced**.
+
+The UI remains dependency-free browser HTML/CSS/JS and does not change the MCP transport or privileged approval trust boundary.
 
 ## What the Control Center configures
 

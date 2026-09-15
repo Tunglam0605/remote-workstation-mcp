@@ -6,9 +6,9 @@ Remote Workstation MCP lets an authorized AI client inspect and edit approved co
 
 > **Security-sensitive beta.** Start with a disposable workspace and the default **Workspace** mode. Select **Full access** only on a trusted owner workstation. Administrator actions always require a separate local approval; elevation then uses Windows RunAs/UAC under the machine policy.
 
-## Current release: v0.7.7
+## Current release: v0.7.8
 
-The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path. v0.7.7 simplifies daily permission UX to Codex-style access modes and adds owner-approved Windows Administrator requests:
+The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path. v0.7.8 keeps the Codex-style permission model from v0.7.7 and refreshes the local Control Center with the Tung Lam Web UI design system while hardening host-wide directory listing:
 
 - authenticated request principals and workstation scopes;
 - workspace filesystem + optimistic SHA-256 writes;
@@ -24,7 +24,9 @@ The v0.7 line establishes direct workstation control, practical Windows distribu
 - Windows DPAPI storage for the OpenAI runtime API key;
 - persistent local-only Setup & Control Center on a dedicated loopback port, with browser redirect from the MCP root;
 - bilingual English/Vietnamese Control Center with remembered language selection;
+- Tung Lam Web UI visual system: dark-by-default navy canvas, emerald/cyan accents, hover glow, light-theme toggle, responsive cards and native Administrator modal;
 - compact mode-first Control Center; detailed tunnel/runtime setup stays collapsed under Setup & advanced;
+- host filesystem listing tolerates protected Windows entries and reports them as inaccessible instead of failing the whole directory;
 - pending Administrator approval appears only when an AI requests one, showing the exact executable, arguments and reason before UAC;
 - checksum-verified per-user Windows release installation;
 - version slots, stable launcher, update pointer and rollback pointer;
@@ -87,7 +89,7 @@ Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the versi
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.7
+git checkout v0.7.8
 npm run setup:first-run:windows
 ```
 
@@ -309,7 +311,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.7
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.8
 codex plugin marketplace list
 ```
 

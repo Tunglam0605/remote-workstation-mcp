@@ -13,9 +13,13 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.equal(page.status, 200);
     const pageText = await page.text();
     assert.match(pageText, /Remote Workstation MCP Setup & Control Center/);
+    assert.match(pageText, /data-theme="dark"/);
+    assert.match(pageText, /id="themeToggle"/);
+    assert.match(pageText, /rwmcp\.theme/);
     assert.match(pageText, /id="langEn"/);
     assert.match(pageText, /id="langVi"/);
     assert.match(pageText, /id="accessMode"/);
+    assert.match(pageText, /<dialog class="gw-modal" id="adminApprovalCard">/);
     assert.match(pageText, /value="read_only"/);
     assert.match(pageText, /value="workspace"/);
     assert.match(pageText, /value="full_control"/);
@@ -47,7 +51,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.7.7');
+    assert.equal(body.version, '0.7.8');
     assert.ok(Number.isInteger(body.settings.mcpPort));
   } finally {
     await setup.close();

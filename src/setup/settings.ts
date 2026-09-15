@@ -8,13 +8,15 @@ export const DEFAULT_CONTROL_PORT = 8684 as const;
 export const DEFAULT_HTTP_SCOPES = [
   'workstation.read',
   'workstation.write',
-  'workstation.execute'
+  'workstation.execute',
+  'workstation.admin_request'
 ] as const;
 
 const workstationScopeSchema = z.enum([
   'workstation.read',
   'workstation.write',
   'workstation.execute',
+  'workstation.admin_request',
   'workstation.full_control'
 ]);
 
@@ -73,6 +75,10 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
   const raw = (input && typeof input === 'object') ? input as Record<string, unknown> : {};
   const requestedMcpPort = raw.mcpPort ?? 8683;
   const migratedControlPort = raw.controlPort ?? (requestedMcpPort === DEFAULT_CONTROL_PORT ? DEFAULT_CONTROL_PORT + 1 : DEFAULT_CONTROL_PORT);
+  const existingScopes = Array.isArray(raw.httpScopes) ? raw.httpScopes.map(String) : [...DEFAULT_HTTP_SCOPES];
+  const migratedScopes = existingScopes.includes('workstation.execute') && !existingScopes.includes('workstation.admin_request')
+    ? [...existingScopes, 'workstation.admin_request']
+    : existingScopes;
   const parsed = setupSettingsSchema.parse({
     version: raw.version ?? SETUP_SETTINGS_VERSION,
     mcpPort: requestedMcpPort,
@@ -81,7 +87,7 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     organizationId: raw.organizationId ?? '',
     cloudflaredManaged: raw.cloudflaredManaged ?? false,
     controlPort: migratedControlPort,
-    httpScopes: raw.httpScopes ?? [...DEFAULT_HTTP_SCOPES]
+    httpScopes: migratedScopes
   });
 
   if (!path.isAbsolute(parsed.workspaceRoot)) {

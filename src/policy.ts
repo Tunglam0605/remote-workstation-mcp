@@ -85,7 +85,7 @@ export class PolicyEngine {
 
   assertFullControl(): void {
     if (this.effectiveMode() !== 'full_control') {
-      throw new Error('This action requires an active full-control owner lease.');
+      throw new Error('This action requires effective full_control mode (owner-selected Full Access or a valid owner lease).');
     }
   }
 

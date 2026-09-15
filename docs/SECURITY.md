@@ -1,6 +1,6 @@
 # Security
 
-Remote Workstation MCP can read/write files and execute development tools. It can also reach owner-approved SSH hosts and, only with an explicit owner lease, expose user-level host filesystem and raw shell capabilities. Treat it as privileged local automation software.
+Remote Workstation MCP can read/write files and execute development tools. It can also reach owner-approved SSH hosts and, when the local owner selects Full access (or uses a legacy temporary lease), expose user-level host filesystem and raw shell capabilities. Administrator execution is a separate one-shot approval flow gated by Windows RunAs/UAC. Treat it as privileged local automation software.
 
 ## Security model
 
@@ -12,9 +12,9 @@ Remote Workstation MCP can read/write files and execute development tools. It ca
 6. **Bounded execution** — process output and runtime are capped by policy; long-running processes are tracked by the agent.
 7. **SSH allowlists** — remote access is limited to named hosts and per-host executable allowlists, with BatchMode authentication, host-key checking and forwarding disabled.
 8. **Multi-agent concurrency** — file reads return SHA-256 values; writes can require an expected hash so stale agents fail instead of silently overwriting newer changes. Larger coding jobs should use isolated Git worktrees.
-9. **Explicit elevation** — full-control capabilities require a short-lived local owner lease plus explicit policy gates. The AI cannot grant or extend the lease through MCP.
-10. **Authenticated principal when configured** — HTTP bearer mode establishes a request-scoped principal with explicit `workstation.read`, `workstation.write`, `workstation.execute` and/or `workstation.full_control` scopes before the MCP handler runs.
-11. **Client-bound lease enforcement** — when an authenticated principal is present, its principal ID is used for client-bound permission lease evaluation; local transports fall back to `RWMCP_CLIENT_ID`.
+9. **Owner-selected access mode** — the Control Center exposes only Read only, Workspace, and Full access. Full access is user-level control; it does not imply Administrator. Legacy short-lived client-bound leases remain supported as an alternate temporary path.
+10. **Authenticated principal when configured** — HTTP bearer mode establishes a request-scoped principal with explicit `workstation.read`, `workstation.write`, `workstation.execute`, `workstation.admin_request` and/or `workstation.full_control` scopes before the MCP handler runs.
+11. **Separate Administrator approval** — `admin_request` can only create an expiring pending request. Local Control Center review, SHA-256 request binding, a separate helper and Windows RunAs/UAC are required before one direct executable is run elevated.
 12. **Fail-closed authenticated tool classification** — an authenticated principal cannot invoke a newly added tool until that tool has an explicit scope classification.
 13. **Loopback HTTP** — the built-in HTTP service binds to `127.0.0.1`; bearer authentication is a transport-auth foundation, not permission to expose the raw port to the Internet.
 14. **Owner-local Setup & Control Center** — the persistent browser UI binds to a dedicated loopback-only port, uses an ephemeral in-memory CSRF token embedded only in the served page, rejects non-loopback clients and cross-origin API requests, and is never registered as an MCP tool or exposed through the tunnel.
@@ -35,9 +35,9 @@ Supported configuration mutations are intentionally narrow:
 - save OpenAI tunnel/organization identifiers and the managed-Cloudflare preference;
 - install the pinned official OpenAI tunnel-client on Windows;
 - optionally store/remove the OpenAI runtime API key using Windows DPAPI;
-- change the authenticated tunnel scopes exposed to `openai-tunnel`;
-- change only `fullControl.allowHostFilesystem` and `fullControl.allowRawShell` in the owner policy;
-- issue/revoke short `full_control` leases bound to `openai-tunnel`.
+- choose Read only, Workspace, or Full access; the Control Center maps that choice to policy mode, transport scopes and host-filesystem/raw-shell gates;
+- preserve legacy issue/revoke support for short `full_control` leases;
+- review/approve/deny pending one-shot Administrator requests. Approval launches a separate Windows RunAs/UAC helper; the browser API itself never runs an elevated command.
 
 Supported runtime operations are also narrow:
 
@@ -47,7 +47,7 @@ Supported runtime operations are also narrow:
 - inspect MCP health/version/auth and tunnel readiness;
 - register/remove a current-user start-at-logon task.
 
-The browser UI can expose the raw-shell/host-filesystem gates, `workstation.full_control` transport scope, and short owner leases, but none of these bypass the existing three-layer authorization checks. It still does **not** expose sudo/Administrator enablement, SSH credential creation, or arbitrary command execution as a Control Center API.
+The main browser UI intentionally hides raw scopes/gates and exposes a mode selector instead. Full access enables user-level host filesystem/raw shell but never Administrator. When an Administrator request exists, a temporary approval card shows the exact direct executable, argv and reason. The approval endpoint cannot silently elevate: it only launches the separately isolated helper through Windows RunAs/UAC. SSH credential creation and generic arbitrary elevated shell execution remain unavailable.
 
 An existing owner policy/hosts configuration is preserved rather than silently rewritten. Managed Windows installs keep these files outside application version slots.
 
@@ -74,7 +74,7 @@ RWMCP_HTTP_AUTH_MODE=bearer
 RWMCP_HTTP_BEARER_TOKEN=<32+ random characters>
 RWMCP_HTTP_PRINCIPAL_ID=chatgpt-web
 RWMCP_HTTP_PRINCIPAL_TYPE=mcp-http
-RWMCP_HTTP_SCOPES=workstation.read,workstation.write,workstation.execute
+RWMCP_HTTP_SCOPES=workstation.read,workstation.write,workstation.execute,workstation.admin_request
 ```
 
 The current bearer provider represents one locally configured authenticated HTTP principal. It is intended as a safe foundation for a trusted gateway/tunnel and principal-aware policy. Public/registered web connections must use the authentication mechanism required by that integration and map the authenticated identity/scopes into the same request-principal model.
@@ -84,9 +84,10 @@ Scope meanings are deliberately coarse and compositional:
 - `workstation.read` — inspect workspaces, files, Git state/history, process output, diagnostics and approved host metadata/probes.
 - `workstation.write` — workspace file mutation and typed Git mutation.
 - `workstation.execute` — owner-approved tasks/processes and approved SSH execution.
-- `workstation.full_control` — may enter full-control tools, but **does not grant full control by itself**.
+- `workstation.admin_request` — may create/check an Administrator request, but cannot approve or elevate it.
+- `workstation.full_control` — authorizes user-level host filesystem/raw-shell tools when the owner-selected policy/gates also allow them.
 
-`workstation.full_control` is only the transport authorization layer. `host_fs_*` and `shell_exec` still require an active matching `full_control` owner lease and their explicit local policy gates. Transport scopes cannot create, extend or bypass leases.
+`workstation.full_control` is the transport authorization layer. `host_fs_*` and `shell_exec` additionally require effective policy mode `full_control` and their explicit local gates. Effective full control can come from the owner selecting **Full access** or from a still-supported matching legacy lease. Neither path grants Administrator rights.
 
 The bearer token is compared in constant time, is never returned by MCP tools, and must not be logged or committed. Use a high-entropy secret and rotate it if exposed.
 
@@ -96,11 +97,11 @@ The bearer token is compared in constant time, is never returned by MCP tools, a
 
 - the transport principal, when HTTP authentication is enabled, has `workstation.full_control`;
 - local policy enables the corresponding `fullControl` gate; and
-- the owner creates an active `full_control` lease locally, matching the principal/client ID when the lease is client-bound.
+- effective policy mode is `full_control`, either because the local owner selected **Full access** or because a valid legacy owner lease temporarily elevated the client.
 
-A raw shell command runs with the operating-system permissions of the account running Remote Workstation MCP. This is powerful enough to alter that user's files, repositories, services and credentials that the OS account can access. Use short leases and supervise full-control sessions.
+A raw shell command runs only with the operating-system permissions of the account running Remote Workstation MCP. This is powerful enough to alter that user's files, repositories, services and credentials that the OS account can access. Full access should be used only on a trusted owner workstation.
 
-Root/Administrator control is **not** exposed by the normal MCP process. A future implementation must use a separately isolated privileged helper with a narrow protocol instead of making the normal MCP service privileged.
+Administrator control uses a separate request/approval boundary. The normal MCP process only writes an expiring request. The local owner reviews the exact program/argv/reason, approves once, and Windows RunAs/UAC elevates a separate helper. The helper verifies the approved request file SHA-256 before execution, rejects direct shell hosts (`cmd.exe`, `powershell.exe`, `pwsh.exe`, `wscript.exe`, `cscript.exe`, `mshta.exe`, `rundll32.exe`), executes one direct application, records bounded output/result, then exits. The normal MCP/tunnel process remains non-elevated throughout.
 
 ## Important limitation: not an OS sandbox
 

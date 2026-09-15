@@ -1,6 +1,6 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.6 supports two Windows workflows:
+Remote Workstation MCP v0.7.7 supports two Windows workflows:
 
 1. **managed release installation** for normal/new-machine use;
 2. **repository development** for contributors.
@@ -46,7 +46,7 @@ Application versions are isolated under `versions\vX.Y.Z\`; owner configuration 
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.6
+git checkout v0.7.7
 npm run setup:first-run:windows
 ```
 
@@ -65,7 +65,7 @@ It also provides owner-local runtime controls:
 - view tunnel readiness;
 - enable/disable current-user start-at-logon.
 
-The UI is not an MCP tool and its privileged APIs stay on a separate loopback-only Control Center port, outside the tunnel. It may explicitly manage full-control scopes/gates and short client-bound leases without bypassing the existing authorization checks.
+The UI is not an MCP tool and its owner APIs stay on a separate loopback-only Control Center port, outside the tunnel. Daily use is mode-first: Read only, Workspace, or Full access. Administrator requests remain separate and require local owner approval; elevation then uses Windows RunAs/UAC under the machine policy; the normal runtime never becomes Administrator.
 
 See [Setup & Control Center](SETUP_CONSOLE.md).
 
@@ -164,7 +164,7 @@ Expected fields include:
 
 ```text
 ok        : True
-version   : 0.7.6
+version   : 0.7.7
 mode      : workspace
 transport : http-loopback
 ```

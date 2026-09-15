@@ -48,7 +48,14 @@ function Apply-RwmcpPersistedEnvironment([string]$Root, [switch]$IncludeOpenAISe
       $env:RWMCP_SETUP_PORT = [string]$settings.controlPort
     }
     if (-not $env:RWMCP_HTTP_SCOPES -and $settings.PSObject.Properties.Name -contains 'httpScopes' -and $settings.httpScopes) {
-      $env:RWMCP_HTTP_SCOPES = (@($settings.httpScopes) -join ',')
+      $scopes = @($settings.httpScopes | ForEach-Object { [string]$_ })
+      # v0.7.7 migration: existing execute-capable installations gain only the
+      # ability to REQUEST an Administrator action. Approval/execution remains
+      # owner-local and gated by Windows UAC.
+      if (($scopes -contains 'workstation.execute') -and -not ($scopes -contains 'workstation.admin_request')) {
+        $scopes += 'workstation.admin_request'
+      }
+      $env:RWMCP_HTTP_SCOPES = ($scopes -join ',')
     }
     if (-not $env:CONTROL_PLANE_TUNNEL_ID -and $settings.PSObject.Properties.Name -contains 'tunnelId' -and $settings.tunnelId) {
       $env:CONTROL_PLANE_TUNNEL_ID = [string]$settings.tunnelId

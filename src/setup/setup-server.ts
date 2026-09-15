@@ -5,7 +5,9 @@ import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
+import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
 import {
+  applyOwnerPermissionMode,
   applyPermissionConfig,
   grantFullControlLease,
   readPermissionState,
@@ -306,8 +308,47 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         return;
       }
 
+      if (url.pathname === '/api/admin/requests' && req.method === 'GET') {
+        const requests = await listAdminRequests();
+        json(res, 200, { requests: requests.slice(0, 20) });
+        return;
+      }
+
+      const adminAction = url.pathname.match(/^\/api\/admin\/requests\/([0-9a-fA-F-]+)\/(approve|deny)$/);
+      if (adminAction && req.method === 'POST') {
+        const [, requestId, action] = adminAction;
+        if (action === 'deny') {
+          json(res, 200, await denyAdminRequest(requestId!));
+          return;
+        }
+        if (process.platform !== 'win32') throw new Error('Administrator approval helper currently supports Windows only.');
+        const body = await readJsonBody(req) as { expectedCommandHash?: string };
+        if (!body.expectedCommandHash) throw new Error('expectedCommandHash is required for Administrator approval.');
+        const approved = await approveAdminRequest(requestId!, body.expectedCommandHash);
+        const launcher = path.join(repoRoot, 'scripts', 'admin-approval-windows.ps1');
+        const child = spawn('powershell.exe', [
+          '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher,
+          '-RequestPath', approved.file,
+          '-ExpectedSha256', approved.fileSha256,
+          '-Root', repoRoot
+        ], { cwd: repoRoot, detached: true, stdio: 'ignore', windowsHide: true });
+        child.unref();
+        json(res, 202, { requestId: approved.request.id, state: approved.request.state, uacPrompted: true });
+        return;
+      }
+
       if (url.pathname === '/api/permissions' && req.method === 'GET') {
         json(res, 200, await readPermissionState(repoRoot));
+        return;
+      }
+
+      if (url.pathname === '/api/permissions/mode' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { mode?: string };
+        const allowed = new Set(['read_only', 'workspace', 'full_control']);
+        if (!body.mode || !allowed.has(body.mode)) throw new Error('Unsupported permission mode.');
+        const state = await applyOwnerPermissionMode(repoRoot, body.mode as 'read_only' | 'workspace' | 'full_control');
+        process.env.RWMCP_HTTP_SCOPES = state.httpScopes.join(',');
+        json(res, 200, { ...state, restartRequired: true });
         return;
       }
 

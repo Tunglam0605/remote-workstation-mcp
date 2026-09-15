@@ -11,7 +11,8 @@ The AI caller is treated as untrusted input. This includes hallucinated tool cal
 - integrity of source repositories
 - local policy/host/update configuration
 - persisted workstation setup state
-- permission leases
+- owner access mode and legacy permission leases
+- pending Administrator approval records
 - authenticated principal/scope integrity
 - workstation availability
 - release/update integrity
@@ -31,21 +32,21 @@ The AI caller is treated as untrusted input. This includes hallucinated tool cal
 | Output flooding | bounded captured stdout/stderr + incremental cursors |
 | Hidden policy changes by AI | no MCP policy/host/lease mutation tools |
 | Public MCP exposure | loopback-only HTTP; outbound Secure MCP Tunnel for cloud reachability |
-| Tunnel reachability confused with authorization | bearer-authenticated loopback MCP + request principal/scopes + local policy/lease/audit |
+| Tunnel reachability confused with authorization | bearer-authenticated loopback MCP + request principal/scopes + local policy/mode/audit |
 | OpenAI runtime key leaking into MCP process | runtime key stripped from MCP child environment |
 | Runtime key written to repository/config JSON | optional Windows persistence uses current-user DPAPI in a separate user-profile secret blob |
 | Local setup UI reached from LAN | Setup Console binds only to 127.0.0.1 and rejects non-loopback sockets |
 | Browser CSRF against setup UI | ephemeral in-memory CSRF token embedded only in local page + same-origin check + custom token header + no-store responses |
-| Setup convenience silently weakening policy | existing owner config is preserved; dangerous scope/gate changes are explicit, warning-styled, still require the existing three-layer authorization model, and full-control leases are short-lived/client-bound |
+| Setup convenience silently weakening policy | main UI exposes only explicit Read only / Workspace / Full access modes; Full access is visibly selected and still user-level only; technical setup stays collapsed |
 | Unauthorized SSH target | named host allowlist |
 | SSH command expansion | per-host program allowlist + quoted argv construction |
 | SSH credential disclosure | agent/local identity-file configuration; password auth not implemented |
 | SSH forwarding/pivoting | forwarding disabled by adapter options |
 | Silent software corruption | release SHA-256 verification + version slots + health rollback |
-| AI self-elevation | permission grant/revoke exists only as local owner operation |
-| Full-control lease reuse by another profile | authenticated principal/client binding on leases |
-| Persistent accidental full control | time-limited lease expiration + explicit policy gates |
-| Root compromise through normal service | root/Administrator not exposed by the normal MCP process; Linux managed service uses `NoNewPrivileges=true` |
+| AI self-elevation | AI may create only an expiring `admin_request`; approval is not an MCP tool and elevated execution requires local Control Center approval; elevation then uses Windows RunAs/UAC under the machine policy |
+| Legacy full-control lease reuse by another profile | authenticated principal/client binding on legacy leases |
+| Persistent accidental Full access | explicit owner-selected mode, visible mode state, one-click downgrade to Workspace/Read only; legacy temporary leases still expire |
+| Root compromise through normal service | normal MCP/Control Center stay non-elevated; local owner approval is mandatory, the one-shot Windows helper verifies the exact approved request hash, and RunAs/UAC performs elevation according to OS policy; Linux managed service uses `NoNewPrivileges=true` |
 
 ## Residual risks
 
@@ -69,9 +70,9 @@ Mitigation: keep the runtime key restricted to Tunnels Read + Use, rotate/revoke
 
 ### Raw shell is intentionally dangerous
 
-When explicitly enabled with a valid full-control lease and scope, `shell_exec` can exercise whatever the service OS account can access. This is an owner-approved escape hatch, not a safe default.
+When the local owner selects Full access (or temporarily enables a compatible legacy lease), `shell_exec` can exercise whatever the service OS account can access. This is an owner-controlled user-level escape hatch, not Administrator access.
 
-Mitigation: short supervised leases, principal binding, rapid revoke, audit review and no Administrator privilege in the normal service.
+Mitigation: keep Workspace as the default on less-trusted machines, make Full access visibly selected, support one-click downgrade, review audit output, and keep Administrator privilege behind the separate UAC approval flow.
 
 ### Checksums are not artifact signing
 
@@ -79,14 +80,15 @@ SHA-256 verifies that a downloaded package matches the published checksum but do
 
 Mitigation: future signed artifacts, provenance/SBOM and stronger release verification.
 
-## Out of scope for v0.7.2
+## Out of scope for v0.7.7
 
 - hardened multi-user isolation
 - OS/container sandbox enforcement
-- root/Administrator privilege brokering
+- unrestricted privileged shell or persistent Administrator mode
+- generic Linux sudo/root brokering (the v0.7.7 approval helper is Windows-only)
 - GUI desktop automation
 - public directory approval/entitlement control inside ChatGPT
 - release artifact signing/provenance
 - DAP/GDB/probe/serial/ROS2 engineering-debug adapters (planned for v0.8)
 
-These remain roadmap items and must not be implied by current capability names.
+The available Administrator capability is deliberately narrow: one locally approved direct Windows `.exe`/`.com` request at a time, with UAC. Broader privileged contracts remain future hardening work.

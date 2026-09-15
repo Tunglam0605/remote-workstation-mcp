@@ -60,12 +60,13 @@ Managed Windows installs use:
 │   ├── control-center.json
 │   ├── control-center.stdout.log
 │   ├── control-center.stderr.log
-│   └── permission-lease.json
+│   ├── permission-lease.json
+│   └── admin-approvals\
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
-    ├── v0.7.5\
-    └── v0.7.6\
+    ├── v0.7.6\
+    └── v0.7.7\
 ```
 
 Policy/hosts/settings/secrets are therefore not replaced when the application version changes.
@@ -82,9 +83,11 @@ The web flow can configure:
 - managed Cloudflare runtime opt-in/out;
 - official OpenAI `tunnel-client` installation on Windows;
 - OpenAI runtime API key storage using current-user Windows DPAPI;
-- OpenAI tunnel scopes for workspace write, execution and `workstation.full_control`;
-- the local host-filesystem and raw-shell gates;
-- short owner-issued `full_control` leases bound to `openai-tunnel` with preset TTLs of 10, 30 or 60 minutes.
+- one simple daily access mode: **Read only**, **Workspace**, or **Full access**;
+- automatic mapping from that mode to authenticated tunnel scopes and local host-filesystem/raw-shell gates;
+- `workstation.admin_request`, which can create a pending Administrator request but cannot elevate by itself;
+- one-shot Administrator approval through the local Control Center and Windows RunAs/UAC elevation;
+- legacy short `full_control` leases remain supported for compatibility and temporary workflows, but are no longer part of the default daily UI.
 
 This explicitly handles machines where another local MCP/plugin already owns port `8765`; the UI can recommend alternatives such as `8683`, `8877`, or another free loopback port.
 
@@ -144,12 +147,12 @@ The Setup & Control Center never silently overwrites an existing owner policy or
 
 ## Security boundary
 
-The Control Center may change dangerous permissions, but it does **not** bypass the authorization model. Full-control tools still require all applicable layers:
+The Control Center deliberately separates **user-level access mode** from **Administrator elevation**.
 
-1. the authenticated tunnel principal has `workstation.full_control`;
-2. the relevant local gate is enabled (`allowHostFilesystem` and/or `allowRawShell`);
-3. a non-expired `full_control` lease exists and is bound to `openai-tunnel`.
+- **Read only** sets policy mode `read_only`, exposes only `workstation.read`, disables user-level writes/process execution, and keeps host-wide gates off.
+- **Workspace** is the default. It enables read/write/execute inside configured workspaces and allows `workstation.admin_request` to create a pending request, but it cannot elevate.
+- **Full access** is a persistent local-owner choice. It sets effective `full_control`, adds `workstation.full_control`, and enables host-filesystem + raw-shell gates for the current Windows user. It still does not grant Administrator rights.
 
-The UI exposes these as explicit owner actions with warning styling and short lease TTLs. Administrator/sudo remains unavailable and is not exposed by the normal runtime. Defaults remain `read/write/execute`, both dangerous gates off, and no full-control lease.
+Administrator actions use a separate one-shot flow. `admin_request` writes an expiring request containing the exact executable, argv, working directory, reason and requesting principal. The main UI shows that approval card only while a request is active. Local Control Center approval is the mandatory application-level user confirmation. Approval binds the request file by SHA-256 and launches a separate helper through Windows `RunAs`; any additional UAC prompt follows the machine policy. Direct privileged shell hosts such as `cmd.exe` and `powershell.exe` are rejected by the helper; request the target executable directly instead.
 
-Do not bind the Control Center to a LAN address, publish it through a reverse proxy, or expose its privileged APIs through the Secure MCP Tunnel. Keep it on its dedicated `127.0.0.1` port.
+The normal MCP/tunnel runtime and Control Center continue to run non-elevated. A mode switch can never silently grant Administrator rights. Do not bind the Control Center to a LAN address, publish it through a reverse proxy, or expose its owner APIs through the Secure MCP Tunnel. Keep it on its dedicated `127.0.0.1` port.

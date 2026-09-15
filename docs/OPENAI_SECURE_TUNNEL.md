@@ -107,7 +107,7 @@ The supervisor:
 The default authenticated tunnel scopes are:
 
 ```text
-workstation.read,workstation.write,workstation.execute
+workstation.read,workstation.write,workstation.execute,workstation.admin_request
 ```
 
 Do not add `workstation.full_control` just to make setup easier. Full-control tools still require the authenticated scope, an owner-issued time-limited client-bound lease, and the relevant local dangerous-feature gate.

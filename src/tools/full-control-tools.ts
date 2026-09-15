@@ -16,19 +16,19 @@ export function registerFullControlTools(server: McpServer, ctx: AppContext): vo
   }, async () => result(await audited(ctx.audit, 'permission_status', undefined, async () => ctx.policy.status())));
 
   server.registerTool('host_fs_list', {
-    description: 'List an absolute host directory. Requires an active full-control owner lease and fullControl.allowHostFilesystem=true.',
+    description: 'List an absolute host directory. Requires effective Full Access and fullControl.allowHostFilesystem=true.',
     inputSchema: z.object({ path: z.string().min(1) }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ path }) => result({ entries: await audited(ctx.audit, 'host_fs_list', undefined, () => ctx.hostFs.list(path)) }));
 
   server.registerTool('host_fs_read', {
-    description: 'Read an absolute UTF-8 host file. Requires an active full-control owner lease and explicit host-filesystem policy gate.',
+    description: 'Read an absolute UTF-8 host file. Requires effective Full Access and the explicit host-filesystem policy gate.',
     inputSchema: z.object({ path: z.string().min(1) }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ path }) => result(await audited(ctx.audit, 'host_fs_read', undefined, () => ctx.hostFs.read(path))));
 
   server.registerTool('host_fs_write', {
-    description: 'Create/overwrite an absolute UTF-8 host file. Requires full-control owner lease and explicit host-filesystem gate. Use expectedSha256 when replacing a file previously read.',
+    description: 'Create/overwrite an absolute UTF-8 host file. Requires effective Full Access and the explicit host-filesystem gate. Use expectedSha256 when replacing a file previously read.',
     inputSchema: z.object({
       path: z.string().min(1),
       content: z.string(),
@@ -39,7 +39,7 @@ export function registerFullControlTools(server: McpServer, ctx: AppContext): vo
   }, async ({ path, content, overwrite, expectedSha256 }) => result(await audited(ctx.audit, 'host_fs_write', undefined, () => ctx.hostFs.write(path, content, overwrite, expectedSha256))));
 
   server.registerTool('shell_exec', {
-    description: 'Execute a raw local shell command. This is intentionally powerful and only works with an active full-control owner lease plus fullControl.allowRawShell=true.',
+    description: 'Execute a raw local shell command. This is intentionally powerful and only works with effective Full Access plus fullControl.allowRawShell=true.',
     inputSchema: z.object({ command: z.string().min(1), cwd: z.string().optional(), timeoutMs: z.number().int().positive().max(24 * 60 * 60 * 1000).optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, async ({ command, cwd, timeoutMs }) => result(await audited(ctx.audit, 'shell_exec', undefined, () => ctx.fullControl.shell(command, cwd, timeoutMs))));

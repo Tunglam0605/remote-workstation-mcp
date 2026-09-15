@@ -8,6 +8,7 @@
   },
   "files": [
     "dist/",
+    "assets/",
     "config/policy.example.yaml",
     "config/hosts.example.yaml",
     "scripts/",

@@ -267,6 +267,20 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         html(res, setupHtml(token));
         return;
       }
+      if (req.method === 'GET' && (url.pathname === '/assets/brand/logo.png' || url.pathname === '/assets/brand/logo-background.png')) {
+        const name = url.pathname.endsWith('logo-background.png') ? 'logo-background.png' : 'logo.png';
+        const file = path.join(repoRoot, 'assets', 'brand', name);
+        const data = await fs.readFile(file);
+        res.writeHead(200, {
+          'content-type': 'image/png',
+          'content-length': data.byteLength,
+          'cache-control': 'public, max-age=3600',
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer'
+        });
+        res.end(data);
+        return;
+      }
       if (req.headers['x-rwmcp-setup-token'] !== token) {
         json(res, 403, { error: 'Invalid or missing setup token.' });
         return;

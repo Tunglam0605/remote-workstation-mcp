@@ -54,6 +54,29 @@ function Stop-ProcessTree([int]$rootProcessId) {
   & $taskkill.Source /PID $rootProcessId /T /F *> $null
 }
 
+function Get-LoopbackListenerOwner([int]$port) {
+  try {
+    $listener = Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $port -State Listen -ErrorAction Stop | Select-Object -First 1
+    if ($listener) { return [int]$listener.OwningProcess }
+  } catch {}
+  return $null
+}
+
+function Test-ProcessDescendant([int]$processId, [int]$ancestorId) {
+  $current = $processId
+  foreach ($depth in 1..16) {
+    if ($current -eq $ancestorId) { return $true }
+    try {
+      $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction Stop
+    } catch { return $false }
+    if (-not $entry) { return $false }
+    $parent = [int]$entry.ParentProcessId
+    if ($parent -le 0 -or $parent -eq $current) { return $false }
+    $current = $parent
+  }
+  return $false
+}
+
 function Apply-ControlEnvironment {
   Apply-RwmcpPersistedEnvironment -Root $Root | Out-Null
   $externalConfigDir = Join-Path $UserConfigDir 'config'
@@ -72,14 +95,20 @@ function Control-Status {
     Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
   }
   $port = if ($state -and ($state.PSObject.Properties.Name -contains 'port')) { [int]$state.port } else { Apply-ControlEnvironment }
+  $listenerOwner = Get-LoopbackListenerOwner $port
+  $managedPortOwned = $null -ne $managed -and $null -ne $listenerOwner -and (Test-ProcessDescendant ([int]$listenerOwner) ([int]$managed.Id))
   $healthy = $false
-  try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 2
-    $healthy = $response.StatusCode -eq 200
-  } catch {}
+  if ($managedPortOwned) {
+    try {
+      $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 2
+      $healthy = $response.StatusCode -eq 200
+    } catch {}
+  }
   return [pscustomobject]@{
     running = $null -ne $managed
     healthy = $healthy
+    managedPortOwned = $managedPortOwned
+    portOwnerPid = $listenerOwner
     pid = if ($managed) { [int]$managed.Id } else { $null }
     root = if ($state) { [string]$state.root } else { $Root }
     port = $port
@@ -93,6 +122,12 @@ function Start-ControlCenter {
   $port = Apply-ControlEnvironment
   $existingState = Read-State
   $existing = Get-ManagedProcess $existingState
+  if (-not $existing) {
+    $foreignOwner = Get-LoopbackListenerOwner $port
+    if ($null -ne $foreignOwner) {
+      throw "Control Center port $port is already in use by process $foreignOwner and is not owned by the managed Control Center."
+    }
+  }
   if ($existing) {
     $sameRoot = [string]::Equals([IO.Path]::GetFullPath([string]$existingState.root), [IO.Path]::GetFullPath($Root), [StringComparison]::OrdinalIgnoreCase)
     $samePort = [int]$existingState.port -eq $port
@@ -133,6 +168,8 @@ function Start-ControlCenter {
   foreach ($attempt in 1..60) {
     Start-Sleep -Milliseconds 250
     if ($process.HasExited) { break }
+    $listenerOwner = Get-LoopbackListenerOwner $port
+    if ($null -eq $listenerOwner -or -not (Test-ProcessDescendant ([int]$listenerOwner) ([int]$process.Id))) { continue }
     try {
       $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 1
       if ($response.StatusCode -eq 200) { $ready = $true; break }

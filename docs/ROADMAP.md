@@ -224,6 +224,13 @@ Only begin this phase after ChatGPT Web acceptance is complete.
 - keep detailed setup/runtime controls collapsed under Setup & advanced
 - tolerate protected Windows entries during host filesystem directory listing
 
+## v0.7.10 — Control Center ownership hardening ✅
+
+- verify that the loopback listener on the Control Center port is a descendant of the managed Control Center host process
+- never report a foreign process on port 8684 as a healthy managed Control Center
+- refuse startup with a clear owning PID when the configured Control Center port is occupied by another process
+- preserve the v0.7.9 install-once, stable auto-update and rollback model unchanged
+
 ## v0.7.9 — One-time Windows setup + automatic stable updates ✅
 
 - publish a double-click `install-windows.cmd` bootstrap alongside the PowerShell installer

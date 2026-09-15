@@ -1,6 +1,6 @@
 # Windows quick start — install once
 
-Remote Workstation MCP v0.7.9 is designed for a one-time workstation setup:
+Remote Workstation MCP v0.7.10 is designed for a one-time workstation setup:
 
 1. install once;
 2. enter the owner-specific OpenAI/tunnel values once;

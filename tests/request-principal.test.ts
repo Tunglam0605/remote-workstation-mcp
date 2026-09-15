@@ -30,6 +30,15 @@ test('execute scoped principal can start and interact with managed processes', (
   });
 });
 
+
+test('admin-request scope can request elevation but cannot directly use full-control tools', () => {
+  runAsPrincipal({ id: 'requester', type: 'test', scopes: ['workstation.admin_request'], authenticated: true }, () => {
+    assert.doesNotThrow(() => assertToolScope('admin_request'));
+    assert.doesNotThrow(() => assertToolScope('admin_request_status'));
+    assert.throws(() => assertToolScope('shell_exec'), /lacks required scope 'workstation.full_control'/);
+  });
+});
+
 test('full-control scope implies workstation read/write/execute/full-control scopes', () => {
   runAsPrincipal({ id: 'owner', type: 'test', scopes: ['workstation.full_control'], authenticated: true }, () => {
     assert.doesNotThrow(() => assertToolScope('fs_read'));
@@ -37,6 +46,7 @@ test('full-control scope implies workstation read/write/execute/full-control sco
     assert.doesNotThrow(() => assertToolScope('process_start'));
     assert.doesNotThrow(() => assertToolScope('process_write'));
     assert.doesNotThrow(() => assertToolScope('shell_exec'));
+    assert.doesNotThrow(() => assertToolScope('admin_request'));
   });
 });
 

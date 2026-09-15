@@ -15,8 +15,13 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /Remote Workstation MCP Setup & Control Center/);
     assert.match(pageText, /id="langEn"/);
     assert.match(pageText, /id="langVi"/);
-    assert.match(pageText, /id="enableFullControl"/);
-    assert.match(pageText, /id="disableFullControl"/);
+    assert.match(pageText, /id="accessMode"/);
+    assert.match(pageText, /value="read_only"/);
+    assert.match(pageText, /value="workspace"/);
+    assert.match(pageText, /value="full_control"/);
+    assert.doesNotMatch(pageText, /id="applyMode"/);
+    assert.doesNotMatch(pageText, /id="scopeFull"/);
+    assert.doesNotMatch(pageText, /id="gateRawShell"/);
     assert.match(pageText, /Thiết lập nhanh cho ChatGPT/);
     assert.match(pageText, /rwmcp\.language/);
     assert.match(pageText, /navigator\.language/);
@@ -42,7 +47,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.7.6');
+    assert.equal(body.version, '0.7.7');
     assert.ok(Number.isInteger(body.settings.mcpPort));
   } finally {
     await setup.close();

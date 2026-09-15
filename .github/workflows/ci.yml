@@ -88,6 +88,10 @@ jobs:
             'scripts/install-windows-release.ps1',
             'scripts/runtime-control-windows.ps1',
             'scripts/runtime-host-windows.ps1',
+            'scripts/control-center-host-windows.ps1',
+            'scripts/control-center-windows.ps1',
+            'scripts/admin-approval-windows.ps1',
+            'scripts/privileged-helper-windows.ps1',
             'scripts/windows-settings.ps1',
             'scripts/windows-secret.ps1',
             'scripts/setup-web-windows.ps1',
@@ -122,6 +126,7 @@ jobs:
             tunnelId = 'tunnel_0123456789abcdef0123456789abcdef'
             organizationId = 'org-ci'
             cloudflaredManaged = $false
+            httpScopes = @('workstation.read','workstation.write','workstation.execute')
           } | ConvertTo-Json | Set-Content -Path $settingsPath -Encoding utf8
 
           . (Join-Path $PWD 'scripts\windows-settings.ps1')
@@ -132,6 +137,8 @@ jobs:
           if ($env:RWMCP_PORT -ne '18765') { throw "Persisted MCP port was not loaded: $($env:RWMCP_PORT)" }
           if ($env:CONTROL_PLANE_TUNNEL_ID -ne 'tunnel_0123456789abcdef0123456789abcdef') { throw 'Persisted tunnel id was not loaded.' }
           if ($env:CONTROL_PLANE_ORGANIZATION_ID -ne 'org-ci') { throw 'Persisted organization id was not loaded.' }
+          $scopeSet = @($env:RWMCP_HTTP_SCOPES -split ',')
+          if (-not ($scopeSet -contains 'workstation.admin_request')) { throw 'Legacy execute scopes were not migrated to request-only Administrator scope.' }
 
           $secretPath = Get-RwmcpSecretPath
           $testSecret = 'sk-test-rwmcp-dpapi-0123456789abcdef'
@@ -181,7 +188,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Runtime supervisor start failed.' }
             $start = ($startRaw | Select-Object -Last 1) | ConvertFrom-Json
             if (-not $start.running -or -not $start.mcpHealthy) { throw "Runtime supervisor did not become healthy: $startRaw" }
-            if ($start.mcpVersion -ne '0.7.6') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
+            if ($start.mcpVersion -ne '0.7.7') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
             $statusRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Status -Root $PWD -Json
             $status = ($statusRaw | Select-Object -Last 1) | ConvertFrom-Json
             if (-not $status.running -or -not $status.mcpHealthy) { throw 'Runtime supervisor status check failed.' }

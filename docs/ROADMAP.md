@@ -151,6 +151,21 @@ This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC 
 - tolerate Windows UTF-8 BOM settings files and distinguish managed-runtime port ownership from unrelated port conflicts
 - retain safe defaults: read/write/execute enabled, host-wide gates off, no full-control lease, Administrator/sudo unavailable
 
+## v0.7.7 — Codex-style modes + Administrator approval gateway ✅
+
+- simplify the daily Control Center to three owner-selected access modes: Read only, Workspace and Full access
+- move workstation/tunnel/runtime internals under a collapsed Setup & advanced section
+- make Full access a persistent user-level owner mode for host filesystem + raw shell; it never grants Administrator
+- add `workstation.admin_request` as request-only transport authority
+- add `admin_request` / `admin_request_status` tools that can create/check pending requests but cannot approve themselves
+- persist expiring pending requests with requesting principal, exact executable, argv, cwd, reason and command hash
+- show an approval card only while an Administrator request is active
+- bind local approval to the exact request file SHA-256 before elevation
+- launch one separately isolated Windows helper through `RunAs`; the local owner approval remains mandatory; Windows RunAs/UAC performs elevation according to OS policy
+- reject direct privileged shell hosts in the helper and execute one direct `.exe`/`.com` application per approval
+- keep the normal MCP, tunnel and Control Center processes non-elevated
+- preserve legacy client-bound leases for compatibility/temporary workflows without showing their internals in the daily UI
+
 ## v0.8 — Engineering debug and hardware adapters
 
 This work begins **after** the direct ChatGPT Web control path above is accepted on a real ChatGPT workspace.
@@ -174,9 +189,8 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 - browser/Chrome DevTools adapter
 - Playwright/browser testing adapter
 - Windows UI Automation adapter as fallback when no CLI/API/debug protocol exists
-- separately isolated privileged helper for narrowly scoped root/admin operations
-- explicit owner approval protocol for privileged operations
-- capability-specific sudo/root contracts rather than unrestricted privileged shell
+- harden the v0.7.7 privileged helper with signed/provenance-aware request envelopes and richer capability-specific contracts
+- expand privileged actions through typed adapters instead of unrestricted privileged shell
 - optional container/namespace sandbox for untrusted build/test workloads
 - public Plugin Directory/App registration documentation and review readiness
 - reconnect/revocation observability for remote connection providers

@@ -35,7 +35,7 @@ test('full-control host filesystem requires live matching lease', async t => {
   const { config, lease } = configured(root);
 
   const denied = new HostFilesystemAdapter(new PolicyEngine(config, lease, 'other-client'));
-  await assert.rejects(() => denied.list(root), /full-control owner lease/);
+  await assert.rejects(() => denied.list(root), /effective full_control mode/);
 
   const allowed = new HostFilesystemAdapter(new PolicyEngine(config, lease, 'test-client'));
   const file = path.join(root, 'note.txt');

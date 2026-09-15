@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
 import {
+  applyOwnerPermissionMode,
   applyPermissionConfig,
   grantFullControlLease,
   managedLeasePath,
@@ -65,7 +66,7 @@ test('permission config updates only owner-controlled full-control gates and tra
     const before = await readPermissionState(root);
     assert.equal(before.allowHostFilesystem, false);
     assert.equal(before.allowRawShell, false);
-    assert.deepEqual(before.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute']);
+    assert.deepEqual(before.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
 
     const after = await applyPermissionConfig(root, {
       httpScopes: ['workstation.read', 'workstation.execute', 'workstation.full_control'],
@@ -74,7 +75,7 @@ test('permission config updates only owner-controlled full-control gates and tra
     });
     assert.equal(after.allowHostFilesystem, true);
     assert.equal(after.allowRawShell, false);
-    assert.deepEqual(after.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.full_control']);
+    assert.deepEqual(after.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control']);
 
     const parsed = YAML.parse(await fs.readFile(policyPath, 'utf8')) as Record<string, any>;
     assert.deepEqual(parsed.process.allowExecutables, ['git']);
@@ -82,6 +83,35 @@ test('permission config updates only owner-controlled full-control gates and tra
     assert.equal(parsed.privileged.allowSudo, false);
     assert.equal(parsed.fullControl.allowHostFilesystem, true);
     assert.equal(parsed.fullControl.allowRawShell, false);
+  });
+});
+
+
+test('owner permission modes map to simple safe/workspace/full-access policies', async () => {
+  await withIsolatedOwnerConfig(async ({ root, policyPath }) => {
+    const readOnly = await applyOwnerPermissionMode(root, 'read_only');
+    assert.equal(readOnly.mode, 'read_only');
+    assert.deepEqual(readOnly.httpScopes, ['workstation.read']);
+    assert.equal(readOnly.allowHostFilesystem, false);
+    assert.equal(readOnly.allowRawShell, false);
+
+    const workspace = await applyOwnerPermissionMode(root, 'workspace');
+    assert.equal(workspace.mode, 'workspace');
+    assert.deepEqual(workspace.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
+    assert.equal(workspace.allowHostFilesystem, false);
+    assert.equal(workspace.allowRawShell, false);
+
+    const full = await applyOwnerPermissionMode(root, 'full_control');
+    assert.equal(full.mode, 'full_control');
+    assert.deepEqual(full.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control']);
+    assert.equal(full.allowHostFilesystem, true);
+    assert.equal(full.allowRawShell, true);
+
+    const parsed = YAML.parse(await fs.readFile(policyPath, 'utf8')) as Record<string, any>;
+    assert.equal(parsed.mode, 'full_control');
+    assert.equal(parsed.fullControl.allowHostFilesystem, true);
+    assert.equal(parsed.fullControl.allowRawShell, true);
+    assert.equal(parsed.privileged.allowSudo, false);
   });
 });
 

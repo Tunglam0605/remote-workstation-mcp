@@ -2,13 +2,13 @@
 
 **Self-hosted MCP control plane for securely operating engineering workstations from ChatGPT, Codex and other MCP-compatible agents.**
 
-Remote Workstation MCP lets an authorized AI client inspect and edit approved code, use semantic code intelligence, run builds/tests, supervise bounded processes, inspect Git, discover development tools, and execute owner-approved SSH commands. Host-wide shell/filesystem access remains disabled unless the owner explicitly enables local gates and grants a short-lived client-bound lease.
+Remote Workstation MCP lets an authorized AI client inspect and edit approved code, use semantic code intelligence, run builds/tests, supervise bounded processes, inspect Git, discover development tools, and execute owner-approved SSH commands. Host-wide shell/filesystem access is enabled only when the local owner selects Full Access. Administrator/UAC actions remain a separate approval path and can never be silently enabled by a mode switch.
 
-> **Security-sensitive beta.** Start with a disposable workspace. Keep full-control gates disabled until local policy, audit records, principal identity and tunnel behavior have been validated.
+> **Security-sensitive beta.** Start with a disposable workspace and the default **Workspace** mode. Select **Full access** only on a trusted owner workstation. Administrator actions always require a separate local approval; elevation then uses Windows RunAs/UAC under the machine policy.
 
-## Current release: v0.7.6
+## Current release: v0.7.7
 
-The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path. v0.7.6 adds a persistent owner Control Center, bilingual EN/VI UI, explicit permission controls, and a safer full-control workflow:
+The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path. v0.7.7 simplifies daily permission UX to Codex-style access modes and adds owner-approved Windows Administrator requests:
 
 - authenticated request principals and workstation scopes;
 - workspace filesystem + optimistic SHA-256 writes;
@@ -17,12 +17,15 @@ The v0.7 line establishes direct workstation control, practical Windows distribu
 - bounded managed processes with incremental output and stdin;
 - structured compiler/build diagnostics;
 - approved SSH hosts and program allowlists;
-- owner-controlled time-limited elevation/full-control leases;
+- simple owner-selected access modes: Read only, Workspace, and Full access;
+- one-shot Administrator requests that require local Control Center approval; elevation then uses Windows RunAs/UAC under the machine policy;
+- legacy client-bound permission leases remain supported for compatibility/temporary workflows;
 - outbound-only OpenAI Secure MCP Tunnel support;
 - Windows DPAPI storage for the OpenAI runtime API key;
 - persistent local-only Setup & Control Center on a dedicated loopback port, with browser redirect from the MCP root;
 - bilingual English/Vietnamese Control Center with remembered language selection;
-- owner UI for read/write/execute/full-control tunnel scopes, host-filesystem/raw-shell gates, and short client-bound full-control leases;
+- compact mode-first Control Center; detailed tunnel/runtime setup stays collapsed under Setup & advanced;
+- pending Administrator approval appears only when an AI requests one, showing the exact executable, arguments and reason before UAC;
 - checksum-verified per-user Windows release installation;
 - version slots, stable launcher, update pointer and rollback pointer;
 - current-user start-at-logon through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, without Administrator privileges;
@@ -68,7 +71,8 @@ Managed Windows layout:
 │   ├── control-center.json
 │   ├── control-center.stdout.log
 │   ├── control-center.stderr.log
-│   └── permission-lease.json
+│   ├── permission-lease.json
+│   └── admin-approvals\
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
@@ -83,7 +87,7 @@ Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the versi
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.6
+git checkout v0.7.7
 npm run setup:first-run:windows
 ```
 
@@ -95,7 +99,7 @@ The managed Windows layout keeps the MCP transport and the owner Control Center 
 
 The Control Center is a separate process from the MCP/tunnel runtime, so stopping or restarting MCP does not tear down the page that issued the action. It rejects non-loopback/cross-origin requests and protects its owner APIs with an ephemeral in-memory CSRF token embedded only in the locally served page; the token is neither persisted nor placed in the URL.
 
-It supports workspace/tunnel configuration, DPAPI-protected runtime-key storage, tunnel-client installation, runtime health/control, start-at-logon, and explicit permission management. The Permissions card can change write/execute/full-control tunnel scopes, the host-filesystem/raw-shell local gates, and short `full_control` leases (10/30/60 minutes) bound to `openai-tunnel`. Full-control still requires scope + gate + active lease; Administrator/sudo remains unavailable. Safe defaults stay read/write/execute, dangerous gates off and no lease.
+For daily use, the main page intentionally exposes only connection health and one access-mode selector: **Read only**, **Workspace** (default), or **Full access**. The selected mode atomically updates the policy and authenticated tunnel scopes; Full access enables user-level host filesystem + raw shell, while Administrator remains separate. Tunnel/runtime/workspace setup stays collapsed under **Setup & advanced**. If an AI needs an Administrator action, `admin_request` creates a short-lived pending request; the Control Center shows the exact executable/arguments/reason and only a local owner click followed by Windows RunAs/UAC elevation can launch the isolated privileged helper.
 
 Starting with v0.7.5, start-at-logon uses the current-user Windows `Run` registry key rather than `Register-ScheduledTask`. This avoids standard-user `Access is denied` failures and remains non-elevated. The OpenAI start action also waits for tunnel `/readyz` before reporting success, so the quick setup flow does not claim completion while the tunnel is still connecting.
 
@@ -120,7 +124,7 @@ ChatGPT Web custom MCP app
                 |
     authenticated request principal
                 |
-       policy -> lease -> audit
+       policy -> mode -> audit
                 |
        workstation adapters
 ```
@@ -139,7 +143,7 @@ chatgptWeb.secureTunnelPrincipal: true
 chatgptWeb.directControlPathVerified: true
 ```
 
-Then verify `workspace_list`, a read (`git_status`/`fs_read`), a disposable workspace write/read-back, and one harmless owner-allowlisted task/process. `workstation.full_control` is intentionally excluded from the default tunnel scope.
+Then verify `workspace_list`, a read (`git_status`/`fs_read`), a disposable workspace write/read-back, and one harmless owner-allowlisted task/process. The default Workspace mode also carries `workstation.admin_request`, which can only create a pending approval; it cannot elevate. `workstation.full_control` remains excluded until the owner selects Full access.
 
 ChatGPT custom-app/MCP availability is product/workspace controlled by OpenAI and can change independently of this repository. As of September 2026, OpenAI documents full custom MCP write/modify support on ChatGPT Web for Business, Enterprise and Edu. Pro has more limited developer-mode MCP support; Plus should not be assumed to support this full write-capable custom-app flow.
 
@@ -197,7 +201,7 @@ Codex/Cursor   |                  ChatGPT/Responses
                               |
                   authenticated principal
                               |
-                     policy -> leases
+                      policy -> mode
                               |
                            audit
                               |
@@ -222,6 +226,7 @@ Routine engineering operations use typed adapters. Raw shell remains an explicit
 | Build/run | `task_list`, `task_run`, `build_diagnostics`, `process_start`, `process_write`, `process_close_stdin`, `process_read`, `process_read_since`, `process_list`, `process_stop` |
 | SSH | `ssh_hosts`, `ssh_probe`, `ssh_exec` |
 | Permission state | `permission_status` |
+| Administrator request | `admin_request`, `admin_request_status` (request/status only; local Control Center approval required before Windows RunAs/UAC elevation) |
 | Optional full user control | `host_fs_list`, `host_fs_read`, `host_fs_write`, `shell_exec` |
 | Owner-local distribution | Setup & Control Center, Windows release installer, runtime supervisor, update/rollback pointers |
 
@@ -234,7 +239,7 @@ A true PTY/ConPTY layer, DAP/GDB adapters, serial/probe tooling and ROS 2 typed 
 - Safe default mode is workspace-scoped.
 - Local HTTP binds to `127.0.0.1` only.
 - Secure MCP Tunnel is outbound-only.
-- Local policy/hosts/leases are not writable through MCP.
+- Local policy/hosts and owner mode selection are not writable through MCP. AI-created Administrator records are request-only and cannot self-approve.
 - Setup/control APIs require an ephemeral local setup token and same-origin browser access.
 - Windows runtime API key persistence uses current-user DPAPI and is separate from `settings.json`.
 - Windows start-at-logon uses the current-user registry hive and does not elevate privileges.
@@ -245,9 +250,9 @@ A true PTY/ConPTY layer, DAP/GDB adapters, serial/probe tooling and ROS 2 typed 
 - Managed process sessions are principal-owned.
 - LSP servers are executable-allowlisted and workspace-bounded.
 - SSH uses named owner-approved hosts, BatchMode auth, strict host-key policy, forwarding disabled and per-host executable allowlists.
-- Full-control capabilities require authenticated scope + active owner lease + explicit local feature gate.
-- The AI cannot create, extend or revoke its own permission lease.
-- Root/Administrator execution is not exposed by the normal MCP process.
+- Full user-level capabilities require authenticated `workstation.full_control` plus effective Full access and the explicit local feature gate; legacy client-bound leases remain an alternate compatibility path.
+- Administrator execution is separate: the AI can only create a pending request; local Control Center approval and exact-request SHA-256 binding are mandatory, then Windows RunAs/UAC elevation follows the machine policy.
+- The normal MCP/tunnel/Control Center processes remain non-elevated.
 - Windows release packages are verified against published SHA-256 before installation.
 
 ### Important boundary: this is not an OS sandbox
@@ -304,7 +309,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.6
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.7
 codex plugin marketplace list
 ```
 

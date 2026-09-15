@@ -22,7 +22,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   });
   assert.equal(settings.mcpPort, 8683);
   assert.equal(settings.controlPort, 8684);
-  assert.deepEqual(settings.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute']);
+  assert.deepEqual(settings.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.throws(() => normalizeSetupSettings({ mcpPort: 80, workspaceRoot: workspace }), /1024/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: 'relative/path' }), /absolute/);
@@ -33,6 +33,19 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
 
   const migrated = normalizeSetupSettings({ mcpPort: 8684, workspaceRoot: workspace });
   assert.equal(migrated.controlPort, 8685);
+
+  const legacyExecuteScopes = normalizeSetupSettings({
+    mcpPort: 8683,
+    workspaceRoot: workspace,
+    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute']
+  });
+  assert.deepEqual(legacyExecuteScopes.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
+  const legacyReadOnlyScopes = normalizeSetupSettings({
+    mcpPort: 8683,
+    workspaceRoot: workspace,
+    httpScopes: ['workstation.read']
+  });
+  assert.deepEqual(legacyReadOnlyScopes.httpScopes, ['workstation.read']);
 });
 
 test('setup settings persist outside the repository and round-trip', async () => {
@@ -66,7 +79,7 @@ test('setup settings tolerate a UTF-8 BOM written by Windows PowerShell', async 
     tunnelId: '',
     organizationId: '',
     cloudflaredManaged: false,
-    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute']
+    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']
   });
   await fs.writeFile(file, `\uFEFF${payload}`, 'utf8');
   const loaded = await loadSetupSettings(options);

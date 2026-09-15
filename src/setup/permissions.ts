@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import type { PermissionLease } from '../model.js';
+import type { PermissionLease, PermissionMode } from '../model.js';
 import { loadPermissionLease } from '../permissions.js';
 import {
   DEFAULT_HTTP_SCOPES,
@@ -16,6 +16,7 @@ const ALLOWED_SCOPES = new Set([
   'workstation.read',
   'workstation.write',
   'workstation.execute',
+  'workstation.admin_request',
   'workstation.full_control'
 ]);
 const ALLOWED_TTLS = new Set([10, 30, 60]);
@@ -24,9 +25,13 @@ export interface PermissionConfigInput {
   httpScopes: string[];
   allowHostFilesystem: boolean;
   allowRawShell: boolean;
+  mode?: PermissionMode;
 }
 
+export type OwnerPermissionMode = 'read_only' | 'workspace' | 'full_control';
+
 export interface PermissionState {
+  mode: PermissionMode;
   httpScopes: string[];
   allowHostFilesystem: boolean;
   allowRawShell: boolean;
@@ -62,6 +67,7 @@ function normalizeScopes(scopes: readonly string[]): string[] {
     'workstation.read',
     'workstation.write',
     'workstation.execute',
+    'workstation.admin_request',
     'workstation.full_control'
   ].filter(scope => requested.has(scope));
 }
@@ -91,7 +97,9 @@ export async function readPermissionState(repoRoot: string): Promise<PermissionS
   const lease = await loadPermissionLease(leasePath);
   const expiresAt = lease ? Date.parse(lease.expiresAt) : 0;
   const remainingSeconds = lease ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : 0;
+  const mode = String(document.get('mode') ?? 'workspace') as PermissionMode;
   return {
+    mode,
     httpScopes: normalizeScopes(settings.httpScopes ?? [...DEFAULT_HTTP_SCOPES]),
     allowHostFilesystem,
     allowRawShell,
@@ -108,10 +116,42 @@ export async function applyPermissionConfig(repoRoot: string, input: PermissionC
   await saveSetupSettings({ ...settings, httpScopes } as SetupSettings);
 
   const { file, document } = await loadPolicyDocument(repoRoot);
+  if (input.mode) {
+    const allowedModes: PermissionMode[] = ['read_only', 'workspace', 'elevated', 'full_control'];
+    if (!allowedModes.includes(input.mode)) throw new Error(`Unsupported permission mode '${input.mode}'.`);
+    document.set('mode', input.mode);
+  }
   document.setIn(['fullControl', 'allowHostFilesystem'], Boolean(input.allowHostFilesystem));
   document.setIn(['fullControl', 'allowRawShell'], Boolean(input.allowRawShell));
   await atomicWrite(file, String(document));
   return await readPermissionState(repoRoot);
+}
+
+
+export async function applyOwnerPermissionMode(repoRoot: string, mode: OwnerPermissionMode): Promise<PermissionState> {
+  await revokePermissionLease();
+  if (mode === 'read_only') {
+    return await applyPermissionConfig(repoRoot, {
+      mode: 'read_only',
+      httpScopes: ['workstation.read'],
+      allowHostFilesystem: false,
+      allowRawShell: false
+    });
+  }
+  if (mode === 'workspace') {
+    return await applyPermissionConfig(repoRoot, {
+      mode: 'workspace',
+      httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request'],
+      allowHostFilesystem: false,
+      allowRawShell: false
+    });
+  }
+  return await applyPermissionConfig(repoRoot, {
+    mode: 'full_control',
+    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control'],
+    allowHostFilesystem: true,
+    allowRawShell: true
+  });
 }
 
 export async function grantFullControlLease(

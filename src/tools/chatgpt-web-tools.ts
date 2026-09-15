@@ -49,6 +49,7 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
         read: authenticated && allows(scopes, 'workstation.read'),
         write: authenticated && allows(scopes, 'workstation.write'),
         execute: authenticated && allows(scopes, 'workstation.execute'),
+        adminRequest: authenticated && allows(scopes, 'workstation.admin_request'),
         fullControl: authenticated && allows(scopes, 'workstation.full_control')
       }
     },

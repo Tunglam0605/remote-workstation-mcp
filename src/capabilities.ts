@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.7.6';
+export const SERVER_VERSION = '0.7.7';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -30,9 +30,9 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'build.diagnostics', status: 'available', tools: ['build_diagnostics'], note: 'Token-efficient structured GCC/Clang/MSVC/CMake diagnostics parsed from the caller-owned managed process output.' },
   { id: 'remote.ssh', status: 'available', tools: ['ssh_hosts', 'ssh_probe', 'ssh_exec'], note: 'Named owner-approved hosts, BatchMode auth, strict host keys and per-host program allowlists.' },
   { id: 'permission.elevation', status: 'available', tools: ['permission_status'], note: 'Grant/revoke is local-owner-only and never exposed as an MCP tool. Client-bound leases use the authenticated request principal when present.' },
-  { id: 'full_control.host_filesystem', status: 'available', tools: ['host_fs_list', 'host_fs_read', 'host_fs_write'], note: 'Requires both full-control scope, active client-bound full-control lease and explicit local policy gate when HTTP authentication is enabled.' },
-  { id: 'full_control.shell', status: 'available', tools: ['shell_exec'], note: 'Requires both full-control scope, active client-bound full-control lease and explicit raw-shell policy gate when HTTP authentication is enabled.' },
-  { id: 'full_control.admin', status: 'planned', tools: [], note: 'Root/admin control will use a separately isolated privileged helper; it is not exposed by the current MCP process.' },
+  { id: 'full_control.host_filesystem', status: 'available', tools: ['host_fs_list', 'host_fs_read', 'host_fs_write'], note: 'Requires full-control scope, effective Full Access and the explicit local policy gate when HTTP authentication is enabled.' },
+  { id: 'full_control.shell', status: 'available', tools: ['shell_exec'], note: 'Requires full-control scope, effective Full Access and the explicit raw-shell policy gate when HTTP authentication is enabled.' },
+  { id: 'full_control.admin', status: 'available', tools: ['admin_request', 'admin_request_status'], note: 'Administrator execution is owner-approved only. The MCP tool can create a pending request, but execution requires local Control Center approval; elevation then uses Windows RunAs/UAC under the machine policy through a separate privileged helper.' },
   { id: 'engineering.debug', status: 'planned', tools: [], note: 'DAP/GDB and probe adapters remain separate from the core process/terminal layer.' },
   { id: 'agent.orchestration', status: 'planned', tools: [], note: 'Codex/Claude/OpenHands delegation remains optional and is not on the direct GPT control path.' }
 ];

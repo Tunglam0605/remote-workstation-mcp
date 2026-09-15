@@ -28,7 +28,7 @@ When OpenAI Secure MCP Tunnel is enabled, `tunnel-client` connects outbound to O
 
 ## Audit data
 
-Managed installations can write local audit events under the user's Remote Workstation MCP data directory. Audit records may contain tool names, timing, client/profile identifiers, target paths, and operation metadata. Users should protect and rotate these logs according to their own security requirements.
+Managed installations can write local audit events under the user's Remote Workstation MCP data directory. Audit records may contain tool names, timing, client/profile identifiers, target paths, and operation metadata. Pending Administrator approval records are also stored locally under the runtime directory and may contain the requested executable, arguments, working directory, reason, requester identity, approval state and bounded execution result/output. Users should protect and rotate these logs according to their own security requirements.
 
 ## AI provider data
 
@@ -36,8 +36,8 @@ When the plugin is used from ChatGPT, Codex, Claude, Cursor, or another MCP clie
 
 ## User control
 
-Users control which workspaces, executables, SSH hosts, and elevated capabilities are authorized through local configuration. Full user-level shell/filesystem access requires explicit local policy gates plus a short-lived permission lease.
+Users control which workspaces, executables, SSH hosts, and user-level capabilities are authorized through local configuration. The daily Control Center exposes three modes: Read only, Workspace, and Full access. Full access enables host filesystem/raw shell only with the operating-system permissions of the current Windows user; it does not grant Administrator.
 
-The owner-local Control Center may explicitly enable full-control transport scope/gates and issue short client-bound permission leases. These controls remain loopback-only, are not MCP tools, and do not bypass scope + gate + lease enforcement.
+Administrator actions use a separate one-shot approval path. An AI client with `workstation.admin_request` may create a pending local request, but only the owner-local Control Center can approve it, and the local owner must approve before the separate privileged helper is launched through Windows RunAs/UAC. Legacy short client-bound full-control leases remain supported for compatibility but are no longer part of the default daily UI.
 
 Questions and security reports can be filed through the repository issue tracker. Do not include credentials, secrets, or sensitive workstation data in public issues.

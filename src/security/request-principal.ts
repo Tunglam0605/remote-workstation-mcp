@@ -4,6 +4,7 @@ export type WorkstationScope =
   | 'workstation.read'
   | 'workstation.write'
   | 'workstation.execute'
+  | 'workstation.admin_request'
   | 'workstation.full_control';
 
 export interface RequestPrincipal {
@@ -62,7 +63,9 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   host_fs_list: 'workstation.full_control',
   host_fs_read: 'workstation.full_control',
   host_fs_write: 'workstation.full_control',
-  shell_exec: 'workstation.full_control'
+  shell_exec: 'workstation.full_control',
+  admin_request: 'workstation.admin_request',
+  admin_request_status: 'workstation.admin_request'
 };
 
 export function runAsPrincipal<T>(principal: RequestPrincipal, fn: () => T): T {

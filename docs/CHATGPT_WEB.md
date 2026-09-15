@@ -115,10 +115,10 @@ ChatGPT
 The normal tunnel profile uses:
 
 ```text
-workstation.read,workstation.write,workstation.execute
+workstation.read,workstation.write,workstation.execute,workstation.admin_request
 ```
 
-`workstation.full_control` is intentionally not included by default. Host-wide shell/filesystem actions still require the full-control scope, an active client-bound owner lease, and the relevant local dangerous-feature gate.
+`workstation.full_control` is intentionally not included in the default Workspace mode. `workstation.admin_request` only permits creating/checking a pending Administrator request; local Control Center approval is mandatory before elevation, then Windows RunAs/UAC follows the machine policy. Host-wide user-level shell/filesystem access becomes available only when the local owner selects Full access (or uses a compatible legacy temporary lease).
 
 ## Completion boundary before multi-device expansion
 

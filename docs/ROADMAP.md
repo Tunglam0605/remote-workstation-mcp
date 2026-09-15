@@ -112,7 +112,7 @@ The setup browser is an owner-local bootstrap surface, not an MCP capability exp
 - stable per-user launcher for setup, runtime control, update and rollback
 - Start Menu entry for the local Setup & Control Center
 - Setup Console upgraded to runtime Control Center with start/stop/restart and health/readiness status
-- optional current-user start-at-logon through a limited Scheduled Task
+- optional current-user start-at-logon (initially implemented with a limited Scheduled Task; superseded by v0.7.5 user-level registry startup)
 - runtime supervisor validates recorded process identity before terminating its descendant tree
 - official pinned OpenAI `tunnel-client` remains checksum-verified and follows the active version slot
 - GitHub Release publishes a standalone `install-windows.ps1` alongside the package and checksums
@@ -129,6 +129,16 @@ Windows distribution operations remain owner-local. They are not MCP tools and c
 - full-control remains excluded from the default tunnel scope and is not required for acceptance
 
 The v0.7.4 milestone is considered complete at runtime only after ChatGPT Web itself calls `chatgpt_web_status` and reports `directControlPathVerified: true`, followed by controlled read/write/execute checks in an owner-authorized workspace.
+
+## v0.7.5 — Windows setup reliability hotfix ✅
+
+- replace Scheduled Task registration with current-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` startup so standard-user installations do not fail with `Access is denied`
+- preserve compatibility detection and best-effort cleanup for legacy Scheduled Task registrations
+- wait for OpenAI tunnel `/readyz` before the managed `StartOpenAI` action reports success
+- fail clearly when a local-only managed runtime is already active instead of silently treating it as an OpenAI tunnel runtime
+- add Windows CI coverage for register/unregister start-at-logon without Administrator privileges
+
+This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC for ChatGPT` should finish with MCP healthy, tunnel ready, bearer auth active and start-at-logon enabled without requiring Administrator rights.
 
 ## v0.8 — Engineering debug and hardware adapters
 
@@ -163,7 +173,7 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.10 — Optional plugin-first multi-device / agent delegation
 
-Only begin this phase after v0.7.4 ChatGPT Web acceptance is complete.
+Only begin this phase after ChatGPT Web acceptance is complete.
 
 - one ChatGPT app/plugin installation with paired workstation identities
 - short-lived one-time device pairing

@@ -1,12 +1,12 @@
 # Local Setup & Control Center
 
-Remote Workstation MCP v0.7.3 turns the v0.7.2 onboarding page into an owner-operated **Setup & Control Center** for Windows while keeping it outside the MCP tool surface.
+Remote Workstation MCP v0.7.5 provides an owner-operated **Setup & Control Center** for Windows while keeping it outside the MCP tool surface.
 
 The Control Center is **not** exposed through the OpenAI tunnel. It binds only to `127.0.0.1`, uses an ephemeral setup token, rejects non-loopback clients, applies a same-origin check, sends `Cache-Control: no-store`, and never offers controls for full-control policy gates or permission leases.
 
 ## Recommended Windows installation
 
-Production/new-machine installation no longer requires a Git checkout. Download the release installer, inspect it, then run it:
+Production/new-machine installation does not require a Git checkout. Download the release installer, inspect it, then run it:
 
 ```powershell
 $installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
@@ -58,8 +58,8 @@ Managed Windows installs use:
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
-    ├── v0.7.2\
-    └── v0.7.3\
+    ├── v0.7.4\
+    └── v0.7.5\
 ```
 
 Policy/hosts/settings/secrets are therefore not replaced when the application version changes.
@@ -88,7 +88,7 @@ The UI never reads the decrypted key back into the browser after saving it.
 
 ## Runtime controls
 
-v0.7.3 adds owner-local controls for:
+The Control Center provides owner-local controls for:
 
 - start ChatGPT/OpenAI tunnel mode;
 - start local MCP-only mode;
@@ -99,7 +99,9 @@ v0.7.3 adds owner-local controls for:
 
 The background supervisor state/logs are stored outside the version slot under the per-user runtime directory. The supervisor validates its recorded process before stopping a process tree so a stale PID file is not treated as sufficient authority.
 
-Start-at-logon uses a current-user Scheduled Task with `RunLevel Limited`; it does not grant Administrator rights. Managed installs point that task at the stable launcher, so a later version-slot switch does not leave startup pinned to an old release.
+Starting with v0.7.5, start-at-logon uses the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry entry rather than requiring `Register-ScheduledTask`. This avoids `Access is denied` on standard-user Windows installations while preserving a non-elevated, current-user startup boundary. Managed installs point that entry at the stable launcher, so a later version-slot switch does not leave startup pinned to an old release.
+
+Older Scheduled Task registrations are still recognized for status compatibility and are removed on a best-effort basis during registration/unregistration.
 
 ## Stable launcher
 

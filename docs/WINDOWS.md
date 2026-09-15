@@ -1,6 +1,6 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.3 supports two Windows workflows:
+Remote Workstation MCP v0.7.5 supports two Windows workflows:
 
 1. **managed release installation** for normal/new-machine use;
 2. **repository development** for contributors.
@@ -46,7 +46,7 @@ Application versions are isolated under `versions\vX.Y.Z\`; owner configuration 
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.3
+git checkout v0.7.5
 npm run setup:first-run:windows
 ```
 
@@ -107,9 +107,9 @@ This switches the stable pointer back to the previous slot; it does not rewrite 
 
 ## Start at logon
 
-The Control Center can register a Scheduled Task for the current Windows user. The task uses `RunLevel Limited`, runs only after user logon and targets the stable launcher on managed installations.
+The Control Center registers a current-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry that invokes the stable launcher after user logon. This path requires no Administrator rights and avoids Windows environments that reject `Register-ScheduledTask` for standard users.
 
-This feature does not grant Administrator privileges.
+The runtime still runs with the same permissions as the logged-in Windows account. Start-at-logon does not grant Administrator privileges. Upgrades from older releases also recognize and best-effort remove the previous Scheduled Task registration to avoid duplicate starts.
 
 ## Configuration storage
 
@@ -164,7 +164,7 @@ Expected fields include:
 
 ```text
 ok        : True
-version   : 0.7.3
+version   : 0.7.5
 mode      : workspace
 transport : http-loopback
 ```
@@ -195,6 +195,7 @@ See [ChatGPT Web](CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](OPENAI_SECURE_T
 - API calls require an ephemeral setup token and same-origin browser access.
 - Managed stop validates the stored supervisor process before terminating its descendant tree.
 - Background state stores PIDs and operational metadata, not the OpenAI runtime API key.
+- Start-at-logon uses the current-user registry hive and does not elevate privileges.
 - Raw shell and host filesystem capabilities remain disabled by default.
 - Root/Administrator execution is not exposed by the normal MCP runtime.
 - Windows `.cmd`/`.bat` wrappers are not treated as equivalent to native executable execution in the normal process allowlist.

@@ -24,6 +24,8 @@ $StatePath = Join-Path $StateDir 'supervisor.json'
 $StdoutLog = Join-Path $StateDir 'supervisor.stdout.log'
 $StderrLog = Join-Path $StateDir 'supervisor.stderr.log'
 $TaskName = 'Remote Workstation MCP'
+$StartupRunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$StartupRunName = 'RemoteWorkstationMCP'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 
 function Read-State {
@@ -81,7 +83,7 @@ function Stop-ProcessTree([int]$rootProcessId) {
   }
 }
 
-function Test-StartupTaskRegistered {
+function Test-ScheduledTaskRegistered {
   $schtasks = Get-Command schtasks.exe -ErrorAction SilentlyContinue
   if (-not $schtasks) { return $false }
 
@@ -105,6 +107,35 @@ function Test-StartupTaskRegistered {
     return $false
   } finally {
     $probe.Dispose()
+  }
+}
+
+function Test-StartupRunRegistered {
+  try {
+    $entry = Get-ItemProperty -Path $StartupRunKey -Name $StartupRunName -ErrorAction Stop
+    $value = [string]$entry.$StartupRunName
+    return -not [string]::IsNullOrWhiteSpace($value)
+  } catch {
+    return $false
+  }
+}
+
+function Get-StartupRegistrationMethod {
+  if (Test-StartupRunRegistered) { return 'registry-run' }
+  if (Test-ScheduledTaskRegistered) { return 'scheduled-task' }
+  return $null
+}
+
+function Test-TunnelReady {
+  $healthUrlPath = Join-Path $Root 'runtime\openai-tunnel\health-url'
+  if (-not (Test-Path $healthUrlPath)) { return $false }
+  try {
+    $base = (Get-Content -Path $healthUrlPath -Raw).Trim()
+    if (-not $base) { return $false }
+    $ready = Invoke-WebRequest -Uri "$base/readyz" -UseBasicParsing -TimeoutSec 2
+    return $ready.StatusCode -eq 200
+  } catch {
+    return $false
   }
 }
 
@@ -160,19 +191,8 @@ function Runtime-Status {
     $httpAuth = $health.httpAuth
   } catch {}
 
-  $tunnelReady = $false
-  $healthUrlPath = Join-Path $Root 'runtime\openai-tunnel\health-url'
-  if (Test-Path $healthUrlPath) {
-    try {
-      $base = (Get-Content -Path $healthUrlPath -Raw).Trim()
-      if ($base) {
-        $ready = Invoke-WebRequest -Uri "$base/readyz" -UseBasicParsing -TimeoutSec 2
-        $tunnelReady = $ready.StatusCode -eq 200
-      }
-    } catch {}
-  }
-
-  $startupRegistered = Test-StartupTaskRegistered
+  $tunnelReady = Test-TunnelReady
+  $startupMethod = Get-StartupRegistrationMethod
 
   return [pscustomobject]@{
     running = $null -ne $managed
@@ -184,7 +204,8 @@ function Runtime-Status {
     mcpVersion = $mcpVersion
     httpAuth = $httpAuth
     tunnelReady = $tunnelReady
-    startupRegistered = $startupRegistered
+    startupRegistered = $null -ne $startupMethod
+    startupMethod = $startupMethod
     stdoutLog = $StdoutLog
     stderrLog = $StderrLog
   }
@@ -192,7 +213,12 @@ function Runtime-Status {
 
 function Start-Runtime([string]$runtimeMode) {
   $existing = Runtime-Status
-  if ($existing.running) { return $existing }
+  if ($existing.running) {
+    if ($runtimeMode -eq 'OpenAI' -and $existing.mode -ne 'OpenAI') {
+      throw 'A local-only runtime is already running. Stop or restart it in OpenAI mode before starting the ChatGPT tunnel.'
+    }
+    return $existing
+  }
 
   Apply-RuntimeEnvironment $runtimeMode
   $hostScript = Join-Path $Root 'scripts\runtime-host-windows.ps1'
@@ -245,6 +271,22 @@ function Start-Runtime([string]$runtimeMode) {
     $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 40 | Out-String).Trim() } else { '' }
     throw "Runtime did not become healthy.$([Environment]::NewLine)$tail"
   }
+
+  if ($runtimeMode -eq 'OpenAI') {
+    $tunnelReady = $false
+    foreach ($attempt in 1..300) {
+      if ($process.HasExited) { break }
+      if (Test-TunnelReady) { $tunnelReady = $true; break }
+      Start-Sleep -Milliseconds 250
+    }
+    if (-not $tunnelReady) {
+      Stop-ProcessTree $process.Id
+      Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
+      $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 60 | Out-String).Trim() } else { '' }
+      throw "OpenAI tunnel did not become ready before the deadline.$([Environment]::NewLine)$tail"
+    }
+  }
+
   return Runtime-Status
 }
 
@@ -257,25 +299,41 @@ function Stop-Runtime {
   return Runtime-Status
 }
 
-function Register-Startup([string]$runtimeMode) {
+function Get-StartupCommand([string]$runtimeMode) {
   $stableLauncher = Join-Path $UserConfigDir 'bin\rwmcp.ps1'
   if (Test-Path $stableLauncher) {
     $stableAction = if ($runtimeMode -eq 'OpenAI') { 'StartOpenAI' } else { 'Start' }
-    $argument = "-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$stableLauncher`" -Action $stableAction"
-  } else {
-    $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
-    $argument = "-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Action Start -Mode $runtimeMode -Root `"$Root`""
+    return "powershell.exe -NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$stableLauncher`" -Action $stableAction"
   }
-  $actionObject = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argument
-  $trigger = New-ScheduledTaskTrigger -AtLogOn
-  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Days 3650) -MultipleInstances IgnoreNew
-  $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-  Register-ScheduledTask -TaskName $TaskName -Action $actionObject -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+
+  $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
+  return "powershell.exe -NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`" -Action Start -Mode $runtimeMode -Root `"$Root`""
+}
+
+function Register-Startup([string]$runtimeMode) {
+  # Use the current user's Run key instead of Task Scheduler. Some standard-user
+  # Windows environments deny Register-ScheduledTask even for a Limited,
+  # Interactive principal. HKCU Run is explicitly per-user, requires no
+  # Administrator rights, and preserves the intended start-at-logon behavior.
+  $command = Get-StartupCommand $runtimeMode
+  New-Item -Path $StartupRunKey -Force | Out-Null
+  New-ItemProperty -Path $StartupRunKey -Name $StartupRunName -Value $command -PropertyType String -Force | Out-Null
+
+  # Best-effort cleanup of a pre-v0.7.5 scheduled task to avoid duplicate launch
+  # attempts after upgrade. Failure is harmless because Start-Runtime is
+  # idempotent for an already-managed process.
+  try {
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+  } catch {}
+
   return Runtime-Status
 }
 
 function Unregister-Startup {
-  Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+  Remove-ItemProperty -Path $StartupRunKey -Name $StartupRunName -ErrorAction SilentlyContinue
+  try {
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+  } catch {}
   return Runtime-Status
 }
 

@@ -181,11 +181,26 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Runtime supervisor start failed.' }
             $start = ($startRaw | Select-Object -Last 1) | ConvertFrom-Json
             if (-not $start.running -or -not $start.mcpHealthy) { throw "Runtime supervisor did not become healthy: $startRaw" }
-            if ($start.mcpVersion -ne '0.7.4') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
+            if ($start.mcpVersion -ne '0.7.5') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
             $statusRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Status -Root $PWD -Json
             $status = ($statusRaw | Select-Object -Last 1) | ConvertFrom-Json
             if (-not $status.running -or -not $status.mcpHealthy) { throw 'Runtime supervisor status check failed.' }
+
+            $registerRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action RegisterStartup -Mode Local -Root $PWD -Json
+            if ($LASTEXITCODE -ne 0) { throw "User-level startup registration failed: $registerRaw" }
+            $registered = ($registerRaw | Select-Object -Last 1) | ConvertFrom-Json
+            if (-not $registered.startupRegistered) { throw 'Startup registration was not reported as enabled.' }
+            if ($registered.startupMethod -ne 'registry-run') { throw "Unexpected startup method: $($registered.startupMethod)" }
+            $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+            $runValue = (Get-ItemProperty -Path $runKey -Name 'RemoteWorkstationMCP' -ErrorAction Stop).RemoteWorkstationMCP
+            if ([string]::IsNullOrWhiteSpace([string]$runValue)) { throw 'HKCU Run startup value is empty.' }
+
+            $unregisterRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action UnregisterStartup -Root $PWD -Json
+            if ($LASTEXITCODE -ne 0) { throw "User-level startup unregister failed: $unregisterRaw" }
+            $unregistered = ($unregisterRaw | Select-Object -Last 1) | ConvertFrom-Json
+            if ($unregistered.startupRegistered) { throw 'Startup registration remained enabled after unregister.' }
           } finally {
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action UnregisterStartup -Root $PWD -Json | Out-Null
             & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Stop -Root $PWD -Json | Out-Null
           }
       - name: Smoke-test loopback HTTP runtime

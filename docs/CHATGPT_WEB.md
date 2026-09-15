@@ -1,151 +1,236 @@
-# ChatGPT Web custom app / MCP connection
+# ChatGPT Web custom MCP app setup
 
-Remote Workstation MCP is designed so ChatGPT Web can be a **first-class controller**. Codex, Claude, OpenHands, or another coding agent is optional; none is required as a middle hop.
+Remote Workstation MCP is designed so ChatGPT Web can connect directly to a private workstation through OpenAI Secure MCP Tunnel. No inbound workstation port needs to be exposed to the public Internet.
 
-The workstation side uses OpenAI Secure MCP Tunnel so the MCP server remains on loopback and no inbound Internet-facing port is required.
+OpenAI currently calls this integration a **custom MCP app**. Older product UI or older documentation may use the terms connector or plugin.
 
-## Product/workspace availability
+## Availability
 
-As of September 2026, OpenAI documents full custom MCP support including write/modify on ChatGPT Web for Business, Enterprise and Edu workspaces. Pro can use more limited developer-mode MCP capabilities, while Plus should not be assumed to support the full write-capable custom-app flow.
+OpenAI product availability is separate from RWMCP itself. As of September 2026, OpenAI documents full custom MCP support, including write/modify actions, on ChatGPT Web for Business, Enterprise and Edu workspaces. Pro has more limited developer-mode MCP support. Product UI, workspace policy and entitlements can change independently of this repository.
 
-A tunnel can be installed and validated even when the current ChatGPT account/workspace does not expose the required custom-app UI. Product entitlement is separate from workstation/tunnel health.
+Current OpenAI references:
 
-Useful references:
-
-- Developer Mode / MCP app documentation: `https://help.openai.com/en/articles/12584461`
+- Developer Mode and MCP apps: `https://help.openai.com/en/articles/12584461`
 - ChatGPT app settings: `https://chatgpt.com/#settings/Connectors`
-- OpenAI Secure MCP Tunnel: `https://github.com/openai/tunnel-client`
+- OpenAI Secure MCP Tunnel client: `https://github.com/openai/tunnel-client`
 
-## Managed Windows workstation setup
+## What you need
 
-Recommended new-machine flow:
+Before creating the ChatGPT app, the workstation side should already have:
 
-```powershell
-$installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
-Invoke-WebRequest `
-  'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
-  -OutFile $installer
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
-```
+- RWMCP v0.7.10 installed;
+- one OpenAI Secure MCP Tunnel ID;
+- one restricted Runtime API key with Tunnels Read + Use;
+- `tunnel-client` installed by the RWMCP managed installer;
+- the local Control Center showing the tunnel as READY.
 
-The installer opens the local Setup & Control Center. Configure the authorized workspace, OpenAI Tunnel ID, organization ID when applicable, and a restricted runtime API key. For unattended starts, store the runtime key with Windows DPAPI and enable start-at-logon.
+## Step 1 - Create or select the tunnel
 
-The installer already installs the pinned, checksum-verified official `tunnel-client`.
+Open OpenAI Platform Tunnels:
 
-Start from the Control Center or stable launcher:
+`https://platform.openai.com/settings/organization/tunnels`
 
-```powershell
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action StartOpenAI
-```
+Create a tunnel for the workstation or select an existing tunnel that is intentionally assigned to it.
 
-Repository-development equivalent:
-
-```powershell
-npm run start:openai:windows
-```
-
-Successful workstation-side readiness means:
+Copy the tunnel ID. It has the form:
 
 ```text
-Remote Workstation MCP /healthz -> HTTP 200
-httpAuth                        -> bearer
-tunnel-client /healthz          -> PASS
-tunnel-client /readyz           -> PASS
+tunnel_<32-hex-characters>
 ```
 
-## ChatGPT Web app creation
+Recommended practice is one production workstation per tunnel so revocation and audit remain clear.
 
-When the current ChatGPT workspace exposes custom MCP/app creation:
+Permission split:
 
-1. enable Developer Mode according to workspace policy;
-2. open ChatGPT Apps / custom app settings;
-3. create a custom app named **Remote Workstation**;
-4. choose **Connection: Tunnel**;
-5. select the authorized tunnel or paste its `tunnel_...` ID;
-6. complete discovery while the workstation tunnel remains ready;
-7. review the discovered tool set before wider workspace publication.
+- runtime users: **Tunnels Read + Use**;
+- tunnel managers: **Tunnels Read + Manage**;
+- a manager who also runs the tunnel needs Use as well.
 
-The tunnel must be associated with the target workspace when the OpenAI product requires workspace scoping.
+When a tunnel is scoped to a ChatGPT workspace, ensure the intended workspace is included so the tunnel can appear in the app/tunnel picker.
 
-## First end-to-end verification
+## Step 2 - Create the Runtime API key
 
-v0.7.4 adds `chatgpt_web_status` specifically for the first call from ChatGPT Web.
+Open OpenAI Platform Runtime API keys:
 
-Recommended first prompt:
+`https://platform.openai.com/settings/organization/api-keys`
+
+Create a **Restricted** key and enable only the permissions required for the runtime:
+
+```text
+Tunnels: Read
+Tunnels: Use
+```
+
+Copy the key when it is shown. RWMCP refers to this value as the Runtime API key / `CONTROL_PLANE_API_KEY`.
+
+Do not substitute an OpenAI Admin API key for the long-lived runtime daemon. Admin keys are intended for tunnel administration such as create/list/update/delete and should not be placed into the normal RWMCP runtime configuration.
+
+## Step 3 - Configure RWMCP
+
+Open the local Control Center:
+
+`http://127.0.0.1:8684`
+
+Enter:
+
+- authorized workspace root;
+- Tunnel ID;
+- Organization ID when applicable;
+- restricted Runtime API key;
+- keep Windows DPAPI persistence enabled for normal managed Windows use.
+
+Choose **Prepare this PC for ChatGPT**.
+
+The managed wizard:
+
+1. saves non-secret setup values;
+2. stores the runtime key with current-user Windows DPAPI;
+3. verifies the pinned `tunnel-client`;
+4. starts RWMCP with bearer authentication;
+5. starts the Secure MCP Tunnel;
+6. waits for MCP health and tunnel `/readyz`;
+7. enables current-user start-at-logon.
+
+A ready workstation should show:
+
+```text
+MCP        HEALTHY
+Tunnel     READY
+Auth       bearer
+Start logon ON
+```
+
+## Step 4 - Enable Developer Mode in ChatGPT when required
+
+The exact path depends on the ChatGPT workspace and plan. Current OpenAI documentation places Developer Mode under Apps settings.
+
+Typical paths include:
+
+```text
+User Settings -> Apps -> Advanced settings -> Developer mode
+```
+
+or, for workspace administrators/owners:
+
+```text
+Workspace settings -> Apps -> Create
+```
+
+Enterprise/Edu workspaces may additionally use RBAC to control who can use Developer Mode or access a published custom app.
+
+## Step 5 - Create the Remote Workstation app
+
+While the workstation tunnel is READY:
+
+1. Open ChatGPT Web.
+2. Open **Settings -> Apps**.
+3. Choose **Create** / **Add custom app**.
+4. Set the name to **Remote Workstation**.
+5. Choose **Tunnel** as the connection method.
+6. Select the provisioned tunnel or paste the exact `tunnel_...` ID.
+7. Run discovery while the workstation remains online.
+8. Review the discovered RWMCP tools.
+9. Save/test the app before publishing it to other workspace members.
+
+If the tunnel is not visible, first confirm workspace scoping and the user/role's Tunnels Read + Use permission. A connector/app can look configured in ChatGPT while the workstation runtime is still unavailable, so always verify tunnel READY before troubleshooting ChatGPT discovery.
+
+## Step 6 - First safe verification
+
+Start with a read-only verification prompt:
 
 > Use Remote Workstation. Call `chatgpt_web_status` first. Do not modify anything. Report whether the authenticated control path is verified, the effective scopes, policy mode and authorized workspace names.
 
-A successful tunnel-backed result should include:
+A successful result should include:
 
 ```text
 ok: true
 chatgptWeb.authenticated: true
 chatgptWeb.secureTunnelPrincipal: true
 chatgptWeb.directControlPathVerified: true
-chatgptWeb.permissions.read: true
 ```
 
-The normal secure-tunnel supervisor grants `workstation.read`, `workstation.write` and `workstation.execute` unless the owner narrows `RWMCP_HTTP_SCOPES`. `workstation.full_control` is not granted by default.
-
-After `chatgpt_web_status` passes, verify in this order:
+Then verify:
 
 1. `workspace_list`;
-2. `git_status` or `fs_read` in an authorized workspace;
-3. a disposable `fs_write` and read-back;
-4. one harmless allowlisted task/process;
-5. inspect the audit log and confirm the authenticated OpenAI tunnel principal is recorded.
+2. `git_status` or `fs_read` inside an authorized workspace;
+3. only after that, a disposable write/read-back test;
+4. one harmless approved process/task if execution is required;
+5. the local audit log records the authenticated tunnel principal.
 
-Do not enable raw shell or host filesystem merely to complete acceptance.
+Do not enable Full access merely to make initial discovery work.
 
-## Authorization model
+## Access and Administrator behavior
 
-ChatGPT reaching the tunnel does **not** grant unrestricted workstation access. Requests still pass through:
-
-```text
-ChatGPT
-  -> OpenAI Secure MCP Tunnel
-  -> ephemeral local MCP bearer
-  -> authenticated principal + workstation scopes
-  -> local policy
-  -> optional owner-issued permission lease
-  -> audit
-  -> typed adapter
-```
-
-The normal tunnel profile uses:
+ChatGPT app connectivity and workstation authorization are separate layers.
 
 ```text
-workstation.read,workstation.write,workstation.execute,workstation.admin_request
+ChatGPT custom MCP app
+        -> OpenAI Secure MCP Tunnel
+        -> ephemeral local MCP bearer
+        -> authenticated workstation scopes
+        -> local RWMCP access mode/policy
+        -> audit
+        -> workstation adapter
 ```
 
-`workstation.full_control` is intentionally not included in the default Workspace mode. `workstation.admin_request` only permits creating/checking a pending Administrator request; local Control Center approval is mandatory before elevation, then Windows RunAs/UAC follows the machine policy. Host-wide user-level shell/filesystem access becomes available only when the local owner selects Full access (or uses a compatible legacy temporary lease).
+RWMCP owner modes are:
 
-## Completion boundary before multi-device expansion
+- Read only;
+- Workspace;
+- Full access.
 
-The direct ChatGPT Web milestone is complete only when:
+Full access only enables host filesystem/raw shell as the current Windows user. It does not grant Administrator.
 
-- the local Control Center is green;
-- tunnel `/readyz` is green;
-- the custom app is visible in ChatGPT Web;
-- ChatGPT itself calls `chatgpt_web_status` and receives `directControlPathVerified: true`;
-- controlled read/write/execute tests pass inside an authorized workspace;
-- audit shows the authenticated remote principal;
-- no inbound workstation port is exposed;
-- full-control remains off unless explicitly granted by the owner.
-
-See [ChatGPT Web control — end-to-end acceptance](CHATGPT_WEB_CONTROL.md) for the acceptance checklist used before plugin-first multi-device work begins.
-
-## Plugin package vs ChatGPT custom app
-
-The repository includes portable Agent Plugin/Codex-compatible metadata under `plugins/remote-workstation/`. That package is useful for local/plugin-compatible clients and distribution metadata.
-
-ChatGPT Web is not connected by exposing the local `plugin.json` or workstation port to the Internet. The private-workstation route is:
+Administrator remains a one-shot path:
 
 ```text
-ChatGPT custom app
-        -> Secure MCP Tunnel
-        -> authenticated loopback MCP
-        -> local workstation policy
+AI admin_request
+    -> pending local request
+    -> owner reviews exact executable / args / reason
+    -> owner selects Allow once
+    -> Windows RunAs / UAC
+    -> one privileged execution
 ```
 
-Portable plugin packaging and remote ChatGPT reachability are deliberately separate layers.
+## Common failures
+
+### App cannot discover the workstation
+
+Check in this order:
+
+1. Control Center says MCP HEALTHY.
+2. Tunnel says READY.
+3. HTTP auth says bearer.
+4. Tunnel ID in ChatGPT and RWMCP is identical.
+5. Runtime key principal has Tunnels Read + Use.
+6. Tunnel is scoped to the intended organization/workspace.
+7. The ChatGPT account/workspace currently supports the custom MCP app flow.
+
+### Tunnel exists but does not appear in ChatGPT
+
+Verify the tunnel's workspace association and the current user's tunnel permissions. Newly created tunnel metadata may also take a short time to propagate.
+
+### ChatGPT can read but cannot write
+
+First check the selected RWMCP mode. Read only deliberately blocks writes. Workspace mode permits approved operations only inside configured workspaces. Product/workspace MCP entitlements can also limit available action classes.
+
+### Full access still cannot run Administrator command
+
+Expected. Full access is user-level host control, not elevation. Use the local Administrator approval flow.
+
+## Security notes
+
+- Never paste the runtime API key into README, issues, screenshots, prompts or Git commits.
+- Prefer a Restricted Runtime API key with Tunnels Read + Use.
+- Do not use an Admin API key for the persistent tunnel daemon.
+- Keep the Control Center loopback-only.
+- Keep the MCP listener loopback-only.
+- Treat each workstation/tunnel as its own revocable security boundary.
+- Review discovered tools before publishing a custom app to a workspace.
+
+See also:
+
+- [Windows quick start](QUICKSTART_WINDOWS.md)
+- [OpenAI Secure MCP Tunnel](OPENAI_SECURE_TUNNEL.md)
+- [ChatGPT Web end-to-end acceptance](CHATGPT_WEB_CONTROL.md)
+- [Security](SECURITY.md)

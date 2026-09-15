@@ -1,0 +1,148 @@
+param(
+  [ValidateSet('Setup','Start','StartOpenAI','Boot','Stop','Restart','Status','AutostartOn','AutostartOff','Update','UpdateCheck','AutoUpdateOn','AutoUpdateOff','Rollback')]
+  [string]$Action = 'Setup'
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$Base = Split-Path -Parent $PSScriptRoot
+$CurrentFile = Join-Path $Base 'current.txt'
+$PreviousFile = Join-Path $Base 'previous.txt'
+$Installer = Join-Path $Base 'bin\install-windows-release.ps1'
+$Updater = Join-Path $Base 'bin\update-windows.ps1'
+$env:RWMCP_POLICY = Join-Path $Base 'config\policy.yaml'
+$env:RWMCP_HOSTS = Join-Path $Base 'config\hosts.yaml'
+
+function Get-CurrentRoot {
+  if (-not (Test-Path $CurrentFile)) { throw 'Remote Workstation MCP current runtime pointer is missing.' }
+  $root = (Get-Content -Path $CurrentFile -Raw).Trim()
+  if (-not (Test-Path $root)) { throw "Installed runtime does not exist: $root" }
+  return $root
+}
+
+function Get-RootVersion([string]$Root) {
+  try {
+    $manifest = Get-Content -Path (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
+    return [string]$manifest.version
+  } catch { return '' }
+}
+
+function Cleanup-VersionSlots {
+  try {
+    $versionsDir = Join-Path $Base 'versions'
+    if (-not (Test-Path $versionsDir)) { return }
+    $protected = @()
+    foreach ($pointer in @($CurrentFile, $PreviousFile)) {
+      if (-not (Test-Path $pointer)) { continue }
+      $value = (Get-Content -Path $pointer -Raw).Trim()
+      if ($value -and (Test-Path $value)) { $protected += [IO.Path]::GetFullPath($value) }
+    }
+    $extraKept = 0
+    $dirs = @(Get-ChildItem -LiteralPath $versionsDir -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+    foreach ($dir in $dirs) {
+      $full = [IO.Path]::GetFullPath($dir.FullName)
+      $isProtected = $false
+      foreach ($keep in $protected) {
+        if ([string]::Equals($full, $keep, [StringComparison]::OrdinalIgnoreCase)) { $isProtected = $true; break }
+      }
+      if ($isProtected) { continue }
+      # Keep one additional older slot besides current + previous for emergency
+      # inspection while bounding long-term disk growth from automatic updates.
+      if ($extraKept -lt 1) { $extraKept += 1; continue }
+      Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+    }
+  } catch {
+    Write-Warning "Old version-slot cleanup was skipped: $($_.Exception.Message)"
+  }
+}
+
+function Invoke-Runtime([string]$RuntimeAction, [string]$Mode = 'OpenAI', [string]$Root = '') {
+  if (-not $Root) { $Root = Get-CurrentRoot }
+  $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
+  if ($RuntimeAction -in @('Start','Restart','RegisterStartup')) {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script -Action $RuntimeAction -Mode $Mode -Root $Root
+  } else {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script -Action $RuntimeAction -Root $Root
+  }
+  if ($LASTEXITCODE -ne 0) { throw "Runtime action $RuntimeAction failed with exit code $LASTEXITCODE." }
+}
+
+function Invoke-Updater([string]$UpdateAction, [switch]$Quiet) {
+  if (-not (Test-Path $Updater)) { return }
+  $args = @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$Updater,'-Action',$UpdateAction)
+  if ($Quiet) { $args += '-Quiet' }
+  & powershell.exe @args
+  if ($LASTEXITCODE -ne 0) { throw "Updater action $UpdateAction failed with exit code $LASTEXITCODE." }
+}
+
+function Invoke-SafeBoot {
+  $before = Get-CurrentRoot
+  try {
+    Invoke-Updater 'InstallAuto' -Quiet
+  } catch {
+    Write-Warning "Automatic update check failed; starting the installed version: $($_.Exception.Message)"
+  }
+  $candidate = Get-CurrentRoot
+  try {
+    Invoke-Runtime 'Start' 'OpenAI' $candidate
+    Cleanup-VersionSlots
+  } catch {
+    if (-not [string]::Equals($candidate, $before, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path $PreviousFile)) {
+      $failedVersion = Get-RootVersion $candidate
+      if ($failedVersion -and (Test-Path $Updater)) {
+        try { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Updater -Action MarkFailed -Version $failedVersion -Quiet | Out-Null } catch {}
+      }
+      Write-Warning "Updated runtime failed health/readiness checks. Rolling back to the previous slot."
+      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
+      if ($LASTEXITCODE -ne 0) { throw 'Automatic rollback failed.' }
+      Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+      return
+    }
+    throw
+  }
+}
+
+$Root = Get-CurrentRoot
+switch ($Action) {
+  'Setup' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\setup-web-windows.ps1') }
+  'Start' { Invoke-Runtime 'Start' 'Local' $Root }
+  'StartOpenAI' { Invoke-Runtime 'Start' 'OpenAI' $Root }
+  'Boot' { Invoke-SafeBoot }
+  'Stop' { Invoke-Runtime 'Stop' 'OpenAI' $Root }
+  'Restart' {
+    $safeRestart = Join-Path $Root 'scripts\safe-restart-windows.ps1'
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $safeRestart -Root $Root -Mode OpenAI
+    if ($LASTEXITCODE -ne 0) { throw "Safe runtime restart failed with exit code $LASTEXITCODE." }
+  }
+  'Status' { Invoke-Runtime 'Status' 'OpenAI' $Root }
+  'AutostartOn' { Invoke-Runtime 'RegisterStartup' 'OpenAI' $Root }
+  'AutostartOff' { Invoke-Runtime 'UnregisterStartup' 'OpenAI' $Root }
+  'UpdateCheck' { Invoke-Updater 'Check' }
+  'AutoUpdateOn' { Invoke-Updater 'Enable' }
+  'AutoUpdateOff' { Invoke-Updater 'Disable' }
+  'Update' {
+    $before = Get-CurrentRoot
+    try { Invoke-Runtime 'Stop' 'OpenAI' $before } catch {}
+    Invoke-Updater 'Install'
+    $candidate = Get-CurrentRoot
+    try {
+      Invoke-Runtime 'Start' 'OpenAI' $candidate
+      Cleanup-VersionSlots
+    } catch {
+      $failedVersion = Get-RootVersion $candidate
+      if ($failedVersion -and (Test-Path $Updater)) {
+        try { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Updater -Action MarkFailed -Version $failedVersion -Quiet | Out-Null } catch {}
+      }
+      if (Test-Path $PreviousFile) {
+        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
+        if ($LASTEXITCODE -eq 0) { Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot) }
+      }
+      throw
+    }
+  }
+  'Rollback' {
+    try { Invoke-Runtime 'Stop' 'OpenAI' $Root } catch {}
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
+    if ($LASTEXITCODE -ne 0) { throw 'Rollback failed.' }
+    Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+  }
+}

@@ -82,3 +82,15 @@ test('Windows restart is handed off outside the managed runtime tree and OpenAI 
   assert.match(runtime, /'RECONNECTING'/);
   assert.match(runtime, /'ONLINE'/);
 });
+test('Windows managed upgrades self-heal the stable launcher from the current runtime slot', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const launcher = await read('scripts/rwmcp-launcher-windows.ps1');
+
+  assert.match(installer, /rwmcp-launcher-windows\.ps1/);
+  assert.match(runtime, /Sync-StableLauncherFromRuntimeSlot/);
+  assert.match(runtime, /Get-FileHash/);
+  assert.match(runtime, /current\.txt/);
+  assert.match(launcher, /safe-restart-windows\.ps1/);
+  assert.match(launcher, /Invoke-Updater 'Install'/);
+});

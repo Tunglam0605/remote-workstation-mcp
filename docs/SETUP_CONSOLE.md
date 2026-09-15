@@ -1,178 +1,184 @@
-# Local Setup & Control Center
+# Setup & Control Center
 
-Remote Workstation MCP provides an owner-operated **Setup & Control Center** for Windows while keeping privileged control APIs outside the MCP tool surface.
+Remote Workstation MCP v0.7.10 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
 
-The managed layout uses two loopback ports by default: MCP on `127.0.0.1:8683` and the Control Center on `127.0.0.1:8684`. Browser navigation to `http://127.0.0.1:8683/` or `/setup` redirects locally to the dedicated Control Center. The OpenAI tunnel continues to target only the MCP `/mcp` endpoint.
+## Endpoints
 
-The Control Center rejects non-loopback clients and cross-origin API calls. Each Control Center process generates an ephemeral in-memory CSRF token and embeds it only in the locally served page; the token is not persisted and is not placed in the URL.
+Default managed Windows ports:
 
-## Recommended Windows installation
+- MCP: `127.0.0.1:8683`
+- Control Center: `127.0.0.1:8684`
 
-Production/new-machine installation does not require a Git checkout. Download `install-windows.cmd` from the latest GitHub Release and double-click it. The bootstrap verifies the downloaded PowerShell installer before execution.
+Browser navigation to the MCP root can redirect locally to the Control Center, while the OpenAI tunnel targets only the MCP `/mcp` endpoint.
 
-PowerShell fallback:
+## Production UI
 
-```powershell
-$installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
-Invoke-WebRequest `
-  'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
-  -OutFile $installer
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
-```
+The daily dashboard exposes three primary concepts:
 
-The installer:
+- **Connection** status;
+- **Access mode**;
+- **Settings**.
 
-1. automatically resolves/installs Node.js LTS and Git with `winget` when they are missing;
-2. resolves the selected GitHub Release;
-3. downloads the release package and `SHA256SUMS.txt`;
-4. verifies the package SHA-256 before extraction;
-5. installs into a per-user version slot under `%LOCALAPPDATA%\RemoteWorkstationMCP\versions\`;
-6. installs production npm dependencies and validates the runtime version;
-7. installs the pinned, checksum-verified OpenAI `tunnel-client`;
-8. switches the stable `current.txt` pointer and preserves the previous slot for rollback;
-9. creates a stable launcher and Start Menu shortcut;
-10. initializes stable automatic update state;
-11. opens the local Setup & Control Center.
+![Control Center](images/v0.7.10/01-control-center-home.png)
 
-For repository development, the existing flow remains supported:
+The v0.7.10 production Settings modal currently contains these sections, in one scrollable modal:
 
-```powershell
-npm run setup:first-run:windows
-```
+1. **Quick setup for ChatGPT**
+2. **Workstation**
+3. **OpenAI connection**
+4. **Runtime status**
+5. **Configuration**
+6. **Advanced settings**
 
-## Versioned per-user layout
+![Settings quick setup](images/v0.7.10/02-settings-quick-setup.png)
 
-Managed Windows installs use:
+![Settings connection](images/v0.7.10/03-settings-connection.png)
 
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\
-├── current.txt
-├── previous.txt
-├── settings.json
-├── update.json
-├── audit.jsonl
-├── bin\
-│   ├── rwmcp.ps1
-│   ├── install-windows-release.ps1
-│   └── update-windows.ps1
-├── config\
-│   ├── policy.yaml
-│   └── hosts.yaml
-├── runtime\
-│   ├── supervisor.json
-│   ├── supervisor.stdout.log
-│   ├── supervisor.stderr.log
-│   ├── control-center.json
-│   ├── control-center.stdout.log
-│   ├── control-center.stderr.log
-│   ├── permission-lease.json
-│   └── admin-approvals\
-├── secrets\
-│   └── openai-runtime-api-key.dpapi
-└── versions\
-    ├── v0.7.9\
-    └── v0.7.10\
-```
+![Settings runtime](images/v0.7.10/04-settings-runtime.png)
 
-Policy/hosts/settings/secrets are therefore not replaced when the application version changes.
+![Settings advanced](images/v0.7.10/05-settings-advanced.png)
 
-## Control Center visual system
+## First-time setup
 
-Starting with v0.7.8, the local Control Center applies the `TungLamvsWebUI-Skills` design system while preserving the same loopback/security boundary:
+For a new Windows PC:
 
-- dark mode by default with a remembered light/dark toggle;
-- deep navy/slate canvas with emerald health/action accents and cyan identity/focus accents;
-- compact system-status strip and a single daily access-mode selector;
-- hover lift/glow and focus glow for interactive controls;
-- responsive layout for desktop and narrow screens;
-- pending Administrator requests appear as a native modal so normal setup detail stays out of the daily workflow;
-- all setup/runtime details open in a focused **Settings** modal instead of expanding the main page.
+1. run the one-time GitHub Release installer;
+2. open Settings;
+3. set the authorized workspace root;
+4. enter the OpenAI Tunnel ID;
+5. enter Organization ID when applicable;
+6. paste the restricted runtime API key;
+7. keep Windows DPAPI storage enabled unless you intentionally manage secrets another way;
+8. choose **Prepare this PC for ChatGPT**.
 
-The UI remains dependency-free browser HTML/CSS/JS and does not change the MCP transport or privileged approval trust boundary.
+The quick setup flow saves configuration, protects the runtime key with current-user Windows DPAPI, installs/verifies `tunnel-client`, starts OpenAI mode, waits for runtime/tunnel readiness, and enables start-at-logon.
 
-## What the Control Center configures
-
-The web flow can configure:
-
-- MCP loopback port (`RWMCP_PORT` equivalent), with automatic free-port recommendation;
-- dedicated Control Center loopback port (default `8684`);
-- authorized workspace root for a new default policy;
-- OpenAI Secure MCP Tunnel ID;
-- OpenAI organization ID;
-- managed Cloudflare runtime opt-in/out;
-- official OpenAI `tunnel-client` installation on Windows;
-- OpenAI runtime API key storage using current-user Windows DPAPI;
-- one simple daily access mode: **Read only**, **Workspace**, or **Full access**;
-- automatic mapping from that mode to authenticated tunnel scopes and local host-filesystem/raw-shell gates;
-- `workstation.admin_request`, which can create a pending Administrator request but cannot elevate by itself;
-- one-shot Administrator approval through the local Control Center and Windows RunAs/UAC elevation;
-- legacy short `full_control` leases remain supported for compatibility and temporary workflows, but are no longer part of the default daily UI.
-
-This explicitly handles machines where another local MCP/plugin already owns port `8765`; the UI can recommend alternatives such as `8683`, `8877`, or another free loopback port.
-
-The runtime API key is never written to `settings.json`. When the owner chooses persistence, the encrypted DPAPI blob is stored at:
-
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\secrets\openai-runtime-api-key.dpapi
-```
-
-The UI never reads the decrypted key back into the browser after saving it.
+The saved API key is not read back into the browser.
 
 ## Runtime controls
 
-The Control Center provides owner-local controls for:
+The Runtime status section provides owner-local actions for:
 
-- start ChatGPT/OpenAI tunnel mode;
-- start local MCP-only mode;
-- stop the managed runtime process tree;
-- restart tunnel mode;
-- inspect MCP health, version, HTTP auth and tunnel readiness;
-- enable/disable start-at-logon for the current Windows user.
+- Start ChatGPT tunnel;
+- Restart;
+- Stop;
+- Refresh;
+- Enable start at logon;
+- Disable start at logon.
 
-The MCP/tunnel supervisor and the Control Center supervisor are separate processes. Stopping or restarting the MCP runtime does not stop the Control Center that issued the action. Their state/logs are stored outside the version slot under the per-user runtime directory, and each supervisor validates its recorded process identity before stopping a process tree.
+These are local Control Center actions, not arbitrary MCP command execution.
 
-Starting with v0.7.5, start-at-logon uses the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry entry rather than requiring `Register-ScheduledTask`. In v0.7.9 the OpenAI entry targets the stable launcher `Boot` action, which performs a throttled stable update check before starting the tunnel runtime. This avoids `Access is denied` on standard-user Windows installations while preserving a non-elevated, current-user startup boundary. Managed installs point that entry at the stable launcher, so a later version-slot switch does not leave startup pinned to an old release.
+## Advanced settings
 
-Older Scheduled Task registrations are still recognized for status compatibility and are removed on a best-effort basis during registration/unregistration.
+Advanced settings includes:
 
-## Stable launcher
+- MCP loopback port;
+- Control Center loopback port;
+- managed runtime option;
+- **Automatic stable updates**;
+- **Check for updates**.
 
-Managed installs create:
+![Automatic stable updates](images/v0.7.10/08-auto-update.png)
+
+Managed Windows defaults to stable automatic updates, startup checks, and a 12-hour check interval.
+
+## Access modes
+
+The Control Center exposes exactly three access modes:
+
+### Read only
+
+Inspect-only mode. No workspace writes or program execution.
+
+### Workspace
+
+Normal engineering mode. Read, write, and execute approved workflows inside owner-authorized workspaces.
+
+### Full access
+
+Enables host filesystem and raw shell using the permissions of the current Windows user.
+
+Selecting Full access requires explicit local confirmation.
+
+![Full access confirmation](images/v0.7.10/06-full-access-confirm.png)
+
+**Full Access != Administrator.**
+
+## Administrator approval
+
+Administrator is not an access mode.
+
+The one-shot privileged path is:
 
 ```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1
+AI request
+  -> pending Administrator request
+  -> local owner reviews exact program/arguments/reason
+  -> owner chooses Allow once
+  -> Windows RunAs/UAC
+  -> isolated helper verifies the approved request binding
+  -> one direct privileged execution
 ```
 
-Examples:
+The normal MCP/tunnel/Control Center stays non-elevated. A mode switch never grants Administrator rights.
+
+## Start at logon
+
+Managed v0.7.10 uses the current-user registry:
+
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+```
+
+The entry points at:
+
+```text
+%LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1 -Action Boot
+```
+
+`Boot` performs a throttled stable update check when due, starts OpenAI mode, then verifies runtime health/readiness.
+
+## Stable launcher actions
+
+The v0.7.10 stable launcher implements:
+
+| Action | Purpose |
+| --- | --- |
+| `Setup` | Open/start the local Setup & Control Center. |
+| `Start` | Start local MCP mode. |
+| `StartOpenAI` | Start MCP + OpenAI tunnel mode. |
+| `Boot` | Startup path: update check when due, then start OpenAI mode. |
+| `Stop` | Stop the managed runtime. |
+| `Restart` | Restart OpenAI mode. |
+| `Status` | Show managed runtime/tunnel/startup status. |
+| `AutostartOn` | Register current-user start-at-logon. |
+| `AutostartOff` | Remove current-user start-at-logon. |
+| `UpdateCheck` | Check stable GitHub Release availability. |
+| `AutoUpdateOn` | Enable automatic stable updates. |
+| `AutoUpdateOff` | Disable automatic stable updates. |
+| `Update` | Install/activate the latest verified stable release. |
+| `Rollback` | Switch back to the previous version slot and start it. |
+
+Example:
 
 ```powershell
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Setup
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Status
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action UpdateCheck
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Update
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action AutoUpdateOn
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action AutoUpdateOff
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Rollback
+$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
+& $ctl -Action Status
 ```
 
-`Boot` (used by start-at-logon) checks the stable channel when the last check is at least 12 hours old, then starts the runtime. `Update` performs an immediate verified update. Candidate activation is health/readiness checked and automatically rolled back when it fails; `Rollback` remains available as an explicit owner action. These operations remain owner-local; no MCP tool can invoke them.
+## v0.7.10 port ownership behavior
 
-## Configuration precedence
+The Control Center supervisor validates that the listener on its configured port belongs to its managed process tree. A foreign process on port `8684` is not accepted as a healthy RWMCP Control Center.
 
-Explicit process environment variables remain authoritative. Persisted setup values are imported only when the corresponding environment variable is absent, so temporary owner overrides remain possible.
-
-For managed installs, `policy.yaml` and `hosts.yaml` live in the stable per-user config directory. Repository-development installs can continue using the repository-local config files.
-
-The Setup & Control Center never silently overwrites an existing owner policy or SSH hosts configuration.
+When a conflict exists, close the owning application or change the Control Center port in Advanced settings. The reported PID/process information can be checked with Windows networking/process tools.
 
 ## Security boundary
 
-The Control Center deliberately separates **user-level access mode** from **Administrator elevation**.
+The Control Center:
 
-- **Read only** sets policy mode `read_only`, exposes only `workstation.read`, disables user-level writes/process execution, and keeps host-wide gates off.
-- **Workspace** is the default. It enables read/write/execute inside configured workspaces and allows `workstation.admin_request` to create a pending request, but it cannot elevate.
-- **Full access** is a persistent local-owner choice. It sets effective `full_control`, adds `workstation.full_control`, and enables host-filesystem + raw-shell gates for the current Windows user. It still does not grant Administrator rights.
-
-Administrator actions use a separate one-shot flow. `admin_request` writes an expiring request containing the exact executable, argv, working directory, reason and requesting principal. The main UI shows that approval card only while a request is active. Local Control Center approval is the mandatory application-level user confirmation. Approval binds the request file by SHA-256 and launches a separate helper through Windows `RunAs`; any additional UAC prompt follows the machine policy. Direct privileged shell hosts such as `cmd.exe` and `powershell.exe` are rejected by the helper; request the target executable directly instead.
-
-The normal MCP/tunnel runtime and Control Center continue to run non-elevated. A mode switch can never silently grant Administrator rights. Do not bind the Control Center to a LAN address, publish it through a reverse proxy, or expose its owner APIs through the Secure MCP Tunnel. Keep it on its dedicated `127.0.0.1` port.
+- binds only to loopback;
+- rejects non-loopback/cross-origin control requests;
+- uses an ephemeral in-memory CSRF token for owner APIs;
+- does not expose the owner control API through the OpenAI tunnel;
+- stores the optional runtime API key with current-user Windows DPAPI;
+- keeps user-level access mode separate from Administrator elevation.

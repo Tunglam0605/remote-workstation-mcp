@@ -1,149 +1,104 @@
-# Windows quick start — install once
+# Windows quick start - install once
 
-Remote Workstation MCP v0.7.10 is designed for a one-time workstation setup:
+Remote Workstation MCP v0.7.10 is designed so a new Windows PC needs one setup session. After that, RWMCP starts with Windows sign-in and keeps itself on the stable release channel.
 
-1. install once;
-2. enter the owner-specific OpenAI/tunnel values once;
-3. choose **Prepare this PC for ChatGPT** once;
-4. from then on RWMCP starts after Windows sign-in, reconnects the secure tunnel, and checks the stable update channel automatically.
+## 1. Download the installer
 
-The workstation MCP remains bound to loopback. ChatGPT reaches it through OpenAI Secure MCP Tunnel; no inbound router/firewall port is required.
+**Goal:** get the one-time bootstrap.
 
-## 1. Download the Windows bootstrap
-
-From the latest GitHub Release download:
+From the latest GitHub Release, download:
 
 ```text
 install-windows.cmd
 ```
 
-Double-click the file. It downloads the PowerShell installer and checksum manifest, verifies SHA-256, then continues with the managed installation.
+Double-click it. The bootstrap verifies the PowerShell installer before the managed installation continues.
 
-PowerShell fallback:
+## 2. Run the installer
 
-```powershell
-$installer = Join-Path $env:TEMP 'rwmcp-install-windows.ps1'
-Invoke-WebRequest `
-  'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
-  -OutFile $installer `
-  -UseBasicParsing
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
-```
+**Goal:** install the production runtime without cloning the repository.
 
-The installer automatically:
+The installer checks prerequisites, downloads and SHA-256-verifies the stable release, installs it under `%LOCALAPPDATA%\RemoteWorkstationMCP`, installs/verifies the OpenAI tunnel client, creates the stable launcher, configures startup/auto-update, and opens the Control Center.
 
-- installs Node.js LTS and Git through `winget` when missing;
-- downloads the latest stable RWMCP release;
-- verifies the release package against `SHA256SUMS.txt`;
-- installs into `%LOCALAPPDATA%\RemoteWorkstationMCP\versions\vX.Y.Z`;
-- installs/verifies the pinned OpenAI `tunnel-client`;
-- creates a stable launcher and Start Menu shortcut;
-- initializes stable auto-update;
-- opens the local Control Center.
+## 3. Confirm the Control Center opens
 
-## 2. First-time Control Center setup
+**Goal:** verify the local owner UI is running.
 
-The daily dashboard is intentionally compact:
+Open `http://127.0.0.1:8684` if it did not open automatically.
 
-![Control Center](images/setup/01-control-center.png)
+![Control Center](images/v0.7.10/01-control-center-home.png)
 
-Open **Settings** and configure only the owner-specific values:
+The page should show Connection status, Access mode, and the Settings button.
 
-- authorized workspace root;
-- OpenAI Tunnel ID;
-- Organization ID when applicable;
-- restricted runtime API key with the required tunnel permissions.
+## 4. Open Settings
 
-Keep secure DPAPI storage enabled unless you have a specific reason not to.
+**Goal:** enter the few values that are specific to this PC/owner.
 
-![Settings](images/setup/02-settings.png)
+Open **Settings** and use **Quick setup for ChatGPT**.
 
-Choose **Prepare this PC for ChatGPT**. The wizard then saves configuration, protects the key with current-user Windows DPAPI, verifies the tunnel client, starts MCP + tunnel, waits for health/readiness, and enables start-at-logon.
+![Quick setup](images/v0.7.10/02-settings-quick-setup.png)
 
-A ready state means the workstation-side setup is complete.
+Configure the authorized workspace root, Tunnel ID, Organization ID when applicable, and the restricted runtime API key. Leave Windows DPAPI storage enabled unless you intentionally manage the key another way.
 
-## 3. Access mode
+![Connection](images/v0.7.10/03-settings-connection.png)
 
-Use the mode selector instead of configuring scopes manually:
+Choose **Prepare this PC for ChatGPT**. The wizard saves configuration, verifies `tunnel-client`, starts the secure tunnel, waits for readiness, and enables start-at-logon.
 
-- **Read only** — inspect only;
-- **Workspace** — normal read/write/execute inside the authorized workspace;
-- **Full access** — host filesystem + raw shell at the current Windows user level.
+## 5. Select the access mode
 
-Selecting Full access requires explicit confirmation:
+**Goal:** choose the least privilege needed for daily work.
 
-![Full access confirmation](images/setup/03-full-access-confirm.png)
+- **Read only** - view/inspect only.
+- **Workspace** - read/write/execute approved workflows inside authorized workspaces.
+- **Full access** - host filesystem + raw shell as the current Windows user.
 
-Full access is not Administrator. Privileged operations remain request-only until the local owner approves the exact request and accepts Windows UAC.
+Full Access is **not** Administrator. Selecting it requires confirmation.
 
-## 4. Add/select the app in ChatGPT
+![Full access confirmation](images/v0.7.10/06-full-access-confirm.png)
 
-Use the Tunnel ID from the Control Center when adding/selecting the Remote Workstation MCP app in ChatGPT. Product/workspace-side app availability and approval are controlled by ChatGPT/OpenAI rather than the local installer.
+Administrator actions use a separate flow: AI request -> local owner approval -> Windows UAC -> one-shot privileged execution.
 
-See:
+## 6. Verify READY
 
-- [ChatGPT Web setup](CHATGPT_WEB.md)
-- [End-to-end acceptance](CHATGPT_WEB_CONTROL.md)
-- [OpenAI Secure MCP Tunnel](OPENAI_SECURE_TUNNEL.md)
+**Goal:** confirm the workstation side is complete.
 
-## 5. Daily use after the first setup
+A ready system shows MCP healthy, tunnel ready, bearer authentication enabled, and start-at-logon ON.
 
-You should not need to reopen PowerShell or rerun setup.
+![Ready](images/v0.7.10/07-ready-state.png)
 
-At Windows sign-in:
+## 7. Check automatic updates
+
+**Goal:** verify maintenance is automatic.
+
+Open **Settings > Configuration > Advanced settings**. `Automatic stable updates` is enabled by default and `Check for updates` is available for an owner-triggered check.
+
+![Automatic updates](images/v0.7.10/08-auto-update.png)
+
+Defaults are stable channel, startup checks enabled, and a 12-hour check interval.
+
+## 8. Close the window or reboot once
+
+**Goal:** prove that daily use does not require setup again.
+
+You can close the Control Center browser window. RWMCP is supervised separately.
+
+At the next Windows sign-in the current-user startup entry runs:
 
 ```text
-stable launcher
-   ↓
-check stable update when due (maximum once per 12 h)
-   ↓
-install new version slot if available
-   ↓
-start MCP + OpenAI tunnel
-   ↓
-health/readiness check
-   ↓
-READY
+%LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1 -Action Boot
 ```
 
-If the update check cannot reach GitHub, the installed version still starts. If a newly installed version fails to become healthy/ready, the stable launcher rolls back to the previous version and starts the known-good slot. The failed release is temporarily backed off rather than installed again on every sign-in.
+`Boot` checks for a stable update when due, starts the MCP runtime, reconnects the OpenAI tunnel, and verifies health/readiness.
 
-Auto-update state is stored outside version slots, alongside owner configuration. Updating does not erase:
+After the first setup you do **not** need to rerun the installer, run `git pull`, run `npm install`, rebuild the project, reopen PowerShell, or configure the tunnel every time Windows starts.
 
-- workspace selection;
-- access mode/policy;
-- Tunnel ID / Organization ID;
-- DPAPI-protected runtime key;
-- SSH hosts;
-- audit data.
+## If something is not READY
 
-## Additional PCs
-
-Run the same one-time installer on each workstation. Treat each PC as its own security boundary and normally give it its own tunnel/runtime key so device revocation, audit and failure isolation remain clear.
-
-## Troubleshooting
-
-Open the stable Control Center from the Start Menu or browse to:
-
-```text
-http://127.0.0.1:8684/
-```
-
-The MCP browser root also redirects locally:
-
-```text
-http://127.0.0.1:8683/
-```
-
-Stable launcher:
+Run:
 
 ```powershell
 $ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
 & $ctl -Action Status
-& $ctl -Action Setup
-& $ctl -Action UpdateCheck
-& $ctl -Action Update
-& $ctl -Action Rollback
 ```
 
-For deeper diagnostics see [Windows operations](WINDOWS.md) and [Setup & Control Center](SETUP_CONSOLE.md).
+Then see [Windows runtime](WINDOWS.md) and [Setup & Control Center](SETUP_CONSOLE.md).

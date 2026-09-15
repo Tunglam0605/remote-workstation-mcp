@@ -1,77 +1,56 @@
-# Windows runtime
+# Windows managed runtime
 
-Remote Workstation MCP v0.7.10 supports two Windows workflows:
+Remote Workstation MCP v0.7.10 supports a managed one-time Windows installation for normal users and a separate source-repository workflow for contributors.
 
-1. **managed release installation** for normal/new-machine use;
-2. **repository development** for contributors.
+## One-time managed install
 
-Both keep the MCP endpoint loopback-only and can use the outbound OpenAI Secure MCP Tunnel path.
+Download `install-windows.cmd` from the latest GitHub Release and run it once.
 
-## Requirements
+The managed installer:
 
-- Windows 10/11
-- PowerShell 5.1+ or PowerShell 7+
-- Node.js 22+
-- npm
-- Git
-- OpenSSH client when SSH tools are needed
+1. checks prerequisites and can install Node.js LTS and Git through `winget` when missing;
+2. resolves the selected stable GitHub Release;
+3. downloads the package and `SHA256SUMS.txt`;
+4. verifies SHA-256 before extraction;
+5. installs the application into a version slot;
+6. installs/verifies the pinned OpenAI `tunnel-client`;
+7. creates the stable launcher and Start Menu shortcut;
+8. creates/preserves stable `current.txt` and `previous.txt` pointers;
+9. initializes stable automatic updates;
+10. opens the local Control Center.
 
-The managed installer can use `winget` to install Node.js LTS and Git when they are missing.
+A normal user does not need a Git checkout, `npm install`, or a manual rebuild for production use.
 
-## Recommended managed installation
-
-For a new Windows PC, download `install-windows.cmd` from the latest GitHub Release and double-click it. The bootstrap verifies the downloaded PowerShell installer before running it.
-
-PowerShell fallback:
-
-```powershell
-$installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
-Invoke-WebRequest `
-  'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
-  -OutFile $installer
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
-```
-
-The installer automatically installs Node.js LTS and Git through `winget` when missing, downloads the release package and `SHA256SUMS.txt`, verifies the package digest, installs a versioned runtime slot, installs the pinned OpenAI tunnel-client, writes a stable launcher, initializes stable auto-update and opens the local Setup & Control Center.
-
-No Git checkout is required for the managed runtime itself; Git is installed only because the built-in Git tools use it.
-
-Managed state lives under:
+## Installed layout
 
 ```text
 %LOCALAPPDATA%\RemoteWorkstationMCP\
+  bin\
+    rwmcp.ps1
+    install-windows-release.ps1
+    update-windows.ps1
+  config\
+    policy.yaml
+    hosts.yaml
+  runtime\
+    supervisor.json
+    control-center.json
+    ...logs and operational state...
+  audit\
+  secrets\
+    openai-runtime-api-key.dpapi
+  versions\
+    v0.7.9\
+    v0.7.10\
+  current.txt
+  previous.txt
+  settings.json
+  update.json
 ```
 
-Application versions are isolated under `versions\vX.Y.Z\`; owner configuration and secrets remain outside those slots.
+Application version slots are disposable/replaceable. Owner configuration, update state, audit data, and DPAPI-protected secrets live outside the slots.
 
-## Repository-development setup
-
-```powershell
-cd "$HOME\Documents"
-git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
-cd remote-workstation-mcp
-git checkout v0.7.10
-npm run setup:first-run:windows
-```
-
-This installs development dependencies, runs typecheck/tests/build/plugin validation and opens the same loopback-only web UI.
-
-## Setup & Control Center
-
-The UI configures the MCP port, workspace root, OpenAI tunnel ID, organization ID, Cloudflare-managed preference and Windows DPAPI runtime-key persistence.
-
-It also provides owner-local runtime controls:
-
-- start local MCP;
-- start ChatGPT/OpenAI tunnel mode;
-- stop/restart;
-- view MCP health/version/auth;
-- view tunnel readiness;
-- enable/disable current-user start-at-logon.
-
-The UI is not an MCP tool and its owner APIs stay on a separate loopback-only Control Center port, outside the tunnel. Daily use is mode-first: Read only, Workspace, or Full access. Administrator requests remain separate and require local owner approval; elevation then uses Windows RunAs/UAC under the machine policy; the normal runtime never becomes Administrator.
-
-See [Setup & Control Center](SETUP_CONSOLE.md).
+Do not edit `%LOCALAPPDATA%\RemoteWorkstationMCP\versions\...` as a source repository. Development changes belong in a Git checkout.
 
 ## Stable launcher
 
@@ -81,138 +60,231 @@ Managed installs create:
 %LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1
 ```
 
-Example:
+Supported launcher actions in v0.7.10 are:
+
+```text
+Setup
+Start
+StartOpenAI
+Boot
+Stop
+Restart
+Status
+AutostartOn
+AutostartOff
+UpdateCheck
+AutoUpdateOn
+AutoUpdateOff
+Update
+Rollback
+```
+
+Examples:
 
 ```powershell
 $ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
-& $ctl -Action Setup
 & $ctl -Action Status
 & $ctl -Action UpdateCheck
 & $ctl -Action Update
 & $ctl -Action Rollback
 ```
 
-The launcher resolves `current.txt`, so start-at-logon and operator commands continue to follow the active version after an update.
+## Automatic startup
 
-## Automatic update and rollback
+RWMCP start-at-logon uses the current-user registry path:
 
-Managed v0.7.9+ installs default to the **stable** update channel. The Windows start-at-logon entry invokes the stable launcher `Boot` action. At sign-in, Boot checks for a stable release only when the previous check is at least 12 hours old. Network/update failures do not block startup.
+```text
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+```
 
-Manual check/update remain available:
+The registered command targets the stable launcher and uses:
+
+```text
+-Action Boot
+```
+
+The launcher remains stable while `current.txt` moves between application version slots.
+
+Boot flow:
+
+```text
+Windows user signs in
+  -> stable launcher runs Boot
+  -> check stable update if due
+  -> start managed MCP runtime
+  -> start/reconnect OpenAI tunnel
+  -> verify MCP health + tunnel readiness
+```
+
+This startup path is non-elevated and runs with the permissions of the signed-in Windows user.
+
+## Automatic update
+
+Managed Windows installs default to:
+
+```json
+{
+  "enabled": true,
+  "channel": "stable",
+  "checkOnStartup": true,
+  "checkIntervalHours": 12
+}
+```
+
+GitHub Releases are the production distribution source. Production update does not run `git pull` against a source tree.
+
+Update flow:
+
+1. check the stable GitHub Release channel when due;
+2. download the release package and checksum manifest;
+3. verify SHA-256;
+4. install the candidate into a new version slot;
+5. switch the current pointer;
+6. start the candidate;
+7. verify MCP health and OpenAI tunnel readiness;
+8. keep the candidate if healthy;
+9. otherwise mark the failed release, restore the previous pointer, and start the previous known-good slot.
+
+Network/update-check failure is non-fatal; the already-installed runtime still starts.
+
+Manual maintenance:
 
 ```powershell
-$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
 & $ctl -Action UpdateCheck
 & $ctl -Action Update
+& $ctl -Action AutoUpdateOn
+& $ctl -Action AutoUpdateOff
+& $ctl -Action Rollback
 ```
 
-A verified update is installed into a new version slot. The launcher starts the candidate and requires MCP health plus OpenAI tunnel readiness. If activation fails, it marks that release failed, swaps back to `previous.txt`, and starts the previous known-good version. Failed releases are temporarily backed off instead of retried on every sign-in.
+## Control Center
 
-Rollback can also be requested manually:
+Default owner UI:
+
+```text
+http://127.0.0.1:8684/
+```
+
+Default MCP endpoint:
+
+```text
+127.0.0.1:8683
+```
+
+The Control Center is loopback-only and separate from the MCP/tunnel runtime. Closing the browser window does not stop the runtime.
+
+The production v0.7.10 Settings modal currently contains:
+
+- Quick setup for ChatGPT;
+- Workstation;
+- OpenAI connection;
+- Runtime status;
+- Configuration;
+- Advanced settings.
+
+Advanced settings includes the MCP/Control Center ports, managed runtime option, **Automatic stable updates**, and **Check for updates**.
+
+![Runtime settings](images/v0.7.10/04-settings-runtime.png)
+
+![Advanced settings](images/v0.7.10/05-settings-advanced.png)
+
+## Access mode and Administrator boundary
+
+The three user-facing access modes are:
+
+- **Read only** - inspect only;
+- **Workspace** - read/write/execute approved workflows inside owner-authorized workspaces;
+- **Full access** - host filesystem + raw shell as the current Windows user.
+
+Full Access does not grant Administrator privileges.
+
+Administrator flow:
+
+```text
+AI creates admin request
+  -> local Control Center shows exact request
+  -> owner approves once
+  -> Windows RunAs/UAC
+  -> isolated helper executes the approved direct program
+```
+
+The normal MCP, tunnel, and Control Center remain non-elevated.
+
+## v0.7.10 Control Center port ownership hardening
+
+The default Control Center port is `8684`.
+
+v0.7.10 no longer treats any listener on `8684` as a healthy Control Center. The supervisor verifies that the listener belongs to the managed Control Center process tree.
+
+If another process owns the configured Control Center port:
+
+- RWMCP does not report a false healthy/READY state;
+- the conflict is reported with the owning PID/process context;
+- close the conflicting application or choose another Control Center port in Advanced settings;
+- then restart/reopen the managed Control Center.
+
+Useful diagnostics:
 
 ```powershell
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Rollback
+Get-NetTCPConnection -State Listen -LocalPort 8684
+Get-Process -Id <PID>
 ```
 
-This switches the stable pointer back to the previous slot; it does not rewrite policy, hosts, settings, audit data or DPAPI secrets.
+## Health and status
 
-## Start at logon
-
-The Control Center registers a current-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry that invokes the stable launcher `Boot` action after user logon. This path requires no Administrator rights and avoids Windows environments that reject `Register-ScheduledTask` for standard users.
-
-The runtime still runs with the same permissions as the logged-in Windows account. Start-at-logon does not grant Administrator privileges. Upgrades from older releases also recognize and best-effort remove the previous Scheduled Task registration to avoid duplicate starts.
-
-## Configuration storage
-
-Non-secret setup state:
-
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\settings.json
-```
-
-Stable owner config for managed installs:
-
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\config\policy.yaml
-%LOCALAPPDATA%\RemoteWorkstationMCP\config\hosts.yaml
-```
-
-DPAPI-protected runtime key:
-
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\secrets\openai-runtime-api-key.dpapi
-```
-
-Runtime supervisor state/logs:
-
-```text
-%LOCALAPPDATA%\RemoteWorkstationMCP\runtime\
-```
-
-Explicit environment variables remain authoritative over persisted setup values.
-
-## Local-only runtime
-
-Repository development:
+Stable launcher status:
 
 ```powershell
-npm run start:windows
+& $ctl -Action Status
 ```
 
-Managed installation:
-
-```powershell
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Start
-```
-
-Health example:
+Direct MCP health:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8683/healthz
 ```
 
-Expected fields include:
+Expected healthy production state includes version `0.7.10`, an active loopback MCP listener, bearer auth for the OpenAI tunnel path, and tunnel readiness when OpenAI mode is running.
 
-```text
-ok        : True
-version   : 0.7.10
-mode      : workspace
-transport : http-loopback
-```
+## Troubleshooting
 
-## ChatGPT/OpenAI tunnel runtime
+### Control Center does not open
 
-Repository development:
+Check whether `8684` is listening and who owns it. v0.7.10 intentionally rejects a foreign listener instead of reporting it healthy.
+
+### MCP healthy but ChatGPT is not connected
+
+Run `Status` and check `tunnelReady`. The workstation MCP stays loopback-only; ChatGPT Web reaches it through the outbound OpenAI Secure MCP Tunnel.
+
+### Update fails
+
+The existing slot should still boot. If a newly installed candidate fails activation health/readiness checks, the stable launcher restores the previous slot automatically.
+
+### Startup is disabled
+
+Re-enable it with:
 
 ```powershell
-npm run start:openai:windows
+& $ctl -Action AutostartOn
 ```
 
-Managed installation:
+### Open Control Center manually
 
 ```powershell
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action StartOpenAI
+& $ctl -Action Setup
 ```
 
-The tunnel path forces bearer authentication on the MCP leg. The local bearer is generated per run unless the owner supplies one. The OpenAI runtime API key is not forwarded into the MCP child process.
+## Repository development
 
-Managed Cloudflare runtime material is optional and remains disabled unless explicitly selected.
+For contributors only:
 
-See [ChatGPT Web](CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](OPENAI_SECURE_TUNNEL.md).
+```powershell
+git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
+cd remote-workstation-mcp
+npm install
+npm run typecheck
+npm test
+npm run build
+```
 
-## Windows security notes
-
-- Setup/control UI binds only to loopback.
-- API calls require an ephemeral in-memory CSRF token embedded only in the local page plus same-origin browser access.
-- Managed stop validates the stored supervisor process before terminating its descendant tree.
-- Background state stores PIDs and operational metadata, not the OpenAI runtime API key.
-- Start-at-logon uses the current-user registry hive and does not elevate privileges.
-- Raw shell and host filesystem capabilities remain disabled by default.
-- Administrator execution is never granted by an access mode; AI can only create an approval request, and the local owner + Windows UAC control the privileged helper.
-- Windows `.cmd`/`.bat` wrappers are not treated as equivalent to native executable execution in the normal process allowlist.
-
-Managed process stdin remains pipe-backed; a true PTY/ConPTY adapter is a v0.8 roadmap item.
-
-## Semantic code intelligence
-
-Owner-configured language servers support definition, references, hover, document symbols and diagnostics. They remain executable-allowlisted and workspace-bounded. See [LSP](LSP.md).
+Repository development is intentionally separate from the managed production installation.

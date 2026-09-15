@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
+import { DeviceRegistryAdapter } from './adapters/devices.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
@@ -31,6 +32,7 @@ export async function createContext() {
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const processes = new ProcessManager(policy, paths, currentClientId);
+  const ssh = new SshAdapter(policy, hostsConfig);
   return {
     config,
     hostsConfig,
@@ -48,7 +50,8 @@ export async function createContext() {
     search: new SearchAdapter(policy, paths),
     tools: new ToolDiscoveryAdapter(policy),
     tasks: new TaskAdapter(policy, processes),
-    ssh: new SshAdapter(policy, hostsConfig),
+    ssh,
+    devices: new DeviceRegistryAdapter(ssh),
     updates: new UpdateAdapter(SERVER_VERSION)
   };
 }

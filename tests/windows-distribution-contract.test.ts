@@ -57,3 +57,28 @@ test('Windows Control Center refuses foreign port ownership and verifies its man
   assert.match(control, /managedPortOwned/);
   assert.match(control, /portOwnerPid/);
 });
+
+test('Windows restart is handed off outside the managed runtime tree and OpenAI runtime has a watchdog', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const host = await read('scripts/runtime-host-windows.ps1');
+  const safeRestart = await read('scripts/safe-restart-windows.ps1');
+  const handoff = await read('scripts/runtime-restart-handoff-windows.ps1');
+  const setupServer = await read('src/setup/setup-server.ts');
+
+  assert.match(installer, /safe-restart-windows\.ps1/);
+  assert.match(runtime, /Direct Restart cannot run from inside the managed runtime process tree/);
+  assert.match(safeRestart, /api\/runtime\/action/);
+  assert.match(safeRestart, /Refusing a direct self-killing restart/);
+  assert.match(handoff, /Start-Sleep -Milliseconds/);
+  assert.match(setupServer, /scheduleWindowsRuntimeRestart/);
+  assert.match(setupServer, /json\(res, 202, scheduleWindowsRuntimeRestart/);
+  assert.match(host, /watchdog restart in/);
+  assert.match(host, /restartDelaysSeconds = @\(1, 2, 5, 10, 30\)/);
+  assert.match(host, /tunnel-readiness-lost/);
+  assert.match(host, /connection-state\.json/);
+  assert.match(runtime, /connectionState = \$connectionState/);
+  assert.match(runtime, /'OFFLINE'/);
+  assert.match(runtime, /'RECONNECTING'/);
+  assert.match(runtime, /'ONLINE'/);
+});

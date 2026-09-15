@@ -166,9 +166,44 @@ This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC 
 - keep the normal MCP, tunnel and Control Center processes non-elevated
 - preserve legacy client-bound leases for compatibility/temporary workflows without showing their internals in the daily UI
 
-## v0.8 — Engineering debug and hardware adapters
+## v0.8 — Multi-device Hub foundation + remote resilience
 
-This work begins **after** the direct ChatGPT Web control path above is accepted on a real ChatGPT workspace.
+This phase is accelerated because direct ChatGPT Web control is already accepted on a real workstation and the next operational requirement is one ChatGPT app controlling multiple office machines from anywhere.
+
+### v0.8.0 — Hub-gateway MVP
+
+- one ChatGPT Web app reaches one always-on Remote Workstation Hub through OpenAI Secure MCP Tunnel
+- `device_list`, `device_probe`, and `device_exec` for owner-registered remote devices
+- reuse the hardened SSH adapter for the first production path: BatchMode key authentication, host-key checking, remote root, executable allowlist, timeout bounds and audit
+- no inbound Internet port on remote office PCs; the Hub reaches them over the trusted office LAN/VPN
+- Windows tunnel watchdog with capped reconnect backoff `1s -> 2s -> 5s -> 10s -> 30s`
+- recover from tunnel process exit and from a live-but-unready tunnel
+- explicit `ONLINE / RECONNECTING / OFFLINE` connection state and reconnect diagnostics in Control Center
+- safe restart handoff through the persistent Control Center so an MCP-triggered restart does not kill its own restart command
+
+### v0.8.1 — Device pairing
+
+- short-lived one-time pairing code
+- stable per-device identity and friendly name
+- revocable per-device credential
+- Windows/Linux one-click paired-agent bootstrap
+- device inventory with `online`, version, platform, capabilities and last-seen metadata
+
+### v0.8.2 — Outbound paired agents
+
+- each workstation establishes its own outbound authenticated session to the Hub
+- remove the requirement that the Hub and target workstation share the same LAN/VPN
+- preserve principal, scopes, local policy and audit across Hub routing
+- reconnect/revocation observability per device
+
+### v0.8.3 — Typed multi-device engineering operations
+
+- device-scoped filesystem read/write with optimistic concurrency
+- device-scoped Git/build/process contracts
+- safe worktree-aware parallel execution on multiple devices
+- result aggregation and device-target conflict detection
+
+## v0.9 — Engineering debug and hardware adapters
 
 - true PTY/ConPTY terminal adapter with bounded lifecycle and output
 - DAP session adapter for language-agnostic debugger control
@@ -184,35 +219,17 @@ This work begins **after** the direct ChatGPT Web control path above is accepted
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
-## v0.9 — Workstation automation + public distribution hardening
+## v0.10 — Workstation automation + agent delegation + public hardening
 
-- browser/Chrome DevTools adapter
-- Playwright/browser testing adapter
-- Windows UI Automation adapter as fallback when no CLI/API/debug protocol exists
-- harden the v0.7.7 privileged helper with signed/provenance-aware request envelopes and richer capability-specific contracts
-- expand privileged actions through typed adapters instead of unrestricted privileged shell
-- optional container/namespace sandbox for untrusted build/test workloads
-- public Plugin Directory/App registration documentation and review readiness
-- reconnect/revocation observability for remote connection providers
-- release artifact signing, provenance and SBOM
-
-## v0.10 — Optional plugin-first multi-device / agent delegation
-
-Only begin this phase after ChatGPT Web acceptance is complete.
-
-- one ChatGPT app/plugin installation with paired workstation identities
-- short-lived one-time device pairing
-- outbound authenticated device sessions and revocable per-device credentials
-- stable MCP Hub router preserving principal/scopes/policy/audit
-- Windows one-click paired-agent bootstrap
-- generic agent provider interface
-- task broker and agent registry
+- browser/Chrome DevTools and Playwright adapters
+- Windows UI Automation fallback
+- generic agent provider interface and task broker
 - Codex/Claude/OpenHands/custom workers as optional providers
-- delegation contracts, progress events and cancellation
-- result aggregation
-- worktree-aware parallel execution
-- non-file resource conflict detection and safe merge/review handoff
-- agent-to-agent workflows without weakening workstation policy
+- delegation progress/cancellation/result aggregation
+- harden privileged helper request envelopes and capability-specific contracts
+- optional container/namespace sandbox for untrusted build/test workloads
+- public Plugin Directory/App registration and review readiness
+- release artifact signing, provenance and SBOM
 
 ## v0.7.8 — Tung Lam Control Center refresh ✅
 

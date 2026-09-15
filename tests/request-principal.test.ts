@@ -20,6 +20,17 @@ test('read scoped principal can inspect semantic code but cannot mutate or execu
   });
 });
 
+test('device tools preserve workstation read/execute scope boundaries', () => {
+  runAsPrincipal({ id: 'reader', type: 'test', scopes: ['workstation.read'], authenticated: true }, () => {
+    assert.doesNotThrow(() => assertToolScope('device_list'));
+    assert.doesNotThrow(() => assertToolScope('device_probe'));
+    assert.throws(() => assertToolScope('device_exec'), /lacks required scope 'workstation.execute'/);
+  });
+  runAsPrincipal({ id: 'runner', type: 'test', scopes: ['workstation.execute'], authenticated: true }, () => {
+    assert.doesNotThrow(() => assertToolScope('device_exec'));
+  });
+});
+
 test('execute scoped principal can start and interact with managed processes', () => {
   runAsPrincipal({ id: 'runner', type: 'test', scopes: ['workstation.execute'], authenticated: true }, () => {
     assert.doesNotThrow(() => assertToolScope('process_start'));
@@ -29,7 +40,6 @@ test('execute scoped principal can start and interact with managed processes', (
     assert.throws(() => assertToolScope('fs_write'), /lacks required scope 'workstation.write'/);
   });
 });
-
 
 test('admin-request scope can request elevation but cannot directly use full-control tools', () => {
   runAsPrincipal({ id: 'requester', type: 'test', scopes: ['workstation.admin_request'], authenticated: true }, () => {

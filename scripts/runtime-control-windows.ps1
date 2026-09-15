@@ -23,6 +23,7 @@ $StateDir = Join-Path $UserConfigDir 'runtime'
 $StatePath = Join-Path $StateDir 'supervisor.json'
 $StdoutLog = Join-Path $StateDir 'supervisor.stdout.log'
 $StderrLog = Join-Path $StateDir 'supervisor.stderr.log'
+$ConnectionStatePath = Join-Path $StateDir 'connection-state.json'
 $TaskName = 'Remote Workstation MCP'
 $StartupRunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $StartupRunName = 'RemoteWorkstationMCP'
@@ -54,6 +55,20 @@ function Get-ManagedProcess($state) {
   } catch {
     return $null
   }
+}
+
+function Test-ProcessDescendant([int]$processId, [int]$ancestorId) {
+  $current = $processId
+  foreach ($depth in 1..32) {
+    if ($current -eq $ancestorId) { return $true }
+    try { $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction Stop }
+    catch { return $false }
+    if (-not $entry) { return $false }
+    $parent = [int]$entry.ParentProcessId
+    if ($parent -le 0 -or $parent -eq $current) { return $false }
+    $current = $parent
+  }
+  return $false
 }
 
 function Stop-ProcessTree([int]$rootProcessId) {
@@ -173,6 +188,12 @@ function Apply-RuntimeEnvironment([string]$runtimeMode) {
   }
 }
 
+function Read-ConnectionState {
+  if (-not (Test-Path $ConnectionStatePath)) { return $null }
+  try { return Get-Content -Path $ConnectionStatePath -Raw | ConvertFrom-Json }
+  catch { return $null }
+}
+
 function Runtime-Status {
   $state = Read-State
   $managed = Get-ManagedProcess $state
@@ -192,6 +213,19 @@ function Runtime-Status {
   } catch {}
 
   $tunnelReady = Test-TunnelReady
+  $connection = Read-ConnectionState
+  $connectionState = if (-not $managed) {
+    'OFFLINE'
+  } elseif ($state -and $state.mode -eq 'Local') {
+    if ($mcpHealthy) { 'ONLINE' } else { 'RECONNECTING' }
+  } elseif ($tunnelReady) {
+    'ONLINE'
+  } else {
+    'RECONNECTING'
+  }
+  $connectionReason = if ($connection -and ($connection.PSObject.Properties.Name -contains 'reason')) { [string]$connection.reason } else { $null }
+  $connectionUpdatedAt = if ($connection -and ($connection.PSObject.Properties.Name -contains 'updatedAt')) { [string]$connection.updatedAt } else { $null }
+  $reconnectAttempt = if ($connection -and ($connection.PSObject.Properties.Name -contains 'attempt')) { [int]$connection.attempt } else { 0 }
   $startupMethod = Get-StartupRegistrationMethod
 
   return [pscustomobject]@{
@@ -204,6 +238,10 @@ function Runtime-Status {
     mcpVersion = $mcpVersion
     httpAuth = $httpAuth
     tunnelReady = $tunnelReady
+    connectionState = $connectionState
+    connectionReason = $connectionReason
+    connectionUpdatedAt = $connectionUpdatedAt
+    reconnectAttempt = $reconnectAttempt
     startupRegistered = $null -ne $startupMethod
     startupMethod = $startupMethod
     stdoutLog = $StdoutLog
@@ -236,7 +274,7 @@ function Start-Runtime([string]$runtimeMode) {
   $hostScript = Join-Path $Root 'scripts\runtime-host-windows.ps1'
   if (-not (Test-Path $hostScript)) { throw "Runtime host script not found: $hostScript" }
 
-  Remove-Item -Path $StdoutLog, $StderrLog -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path $StdoutLog, $StderrLog, $ConnectionStatePath -Force -ErrorAction SilentlyContinue
   $powershell = Get-Command powershell.exe -ErrorAction Stop
 
   # Do not use Start-Process -RedirectStandardOutput/-RedirectStandardError for
@@ -306,7 +344,7 @@ function Stop-Runtime {
   $state = Read-State
   $managed = Get-ManagedProcess $state
   if ($managed) { Stop-ProcessTree ([int]$managed.Id) }
-  Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path $StatePath, $ConnectionStatePath -Force -ErrorAction SilentlyContinue
   Start-Sleep -Milliseconds 300
   return Runtime-Status
 }
@@ -355,7 +393,15 @@ function Unregister-Startup {
 $result = switch ($Action) {
   'Start' { Start-Runtime $Mode }
   'Stop' { Stop-Runtime }
-  'Restart' { Stop-Runtime | Out-Null; Start-Runtime $Mode }
+  'Restart' {
+    $state = Read-State
+    $managed = Get-ManagedProcess $state
+    if ($managed -and (Test-ProcessDescendant $PID ([int]$managed.Id))) {
+      throw 'Direct Restart cannot run from inside the managed runtime process tree because it would kill its own caller. Use the stable launcher Restart action or the persistent Control Center.'
+    }
+    Stop-Runtime | Out-Null
+    Start-Runtime $Mode
+  }
   'Status' { Runtime-Status }
   'RegisterStartup' { Register-Startup $Mode }
   'UnregisterStartup' { Unregister-Startup }

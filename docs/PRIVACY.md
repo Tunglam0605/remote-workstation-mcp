@@ -38,6 +38,6 @@ When the plugin is used from ChatGPT, Codex, Claude, Cursor, or another MCP clie
 
 Users control which workspaces, executables, SSH hosts, and elevated capabilities are authorized through local configuration. Full user-level shell/filesystem access requires explicit local policy gates plus a short-lived permission lease.
 
-The Setup Console intentionally does not expose controls for enabling full-control gates or issuing permission leases.
+The owner-local Control Center may explicitly enable full-control transport scope/gates and issue short client-bound permission leases. These controls remain loopback-only, are not MCP tools, and do not bypass scope + gate + lease enforcement.
 
 Questions and security reports can be filed through the repository issue tracker. Do not include credentials, secrets, or sensitive workstation data in public issues.

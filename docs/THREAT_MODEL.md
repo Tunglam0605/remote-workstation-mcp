@@ -35,8 +35,8 @@ The AI caller is treated as untrusted input. This includes hallucinated tool cal
 | OpenAI runtime key leaking into MCP process | runtime key stripped from MCP child environment |
 | Runtime key written to repository/config JSON | optional Windows persistence uses current-user DPAPI in a separate user-profile secret blob |
 | Local setup UI reached from LAN | Setup Console binds only to 127.0.0.1 and rejects non-loopback sockets |
-| Browser CSRF against setup UI | ephemeral setup token + same-origin check + custom token header + no-store responses |
-| Setup convenience silently weakening policy | existing `policy.yaml` and `hosts.yaml` are preserved; full-control gates/leases are not exposed in Setup Console |
+| Browser CSRF against setup UI | ephemeral in-memory CSRF token embedded only in local page + same-origin check + custom token header + no-store responses |
+| Setup convenience silently weakening policy | existing owner config is preserved; dangerous scope/gate changes are explicit, warning-styled, still require the existing three-layer authorization model, and full-control leases are short-lived/client-bound |
 | Unauthorized SSH target | named host allowlist |
 | SSH command expansion | per-host program allowlist + quoted argv construction |
 | SSH credential disclosure | agent/local identity-file configuration; password auth not implemented |

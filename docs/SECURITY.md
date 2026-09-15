@@ -17,7 +17,7 @@ Remote Workstation MCP can read/write files and execute development tools. It ca
 11. **Client-bound lease enforcement** — when an authenticated principal is present, its principal ID is used for client-bound permission lease evaluation; local transports fall back to `RWMCP_CLIENT_ID`.
 12. **Fail-closed authenticated tool classification** — an authenticated principal cannot invoke a newly added tool until that tool has an explicit scope classification.
 13. **Loopback HTTP** — the built-in HTTP service binds to `127.0.0.1`; bearer authentication is a transport-auth foundation, not permission to expose the raw port to the Internet.
-14. **Owner-local Setup & Control Center** — the browser UI binds only to loopback, uses an ephemeral setup token, rejects non-loopback clients and cross-origin API requests, and is never registered as an MCP tool.
+14. **Owner-local Setup & Control Center** — the persistent browser UI binds to a dedicated loopback-only port, uses an ephemeral in-memory CSRF token embedded only in the served page, rejects non-loopback clients and cross-origin API requests, and is never registered as an MCP tool or exposed through the tunnel.
 15. **Narrow runtime control** — local web runtime actions are limited to start/stop/restart/status and current-user start-at-logon registration. They do not accept arbitrary executable/argument input.
 16. **Managed process identity** — the Windows supervisor records the launched executable path and start time; a PID alone is insufficient authority for a later stop operation.
 17. **Secret separation** — non-secret setup state is stored outside the repository; on Windows the optional OpenAI runtime key is protected with current-user DPAPI and stripped from the MCP child environment.
@@ -30,11 +30,14 @@ The browser surface is an owner-local bootstrap and runtime-operations UI, not a
 
 Supported configuration mutations are intentionally narrow:
 
-- save the loopback MCP port;
+- save the loopback MCP and dedicated Control Center ports;
 - save the initial workspace path for a new default policy;
 - save OpenAI tunnel/organization identifiers and the managed-Cloudflare preference;
 - install the pinned official OpenAI tunnel-client on Windows;
-- optionally store/remove the OpenAI runtime API key using Windows DPAPI.
+- optionally store/remove the OpenAI runtime API key using Windows DPAPI;
+- change the authenticated tunnel scopes exposed to `openai-tunnel`;
+- change only `fullControl.allowHostFilesystem` and `fullControl.allowRawShell` in the owner policy;
+- issue/revoke short `full_control` leases bound to `openai-tunnel`.
 
 Supported runtime operations are also narrow:
 
@@ -44,13 +47,13 @@ Supported runtime operations are also narrow:
 - inspect MCP health/version/auth and tunnel readiness;
 - register/remove a current-user start-at-logon task.
 
-The browser UI does **not** expose controls for raw shell, host-wide filesystem gates, sudo/Administrator enablement, permission-lease issuance, SSH credential creation, arbitrary command execution, or authenticated `workstation.full_control` scope grants.
+The browser UI can expose the raw-shell/host-filesystem gates, `workstation.full_control` transport scope, and short owner leases, but none of these bypass the existing three-layer authorization checks. It still does **not** expose sudo/Administrator enablement, SSH credential creation, or arbitrary command execution as a Control Center API.
 
 An existing owner policy/hosts configuration is preserved rather than silently rewritten. Managed Windows installs keep these files outside application version slots.
 
-The setup URL contains an ephemeral token in the URL fragment. The fragment is not sent in the initial HTTP request; browser JavaScript presents it in the `x-rwmcp-setup-token` header for API requests. API requests also require a loopback socket and accepted same-origin browser context.
+The Control Center process generates an ephemeral token in memory and embeds it in the locally served HTML/JavaScript. It is not persisted and is not placed in the URL. Browser JavaScript presents it in the `x-rwmcp-setup-token` header for API requests. API requests also require a loopback socket and an accepted same-origin browser context.
 
-Do not bind the Setup & Control Center to a LAN interface, publish it through a reverse proxy, or attach it to Secure MCP Tunnel.
+Do not bind the Setup & Control Center to a LAN interface, publish it through a reverse proxy, or attach its privileged API to Secure MCP Tunnel. The MCP port may redirect local browser navigation to the dedicated Control Center port, but the tunnel continues to target only `/mcp`.
 
 ## Windows runtime supervisor boundary
 
@@ -60,7 +63,7 @@ Its state file contains operational metadata such as PID, executable path, start
 
 The process tree is stopped with an OS process-tree operation only after that identity check. Runtime stdin/stdout/stderr are detached from the operator console and redirected to owner-local files.
 
-Start-at-logon uses a limited current-user Scheduled Task. Managed installations point the task at the stable launcher rather than a specific version slot, so updates do not leave autostart pinned to an obsolete release.
+Start-at-logon uses the current-user Windows `Run` registry key. Managed installations point it at the stable launcher rather than a specific version slot, so updates do not leave autostart pinned to an obsolete release. Starting the managed runtime also ensures the independent Control Center supervisor is running.
 
 ## HTTP principal and scope boundary
 

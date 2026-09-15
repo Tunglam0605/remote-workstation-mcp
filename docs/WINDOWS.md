@@ -1,6 +1,6 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.5 supports two Windows workflows:
+Remote Workstation MCP v0.7.6 supports two Windows workflows:
 
 1. **managed release installation** for normal/new-machine use;
 2. **repository development** for contributors.
@@ -46,7 +46,7 @@ Application versions are isolated under `versions\vX.Y.Z\`; owner configuration 
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.5
+git checkout v0.7.6
 npm run setup:first-run:windows
 ```
 
@@ -65,7 +65,7 @@ It also provides owner-local runtime controls:
 - view tunnel readiness;
 - enable/disable current-user start-at-logon.
 
-The UI is not an MCP tool and is never exposed through the tunnel. Full-control gates and permission leases are deliberately excluded.
+The UI is not an MCP tool and its privileged APIs stay on a separate loopback-only Control Center port, outside the tunnel. It may explicitly manage full-control scopes/gates and short client-bound leases without bypassing the existing authorization checks.
 
 See [Setup & Control Center](SETUP_CONSOLE.md).
 
@@ -164,7 +164,7 @@ Expected fields include:
 
 ```text
 ok        : True
-version   : 0.7.5
+version   : 0.7.6
 mode      : workspace
 transport : http-loopback
 ```
@@ -192,7 +192,7 @@ See [ChatGPT Web](CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](OPENAI_SECURE_T
 ## Windows security notes
 
 - Setup/control UI binds only to loopback.
-- API calls require an ephemeral setup token and same-origin browser access.
+- API calls require an ephemeral in-memory CSRF token embedded only in the local page plus same-origin browser access.
 - Managed stop validates the stored supervisor process before terminating its descendant tree.
 - Background state stores PIDs and operational metadata, not the OpenAI runtime API key.
 - Start-at-logon uses the current-user registry hive and does not elevate privileges.

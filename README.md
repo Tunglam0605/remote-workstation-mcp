@@ -6,9 +6,9 @@ Remote Workstation MCP lets an authorized AI client inspect and edit approved co
 
 > **Security-sensitive beta.** Start with a disposable workspace. Keep full-control gates disabled until local policy, audit records, principal identity and tunnel behavior have been validated.
 
-## Current release: v0.7.5
+## Current release: v0.7.6
 
-The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path:
+The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path. v0.7.6 adds a persistent owner Control Center, bilingual EN/VI UI, explicit permission controls, and a safer full-control workflow:
 
 - authenticated request principals and workstation scopes;
 - workspace filesystem + optimistic SHA-256 writes;
@@ -20,7 +20,9 @@ The v0.7 line establishes direct workstation control, practical Windows distribu
 - owner-controlled time-limited elevation/full-control leases;
 - outbound-only OpenAI Secure MCP Tunnel support;
 - Windows DPAPI storage for the OpenAI runtime API key;
-- local-only Setup & Control Center;
+- persistent local-only Setup & Control Center on a dedicated loopback port, with browser redirect from the MCP root;
+- bilingual English/Vietnamese Control Center with remembered language selection;
+- owner UI for read/write/execute/full-control tunnel scopes, host-filesystem/raw-shell gates, and short client-bound full-control leases;
 - checksum-verified per-user Windows release installation;
 - version slots, stable launcher, update pointer and rollback pointer;
 - current-user start-at-logon through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, without Administrator privileges;
@@ -62,7 +64,11 @@ Managed Windows layout:
 ├── runtime\
 │   ├── supervisor.json
 │   ├── supervisor.stdout.log
-│   └── supervisor.stderr.log
+│   ├── supervisor.stderr.log
+│   ├── control-center.json
+│   ├── control-center.stdout.log
+│   ├── control-center.stderr.log
+│   └── permission-lease.json
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
@@ -77,7 +83,7 @@ Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the versi
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.5
+git checkout v0.7.6
 npm run setup:first-run:windows
 ```
 
@@ -85,13 +91,13 @@ npm run setup:first-run:windows
 
 ## Setup & Control Center
 
-The local web UI binds only to `127.0.0.1`. It uses an ephemeral setup token, rejects non-loopback clients and cross-origin API calls, and is never exposed as an MCP tool or through the OpenAI tunnel.
+The managed Windows layout keeps the MCP transport and the owner Control Center on separate loopback ports. A typical installation uses MCP on `127.0.0.1:8683` and the persistent Control Center on `127.0.0.1:8684`. Opening `http://127.0.0.1:8683/` in a browser (or `/setup`) redirects locally to the Control Center, while non-browser/API requests to the MCP root keep the JSON discovery response.
 
-It supports choosing the authorized workspace, storing Tunnel ID and organization context, protecting the runtime API key with Windows DPAPI, installing/verifying the pinned `tunnel-client`, starting/stopping/restarting the runtime, reporting MCP/tunnel health, and enabling current-user start-at-logon.
+The Control Center is a separate process from the MCP/tunnel runtime, so stopping or restarting MCP does not tear down the page that issued the action. It rejects non-loopback/cross-origin requests and protects its owner APIs with an ephemeral in-memory CSRF token embedded only in the locally served page; the token is neither persisted nor placed in the URL.
+
+It supports workspace/tunnel configuration, DPAPI-protected runtime-key storage, tunnel-client installation, runtime health/control, start-at-logon, and explicit permission management. The Permissions card can change write/execute/full-control tunnel scopes, the host-filesystem/raw-shell local gates, and short `full_control` leases (10/30/60 minutes) bound to `openai-tunnel`. Full-control still requires scope + gate + active lease; Administrator/sudo remains unavailable. Safe defaults stay read/write/execute, dangerous gates off and no lease.
 
 Starting with v0.7.5, start-at-logon uses the current-user Windows `Run` registry key rather than `Register-ScheduledTask`. This avoids standard-user `Access is denied` failures and remains non-elevated. The OpenAI start action also waits for tunnel `/readyz` before reporting success, so the quick setup flow does not claim completion while the tunnel is still connecting.
-
-It deliberately does **not** expose controls for raw-shell gates, host-wide filesystem gates, Administrator/sudo execution, permission leases or `workstation.full_control` grants.
 
 See [Setup & Control Center](docs/SETUP_CONSOLE.md).
 
@@ -298,7 +304,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.5
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.6
 codex plugin marketplace list
 ```
 

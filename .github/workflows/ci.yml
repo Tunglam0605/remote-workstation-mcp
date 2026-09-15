@@ -181,7 +181,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Runtime supervisor start failed.' }
             $start = ($startRaw | Select-Object -Last 1) | ConvertFrom-Json
             if (-not $start.running -or -not $start.mcpHealthy) { throw "Runtime supervisor did not become healthy: $startRaw" }
-            if ($start.mcpVersion -ne '0.7.5') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
+            if ($start.mcpVersion -ne '0.7.6') { throw "Unexpected supervised runtime version: $($start.mcpVersion)" }
             $statusRaw = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\runtime-control-windows.ps1 -Action Status -Root $PWD -Json
             $status = ($statusRaw | Select-Object -Last 1) | ConvertFrom-Json
             if (-not $status.running -or -not $status.mcpHealthy) { throw 'Runtime supervisor status check failed.' }

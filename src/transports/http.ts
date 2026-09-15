@@ -20,6 +20,18 @@ function configuredPort(value: number | undefined): number {
   return port;
 }
 
+function controlCenterUrl(): string {
+  const port = Number(process.env.RWMCP_SETUP_PORT ?? 8684);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    return 'http://127.0.0.1:8684/';
+  }
+  return `http://127.0.0.1:${port}/`;
+}
+
+function prefersHtml(accept: string | undefined): boolean {
+  return typeof accept === 'string' && accept.toLowerCase().includes('text/html');
+}
+
 export class LoopbackHttpTransportProvider implements TransportProvider {
   readonly descriptor: TransportDescriptor;
   private readonly port: number;
@@ -41,14 +53,24 @@ export class LoopbackHttpTransportProvider implements TransportProvider {
     const app = createMcpExpressApp();
     const nodeHandler = toNodeHandler(createMcpHandler(factory));
 
-    app.get('/', (_req, res) => res.json({
-      name: 'remote-workstation-mcp',
-      version: SERVER_VERSION,
-      mcp: '/mcp',
-      health: '/healthz',
-      transport: this.descriptor.id,
-      httpAuth: this.auth.config.mode
-    }));
+    app.get('/', (req, res) => {
+      if (prefersHtml(req.headers.accept)) {
+        res.redirect(302, controlCenterUrl());
+        return;
+      }
+      res.json({
+        name: 'remote-workstation-mcp',
+        version: SERVER_VERSION,
+        mcp: '/mcp',
+        health: '/healthz',
+        setup: '/setup',
+        controlCenter: controlCenterUrl(),
+        transport: this.descriptor.id,
+        httpAuth: this.auth.config.mode
+      });
+    });
+
+    app.get('/setup', (_req, res) => res.redirect(302, controlCenterUrl()));
 
     app.get('/healthz', (_req, res) => res.json({
       ok: true,

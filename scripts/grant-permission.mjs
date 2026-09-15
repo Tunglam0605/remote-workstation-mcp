@@ -7,7 +7,15 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const home = os.homedir();
-const dataHome = process.env.RWMCP_HOME ?? path.join(home, '.local/share/remote-workstation-mcp');
+function defaultDataHome() {
+  if (process.platform === 'win32') {
+    const localBase = process.env.LOCALAPPDATA ?? process.env.APPDATA ?? path.join(home, 'AppData', 'Local');
+    return path.join(localBase, 'RemoteWorkstationMCP');
+  }
+  const xdgData = process.env.XDG_DATA_HOME;
+  return xdgData ? path.join(xdgData, 'remote-workstation-mcp') : path.join(home, '.local/share/remote-workstation-mcp');
+}
+const dataHome = process.env.RWMCP_HOME ?? defaultDataHome();
 const leasePath = path.resolve(process.env.RWMCP_LEASE ?? path.join(dataHome, 'runtime/permission-lease.json'));
 const args = process.argv.slice(2);
 

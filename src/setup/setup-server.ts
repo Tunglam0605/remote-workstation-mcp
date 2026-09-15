@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
+import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
 import { loadHosts } from '../hosts.js';
 import { PairingStore } from '../pairing/pairing-store.js';
 import { PairingBootstrapAdapter } from '../pairing/pairing-bootstrap.js';
@@ -340,11 +341,14 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings = { ...settings, mcpPort: recommendedPort };
         }
         const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
+        const identity = await loadOrCreateDeviceIdentity();
         const tunnelClient = process.platform === 'win32'
           ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
           : path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client');
         json(res, 200, {
           version: packageJson.version,
+          identity,
+          recommendedAppName: recommendedChatGptAppName(identity),
           platform: process.platform,
           nodeVersion: process.version,
           settings,
@@ -570,14 +574,11 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/install-tunnel-client' && req.method === 'POST') {
-        if (process.platform !== 'win32') {
-          json(res, 400, { error: 'The bundled tunnel-client installer currently supports Windows only.' });
-          return;
-        }
-        const installer = path.join(repoRoot, 'scripts', 'install-openai-tunnel-windows.ps1');
-        const result = await runProcess('powershell.exe', [
-          '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', installer
-        ], { cwd: repoRoot, maxBytes: 256 * 1024 });
+        const result = process.platform === 'win32'
+          ? await runProcess('powershell.exe', [
+              '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'scripts', 'install-openai-tunnel-windows.ps1')
+            ], { cwd: repoRoot, maxBytes: 256 * 1024 })
+          : await runProcess('bash', [path.join(repoRoot, 'scripts', 'install-openai-tunnel-linux.sh')], { cwd: repoRoot, maxBytes: 256 * 1024 });
         if (result.code !== 0) {
           json(res, 500, { error: result.output || `Installer exited with code ${result.code}.` });
           return;

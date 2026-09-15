@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { SERVER_VERSION } from '../capabilities.js';
+import { recommendedChatGptAppName } from '../device-identity.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal } from '../security/request-principal.js';
 
@@ -17,6 +18,15 @@ function allows(scopes: readonly string[], required: string): boolean {
 
 export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> {
   const principal = currentPrincipal();
+  const identity = ctx.identity ?? {
+    version: 1 as const,
+    id: process.env.RWMCP_DEVICE_ID?.trim() || os.hostname().toLowerCase().replace(/[^a-z0-9._-]+/g, '-'),
+    name: process.env.RWMCP_DEVICE_NAME?.trim() || os.hostname(),
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    createdAt: ''
+  };
   const scopes = principal?.scopes ?? [];
   const authenticated = Boolean(principal?.authenticated);
   const openAiTunnelPrincipal = Boolean(
@@ -31,6 +41,11 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
     ok: true,
     server: 'remote-workstation-mcp',
     serverVersion: SERVER_VERSION,
+    device: {
+      ...identity,
+      recommendedAppName: recommendedChatGptAppName(identity),
+      controlMode: 'direct-node'
+    },
     host: {
       hostname: os.hostname(),
       platform: os.platform(),
@@ -72,6 +87,16 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
 }
 
 export function registerChatGptWebTools(server: McpServer, ctx: AppContext): void {
+  server.registerTool('workstation_identity', {
+    description: 'Return this workstation stable device identity and recommended ChatGPT app name. Use it to disambiguate multiple directly connected Remote Workstation apps without relying on IP addresses.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () => result(await audited(ctx.audit, 'workstation_identity', undefined, async () => ({
+    ...ctx.identity,
+    recommendedAppName: recommendedChatGptAppName(ctx.identity),
+    controlMode: 'direct-node'
+  }))));
+
   server.registerTool('chatgpt_web_status', {
     description: 'Verify that ChatGPT Web reached this workstation through the authenticated MCP control path. Returns non-secret host identity, authenticated principal/scopes, effective permissions, policy mode and authorized workspace names. Use this as the first end-to-end verification tool after adding the custom app in ChatGPT Web.',
     inputSchema: z.object({}),

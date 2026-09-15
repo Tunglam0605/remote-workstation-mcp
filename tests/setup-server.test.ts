@@ -67,7 +67,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.8.2');
+    assert.equal(body.version, '0.8.3');
     assert.ok(Number.isInteger(body.settings.mcpPort));
   } finally {
     await setup.close();

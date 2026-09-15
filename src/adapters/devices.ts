@@ -1,5 +1,6 @@
-﻿import os from 'node:os';
+import os from 'node:os';
 import type { PairingStore } from '../pairing/pairing-store.js';
+import type { DeviceIdentity } from '../device-identity.js';
 import type { SshAdapter } from './ssh.js';
 
 export interface DeviceDescriptor {
@@ -22,7 +23,8 @@ export interface DeviceDescriptor {
 type SshDeviceTransport = Pick<SshAdapter, 'listHosts' | 'probe' | 'execute'>;
 type PairingInventory = Pick<PairingStore, 'listDevices' | 'getActiveDevice'>;
 
-function localDeviceId(): string {
+function localDeviceId(identity?: DeviceIdentity): string {
+  if (identity?.id) return identity.id;
   const configured = process.env.RWMCP_DEVICE_ID?.trim();
   if (configured) return configured;
   return os.hostname().toLowerCase().replace(/[^a-z0-9._-]+/g, '-');
@@ -31,13 +33,14 @@ function localDeviceId(): string {
 export class DeviceRegistryAdapter {
   constructor(
     private readonly ssh: SshDeviceTransport,
-    private readonly pairing?: PairingInventory
+    private readonly pairing?: PairingInventory,
+    private readonly identity?: DeviceIdentity
   ) {}
 
   async list(probe = true): Promise<DeviceDescriptor[]> {
     const local: DeviceDescriptor = {
-      id: localDeviceId(),
-      name: process.env.RWMCP_DEVICE_NAME?.trim() || os.hostname(),
+      id: localDeviceId(this.identity),
+      name: this.identity?.name || process.env.RWMCP_DEVICE_NAME?.trim() || os.hostname(),
       transport: 'local',
       platform: os.platform(),
       arch: os.arch(),
@@ -108,7 +111,7 @@ export class DeviceRegistryAdapter {
   private remoteHostId(id: string): string {
     const host = this.ssh.listHosts().find(item => item.id === id);
     if (host) return host.id;
-    if (id === localDeviceId()) {
+    if (id === localDeviceId(this.identity)) {
       throw new Error(`Device '${id}' is local. Use the normal workspace/process tools for local execution.`);
     }
     throw new Error(`Device '${id}' is not registered by the local owner.`);
@@ -117,7 +120,7 @@ export class DeviceRegistryAdapter {
   private async routeRemote(id: string): Promise<{ hostId: string; transport: 'ssh' | 'paired_ssh' }> {
     const direct = this.ssh.listHosts().find(item => item.id === id);
     if (direct) return { hostId: direct.id, transport: 'ssh' };
-    if (id === localDeviceId()) {
+    if (id === localDeviceId(this.identity)) {
       throw new Error(`Device '${id}' is local. Use the normal workspace/process tools for local execution.`);
     }
     const paired = this.pairing ? await this.pairing.getActiveDevice(id) : undefined;
@@ -130,7 +133,7 @@ export class DeviceRegistryAdapter {
   }
 
   async probe(id: string) {
-    if (id === localDeviceId()) {
+    if (id === localDeviceId(this.identity)) {
       return { device: id, transport: 'local' as const, reachable: true, hostname: os.hostname(), platform: os.platform(), durationMs: 0 };
     }
     const route = await this.routeRemote(id);

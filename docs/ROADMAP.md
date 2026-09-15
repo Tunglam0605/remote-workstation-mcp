@@ -166,49 +166,48 @@ This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC 
 - keep the normal MCP, tunnel and Control Center processes non-elevated
 - preserve legacy client-bound leases for compatibility/temporary workflows without showing their internals in the daily UI
 
-## v0.8 — Multi-device Hub foundation + remote resilience
+## v0.8 - Multi-device control + remote resilience
 
-This phase is accelerated because direct ChatGPT Web control is already accepted on a real workstation and the next operational requirement is one ChatGPT app controlling multiple office machines from anywhere.
+This phase was accelerated after direct ChatGPT Web control was accepted on a real workstation.
 
-### v0.8.0 — Hub-gateway MVP ✅
+### v0.8.0 - Hub-gateway MVP - complete
 
-- one ChatGPT Web app reaches one always-on Remote Workstation Hub through OpenAI Secure MCP Tunnel
-- `device_list`, `device_probe`, and `device_exec` for owner-registered remote devices
-- reuse the hardened SSH adapter for the first production path: BatchMode key authentication, host-key checking, remote root, executable allowlist, timeout bounds and audit
-- no inbound Internet port on remote office PCs; the Hub reaches them over the trusted office LAN/VPN
-- Windows tunnel watchdog with capped reconnect backoff `1s -> 2s -> 5s -> 10s -> 30s`
-- recover from tunnel process exit and from a live-but-unready tunnel
-- explicit `ONLINE / RECONNECTING / OFFLINE` connection state and reconnect diagnostics in Control Center
-- safe restart handoff through the persistent Control Center so an MCP-triggered restart does not kill its own restart command
+- one ChatGPT Web connection can reach one Remote Workstation Hub
+- `device_list`, `device_probe`, and `device_exec` for owner-registered SSH devices
+- hardened SSH allowlists, remote roots, host-key checking, timeout bounds and audit
+- Windows tunnel watchdog with reconnect backoff and explicit `ONLINE / RECONNECTING / OFFLINE` state
+- safe restart handoff through the persistent Control Center
 
-### v0.8.1 — Managed-update launcher reliability ✅
+### v0.8.1 - Managed-update launcher reliability - complete
 
-- ship the stable Windows launcher inside every runtime slot
-- self-heal `bin/rwmcp.ps1` from the active slot when a managed runtime starts
-- prevent an older installer from leaving an older launcher after upgrade
-- validate the real upgrade path and safe restart/reconnect on production
+- stable Windows launcher shipped in every runtime slot
+- self-heal `bin/rwmcp.ps1` from the active slot
+- real production upgrade/restart/reconnect validation
 
-### v0.8.2 — Device pairing
+### v0.8.2 - Device identity and pairing - complete
 
 - short-lived one-time pairing code
-- stable per-device identity and friendly name
+- stable paired-device identity and friendly name
 - revocable per-device credential
-- Windows/Linux one-click paired-agent bootstrap
-- device inventory with `online`, version, platform, capabilities and last-seen metadata
+- SSH bootstrap path and device inventory
 
-### v0.8.3 — Outbound paired agents
+### v0.8.3 - Direct Multi-Node - current
 
-- each workstation establishes its own outbound authenticated session to the Hub
-- remove the requirement that the Hub and target workstation share the same LAN/VPN
-- preserve principal, scopes, local policy and audit across Hub routing
-- reconnect/revocation observability per device
+- make one RWMCP + one OpenAI Secure MCP Tunnel per workstation the preferred topology
+- no workstation-to-workstation SSH hop for routine ChatGPT control
+- stable local `device-identity.json` independent of DHCP/IP changes
+- expose `workstation_identity` and include identity in `chatgpt_web_status` / `system_info`
+- use clear per-machine ChatGPT app names and allow ChatGPT to select multiple apps in one prompt
+- add pinned SHA-256-verified Linux tunnel-client installer
+- add Linux `systemd --user` Direct Node service with automatic restart/reconnect
+- keep Hub/SSH mode only for bootstrap, migration and explicitly requested gateway workflows
 
-### v0.8.4 — Typed multi-device engineering operations
+### v0.8.4 - Direct-node engineering ergonomics
 
-- device-scoped filesystem read/write with optimistic concurrency
-- device-scoped Git/build/process contracts
-- safe worktree-aware parallel execution on multiple devices
-- result aggregation and device-target conflict detection
+- one-command Windows/Linux node enrollment once a tunnel ID/runtime key is available
+- per-node health overview and deterministic app-name export
+- device-scoped typed filesystem/Git/build/process contracts where cross-app orchestration benefits from explicit target metadata
+- safe parallel execution and result aggregation across directly connected apps
 
 ## v0.9 — Engineering debug and hardware adapters
 

@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Operate an owner-authorized engineering workstation through MCP.",
   "author": {
     "name": "Tunglam0605",
@@ -9,7 +9,14 @@
   "homepage": "https://github.com/Tunglam0605/remote-workstation-mcp",
   "repository": "https://github.com/Tunglam0605/remote-workstation-mcp",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "chatgpt", "codex", "workstation", "ssh", "automation"],
+  "keywords": [
+    "mcp",
+    "chatgpt",
+    "codex",
+    "workstation",
+    "ssh",
+    "automation"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -18,7 +25,11 @@
     "longDescription": "Verify the authenticated ChatGPT Web path, inspect and edit approved workspaces, query semantic code intelligence, run builds and tests, supervise bounded interactive processes, inspect Git, discover tools, and use approved SSH hosts through owner-controlled policy.",
     "developerName": "Tunglam0605",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Read", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
     "websiteURL": "https://github.com/Tunglam0605/remote-workstation-mcp",
     "privacyPolicyURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PRIVACY.md",
     "termsOfServiceURL": "https://github.com/Tunglam0605/remote-workstation-mcp/blob/main/docs/PLUGIN_TERMS.md",

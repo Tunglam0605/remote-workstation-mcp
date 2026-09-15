@@ -28,6 +28,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'system_info', undefined, async () => ({
     serverVersion: SERVER_VERSION,
+    device: ctx.identity,
     platform: os.platform(), release: os.release(), arch: os.arch(), hostname: os.hostname(),
     cpuCount: os.cpus().length, totalMemoryBytes: os.totalmem(), freeMemoryBytes: os.freemem(), uptimeSeconds: os.uptime(),
     node: process.version,

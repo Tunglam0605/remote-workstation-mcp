@@ -1,72 +1,99 @@
-# Multi-device Hub gateway
+﻿# Multi-device control
 
-Remote Workstation MCP v0.8.0 introduced the accelerated multi-device foundation; v0.8.1 is the current reliability patch.
+Remote Workstation MCP v0.8.3 makes **Direct Multi-Node** the preferred topology.
 
-## Goal
+## Preferred topology: every workstation connects directly
 
-A single ChatGPT Web app reaches one always-on Remote Workstation Hub and can operate owner-registered machines behind it:
-
-```text
-Phone / home PC running ChatGPT Web
-              |
-       OpenAI Secure MCP Tunnel
-              |
-       Remote Workstation Hub
-              |
-       owner-approved SSH
-        +-----+------+-----+
-        |            |     |
-    Ubuntu PC    Vision PC  other lab PC
-```
-
-The remote machines do not need inbound Internet ports. In the v0.8 series MVP they only need to be reachable from the Hub over the trusted office LAN or VPN.
-
-## MCP tools
-
-- `device_list` — list the local Hub and owner-registered remote devices, optionally probing online state.
-- `device_probe` — test reachability of one registered device.
-- `device_exec` — execute one owner-allowlisted program on a registered remote device.
-
-After upgrading an already-connected custom MCP app, start a fresh ChatGPT chat or reconnect the app once so ChatGPT refreshes the MCP tool schema.
-
-## Register an SSH-backed device
-
-The owner configures the device in the managed `hosts.yaml`. Use key-based SSH authentication; do not store login passwords in the repository or in prompts. A host entry defines its friendly ID, SSH identity, remote root, executable allowlist and runtime bound.
-
-The Hub then follows this flow:
+Each PC/laptop runs its own RWMCP instance and its own OpenAI Secure MCP Tunnel:
 
 ```text
-device_list
-  -> device_probe(device)
-  -> device_exec(device, allowlisted program, args, cwd)
+                         ChatGPT Web
+                    /        |         \
+                   /         |          \
+          Secure Tunnel  Secure Tunnel  Secure Tunnel
+               |             |              |
+          Windows Laptop   Ubuntu PC      Vision PC
+              RWMCP          RWMCP           RWMCP
 ```
 
-The remote working directory stays constrained by the host's configured remote root, and the model never receives the private-key contents.
+There is no workstation-to-workstation SSH hop in the normal control path. The devices do not need to share a LAN, VPN, IP range, or physical location. If one workstation is offline, the other direct nodes remain independently reachable.
+
+OpenAI Secure MCP Tunnel is outbound-only from each workstation, so RWMCP remains bound to loopback and no inbound port needs to be opened on the PC.
+
+## One tunnel per workstation
+
+Use a distinct logical tunnel for every independent workstation. Give each ChatGPT custom MCP app a clear name, for example:
+
+```text
+Remote Workstation - TungLam Laptop
+Remote Workstation - Ubuntu Vision PC
+Remote Workstation - Office PC 65
+```
+
+RWMCP persists a stable local `device-identity.json` and exposes it through:
+
+- `workstation_identity`
+- `chatgpt_web_status`
+- `system_info`
+
+The identity is independent of DHCP/IP changes. `workstation_identity` also returns a recommended ChatGPT app name.
+
+When multiple Remote Workstation apps are selected for one ChatGPT message, the model should resolve the requested machine by stable device identity/name and call that app directly.
+
+## Windows node
+
+Use the normal managed Windows installer and Control Center. Each Windows node needs its own Tunnel ID. The Windows runtime already supervises MCP + tunnel-client and automatically reconnects after process or network interruption.
+
+## Linux node
+
+Install the normal per-user runtime first:
+
+```bash
+git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
+cd remote-workstation-mcp
+bash scripts/install-user.sh
+```
+
+Then configure the machine as a direct ChatGPT node with its own tunnel:
+
+```bash
+export CONTROL_PLANE_API_KEY='YOUR_RESTRICTED_RUNTIME_KEY'
+bash scripts/setup-direct-node-linux.sh \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  --name 'Ubuntu Vision PC'
+```
+
+The script:
+
+1. installs the pinned official OpenAI `tunnel-client` for Linux and verifies its SHA-256;
+2. stores the runtime key in `~/.config/remote-workstation-mcp/openai.env` with mode `0600`;
+3. disables the old local-only RWMCP user service;
+4. installs and starts `remote-workstation-mcp-openai.service`;
+5. lets the RWMCP OpenAI supervisor generate an ephemeral MCP bearer for each run;
+6. restarts automatically through `systemd --user` after a crash or network recovery.
+
+Check it with:
+
+```bash
+bash scripts/direct-node-status-linux.sh
+```
 
 ## Security boundary
 
+Direct Multi-Node removes the workstation-to-workstation trust hop:
+
 ```text
-ChatGPT principal/scopes
-  -> Hub policy + audit
-  -> device registry
-  -> SSH host allowlist
-  -> BatchMode key authentication + host-key verification
-  -> remote executable allowlist
-  -> remote OS account
+ChatGPT app for one workstation
+  -> OpenAI Secure MCP Tunnel
+  -> authenticated request principal
+  -> that workstation's local policy / access mode / audit
+  -> that workstation's typed tools
 ```
 
-`device_exec` requires `workstation.execute`. It does not grant Administrator/root access. Passwords and private keys are never returned to the model.
+Each node has its own local policy, audit log, workspaces, Full Access gates and Administrator/sudo boundary. A compromise or outage on one node does not grant access to another node.
 
-## Connection resilience
+## Legacy Hub / SSH mode
 
-v0.8.0 added a Windows watchdog for the OpenAI tunnel/runtime child. It uses capped reconnect delays of 1, 2, 5, 10 and 30 seconds, recycles a live-but-unready tunnel after a bounded outage, and reports `ONLINE`, `RECONNECTING` or `OFFLINE` through the Control Center.
+`device_list`, `device_probe`, `device_exec`, SSH host configuration and v0.8.2 pairing remain available for bootstrap, migration and explicitly owner-approved legacy workflows. They are **not** the preferred v0.8.3 path for routine multi-device work.
 
-v0.8.1 additionally self-heals the stable Windows launcher from the active runtime slot after managed updates, preventing an older installer from leaving old launcher behavior behind.
-
-Intentional Stop remains authoritative: stopping the managed runtime terminates the supervisor tree, so the watchdog does not resurrect a runtime that the owner explicitly stopped.
-
-## MVP vs paired-agent design
-
-The v0.8 series deliberately reuses the hardened SSH adapter so multi-device control can be used immediately on real office machines.
-
-The next step is one-time device pairing plus outbound RWMCP agents. That will remove the requirement that the Hub and target workstation share the same LAN/VPN while keeping one ChatGPT app, per-device revocation, policy and audit.
+Use SSH when you intentionally need a gateway. For normal ChatGPT control of several independent PCs, install RWMCP + a separate Secure MCP Tunnel on every machine instead.

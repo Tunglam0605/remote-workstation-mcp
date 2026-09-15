@@ -249,7 +249,41 @@ function Runtime-Status {
   }
 }
 
+function Sync-StableLauncherFromRuntimeSlot {
+  try {
+    $template = Join-Path $Root 'scripts\rwmcp-launcher-windows.ps1'
+    if (-not (Test-Path $template)) { return }
+    $versionsDir = Split-Path -Parent $Root
+    if ((Split-Path -Leaf $versionsDir) -ne 'versions') { return }
+    $base = Split-Path -Parent $versionsDir
+    $currentFile = Join-Path $base 'current.txt'
+    if (-not (Test-Path $currentFile)) { return }
+    $current = (Get-Content -Path $currentFile -Raw).Trim()
+    if (-not $current) { return }
+    $currentFull = [IO.Path]::GetFullPath($current)
+    $rootFull = [IO.Path]::GetFullPath($Root)
+    if (-not [string]::Equals($currentFull, $rootFull, [StringComparison]::OrdinalIgnoreCase)) { return }
+    $binDir = Join-Path $base 'bin'
+    $target = Join-Path $binDir 'rwmcp.ps1'
+    New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+    $needsSync = -not (Test-Path $target)
+    if (-not $needsSync) {
+      $sourceHash = (Get-FileHash -Path $template -Algorithm SHA256).Hash
+      $targetHash = (Get-FileHash -Path $target -Algorithm SHA256).Hash
+      $needsSync = $sourceHash -ne $targetHash
+    }
+    if ($needsSync) {
+      $tmp = "$target.tmp"
+      Copy-Item -Path $template -Destination $tmp -Force
+      Move-Item -Path $tmp -Destination $target -Force
+    }
+  } catch {
+    Write-Warning "Stable launcher self-heal skipped: $($_.Exception.Message)"
+  }
+}
+
 function Start-Runtime([string]$runtimeMode) {
+  Sync-StableLauncherFromRuntimeSlot
   # Keep the owner-only Control Center on a separate loopback port/process so
   # runtime Stop/Restart cannot tear down the page that issued the action.
   $controlScript = Join-Path $Root 'scripts\control-center-windows.ps1'

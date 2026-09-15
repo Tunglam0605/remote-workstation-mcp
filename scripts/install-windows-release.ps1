@@ -200,6 +200,10 @@ switch ($Action) {
 }
 '@
   [IO.File]::WriteAllText($launcher, $content + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+  # Prefer the launcher shipped by the newly installed runtime slot. This prevents
+  # an older installer from leaving an older stable launcher behind after upgrade.
+  $launcherTemplate = Join-Path $CurrentRoot 'scripts\rwmcp-launcher-windows.ps1'
+  if (Test-Path $launcherTemplate) { Copy-Item -Path $launcherTemplate -Destination $launcher -Force }
   Copy-Item -Path (Join-Path $CurrentRoot 'scripts\install-windows-release.ps1') -Destination (Join-Path $BinDir 'install-windows-release.ps1') -Force
   $updateScript = Join-Path $CurrentRoot 'scripts\update-windows.ps1'
   if (Test-Path $updateScript) { Copy-Item -Path $updateScript -Destination (Join-Path $BinDir 'update-windows.ps1') -Force }

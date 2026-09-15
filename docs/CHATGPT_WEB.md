@@ -18,7 +18,7 @@ Current OpenAI references:
 
 Before creating the ChatGPT app, the workstation side should already have:
 
-- RWMCP v0.7.10 installed;
+- RWMCP v0.8.1 installed;
 - one OpenAI Secure MCP Tunnel ID;
 - one restricted Runtime API key with Tunnels Read + Use;
 - `tunnel-client` installed by the RWMCP managed installer;
@@ -91,14 +91,16 @@ The managed wizard:
 6. waits for MCP health and tunnel `/readyz`;
 7. enables current-user start-at-logon.
 
-A ready workstation should show:
+A ready v0.8.1 workstation should show:
 
 ```text
-MCP        HEALTHY
-Tunnel     READY
-Auth       bearer
-Start logon ON
+MCP          HEALTHY
+Tunnel       ONLINE
+Auth         bearer
+Start logon  ON
 ```
+
+The runtime also exposes `connectionState` as `ONLINE`, `RECONNECTING`, or `OFFLINE`.
 
 ## Step 4 - Enable Developer Mode in ChatGPT when required
 
@@ -117,6 +119,18 @@ Workspace settings -> Apps -> Create
 ```
 
 Enterprise/Edu workspaces may additionally use RBAC to control who can use Developer Mode or access a published custom app.
+
+## v0.8.1 multi-device tool refresh
+
+If this app was already connected before upgrading from an older runtime, start a fresh ChatGPT chat or reconnect the custom MCP app once after the workstation reaches v0.8.1. ChatGPT discovers the MCP tool schema when the app/session is established, so an existing chat can continue showing the older tool list.
+
+After refresh, the multi-device MVP exposes:
+
+- `device_list` — discover the local Hub plus registered devices;
+- `device_probe` — check one device's reachability;
+- `device_exec` — run one owner-allowlisted program on a registered remote device.
+
+The legacy `ssh_hosts`, `ssh_probe`, and `ssh_exec` tools remain available for explicit SSH workflows.
 
 ## Step 5 - Create the Remote Workstation app
 

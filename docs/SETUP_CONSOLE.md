@@ -1,6 +1,6 @@
 ﻿# Setup & Control Center
 
-Remote Workstation MCP v0.7.10 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
+Remote Workstation MCP v0.8.1 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
 
 ## Endpoints
 
@@ -19,9 +19,9 @@ The daily dashboard exposes three primary concepts:
 - **Access mode**;
 - **Settings**.
 
-![Control Center](images/v0.7.10-r2/01-control-center-home-r2.png)
+![Control Center](images/v0.8.1/01-control-center-home-v081.png)
 
-The v0.7.10 production Settings modal currently contains these sections, in one scrollable modal:
+The v0.8.1 production Settings modal currently contains these sections, in one scrollable modal:
 
 1. **Quick setup for ChatGPT**
 2. **Workstation**
@@ -30,13 +30,13 @@ The v0.7.10 production Settings modal currently contains these sections, in one 
 5. **Configuration**
 6. **Advanced settings**
 
-![Settings quick setup](images/v0.7.10-r2/02-settings-quick-setup-r2.png)
+![Settings quick setup](images/v0.8.1/02-settings-quick-setup-v081.png)
 
-![Settings connection](images/v0.7.10-r2/03-settings-connection-r2.png)
+![Settings connection](images/v0.8.1/03-settings-connection-v081.png)
 
-![Settings runtime](images/v0.7.10-r2/04-settings-runtime-r2.png)
+![Settings runtime](images/v0.8.1/04-settings-runtime-v081.png)
 
-![Settings advanced](images/v0.7.10-r2/05-settings-advanced-r2.png)
+![Settings advanced](images/v0.8.1/05-settings-advanced-v081.png)
 
 ## First-time setup
 
@@ -78,7 +78,7 @@ Advanced settings includes:
 - **Automatic stable updates**;
 - **Check for updates**.
 
-![Automatic stable updates](images/v0.7.10-r2/08-auto-update-r2.png)
+![Automatic stable updates](images/v0.8.1/08-auto-update-v081.png)
 
 Managed Windows defaults to stable automatic updates, startup checks, and a 12-hour check interval.
 
@@ -100,7 +100,7 @@ Enables host filesystem and raw shell using the permissions of the current Windo
 
 Selecting Full access requires explicit local confirmation.
 
-![Full access confirmation](images/v0.7.10-r2/06-full-access-confirm-r2.png)
+![Full access confirmation](images/v0.8.1/06-full-access-confirm-v081.png)
 
 **Full Access != Administrator.**
 
@@ -124,7 +124,7 @@ The normal MCP/tunnel/Control Center stays non-elevated. A mode switch never gra
 
 ## Start at logon
 
-Managed v0.7.10 uses the current-user registry:
+Managed v0.8.1 uses the current-user registry:
 
 ```text
 HKCU\Software\Microsoft\Windows\CurrentVersion\Run
@@ -140,7 +140,7 @@ The entry points at:
 
 ## Stable launcher actions
 
-The v0.7.10 stable launcher implements:
+The v0.8.1 stable launcher implements:
 
 | Action | Purpose |
 | --- | --- |

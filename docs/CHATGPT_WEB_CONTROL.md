@@ -1,6 +1,6 @@
 ﻿# ChatGPT Web control - end-to-end acceptance
 
-This checklist verifies the complete Remote Workstation MCP v0.7.10 path from ChatGPT Web to the private workstation.
+This checklist verifies the complete Remote Workstation MCP v0.8.1 path from ChatGPT Web to the private workstation.
 
 ## Supported path
 

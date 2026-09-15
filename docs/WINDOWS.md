@@ -1,6 +1,6 @@
 ﻿# Windows managed runtime
 
-Remote Workstation MCP v0.7.10 supports a managed one-time Windows installation for normal users and a separate source-repository workflow for contributors.
+Remote Workstation MCP v0.8.1 supports a managed one-time Windows installation for normal users and a separate source-repository workflow for contributors.
 
 ## One-time managed install
 
@@ -41,7 +41,7 @@ A normal user does not need a Git checkout, `npm install`, or a manual rebuild f
     openai-runtime-api-key.dpapi
   versions\
     v0.7.9\
-    v0.7.10\
+    v0.8.1\
   current.txt
   previous.txt
   settings.json
@@ -60,7 +60,7 @@ Managed installs create:
 %LOCALAPPDATA%\RemoteWorkstationMCP\bin\rwmcp.ps1
 ```
 
-Supported launcher actions in v0.7.10 are:
+Supported launcher actions in v0.8.1 are:
 
 ```text
 Setup
@@ -173,7 +173,7 @@ Default MCP endpoint:
 
 The Control Center is loopback-only and separate from the MCP/tunnel runtime. Closing the browser window does not stop the runtime.
 
-The production v0.7.10 Settings modal currently contains:
+The production v0.8.1 Settings modal currently contains:
 
 - Quick setup for ChatGPT;
 - Workstation;
@@ -184,9 +184,9 @@ The production v0.7.10 Settings modal currently contains:
 
 Advanced settings includes the MCP/Control Center ports, managed runtime option, **Automatic stable updates**, and **Check for updates**.
 
-![Runtime settings](images/v0.7.10-r2/04-settings-runtime-r2.png)
+![Runtime settings](images/v0.8.1/04-settings-runtime-v081.png)
 
-![Advanced settings](images/v0.7.10-r2/05-settings-advanced-r2.png)
+![Advanced settings](images/v0.8.1/05-settings-advanced-v081.png)
 
 ## Access mode and Administrator boundary
 
@@ -244,7 +244,7 @@ Direct MCP health:
 Invoke-RestMethod http://127.0.0.1:8683/healthz
 ```
 
-Expected healthy production state includes version `0.7.10`, an active loopback MCP listener, bearer auth for the OpenAI tunnel path, and tunnel readiness when OpenAI mode is running.
+Expected healthy production state includes version `0.8.0`, an active loopback MCP listener, bearer auth for the OpenAI tunnel path, and tunnel readiness when OpenAI mode is running.
 
 ## Troubleshooting
 

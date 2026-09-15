@@ -1,6 +1,6 @@
 ﻿# Windows quick start - one-time setup
 
-This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.7.10.
+This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.8.1.
 
 ## Before you start
 
@@ -15,7 +15,7 @@ You need:
 
 From the latest GitHub Release, download `install-windows.cmd`.
 
-![Release assets](images/v0.7.10-r2/09-github-release-v0710.png)
+![Release assets](images/v0.8.1/09-github-release-v081.png)
 
 Double-click it. The installer handles the production runtime, tunnel client, stable launcher, startup entry, and stable auto-update initialization.
 
@@ -48,23 +48,23 @@ The managed installer opens:
 
 `http://127.0.0.1:8684`
 
-![Control Center](images/v0.7.10-r2/01-control-center-home-r2.png)
+![Control Center](images/v0.8.1/01-control-center-home-v081.png)
 
 Open **Settings**.
 
-![Quick setup](images/v0.7.10-r2/02-settings-quick-setup-r2.png)
+![Quick setup](images/v0.8.1/02-settings-quick-setup-v081.png)
 
 ## 5. Configure the connection
 
 Enter the authorized workspace, Tunnel ID, Organization ID when applicable, and the restricted Runtime API key.
 
-![Connection settings](images/v0.7.10-r2/03-settings-connection-r2.png)
+![Connection settings](images/v0.8.1/03-settings-connection-v081.png)
 
 Keep Windows DPAPI storage enabled for the normal managed installation and choose **Prepare this PC for ChatGPT**.
 
 The wizard verifies the tunnel client, starts the runtime, waits for tunnel readiness, and enables start-at-logon.
 
-![Runtime](images/v0.7.10-r2/04-settings-runtime-r2.png)
+![Runtime](images/v0.8.1/04-settings-runtime-v081.png)
 
 ## 6. Add the custom MCP app to ChatGPT Web
 
@@ -86,13 +86,13 @@ Use **Workspace** for normal engineering work.
 
 Full access is **not** Administrator.
 
-![Full access confirmation](images/v0.7.10-r2/06-full-access-confirm-r2.png)
+![Full access confirmation](images/v0.8.1/06-full-access-confirm-v081.png)
 
 ## 8. Verify READY
 
 The green READY state means MCP health, bearer authentication, and tunnel readiness have passed.
 
-![Ready](images/v0.7.10-r2/07-ready-state-r2.png)
+![Ready](images/v0.8.1/07-ready-online-v081.png)
 
 In ChatGPT, call `chatgpt_web_status` first, then `workspace_list`.
 
@@ -108,7 +108,7 @@ You do not need to rerun the installer, `git pull`, `npm install`, rebuild RWMCP
 
 Automatic stable updates are enabled by default and checked at startup when due.
 
-![Automatic updates](images/v0.7.10-r2/08-auto-update-r2.png)
+![Automatic updates](images/v0.8.1/08-auto-update-v081.png)
 
 If a newly installed release fails MCP/tunnel health verification, RWMCP automatically returns to the previous known-good slot.
 

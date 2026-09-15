@@ -6,7 +6,7 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to a Windows engineerin
 
 ## Current release
 
-**v0.7.10**
+**v0.8.1**
 
 Default managed Windows endpoints:
 
@@ -16,11 +16,14 @@ Default managed Windows endpoints:
 - update channel: `stable`
 - update check: at Windows sign-in when due, at most once per 12 hours
 
-## v0.8.0 multi-device source milestone
+## v0.8 multi-device Hub
 
-The next release line moves multi-device control forward: one ChatGPT Web connection reaches an always-on Remote Workstation Hub, which can route owner-approved operations to registered office devices without exposing those devices directly to the Internet.
+The v0.8 series moves multi-device control into the stable release: one ChatGPT Web connection reaches an always-on Remote Workstation Hub, which can route owner-approved operations to registered office devices without exposing those devices directly to the Internet.
 
-The initial Hub-gateway MVP adds `device_list`, `device_probe`, and `device_exec`, plus Windows tunnel watchdog/reconnect hardening and explicit `ONLINE / RECONNECTING / OFFLINE` state. See [Multi-device Hub](docs/MULTI_DEVICE.md) for the architecture and security boundary.
+The Hub-gateway MVP adds `device_list`, `device_probe`, and `device_exec`, plus Windows tunnel watchdog/reconnect hardening and explicit `ONLINE / RECONNECTING / OFFLINE` state. v0.8.1 also self-heals the stable Windows launcher after managed upgrades so launcher behavior cannot lag behind the active runtime slot. See [Multi-device Hub](docs/MULTI_DEVICE.md) for architecture, setup and the security boundary.
+
+For an upgraded ChatGPT custom MCP app, start a fresh chat or reconnect the app once so ChatGPT refreshes the MCP tool schema and discovers the new `device_*` tools.
+
 ## New user path: from zero to READY
 
 A first-time user only needs to complete this flow once:
@@ -43,14 +46,14 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.7.10 release contains:
+The v0.8.1 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.7.10.tgz`
+- `remote-workstation-mcp-v0.8.1.tgz`
 - `SHA256SUMS.txt`
 
-![GitHub Release v0.7.10](docs/images/v0.7.10-r2/09-github-release-v0710.png)
+![GitHub Release v0.8.1](docs/images/v0.8.1/09-github-release-v081.png)
 
 Double-click `install-windows.cmd`. The installer checks prerequisites, downloads the verified release package, installs the runtime and OpenAI tunnel client, creates the stable launcher, configures startup, initializes automatic stable updates, and opens the local Control Center.
 
@@ -97,11 +100,11 @@ The Control Center opens locally at:
 http://127.0.0.1:8684
 ```
 
-![Control Center v0.7.10](docs/images/v0.7.10-r2/01-control-center-home-r2.png)
+![Control Center v0.8.1](docs/images/v0.8.1/01-control-center-home-v081.png)
 
 Open **Settings**.
 
-![Quick setup](docs/images/v0.7.10-r2/02-settings-quick-setup-r2.png)
+![Quick setup](docs/images/v0.8.1/02-settings-quick-setup-v081.png)
 
 Enter:
 
@@ -111,13 +114,13 @@ Enter:
 4. **Runtime API key** - the restricted Tunnels Read + Use key.
 5. Keep **Store runtime key with Windows DPAPI** enabled for normal managed Windows use.
 
-![OpenAI connection settings](docs/images/v0.7.10-r2/03-settings-connection-r2.png)
+![OpenAI connection settings](docs/images/v0.8.1/03-settings-connection-v081.png)
 
 Then choose **Prepare this PC for ChatGPT**.
 
 The wizard saves the non-secret configuration, protects the runtime key with Windows DPAPI, verifies `tunnel-client`, starts MCP + the Secure MCP Tunnel, waits for readiness, and enables start-at-logon.
 
-![Runtime controls](docs/images/v0.7.10-r2/04-settings-runtime-r2.png)
+![Runtime controls](docs/images/v0.8.1/04-settings-runtime-v081.png)
 
 ## 5. Add Remote Workstation to ChatGPT Web
 
@@ -149,7 +152,7 @@ Detailed guide: [ChatGPT Web custom app setup](docs/CHATGPT_WEB.md).
 
 When the workstation is configured correctly, the Control Center shows MCP healthy, tunnel READY, bearer authentication enabled, and start-at-logon ON.
 
-![READY state](docs/images/v0.7.10-r2/07-ready-state-r2.png)
+![READY state](docs/images/v0.8.1/07-ready-online-v081.png)
 
 In ChatGPT, invoke the Remote Workstation app and ask:
 
@@ -187,7 +190,7 @@ AI request
    -> one approved privileged execution
 ```
 
-![Full access confirmation](docs/images/v0.7.10-r2/06-full-access-confirm-r2.png)
+![Full access confirmation](docs/images/v0.8.1/06-full-access-confirm-v081.png)
 
 A mode change cannot silently grant Administrator rights.
 
@@ -233,9 +236,9 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 
 Advanced settings exposes **Automatic stable updates** and **Check for updates**.
 
-![Advanced settings](docs/images/v0.7.10-r2/05-settings-advanced-r2.png)
+![Advanced settings](docs/images/v0.8.1/05-settings-advanced-v081.png)
 
-![Automatic stable updates](docs/images/v0.7.10-r2/08-auto-update-r2.png)
+![Automatic stable updates](docs/images/v0.8.1/08-auto-update-v081.png)
 
 Managed defaults:
 
@@ -261,7 +264,7 @@ Production updates come from GitHub Releases. RWMCP does not `git pull` a produc
   secrets\
   versions\
     v0.7.9\
-    v0.7.10\
+    v0.8.1\
   current.txt
   previous.txt
   update.json

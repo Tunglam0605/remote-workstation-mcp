@@ -170,7 +170,7 @@ This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC 
 
 This phase is accelerated because direct ChatGPT Web control is already accepted on a real workstation and the next operational requirement is one ChatGPT app controlling multiple office machines from anywhere.
 
-### v0.8.0 — Hub-gateway MVP
+### v0.8.0 — Hub-gateway MVP ✅
 
 - one ChatGPT Web app reaches one always-on Remote Workstation Hub through OpenAI Secure MCP Tunnel
 - `device_list`, `device_probe`, and `device_exec` for owner-registered remote devices
@@ -181,7 +181,14 @@ This phase is accelerated because direct ChatGPT Web control is already accepted
 - explicit `ONLINE / RECONNECTING / OFFLINE` connection state and reconnect diagnostics in Control Center
 - safe restart handoff through the persistent Control Center so an MCP-triggered restart does not kill its own restart command
 
-### v0.8.1 — Device pairing
+### v0.8.1 — Managed-update launcher reliability ✅
+
+- ship the stable Windows launcher inside every runtime slot
+- self-heal `bin/rwmcp.ps1` from the active slot when a managed runtime starts
+- prevent an older installer from leaving an older launcher after upgrade
+- validate the real upgrade path and safe restart/reconnect on production
+
+### v0.8.2 — Device pairing
 
 - short-lived one-time pairing code
 - stable per-device identity and friendly name
@@ -189,14 +196,14 @@ This phase is accelerated because direct ChatGPT Web control is already accepted
 - Windows/Linux one-click paired-agent bootstrap
 - device inventory with `online`, version, platform, capabilities and last-seen metadata
 
-### v0.8.2 — Outbound paired agents
+### v0.8.3 — Outbound paired agents
 
 - each workstation establishes its own outbound authenticated session to the Hub
 - remove the requirement that the Hub and target workstation share the same LAN/VPN
 - preserve principal, scopes, local policy and audit across Hub routing
 - reconnect/revocation observability per device
 
-### v0.8.3 — Typed multi-device engineering operations
+### v0.8.4 — Typed multi-device engineering operations
 
 - device-scoped filesystem read/write with optimistic concurrency
 - device-scoped Git/build/process contracts

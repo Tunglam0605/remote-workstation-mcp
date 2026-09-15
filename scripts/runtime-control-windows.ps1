@@ -126,6 +126,19 @@ function Get-StartupRegistrationMethod {
   return $null
 }
 
+function Test-TunnelReady {
+  $healthUrlPath = Join-Path $Root 'runtime\openai-tunnel\health-url'
+  if (-not (Test-Path $healthUrlPath)) { return $false }
+  try {
+    $base = (Get-Content -Path $healthUrlPath -Raw).Trim()
+    if (-not $base) { return $false }
+    $ready = Invoke-WebRequest -Uri "$base/readyz" -UseBasicParsing -TimeoutSec 2
+    return $ready.StatusCode -eq 200
+  } catch {
+    return $false
+  }
+}
+
 function Apply-RuntimeEnvironment([string]$runtimeMode) {
   $includeSecret = $runtimeMode -eq 'OpenAI'
   Apply-RwmcpPersistedEnvironment -Root $Root -IncludeOpenAISecret:$includeSecret | Out-Null
@@ -178,18 +191,7 @@ function Runtime-Status {
     $httpAuth = $health.httpAuth
   } catch {}
 
-  $tunnelReady = $false
-  $healthUrlPath = Join-Path $Root 'runtime\openai-tunnel\health-url'
-  if (Test-Path $healthUrlPath) {
-    try {
-      $base = (Get-Content -Path $healthUrlPath -Raw).Trim()
-      if ($base) {
-        $ready = Invoke-WebRequest -Uri "$base/readyz" -UseBasicParsing -TimeoutSec 2
-        $tunnelReady = $ready.StatusCode -eq 200
-      }
-    } catch {}
-  }
-
+  $tunnelReady = Test-TunnelReady
   $startupMethod = Get-StartupRegistrationMethod
 
   return [pscustomobject]@{
@@ -211,7 +213,12 @@ function Runtime-Status {
 
 function Start-Runtime([string]$runtimeMode) {
   $existing = Runtime-Status
-  if ($existing.running) { return $existing }
+  if ($existing.running) {
+    if ($runtimeMode -eq 'OpenAI' -and $existing.mode -ne 'OpenAI') {
+      throw 'A local-only runtime is already running. Stop or restart it in OpenAI mode before starting the ChatGPT tunnel.'
+    }
+    return $existing
+  }
 
   Apply-RuntimeEnvironment $runtimeMode
   $hostScript = Join-Path $Root 'scripts\runtime-host-windows.ps1'
@@ -264,6 +271,22 @@ function Start-Runtime([string]$runtimeMode) {
     $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 40 | Out-String).Trim() } else { '' }
     throw "Runtime did not become healthy.$([Environment]::NewLine)$tail"
   }
+
+  if ($runtimeMode -eq 'OpenAI') {
+    $tunnelReady = $false
+    foreach ($attempt in 1..300) {
+      if ($process.HasExited) { break }
+      if (Test-TunnelReady) { $tunnelReady = $true; break }
+      Start-Sleep -Milliseconds 250
+    }
+    if (-not $tunnelReady) {
+      Stop-ProcessTree $process.Id
+      Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
+      $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 60 | Out-String).Trim() } else { '' }
+      throw "OpenAI tunnel did not become ready before the deadline.$([Environment]::NewLine)$tail"
+    }
+  }
+
   return Runtime-Status
 }
 

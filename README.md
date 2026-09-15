@@ -6,51 +6,103 @@ Remote Workstation MCP lets an authorized AI client inspect and edit approved co
 
 > **Security-sensitive beta.** Start with a disposable workspace and the default **Workspace** mode. Select **Full access** only on a trusted owner workstation. Administrator actions always require a separate local approval; elevation then uses Windows RunAs/UAC under the machine policy.
 
-## Current release: v0.7.8
+## Current release: v0.7.9
 
-The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path. v0.7.8 keeps the Codex-style permission model from v0.7.7 and refreshes the local Control Center with the Tung Lam Web UI design system while hardening host-wide directory listing:
+v0.7.9 focuses on **install once, configure once, then use it like a normal workstation service**. It combines the refreshed Tung Lam Control Center from v0.7.8 with the new Windows distribution/update path:
 
-- authenticated request principals and workstation scopes;
-- workspace filesystem + optimistic SHA-256 writes;
-- typed Git branches/commits/worktrees;
-- LSP definitions, references, hover, symbols and diagnostics;
-- bounded managed processes with incremental output and stdin;
-- structured compiler/build diagnostics;
-- approved SSH hosts and program allowlists;
-- simple owner-selected access modes: Read only, Workspace, and Full access;
-- one-shot Administrator requests that require local Control Center approval; elevation then uses Windows RunAs/UAC under the machine policy;
-- legacy client-bound permission leases remain supported for compatibility/temporary workflows;
-- outbound-only OpenAI Secure MCP Tunnel support;
-- Windows DPAPI storage for the OpenAI runtime API key;
-- persistent local-only Setup & Control Center on a dedicated loopback port, with browser redirect from the MCP root;
-- bilingual English/Vietnamese Control Center with remembered language selection;
-- Tung Lam Web UI visual system: dark-by-default navy canvas, emerald/cyan accents, hover glow, light-theme toggle, responsive cards and native Administrator modal;
-- compact mode-first Control Center; detailed tunnel/runtime setup stays collapsed under Setup & advanced;
-- host filesystem listing tolerates protected Windows entries and reports them as inaccessible instead of failing the whole directory;
-- pending Administrator approval appears only when an AI requests one, showing the exact executable, arguments and reason before UAC;
-- checksum-verified per-user Windows release installation;
-- version slots, stable launcher, update pointer and rollback pointer;
-- current-user start-at-logon through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, without Administrator privileges;
-- deterministic OpenAI tunnel readiness before `StartOpenAI` reports success;
-- `chatgpt_web_status` for first-call verification from ChatGPT Web.
+- one-time Windows bootstrap through `install-windows.cmd` or `install-windows.ps1`;
+- automatic installation of Node.js LTS and Git through `winget` when they are missing;
+- no repository clone, `git pull`, `npm install`, or rebuild required for normal users;
+- stable per-user launcher under `%LOCALAPPDATA%\RemoteWorkstationMCP\bin`;
+- automatic start after Windows sign-in;
+- automatic **stable-channel** update checks on startup, throttled to once per 12 hours;
+- verified GitHub Release download + SHA-256 package validation;
+- side-by-side version slots, health/readiness validation, and automatic rollback when a new runtime cannot start cleanly;
+- failed-release backoff so a broken version is not reinstalled on every sign-in;
+- owner settings, policy, SSH hosts, audit data, workspace selection and DPAPI-protected runtime key survive updates;
+- simple **Read only / Workspace / Full access** modes;
+- Administrator actions remain a separate **owner approval → Windows UAC** path;
+- bilingual EN/VI Control Center using the Tung Lam Web UI design system.
 
-The primary design rule is unchanged: **ChatGPT/GPT Web is a first-class controller. Codex, Claude and other coding agents are optional workers, never a required hop.**
+The primary design rule remains: **ChatGPT/GPT Web is a first-class controller. Codex, Claude and other coding agents are optional workers, never a required hop.**
 
 ---
 
-## Fastest Windows installation
+## Windows — install once
 
-A production/new-machine install does **not** require cloning the repository.
+### 1. Download and run the installer
+
+Open the latest GitHub Release and download:
+
+```text
+install-windows.cmd
+```
+
+Double-click it. The bootstrap downloads `install-windows.ps1` and `SHA256SUMS.txt`, verifies the installer checksum, and then starts the managed installation.
+
+PowerShell fallback:
 
 ```powershell
 $installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
 Invoke-WebRequest `
   'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
   -OutFile $installer
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
 
-The installer resolves the latest release, downloads the package + `SHA256SUMS.txt`, verifies SHA-256, installs a versioned runtime under the current Windows user, installs the pinned OpenAI `tunnel-client`, creates a stable launcher and opens the local Setup & Control Center.
+The installer automatically handles the workstation-side prerequisites, installs the verified runtime in a version slot, installs the pinned OpenAI `tunnel-client`, creates the stable launcher/Start Menu shortcut, initializes stable auto-update, and opens the local Control Center.
+
+### 2. Complete first-time setup
+
+On a new machine, open **Settings** and enter the owner-specific connection values:
+
+1. authorized workspace root;
+2. OpenAI Tunnel ID;
+3. OpenAI Organization ID when applicable;
+4. restricted runtime API key;
+5. keep DPAPI secure storage enabled, then choose **Prepare this PC for ChatGPT**.
+
+![Remote Workstation MCP Control Center](docs/images/setup/01-control-center.png)
+
+The setup wizard performs the rest automatically: save configuration, protect the runtime key with Windows DPAPI, create/check workspace and policy, verify the tunnel client, start MCP + the secure tunnel, check readiness, and enable start-at-logon.
+
+Detailed configuration remains behind the Settings modal instead of crowding the daily dashboard:
+
+![Remote Workstation MCP Settings](docs/images/setup/02-settings.png)
+
+### 3. Choose an access mode
+
+Daily use is intentionally reduced to three modes:
+
+- **Read only** — inspect only;
+- **Workspace** — read/write/run inside the authorized workspace;
+- **Full access** — user-level host filesystem + raw shell.
+
+Full access still does **not** grant Administrator. Administrator requests require a separate local approval and Windows UAC.
+
+![Full access confirmation](docs/images/setup/03-full-access-confirm.png)
+
+### 4. Add the workstation app in ChatGPT
+
+Use the Tunnel ID shown by the Control Center when adding/selecting the Remote Workstation MCP app in ChatGPT. See [ChatGPT Web connection](docs/CHATGPT_WEB.md) for the product-side steps and [end-to-end acceptance](docs/CHATGPT_WEB_CONTROL.md) for the first verification call.
+
+### 5. After the first setup
+
+You do **not** rerun the installer on every boot. After Windows sign-in, the stable launcher automatically:
+
+```text
+check stable update if due
+        ↓
+install verified version into a new slot when available
+        ↓
+start MCP + OpenAI tunnel
+        ↓
+verify health/readiness
+        ↓
+READY
+```
+
+If a new runtime fails to start, RWMCP swaps back to the previous version slot and starts the known-good version. A failed release is temporarily suppressed before retrying. Configuration and secrets live outside application version slots, so update/rollback does not require reconfiguration.
 
 Managed Windows layout:
 
@@ -59,29 +111,28 @@ Managed Windows layout:
 ├── current.txt
 ├── previous.txt
 ├── settings.json
+├── update.json
 ├── audit.jsonl
 ├── bin\
 │   ├── rwmcp.ps1
-│   └── install-windows-release.ps1
+│   ├── install-windows-release.ps1
+│   └── update-windows.ps1
 ├── config\
 │   ├── policy.yaml
 │   └── hosts.yaml
 ├── runtime\
 │   ├── supervisor.json
-│   ├── supervisor.stdout.log
-│   ├── supervisor.stderr.log
 │   ├── control-center.json
-│   ├── control-center.stdout.log
-│   ├── control-center.stderr.log
 │   ├── permission-lease.json
 │   └── admin-approvals\
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
-    └── vX.Y.Z\
+    ├── v0.7.8\
+    └── v0.7.9\
 ```
 
-Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the version slot, so application updates do not replace owner configuration.
+Policy, SSH hosts, settings, audit data, update preference and DPAPI secrets live outside version slots.
 
 ### Repository-development setup
 
@@ -89,7 +140,7 @@ Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the versi
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.8
+git checkout v0.7.9
 npm run setup:first-run:windows
 ```
 
@@ -101,7 +152,7 @@ The managed Windows layout keeps the MCP transport and the owner Control Center 
 
 The Control Center is a separate process from the MCP/tunnel runtime, so stopping or restarting MCP does not tear down the page that issued the action. It rejects non-loopback/cross-origin requests and protects its owner APIs with an ephemeral in-memory CSRF token embedded only in the locally served page; the token is neither persisted nor placed in the URL.
 
-For daily use, the main page intentionally exposes only connection health and one access-mode selector: **Read only**, **Workspace** (default), or **Full access**. The selected mode atomically updates the policy and authenticated tunnel scopes; Full access enables user-level host filesystem + raw shell, while Administrator remains separate. Tunnel/runtime/workspace setup stays collapsed under **Setup & advanced**. If an AI needs an Administrator action, `admin_request` creates a short-lived pending request; the Control Center shows the exact executable/arguments/reason and only a local owner click followed by Windows RunAs/UAC elevation can launch the isolated privileged helper.
+For daily use, the main page intentionally exposes only connection health and one access-mode selector: **Read only**, **Workspace** (default), or **Full access**. The selected mode updates the policy and authenticated tunnel scopes; Full access enables user-level host filesystem + raw shell, while Administrator remains separate. Tunnel/runtime/workspace setup opens only when the owner enters **Settings**. If an AI needs an Administrator action, `admin_request` creates a short-lived pending request; the Control Center shows the exact executable/arguments/reason and only a local owner click followed by Windows RunAs/UAC elevation can launch the isolated privileged helper.
 
 Starting with v0.7.5, start-at-logon uses the current-user Windows `Run` registry key rather than `Register-ScheduledTask`. This avoids standard-user `Access is denied` failures and remains non-elevated. The OpenAI start action also waits for tunnel `/readyz` before reporting success, so the quick setup flow does not claim completion while the tunnel is still connecting.
 
@@ -167,16 +218,15 @@ Examples:
 $ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
 
 & $ctl -Action Setup
-& $ctl -Action StartOpenAI
 & $ctl -Action Status
-& $ctl -Action Stop
-& $ctl -Action AutostartOn
-& $ctl -Action AutostartOff
+& $ctl -Action UpdateCheck
 & $ctl -Action Update
+& $ctl -Action AutoUpdateOn
+& $ctl -Action AutoUpdateOff
 & $ctl -Action Rollback
 ```
 
-`Update` installs the latest verified release in a new slot and moves `current.txt`. `Rollback` swaps back to the previous existing slot. These are local-owner actions and are not exposed as MCP tools.
+Windows start-at-logon uses the launcher `Boot` action automatically. `Boot` performs a throttled stable update check before starting OpenAI mode. Manual `Update` installs the latest verified release into a new slot and validates it; `Rollback` swaps back to the previous existing slot. These are owner-local actions and are not exposed as MCP tools.
 
 ---
 
@@ -272,9 +322,9 @@ See [Security](docs/SECURITY.md) and [Threat model](docs/THREAT_MODEL.md).
 Managed Windows install:
 
 - Windows 10/11;
-- PowerShell 5.1+;
+- Windows PowerShell 5.1+;
 - network access to GitHub Releases;
-- Node.js 22+, npm and Git (installer can use `winget` when available);
+- `winget` recommended for one-time automatic Node.js LTS + Git installation (otherwise preinstall them);
 - OpenSSH client only when SSH tools are needed.
 
 The OpenAI tunnel path additionally requires a Tunnel ID, suitable runtime API key and supported `tunnel-client`. The Windows installer installs the pinned verified tunnel-client build.
@@ -311,7 +361,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.8
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.9
 codex plugin marketplace list
 ```
 
@@ -334,6 +384,7 @@ CI validates Linux and Windows builds, tests, plugin manifests, Windows DPAPI pe
 
 ## Documentation
 
+- [Windows install-once quick start](docs/QUICKSTART_WINDOWS.md)
 - [Setup & Control Center](docs/SETUP_CONSOLE.md)
 - [ChatGPT Web connection](docs/CHATGPT_WEB.md)
 - [ChatGPT Web end-to-end acceptance](docs/CHATGPT_WEB_CONTROL.md)

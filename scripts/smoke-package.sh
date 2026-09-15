@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP="$(mktemp -d)"
 PID=""
+native_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
 cleanup() {
   if [[ -n "$PID" ]]; then
     kill "$PID" 2>/dev/null || true
@@ -29,20 +36,28 @@ PKG="$TEMP/package"
 WORKSPACE="$TEMP/workspace"
 mkdir -p "$PKG" "$WORKSPACE"
 tar -xzf "$ARCHIVE" --strip-components=1 -C "$PKG"
+[[ -f "$PKG/scripts/update-windows.ps1" ]] || { echo "Packed release is missing scripts/update-windows.ps1" >&2; exit 1; }
+[[ -f "$PKG/scripts/install-windows-bootstrap.cmd" ]] || { echo "Packed release is missing scripts/install-windows-bootstrap.cmd" >&2; exit 1; }
 (
   cd "$PKG"
   npm install --omit=dev --no-audit --no-fund
 )
 
-VERSION="$(node -p "require('$PKG/package.json').version")"
+VERSION="$(cd "$PKG" && node -p "require('./package.json').version")"
 PORT="${RWMCP_SMOKE_PORT:-18765}"
+WORKSPACE_RUNTIME="$(native_path "$WORKSPACE")"
+POLICY_RUNTIME="$(native_path "$TEMP/policy.yaml")"
+HOSTS_RUNTIME="$(native_path "$TEMP/hosts.yaml")"
+LEASE_RUNTIME="$(native_path "$TEMP/lease.json")"
+AUDIT_RUNTIME="$(native_path "$TEMP/audit.jsonl")"
+HEALTH_RUNTIME="$(native_path "$TEMP/health.json")"
 
 cat > "$TEMP/policy.yaml" <<EOF
 version: 1
 mode: workspace
 workspaces:
   - id: smoke
-    root: $WORKSPACE
+    root: $WORKSPACE_RUNTIME
     readOnly: false
 filesystem:
   maxReadBytes: 1048576
@@ -70,14 +85,17 @@ version: 1
 hosts: []
 EOF
 
-RWMCP_POLICY="$TEMP/policy.yaml" \
-RWMCP_HOSTS="$TEMP/hosts.yaml" \
-RWMCP_LEASE="$TEMP/lease.json" \
-RWMCP_AUDIT="$TEMP/audit.jsonl" \
-RWMCP_PORT="$PORT" \
-RWMCP_CLIENT_ID=release-smoke \
-RWMCP_CLIENT_TYPE=ci-smoke \
-node "$PKG/dist/cli.js" --http >"$TEMP/server.log" 2>&1 &
+(
+  cd "$PKG"
+  RWMCP_POLICY="$POLICY_RUNTIME" \
+  RWMCP_HOSTS="$HOSTS_RUNTIME" \
+  RWMCP_LEASE="$LEASE_RUNTIME" \
+  RWMCP_AUDIT="$AUDIT_RUNTIME" \
+  RWMCP_PORT="$PORT" \
+  RWMCP_CLIENT_ID=release-smoke \
+  RWMCP_CLIENT_TYPE=ci-smoke \
+  node dist/cli.js --http
+) >"$TEMP/server.log" 2>&1 &
 PID=$!
 
 healthy=false
@@ -100,7 +118,7 @@ if [[ "$healthy" != true ]]; then
   exit 1
 fi
 
-node - "$TEMP/health.json" "$VERSION" <<'NODE'
+node - "$HEALTH_RUNTIME" "$VERSION" <<'NODE'
 const fs = require('node:fs');
 const [file, expectedVersion] = process.argv.slice(2);
 const health = JSON.parse(fs.readFileSync(file, 'utf8'));

@@ -120,11 +120,13 @@ For high-risk or untrusted repositories, use an additional VM/container/OS sandb
 
 ### Windows managed release
 
-The v0.7.3 Windows installer resolves a GitHub Release, downloads the package and `SHA256SUMS.txt`, verifies SHA-256 before extraction, validates the package version, installs production dependencies in a new per-user version slot, validates the runtime version, and installs the pinned checksum-verified OpenAI tunnel-client.
+The Windows release path resolves a GitHub Release, downloads the package and `SHA256SUMS.txt`, verifies SHA-256 before extraction, validates the package version, installs production dependencies in a new per-user version slot, validates the runtime version, and installs the pinned checksum-verified OpenAI tunnel-client. The optional `install-windows.cmd` bootstrap also verifies the downloaded PowerShell installer against the release checksum manifest before executing it.
 
-Only then is the stable `current.txt` pointer moved to that slot. The prior valid slot is retained in `previous.txt` for owner-triggered rollback.
+v0.7.9 adds automatic stable-channel checks at Windows sign-in. Auto-update is owner-local state, throttled to at most one network check per 12 hours. Update/network failure does not block the existing runtime from starting. After a candidate slot is activated, the stable launcher requires runtime health and OpenAI tunnel readiness; failure triggers an automatic pointer rollback to the previous slot and records failed-release backoff before the known-good runtime is started.
 
-The Windows installer does **not** claim independent publisher authenticity from SHA-256 alone, and it does not silently grant admin privilege or alter full-control policy.
+Owner policy, hosts, settings, update preference, audit state and DPAPI secrets live outside version slots and are not replaced during upgrade/rollback.
+
+Published SHA-256 protects against accidental/corrupted asset substitution relative to the release manifest, but it is not independent publisher signing. Release artifact signing/provenance remains a later hardening milestone. Auto-update never grants Administrator privilege or changes the selected access mode/full-control policy.
 
 ### Linux managed release
 

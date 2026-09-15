@@ -95,7 +95,8 @@ jobs:
           PACK="$(npm pack --pack-destination release --silent)"
           mv "release/$PACK" "release/remote-workstation-mcp-${TAG}.tgz"
           cp scripts/install-windows-release.ps1 release/install-windows.ps1
-          (cd release && sha256sum "remote-workstation-mcp-${TAG}.tgz" install-windows.ps1 > SHA256SUMS.txt)
+          cp scripts/install-windows-bootstrap.cmd release/install-windows.cmd
+          (cd release && sha256sum "remote-workstation-mcp-${TAG}.tgz" install-windows.ps1 install-windows.cmd > SHA256SUMS.txt)
       - name: Smoke-test packed release
         if: steps.existing.outputs.exists != 'true'
         env:
@@ -111,6 +112,7 @@ jobs:
           gh release create "$TAG" \
             "release/remote-workstation-mcp-${TAG}.tgz" \
             "release/install-windows.ps1" \
+            "release/install-windows.cmd" \
             "release/SHA256SUMS.txt" \
             --title "$TAG" \
             --generate-notes

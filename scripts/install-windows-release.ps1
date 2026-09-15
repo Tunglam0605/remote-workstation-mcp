@@ -24,53 +24,181 @@ function Refresh-Path {
   $env:Path = @($machine, $user) -join ';'
 }
 
-function Require-OrInstall([string]$Command, [string]$WingetId) {
-  if (Get-Command $Command -ErrorAction SilentlyContinue) { return }
+function Resolve-CommandPath([string]$Command, [string]$WingetId, [string[]]$KnownPaths = @()) {
+  $existing = Get-Command $Command -ErrorAction SilentlyContinue
+  if ($existing) { return $existing.Source }
+  foreach ($candidate in $KnownPaths) {
+    if ($candidate -and (Test-Path $candidate)) { return $candidate }
+  }
   if ($SkipPrerequisites) { throw "Required command '$Command' is missing." }
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   if (-not $winget) {
     throw "Required command '$Command' is missing and winget is unavailable. Install $WingetId, then rerun this installer."
   }
   Write-Host "Installing prerequisite $WingetId..." -ForegroundColor Cyan
-  & $winget.Source install --id $WingetId -e --accept-source-agreements --accept-package-agreements
+  & $winget.Source install --id $WingetId -e --accept-source-agreements --accept-package-agreements --silent
   if ($LASTEXITCODE -ne 0) { throw "winget failed to install $WingetId (exit $LASTEXITCODE)." }
   Refresh-Path
-  if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
-    throw "$WingetId was installed but '$Command' is still unavailable in this session. Open a new PowerShell window and rerun the installer."
+  $installed = Get-Command $Command -ErrorAction SilentlyContinue
+  if ($installed) { return $installed.Source }
+  foreach ($candidate in $KnownPaths) {
+    if ($candidate -and (Test-Path $candidate)) { return $candidate }
   }
+  throw "$WingetId was installed but '$Command' could not be located. Restart Windows and retry only if the installer cannot continue automatically."
 }
 
 function Write-StableLauncher([string]$CurrentRoot) {
   $launcher = Join-Path $BinDir 'rwmcp.ps1'
   $content = @'
 param(
-  [ValidateSet('Setup','Start','StartOpenAI','Stop','Restart','Status','AutostartOn','AutostartOff','Update','Rollback')]
+  [ValidateSet('Setup','Start','StartOpenAI','Boot','Stop','Restart','Status','AutostartOn','AutostartOff','Update','UpdateCheck','AutoUpdateOn','AutoUpdateOff','Rollback')]
   [string]$Action = 'Setup'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Base = Split-Path -Parent $PSScriptRoot
 $CurrentFile = Join-Path $Base 'current.txt'
-if (-not (Test-Path $CurrentFile)) { throw 'Remote Workstation MCP current runtime pointer is missing.' }
-$Root = (Get-Content -Path $CurrentFile -Raw).Trim()
-if (-not (Test-Path $Root)) { throw "Installed runtime does not exist: $Root" }
+$PreviousFile = Join-Path $Base 'previous.txt'
+$Installer = Join-Path $Base 'bin\install-windows-release.ps1'
+$Updater = Join-Path $Base 'bin\update-windows.ps1'
 $env:RWMCP_POLICY = Join-Path $Base 'config\policy.yaml'
 $env:RWMCP_HOSTS = Join-Path $Base 'config\hosts.yaml'
+
+function Get-CurrentRoot {
+  if (-not (Test-Path $CurrentFile)) { throw 'Remote Workstation MCP current runtime pointer is missing.' }
+  $root = (Get-Content -Path $CurrentFile -Raw).Trim()
+  if (-not (Test-Path $root)) { throw "Installed runtime does not exist: $root" }
+  return $root
+}
+
+function Get-RootVersion([string]$Root) {
+  try {
+    $manifest = Get-Content -Path (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
+    return [string]$manifest.version
+  } catch { return '' }
+}
+
+function Cleanup-VersionSlots {
+  try {
+    $versionsDir = Join-Path $Base 'versions'
+    if (-not (Test-Path $versionsDir)) { return }
+    $protected = @()
+    foreach ($pointer in @($CurrentFile, $PreviousFile)) {
+      if (-not (Test-Path $pointer)) { continue }
+      $value = (Get-Content -Path $pointer -Raw).Trim()
+      if ($value -and (Test-Path $value)) { $protected += [IO.Path]::GetFullPath($value) }
+    }
+    $extraKept = 0
+    $dirs = @(Get-ChildItem -LiteralPath $versionsDir -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+    foreach ($dir in $dirs) {
+      $full = [IO.Path]::GetFullPath($dir.FullName)
+      $isProtected = $false
+      foreach ($keep in $protected) {
+        if ([string]::Equals($full, $keep, [StringComparison]::OrdinalIgnoreCase)) { $isProtected = $true; break }
+      }
+      if ($isProtected) { continue }
+      # Keep one additional older slot besides current + previous for emergency
+      # inspection while bounding long-term disk growth from automatic updates.
+      if ($extraKept -lt 1) { $extraKept += 1; continue }
+      Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+    }
+  } catch {
+    Write-Warning "Old version-slot cleanup was skipped: $($_.Exception.Message)"
+  }
+}
+
+function Invoke-Runtime([string]$RuntimeAction, [string]$Mode = 'OpenAI', [string]$Root = '') {
+  if (-not $Root) { $Root = Get-CurrentRoot }
+  $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
+  if ($RuntimeAction -in @('Start','Restart','RegisterStartup')) {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script -Action $RuntimeAction -Mode $Mode -Root $Root
+  } else {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $script -Action $RuntimeAction -Root $Root
+  }
+  if ($LASTEXITCODE -ne 0) { throw "Runtime action $RuntimeAction failed with exit code $LASTEXITCODE." }
+}
+
+function Invoke-Updater([string]$UpdateAction, [switch]$Quiet) {
+  if (-not (Test-Path $Updater)) { return }
+  $args = @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$Updater,'-Action',$UpdateAction)
+  if ($Quiet) { $args += '-Quiet' }
+  & powershell.exe @args
+  if ($LASTEXITCODE -ne 0) { throw "Updater action $UpdateAction failed with exit code $LASTEXITCODE." }
+}
+
+function Invoke-SafeBoot {
+  $before = Get-CurrentRoot
+  try {
+    Invoke-Updater 'InstallAuto' -Quiet
+  } catch {
+    Write-Warning "Automatic update check failed; starting the installed version: $($_.Exception.Message)"
+  }
+  $candidate = Get-CurrentRoot
+  try {
+    Invoke-Runtime 'Start' 'OpenAI' $candidate
+    Cleanup-VersionSlots
+  } catch {
+    if (-not [string]::Equals($candidate, $before, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path $PreviousFile)) {
+      $failedVersion = Get-RootVersion $candidate
+      if ($failedVersion -and (Test-Path $Updater)) {
+        try { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Updater -Action MarkFailed -Version $failedVersion -Quiet | Out-Null } catch {}
+      }
+      Write-Warning "Updated runtime failed health/readiness checks. Rolling back to the previous slot."
+      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
+      if ($LASTEXITCODE -ne 0) { throw 'Automatic rollback failed.' }
+      Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+      return
+    }
+    throw
+  }
+}
+
+$Root = Get-CurrentRoot
 switch ($Action) {
   'Setup' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\setup-web-windows.ps1') }
-  'Start' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action Start -Mode Local -Root $Root }
-  'StartOpenAI' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action Start -Mode OpenAI -Root $Root }
-  'Stop' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action Stop -Root $Root }
-  'Restart' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action Restart -Mode OpenAI -Root $Root }
-  'Status' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action Status -Root $Root }
-  'AutostartOn' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action RegisterStartup -Mode OpenAI -Root $Root }
-  'AutostartOff' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\runtime-control-windows.ps1') -Action UnregisterStartup -Root $Root }
-  'Update' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Base 'bin\install-windows-release.ps1') -NoSetup }
-  'Rollback' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Base 'bin\install-windows-release.ps1') -Rollback -NoSetup }
+  'Start' { Invoke-Runtime 'Start' 'Local' $Root }
+  'StartOpenAI' { Invoke-Runtime 'Start' 'OpenAI' $Root }
+  'Boot' { Invoke-SafeBoot }
+  'Stop' { Invoke-Runtime 'Stop' 'OpenAI' $Root }
+  'Restart' { Invoke-Runtime 'Restart' 'OpenAI' $Root }
+  'Status' { Invoke-Runtime 'Status' 'OpenAI' $Root }
+  'AutostartOn' { Invoke-Runtime 'RegisterStartup' 'OpenAI' $Root }
+  'AutostartOff' { Invoke-Runtime 'UnregisterStartup' 'OpenAI' $Root }
+  'UpdateCheck' { Invoke-Updater 'Check' }
+  'AutoUpdateOn' { Invoke-Updater 'Enable' }
+  'AutoUpdateOff' { Invoke-Updater 'Disable' }
+  'Update' {
+    $before = Get-CurrentRoot
+    try { Invoke-Runtime 'Stop' 'OpenAI' $before } catch {}
+    Invoke-Updater 'Install'
+    $candidate = Get-CurrentRoot
+    try {
+      Invoke-Runtime 'Start' 'OpenAI' $candidate
+      Cleanup-VersionSlots
+    } catch {
+      $failedVersion = Get-RootVersion $candidate
+      if ($failedVersion -and (Test-Path $Updater)) {
+        try { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Updater -Action MarkFailed -Version $failedVersion -Quiet | Out-Null } catch {}
+      }
+      if (Test-Path $PreviousFile) {
+        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
+        if ($LASTEXITCODE -eq 0) { Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot) }
+      }
+      throw
+    }
+  }
+  'Rollback' {
+    try { Invoke-Runtime 'Stop' 'OpenAI' $Root } catch {}
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
+    if ($LASTEXITCODE -ne 0) { throw 'Rollback failed.' }
+    Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+  }
 }
 '@
-  Set-Content -Path $launcher -Value $content -Encoding utf8
+  [IO.File]::WriteAllText($launcher, $content + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
   Copy-Item -Path (Join-Path $CurrentRoot 'scripts\install-windows-release.ps1') -Destination (Join-Path $BinDir 'install-windows-release.ps1') -Force
+  $updateScript = Join-Path $CurrentRoot 'scripts\update-windows.ps1'
+  if (Test-Path $updateScript) { Copy-Item -Path $updateScript -Destination (Join-Path $BinDir 'update-windows.ps1') -Force }
 }
 
 function Install-Shortcut {
@@ -90,6 +218,35 @@ function Install-Shortcut {
   }
 }
 
+function Initialize-AutoUpdate {
+  $updater = Join-Path $BinDir 'update-windows.ps1'
+  $updateState = Join-Path $Base 'update.json'
+  if (-not (Test-Path $updater)) { return }
+  if (Test-Path $updateState) { return }
+  try {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $updater -Action Enable -Quiet
+    if ($LASTEXITCODE -ne 0) { throw "Updater initialization failed with exit code $LASTEXITCODE." }
+  } catch {
+    Write-Host "Automatic stable updates could not be initialized: $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
+function Migrate-ExistingAutostart {
+  $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+  $runName = 'RemoteWorkstationMCP'
+  try {
+    $existing = Get-ItemProperty -Path $runKey -Name $runName -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace([string]$existing.$runName)) { return }
+    $launcher = Join-Path $BinDir 'rwmcp.ps1'
+    $command = "powershell.exe -NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -Action Boot"
+    New-Item -Path $runKey -Force | Out-Null
+    New-ItemProperty -Path $runKey -Name $runName -Value $command -PropertyType String -Force | Out-Null
+  } catch {
+    # No existing registration means this is a first-time install. The setup
+    # wizard will enable start-at-logon only after configuration succeeds.
+  }
+}
+
 if ($Rollback) {
   if (-not (Test-Path $PreviousFile)) { throw 'No previous installed version is available for rollback.' }
   $previous = (Get-Content -Path $PreviousFile -Raw).Trim()
@@ -102,16 +259,40 @@ if ($Rollback) {
   exit 0
 }
 
-Require-OrInstall 'node' 'OpenJS.NodeJS.LTS'
-Require-OrInstall 'npm' 'OpenJS.NodeJS.LTS'
-Require-OrInstall 'git' 'Git.Git'
-if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
-  throw 'Windows tar.exe is required to extract the verified release package.'
-}
+$nodeKnown = @((Join-Path $env:ProgramFiles 'nodejs\node.exe'))
+$npmKnown = @((Join-Path $env:ProgramFiles 'nodejs\npm.cmd'))
+$gitKnown = @((Join-Path $env:ProgramFiles 'Git\cmd\git.exe'))
+if (${env:ProgramFiles(x86)}) { $gitKnown += (Join-Path ${env:ProgramFiles(x86)} 'Git\cmd\git.exe') }
+if ($env:LOCALAPPDATA) { $gitKnown += (Join-Path $env:LOCALAPPDATA 'Programs\Git\cmd\git.exe') }
+$NodeExe = Resolve-CommandPath 'node' 'OpenJS.NodeJS.LTS' $nodeKnown
+$NpmExe = Resolve-CommandPath 'npm' 'OpenJS.NodeJS.LTS' $npmKnown
+# Git is not required by the updater itself, but it backs the built-in Git MCP
+# tools. Install it automatically on a new engineering workstation so the
+# one-time setup yields the complete default capability set.
+$GitExe = Resolve-CommandPath 'git' 'Git.Git' $gitKnown
+$TarExe = (Get-Command tar.exe -ErrorAction SilentlyContinue).Source
+if (-not $TarExe) { throw 'Windows tar.exe is required to extract the verified release package.' }
 
-$nodeVersion = (& node --version).TrimStart('v')
+$nodeVersion = (& $NodeExe --version).TrimStart('v')
 $nodeMajor = [int]($nodeVersion.Split('.')[0])
-if ($nodeMajor -lt 22) { throw "Node.js 22+ is required. Found v$nodeVersion." }
+if ($nodeMajor -lt 22) {
+  if ($SkipPrerequisites) { throw "Node.js 22+ is required. Found v$nodeVersion." }
+  $winget = Get-Command winget -ErrorAction SilentlyContinue
+  if (-not $winget) { throw "Node.js 22+ is required. Found v$nodeVersion and winget is unavailable for automatic upgrade." }
+  Write-Host "Upgrading Node.js LTS (found v$nodeVersion)..." -ForegroundColor Cyan
+  & $winget.Source upgrade --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements --silent
+  if ($LASTEXITCODE -ne 0) {
+    # Some winget states report no installed package to upgrade; install is safe/idempotent.
+    & $winget.Source install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements --silent
+    if ($LASTEXITCODE -ne 0) { throw "winget failed to upgrade Node.js LTS (exit $LASTEXITCODE)." }
+  }
+  Refresh-Path
+  $NodeExe = Resolve-CommandPath 'node' 'OpenJS.NodeJS.LTS' $nodeKnown
+  $NpmExe = Resolve-CommandPath 'npm' 'OpenJS.NodeJS.LTS' $npmKnown
+  $nodeVersion = (& $NodeExe --version).TrimStart('v')
+  $nodeMajor = [int]($nodeVersion.Split('.')[0])
+  if ($nodeMajor -lt 22) { throw "Node.js upgrade completed but v$nodeVersion is still below required v22." }
+}
 
 $headers = @{ 'User-Agent' = 'remote-workstation-mcp-windows-installer' }
 $releaseUri = if ($Version -eq 'latest') {
@@ -146,7 +327,7 @@ try {
   if ($actual -ne $expected) { throw "Release package SHA-256 mismatch. Expected $expected but got $actual." }
   Write-Host "SHA-256 verified: $actual" -ForegroundColor Green
 
-  & tar.exe -xzf $PackagePath -C $StageDir
+  & $TarExe -xzf $PackagePath -C $StageDir
   if ($LASTEXITCODE -ne 0) { throw "tar.exe failed to extract the release package (exit $LASTEXITCODE)." }
   $packageDir = Join-Path $StageDir 'package'
   if (-not (Test-Path (Join-Path $packageDir 'package.json'))) { throw 'Extracted release package is missing package.json.' }
@@ -159,9 +340,9 @@ try {
     Move-Item -Path $packageDir -Destination $Slot
     Push-Location $Slot
     try {
-      & npm install --omit=dev --no-audit --no-fund --ignore-scripts
+      & $NpmExe install --omit=dev --no-audit --no-fund --ignore-scripts
       if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE)." }
-      $reportedVersion = (& node dist/cli.js --version 2>&1 | Out-String).Trim()
+      $reportedVersion = (& $NodeExe dist/cli.js --version 2>&1 | Out-String).Trim()
       if ($LASTEXITCODE -ne 0 -or $reportedVersion -notmatch [regex]::Escape($manifest.version)) {
         throw "Installed runtime version check failed: $reportedVersion"
       }
@@ -179,6 +360,8 @@ try {
   Set-Content -Path $CurrentFile -Value $Slot -Encoding utf8
   Write-StableLauncher $Slot
   Install-Shortcut
+  Initialize-AutoUpdate
+  Migrate-ExistingAutostart
 
   $env:RWMCP_POLICY = Join-Path $ConfigDir 'policy.yaml'
   $env:RWMCP_HOSTS = Join-Path $ConfigDir 'hosts.yaml'

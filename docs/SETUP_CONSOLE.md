@@ -8,19 +8,21 @@ The Control Center rejects non-loopback clients and cross-origin API calls. Each
 
 ## Recommended Windows installation
 
-Production/new-machine installation does not require a Git checkout. Download the release installer, inspect it, then run it:
+Production/new-machine installation does not require a Git checkout. Download `install-windows.cmd` from the latest GitHub Release and double-click it. The bootstrap verifies the downloaded PowerShell installer before execution.
+
+PowerShell fallback:
 
 ```powershell
 $installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
 Invoke-WebRequest `
   'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
   -OutFile $installer
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
 
 The installer:
 
-1. verifies Node.js/npm/Git prerequisites and can use `winget` when they are missing;
+1. automatically resolves/installs Node.js LTS and Git with `winget` when they are missing;
 2. resolves the selected GitHub Release;
 3. downloads the release package and `SHA256SUMS.txt`;
 4. verifies the package SHA-256 before extraction;
@@ -29,7 +31,8 @@ The installer:
 7. installs the pinned, checksum-verified OpenAI `tunnel-client`;
 8. switches the stable `current.txt` pointer and preserves the previous slot for rollback;
 9. creates a stable launcher and Start Menu shortcut;
-10. opens the local Setup & Control Center.
+10. initializes stable automatic update state;
+11. opens the local Setup & Control Center.
 
 For repository development, the existing flow remains supported:
 
@@ -46,10 +49,12 @@ Managed Windows installs use:
 ├── current.txt
 ├── previous.txt
 ├── settings.json
+├── update.json
 ├── audit.jsonl
 ├── bin\
 │   ├── rwmcp.ps1
-│   └── install-windows-release.ps1
+│   ├── install-windows-release.ps1
+│   └── update-windows.ps1
 ├── config\
 │   ├── policy.yaml
 │   └── hosts.yaml
@@ -66,7 +71,7 @@ Managed Windows installs use:
 │   └── openai-runtime-api-key.dpapi
 └── versions\
     ├── v0.7.6\
-    └── v0.7.8\
+    └── v0.7.9\
 ```
 
 Policy/hosts/settings/secrets are therefore not replaced when the application version changes.
@@ -81,7 +86,7 @@ Starting with v0.7.8, the local Control Center applies the `TungLamvsWebUI-Skill
 - hover lift/glow and focus glow for interactive controls;
 - responsive layout for desktop and narrow screens;
 - pending Administrator requests appear as a native modal so normal setup detail stays out of the daily workflow;
-- all setup/runtime details remain collapsed under **Setup & advanced**.
+- all setup/runtime details open in a focused **Settings** modal instead of expanding the main page.
 
 The UI remains dependency-free browser HTML/CSS/JS and does not change the MCP transport or privileged approval trust boundary.
 
@@ -126,7 +131,7 @@ The Control Center provides owner-local controls for:
 
 The MCP/tunnel supervisor and the Control Center supervisor are separate processes. Stopping or restarting the MCP runtime does not stop the Control Center that issued the action. Their state/logs are stored outside the version slot under the per-user runtime directory, and each supervisor validates its recorded process identity before stopping a process tree.
 
-Starting with v0.7.5, start-at-logon uses the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry entry rather than requiring `Register-ScheduledTask`. This avoids `Access is denied` on standard-user Windows installations while preserving a non-elevated, current-user startup boundary. Managed installs point that entry at the stable launcher, so a later version-slot switch does not leave startup pinned to an old release.
+Starting with v0.7.5, start-at-logon uses the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` registry entry rather than requiring `Register-ScheduledTask`. In v0.7.9 the OpenAI entry targets the stable launcher `Boot` action, which performs a throttled stable update check before starting the tunnel runtime. This avoids `Access is denied` on standard-user Windows installations while preserving a non-elevated, current-user startup boundary. Managed installs point that entry at the stable launcher, so a later version-slot switch does not leave startup pinned to an old release.
 
 Older Scheduled Task registrations are still recognized for status compatibility and are removed on a best-effort basis during registration/unregistration.
 
@@ -142,14 +147,15 @@ Examples:
 
 ```powershell
 & "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Setup
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action StartOpenAI
 & "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Status
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Stop
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action UpdateCheck
 & "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Update
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action AutoUpdateOn
+& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action AutoUpdateOff
 & "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Rollback
 ```
 
-`Update` installs the latest verified release into a new slot and switches `current.txt`. `Rollback` swaps back to the previous existing slot. These operations remain owner-local; no MCP tool can invoke them.
+`Boot` (used by start-at-logon) checks the stable channel when the last check is at least 12 hours old, then starts the runtime. `Update` performs an immediate verified update. Candidate activation is health/readiness checked and automatically rolled back when it fails; `Rollback` remains available as an explicit owner action. These operations remain owner-local; no MCP tool can invoke them.
 
 ## Configuration precedence
 

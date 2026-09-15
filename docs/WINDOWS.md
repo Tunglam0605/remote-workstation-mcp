@@ -1,6 +1,6 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.8 supports two Windows workflows:
+Remote Workstation MCP v0.7.9 supports two Windows workflows:
 
 1. **managed release installation** for normal/new-machine use;
 2. **repository development** for contributors.
@@ -20,17 +20,21 @@ The managed installer can use `winget` to install Node.js LTS and Git when they 
 
 ## Recommended managed installation
 
+For a new Windows PC, download `install-windows.cmd` from the latest GitHub Release and double-click it. The bootstrap verifies the downloaded PowerShell installer before running it.
+
+PowerShell fallback:
+
 ```powershell
 $installer = Join-Path $env:TEMP 'rwmcp-install.ps1'
 Invoke-WebRequest `
   'https://github.com/Tunglam0605/remote-workstation-mcp/releases/latest/download/install-windows.ps1' `
   -OutFile $installer
-powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer
 ```
 
-The installer downloads the release package and `SHA256SUMS.txt`, verifies the package digest, installs a versioned runtime slot, installs the pinned OpenAI tunnel-client, writes a stable launcher and opens the local Setup & Control Center.
+The installer automatically installs Node.js LTS and Git through `winget` when missing, downloads the release package and `SHA256SUMS.txt`, verifies the package digest, installs a versioned runtime slot, installs the pinned OpenAI tunnel-client, writes a stable launcher, initializes stable auto-update and opens the local Setup & Control Center.
 
-No Git checkout is required for the managed runtime itself.
+No Git checkout is required for the managed runtime itself; Git is installed only because the built-in Git tools use it.
 
 Managed state lives under:
 
@@ -46,7 +50,7 @@ Application versions are isolated under `versions\vX.Y.Z\`; owner configuration 
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.8
+git checkout v0.7.9
 npm run setup:first-run:windows
 ```
 
@@ -82,22 +86,29 @@ Example:
 ```powershell
 $ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
 & $ctl -Action Setup
-& $ctl -Action StartOpenAI
 & $ctl -Action Status
-& $ctl -Action Stop
+& $ctl -Action UpdateCheck
+& $ctl -Action Update
+& $ctl -Action Rollback
 ```
 
 The launcher resolves `current.txt`, so start-at-logon and operator commands continue to follow the active version after an update.
 
-## Update and rollback
+## Automatic update and rollback
+
+Managed v0.7.9 installs default to the **stable** update channel. The Windows start-at-logon entry invokes the stable launcher `Boot` action. At sign-in, Boot checks for a stable release only when the previous check is at least 12 hours old. Network/update failures do not block startup.
+
+Manual check/update remain available:
 
 ```powershell
-& "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Update
+$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
+& $ctl -Action UpdateCheck
+& $ctl -Action Update
 ```
 
-The installer adds a new verified version slot and moves `current.txt`. If a previous valid slot exists it is recorded in `previous.txt`.
+A verified update is installed into a new version slot. The launcher starts the candidate and requires MCP health plus OpenAI tunnel readiness. If activation fails, it marks that release failed, swaps back to `previous.txt`, and starts the previous known-good version. Failed releases are temporarily backed off instead of retried on every sign-in.
 
-Rollback:
+Rollback can also be requested manually:
 
 ```powershell
 & "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1" -Action Rollback
@@ -107,7 +118,7 @@ This switches the stable pointer back to the previous slot; it does not rewrite 
 
 ## Start at logon
 
-The Control Center registers a current-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry that invokes the stable launcher after user logon. This path requires no Administrator rights and avoids Windows environments that reject `Register-ScheduledTask` for standard users.
+The Control Center registers a current-user `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` entry that invokes the stable launcher `Boot` action after user logon. This path requires no Administrator rights and avoids Windows environments that reject `Register-ScheduledTask` for standard users.
 
 The runtime still runs with the same permissions as the logged-in Windows account. Start-at-logon does not grant Administrator privileges. Upgrades from older releases also recognize and best-effort remove the previous Scheduled Task registration to avoid duplicate starts.
 
@@ -164,7 +175,7 @@ Expected fields include:
 
 ```text
 ok        : True
-version   : 0.7.8
+version   : 0.7.9
 mode      : workspace
 transport : http-loopback
 ```
@@ -197,7 +208,7 @@ See [ChatGPT Web](CHATGPT_WEB.md) and [OpenAI Secure MCP Tunnel](OPENAI_SECURE_T
 - Background state stores PIDs and operational metadata, not the OpenAI runtime API key.
 - Start-at-logon uses the current-user registry hive and does not elevate privileges.
 - Raw shell and host filesystem capabilities remain disabled by default.
-- Root/Administrator execution is not exposed by the normal MCP runtime.
+- Administrator execution is never granted by an access mode; AI can only create an approval request, and the local owner + Windows UAC control the privileged helper.
 - Windows `.cmd`/`.bat` wrappers are not treated as equivalent to native executable execution in the normal process allowlist.
 
 Managed process stdin remains pipe-backed; a true PTY/ConPTY adapter is a v0.8 roadmap item.

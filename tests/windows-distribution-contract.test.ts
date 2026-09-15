@@ -46,3 +46,14 @@ test('automatic boot update and manual update are distinct operations', async ()
   assert.match(updater, /ValidateSet\('Check','Install','InstallAuto'/);
   assert.match(updater, /\$Action -eq 'InstallAuto' -and -not \[bool\]\$state\.enabled/);
 });
+
+test('Windows Control Center refuses foreign port ownership and verifies its managed listener', async () => {
+  const control = await read('scripts/control-center-windows.ps1');
+
+  assert.match(control, /Get-LoopbackListenerOwner/);
+  assert.match(control, /Get-NetTCPConnection/);
+  assert.match(control, /Test-ProcessDescendant/);
+  assert.match(control, /is already in use by process/);
+  assert.match(control, /managedPortOwned/);
+  assert.match(control, /portOwnerPid/);
+});

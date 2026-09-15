@@ -1,6 +1,6 @@
 # Windows runtime
 
-Remote Workstation MCP v0.7.9 supports two Windows workflows:
+Remote Workstation MCP v0.7.10 supports two Windows workflows:
 
 1. **managed release installation** for normal/new-machine use;
 2. **repository development** for contributors.
@@ -50,7 +50,7 @@ Application versions are isolated under `versions\vX.Y.Z\`; owner configuration 
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.9
+git checkout v0.7.10
 npm run setup:first-run:windows
 ```
 
@@ -96,7 +96,7 @@ The launcher resolves `current.txt`, so start-at-logon and operator commands con
 
 ## Automatic update and rollback
 
-Managed v0.7.9 installs default to the **stable** update channel. The Windows start-at-logon entry invokes the stable launcher `Boot` action. At sign-in, Boot checks for a stable release only when the previous check is at least 12 hours old. Network/update failures do not block startup.
+Managed v0.7.9+ installs default to the **stable** update channel. The Windows start-at-logon entry invokes the stable launcher `Boot` action. At sign-in, Boot checks for a stable release only when the previous check is at least 12 hours old. Network/update failures do not block startup.
 
 Manual check/update remain available:
 
@@ -175,7 +175,7 @@ Expected fields include:
 
 ```text
 ok        : True
-version   : 0.7.9
+version   : 0.7.10
 mode      : workspace
 transport : http-loopback
 ```

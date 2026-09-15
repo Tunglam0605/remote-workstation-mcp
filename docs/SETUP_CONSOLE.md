@@ -70,8 +70,8 @@ Managed Windows installs use:
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
-    ├── v0.7.6\
-    └── v0.7.9\
+    ├── v0.7.9\
+    └── v0.7.10\
 ```
 
 Policy/hosts/settings/secrets are therefore not replaced when the application version changes.

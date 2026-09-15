@@ -6,10 +6,12 @@ Remote Workstation MCP lets an authorized AI client inspect and edit approved co
 
 > **Security-sensitive beta.** Start with a disposable workspace and the default **Workspace** mode. Select **Full access** only on a trusted owner workstation. Administrator actions always require a separate local approval; elevation then uses Windows RunAs/UAC under the machine policy.
 
-## Current release: v0.7.9
+## Current release: v0.7.10
 
-v0.7.9 focuses on **install once, configure once, then use it like a normal workstation service**. It combines the refreshed Tung Lam Control Center from v0.7.8 with the new Windows distribution/update path:
+v0.7.10 is a reliability patch on top of the v0.7.9 install-once experience. It keeps the one-time Windows setup and automatic update flow, and hardens the Control Center so a foreign process already using port 8684 can never be mistaken for the managed owner UI:
 
+- strict managed Control Center port ownership verification before reporting the owner UI healthy;
+- foreign port listeners are rejected with the owning PID instead of producing a false-ready state;
 - one-time Windows bootstrap through `install-windows.cmd` or `install-windows.ps1`;
 - automatic installation of Node.js LTS and Git through `winget` when they are missing;
 - no repository clone, `git pull`, `npm install`, or rebuild required for normal users;
@@ -128,8 +130,8 @@ Managed Windows layout:
 ├── secrets\
 │   └── openai-runtime-api-key.dpapi
 └── versions\
-    ├── v0.7.8\
-    └── v0.7.9\
+    ├── v0.7.9\
+    └── v0.7.10\
 ```
 
 Policy, SSH hosts, settings, audit data, update preference and DPAPI secrets live outside version slots.
@@ -140,7 +142,7 @@ Policy, SSH hosts, settings, audit data, update preference and DPAPI secrets liv
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.9
+git checkout v0.7.10
 npm run setup:first-run:windows
 ```
 
@@ -361,7 +363,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.9
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.10
 codex plugin marketplace list
 ```
 

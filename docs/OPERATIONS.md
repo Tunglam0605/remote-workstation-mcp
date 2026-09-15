@@ -203,7 +203,23 @@ The lease also expires automatically.
 
 ## 8. Updates
 
-Default scheduled mode is `notify`.
+### Windows managed install
+
+v0.7.9 defaults to stable automatic checks through the stable launcher. Start-at-logon invokes `Boot`; a GitHub Release check runs only when the previous check is at least 12 hours old. Update/network failure is non-fatal and the installed runtime still starts.
+
+```powershell
+$ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
+& $ctl -Action UpdateCheck
+& $ctl -Action Update
+& $ctl -Action AutoUpdateOn
+& $ctl -Action AutoUpdateOff
+```
+
+Windows update state is stored at `%LOCALAPPDATA%\RemoteWorkstationMCP\update.json`. Candidate versions are installed in new slots. Startup health/tunnel readiness failure triggers automatic rollback and failed-release backoff.
+
+### Linux managed install
+
+Default scheduled mode remains `notify`.
 
 ```bash
 cat ~/.config/remote-workstation-mcp/update.env
@@ -221,18 +237,9 @@ Manual update:
 node ~/.local/share/remote-workstation-mcp/current/scripts/update-user.mjs
 ```
 
-The updater downloads official GitHub Release assets, verifies SHA-256, installs into a new version slot, restarts the service, checks health and rolls back on failure. It is upgrade-only: it will not silently downgrade to an older release.
+The Linux updater downloads official GitHub Release assets, verifies SHA-256, installs into a new version slot, restarts the service, checks health and rolls back on failure. It is upgrade-only: it will not silently downgrade to an older release.
 
-Automatic modes are opt-in:
-
-```text
-off
-notify
-auto_patch
-auto
-```
-
-For security-sensitive systems, prefer `notify` and review release notes before updating.
+Linux automatic modes are opt-in: `off`, `notify`, `auto_patch`, or `auto`. For security-sensitive Linux systems, prefer `notify` and review release notes before updating.
 
 ## 9. Rollback
 

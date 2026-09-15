@@ -78,6 +78,35 @@ function Get-RootVersion([string]$Root) {
   } catch { return '' }
 }
 
+function Cleanup-VersionSlots {
+  try {
+    $versionsDir = Join-Path $Base 'versions'
+    if (-not (Test-Path $versionsDir)) { return }
+    $protected = @()
+    foreach ($pointer in @($CurrentFile, $PreviousFile)) {
+      if (-not (Test-Path $pointer)) { continue }
+      $value = (Get-Content -Path $pointer -Raw).Trim()
+      if ($value -and (Test-Path $value)) { $protected += [IO.Path]::GetFullPath($value) }
+    }
+    $extraKept = 0
+    $dirs = @(Get-ChildItem -LiteralPath $versionsDir -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+    foreach ($dir in $dirs) {
+      $full = [IO.Path]::GetFullPath($dir.FullName)
+      $isProtected = $false
+      foreach ($keep in $protected) {
+        if ([string]::Equals($full, $keep, [StringComparison]::OrdinalIgnoreCase)) { $isProtected = $true; break }
+      }
+      if ($isProtected) { continue }
+      # Keep one additional older slot besides current + previous for emergency
+      # inspection while bounding long-term disk growth from automatic updates.
+      if ($extraKept -lt 1) { $extraKept += 1; continue }
+      Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+    }
+  } catch {
+    Write-Warning "Old version-slot cleanup was skipped: $($_.Exception.Message)"
+  }
+}
+
 function Invoke-Runtime([string]$RuntimeAction, [string]$Mode = 'OpenAI', [string]$Root = '') {
   if (-not $Root) { $Root = Get-CurrentRoot }
   $script = Join-Path $Root 'scripts\runtime-control-windows.ps1'
@@ -107,6 +136,7 @@ function Invoke-SafeBoot {
   $candidate = Get-CurrentRoot
   try {
     Invoke-Runtime 'Start' 'OpenAI' $candidate
+    Cleanup-VersionSlots
   } catch {
     if (-not [string]::Equals($candidate, $before, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path $PreviousFile)) {
       $failedVersion = Get-RootVersion $candidate
@@ -144,6 +174,7 @@ switch ($Action) {
     $candidate = Get-CurrentRoot
     try {
       Invoke-Runtime 'Start' 'OpenAI' $candidate
+      Cleanup-VersionSlots
     } catch {
       $failedVersion = Get-RootVersion $candidate
       if ($failedVersion -and (Test-Path $Updater)) {
@@ -230,14 +261,38 @@ if ($Rollback) {
 
 $nodeKnown = @((Join-Path $env:ProgramFiles 'nodejs\node.exe'))
 $npmKnown = @((Join-Path $env:ProgramFiles 'nodejs\npm.cmd'))
+$gitKnown = @((Join-Path $env:ProgramFiles 'Git\cmd\git.exe'))
+if (${env:ProgramFiles(x86)}) { $gitKnown += (Join-Path ${env:ProgramFiles(x86)} 'Git\cmd\git.exe') }
+if ($env:LOCALAPPDATA) { $gitKnown += (Join-Path $env:LOCALAPPDATA 'Programs\Git\cmd\git.exe') }
 $NodeExe = Resolve-CommandPath 'node' 'OpenJS.NodeJS.LTS' $nodeKnown
 $NpmExe = Resolve-CommandPath 'npm' 'OpenJS.NodeJS.LTS' $npmKnown
+# Git is not required by the updater itself, but it backs the built-in Git MCP
+# tools. Install it automatically on a new engineering workstation so the
+# one-time setup yields the complete default capability set.
+$GitExe = Resolve-CommandPath 'git' 'Git.Git' $gitKnown
 $TarExe = (Get-Command tar.exe -ErrorAction SilentlyContinue).Source
 if (-not $TarExe) { throw 'Windows tar.exe is required to extract the verified release package.' }
 
 $nodeVersion = (& $NodeExe --version).TrimStart('v')
 $nodeMajor = [int]($nodeVersion.Split('.')[0])
-if ($nodeMajor -lt 22) { throw "Node.js 22+ is required. Found v$nodeVersion." }
+if ($nodeMajor -lt 22) {
+  if ($SkipPrerequisites) { throw "Node.js 22+ is required. Found v$nodeVersion." }
+  $winget = Get-Command winget -ErrorAction SilentlyContinue
+  if (-not $winget) { throw "Node.js 22+ is required. Found v$nodeVersion and winget is unavailable for automatic upgrade." }
+  Write-Host "Upgrading Node.js LTS (found v$nodeVersion)..." -ForegroundColor Cyan
+  & $winget.Source upgrade --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements --silent
+  if ($LASTEXITCODE -ne 0) {
+    # Some winget states report no installed package to upgrade; install is safe/idempotent.
+    & $winget.Source install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements --silent
+    if ($LASTEXITCODE -ne 0) { throw "winget failed to upgrade Node.js LTS (exit $LASTEXITCODE)." }
+  }
+  Refresh-Path
+  $NodeExe = Resolve-CommandPath 'node' 'OpenJS.NodeJS.LTS' $nodeKnown
+  $NpmExe = Resolve-CommandPath 'npm' 'OpenJS.NodeJS.LTS' $npmKnown
+  $nodeVersion = (& $NodeExe --version).TrimStart('v')
+  $nodeMajor = [int]($nodeVersion.Split('.')[0])
+  if ($nodeMajor -lt 22) { throw "Node.js upgrade completed but v$nodeVersion is still below required v22." }
+}
 
 $headers = @{ 'User-Agent' = 'remote-workstation-mcp-windows-installer' }
 $releaseUri = if ($Version -eq 'latest') {

@@ -224,6 +224,22 @@ Only begin this phase after ChatGPT Web acceptance is complete.
 - keep detailed setup/runtime controls collapsed under Setup & advanced
 - tolerate protected Windows entries during host filesystem directory listing
 
+## v0.7.9 — One-time Windows setup + automatic stable updates ✅
+
+- publish a double-click `install-windows.cmd` bootstrap alongside the PowerShell installer
+- verify the downloaded installer and runtime package with published SHA-256 manifests
+- automatically install Node.js LTS and Git through `winget` when a new workstation is missing them
+- keep normal users off the source-tree path: no clone, pull, rebuild or manual dependency install for routine operation
+- start OpenAI mode through the stable `Boot` action after Windows sign-in
+- check the stable release channel automatically when due, throttled to once per 12 hours
+- install updates side-by-side into version slots without replacing owner configuration or DPAPI secrets
+- validate runtime health and OpenAI tunnel readiness after activation
+- roll back automatically to the previous slot when the new runtime cannot become healthy/ready
+- persist failed-release backoff so a broken release is not retried on every sign-in
+- expose owner-local update status/check/config APIs for the Control Center
+- add Windows/Linux CI coverage for the updater/distribution contracts
+- rewrite the Windows quick-start documentation around install-once operation and final Control Center screenshots
+
 ## v1.0 — Stable workstation control plane
 
 Target criteria:

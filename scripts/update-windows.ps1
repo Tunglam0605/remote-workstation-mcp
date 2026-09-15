@@ -172,6 +172,30 @@ switch ($Action) {
   }
 }
 
+# Serialize release checks/installs across duplicate logon launches or a manual
+# update racing an automatic Boot check. A named current-session mutex is enough
+# because all managed Windows operations run as the signed-in owner.
+$updateMutex = New-Object System.Threading.Mutex($false, 'Local\RemoteWorkstationMCP.Update')
+$updateLockAcquired = $false
+try {
+  try {
+    $updateLockAcquired = $updateMutex.WaitOne(0)
+  } catch [System.Threading.AbandonedMutexException] {
+    $updateLockAcquired = $true
+  }
+  if (-not $updateLockAcquired) {
+    if ($Action -eq 'InstallAuto') {
+      if (-not $Quiet) { Write-Host 'Another Remote Workstation update operation is already running; skipping this automatic check.' -ForegroundColor Yellow }
+      Emit (Get-StatusObject $state)
+      exit 0
+    }
+    throw 'Another Remote Workstation update operation is already running.'
+  }
+} catch {
+  $updateMutex.Dispose()
+  throw
+}
+
 if ([string]$state.channel -ne 'stable') { throw "Unsupported Windows update channel '$($state.channel)'." }
 if ($Action -eq 'InstallAuto' -and -not [bool]$state.enabled) {
   if (-not $Quiet) { Write-Host 'Automatic updates are disabled.' -ForegroundColor Yellow }

@@ -6,7 +6,7 @@ Remote Workstation MCP lets an authorized AI client inspect and edit approved co
 
 > **Security-sensitive beta.** Start with a disposable workspace. Keep full-control gates disabled until local policy, audit records, principal identity and tunnel behavior have been validated.
 
-## Current release: v0.7.4
+## Current release: v0.7.5
 
 The v0.7 line establishes direct workstation control, practical Windows distribution, and a deterministic ChatGPT Web acceptance path:
 
@@ -23,7 +23,8 @@ The v0.7 line establishes direct workstation control, practical Windows distribu
 - local-only Setup & Control Center;
 - checksum-verified per-user Windows release installation;
 - version slots, stable launcher, update pointer and rollback pointer;
-- optional current-user start-at-logon without Administrator privileges;
+- current-user start-at-logon through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, without Administrator privileges;
+- deterministic OpenAI tunnel readiness before `StartOpenAI` reports success;
 - `chatgpt_web_status` for first-call verification from ChatGPT Web.
 
 The primary design rule is unchanged: **ChatGPT/GPT Web is a first-class controller. Codex, Claude and other coding agents are optional workers, never a required hop.**
@@ -76,7 +77,7 @@ Policy, SSH hosts, settings, audit data and DPAPI secrets live outside the versi
 cd "$HOME\Documents"
 git clone https://github.com/Tunglam0605/remote-workstation-mcp.git
 cd remote-workstation-mcp
-git checkout v0.7.4
+git checkout v0.7.5
 npm run setup:first-run:windows
 ```
 
@@ -87,6 +88,8 @@ npm run setup:first-run:windows
 The local web UI binds only to `127.0.0.1`. It uses an ephemeral setup token, rejects non-loopback clients and cross-origin API calls, and is never exposed as an MCP tool or through the OpenAI tunnel.
 
 It supports choosing the authorized workspace, storing Tunnel ID and organization context, protecting the runtime API key with Windows DPAPI, installing/verifying the pinned `tunnel-client`, starting/stopping/restarting the runtime, reporting MCP/tunnel health, and enabling current-user start-at-logon.
+
+Starting with v0.7.5, start-at-logon uses the current-user Windows `Run` registry key rather than `Register-ScheduledTask`. This avoids standard-user `Access is denied` failures and remains non-elevated. The OpenAI start action also waits for tunnel `/readyz` before reporting success, so the quick setup flow does not claim completion while the tunnel is still connecting.
 
 It deliberately does **not** expose controls for raw-shell gates, host-wide filesystem gates, Administrator/sudo execution, permission leases or `workstation.full_control` grants.
 
@@ -226,8 +229,9 @@ A true PTY/ConPTY layer, DAP/GDB adapters, serial/probe tooling and ROS 2 typed 
 - Local HTTP binds to `127.0.0.1` only.
 - Secure MCP Tunnel is outbound-only.
 - Local policy/hosts/leases are not writable through MCP.
-- Setup/control APIs require an ephemeral local token and same-origin browser access.
+- Setup/control APIs require an ephemeral local setup token and same-origin browser access.
 - Windows runtime API key persistence uses current-user DPAPI and is separate from `settings.json`.
+- Windows start-at-logon uses the current-user registry hive and does not elevate privileges.
 - Normal process execution uses executable + argv with `shell: false` and an owner allowlist.
 - Child-process environment inheritance is allowlisted and secret-like variable names are filtered.
 - Workspace filesystem paths are canonicalized after symlink/reparse resolution.
@@ -294,7 +298,7 @@ Portable local plugin mappings and ChatGPT Web attachment are separate layers. W
 Example Codex marketplace install:
 
 ```bash
-codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.4
+codex plugin marketplace add Tunglam0605/remote-workstation-mcp --ref v0.7.5
 codex plugin marketplace list
 ```
 
@@ -313,7 +317,7 @@ npm run plugin:validate
 bash scripts/smoke-package.sh
 ```
 
-CI validates Linux and Windows builds, tests, plugin manifests, Windows DPAPI persistence, the managed runtime supervisor and the packed production artifact.
+CI validates Linux and Windows builds, tests, plugin manifests, Windows DPAPI persistence, user-level start-at-logon, the managed runtime supervisor and the packed production artifact.
 
 ## Documentation
 

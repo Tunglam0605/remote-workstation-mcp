@@ -6,7 +6,14 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.12**
+**v0.8.13**
+
+v0.8.13 standardizes the managed update policy across Windows and Linux:
+
+- verified patch releases install automatically;
+- minor and major releases are detected but require explicit owner approval;
+- the local Control Center can check for and explicitly install a newer stable release on both Windows and Linux;
+- checksum verification, version slots, health validation and automatic rollback remain mandatory.
 
 v0.8.12 hardens the new-machine and update path:
 
@@ -160,7 +167,7 @@ The v0.8.12 release contains:
 - `SHA256SUMS.txt`
 
 
-Double-click `install-windows.cmd`. The installer checks prerequisites, downloads the verified release package, installs the runtime and OpenAI tunnel client, creates the stable launcher, configures startup, initializes automatic stable updates, and opens the local Control Center.
+Double-click `install-windows.cmd`. The installer checks prerequisites, downloads the verified release package, installs the runtime and OpenAI tunnel client, creates the stable launcher, configures startup, initializes automatic patch updates, and opens the local Control Center.
 
 Normal users do **not** need to clone this repository or run `npm install`.
 
@@ -337,13 +344,13 @@ HKCU\Software\Microsoft\Windows\CurrentVersion\Run
         +--> verify health/readiness
 ```
 
-## Automatic stable updates
+## Automatic patch updates
 
-Advanced settings exposes **Automatic stable updates** and **Check for updates**.
+Advanced settings exposes **Automatic patch updates** and **Check for updates**.
 
 ![Advanced settings](docs/images/v0.8.1/05-settings-advanced-v081.png)
 
-![Automatic stable updates](docs/images/v0.8.1/08-auto-update-v081.png)
+![Automatic patch updates](docs/images/v0.8.1/08-auto-update-v081.png)
 
 Managed defaults:
 
@@ -355,6 +362,8 @@ checkIntervalHours = 12
 ```
 
 Production updates come from GitHub Releases. RWMCP does not `git pull` a production source tree. It downloads the release package and checksum manifest, verifies SHA-256, installs a new slot, switches the active pointer, validates health/readiness, and rolls back automatically on failure.
+
+Managed policy: patch releases (`x.y.Z`) may install automatically; minor/major releases are detected and require explicit owner approval. A manual owner-approved update may install any newer stable release.
 
 ## Managed Windows layout
 

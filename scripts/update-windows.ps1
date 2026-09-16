@@ -24,6 +24,7 @@ function New-DefaultState {
     version = 1
     enabled = $true
     channel = 'stable'
+    automaticPolicy = 'patch'
     checkOnStartup = $true
     checkIntervalHours = 12
     retryFailedAfterHours = $DefaultRetryHours
@@ -92,6 +93,29 @@ function Compare-Version([string]$Left, [string]$Right) {
   }
 }
 
+function Test-PatchUpgrade([string]$Current, [string]$Target) {
+  try {
+    $currentVersion = [version]$Current
+    $targetVersion = [version]$Target
+    return (
+      $targetVersion.Major -eq $currentVersion.Major -and
+      $targetVersion.Minor -eq $currentVersion.Minor -and
+      $targetVersion.Build -gt $currentVersion.Build
+    )
+  } catch {
+    throw "Invalid semantic version comparison: '$Current' vs '$Target'."
+  }
+}
+
+function Get-UpdateKind([string]$Current, [string]$Target) {
+  if (-not $Current -or -not $Target -or (Compare-Version $Target $Current) -le 0) { return $null }
+  $currentVersion = [version]$Current
+  $targetVersion = [version]$Target
+  if ($targetVersion.Major -ne $currentVersion.Major) { return 'major' }
+  if ($targetVersion.Minor -ne $currentVersion.Minor) { return 'minor' }
+  return 'patch'
+}
+
 function Test-RetryBlocked($State, [string]$LatestVersion) {
   if (-not $State.failedVersion -or [string]$State.failedVersion -ne $LatestVersion) { return $false }
   if (-not $State.retryAfter) { return $false }
@@ -115,14 +139,19 @@ function Get-StatusObject($State, $Latest = $null) {
   $available = $false
   if ($installed -and $latestVersion) { $available = (Compare-Version $latestVersion $installed) -gt 0 }
   elseif (-not $installed -and $latestVersion) { $available = $true }
+  $updateKind = if ($installed -and $latestVersion) { Get-UpdateKind $installed $latestVersion } else { $null }
+  $automaticAllowed = [bool]$State.enabled -and $updateKind -eq 'patch'
   return [pscustomobject]@{
     enabled = [bool]$State.enabled
     channel = [string]$State.channel
+    automaticPolicy = 'patch'
     checkOnStartup = [bool]$State.checkOnStartup
     checkIntervalHours = [int]$State.checkIntervalHours
     installedVersion = $installed
     latestVersion = $latestVersion
     updateAvailable = $available
+    updateKind = $updateKind
+    automaticInstallAllowed = $automaticAllowed
     lastCheckAt = $State.lastCheckAt
     lastInstalledVersion = $State.lastInstalledVersion
     failedVersion = $State.failedVersion
@@ -197,11 +226,6 @@ try {
 }
 
 if ([string]$state.channel -ne 'stable') { throw "Unsupported Windows update channel '$($state.channel)'." }
-if ($Action -eq 'InstallAuto' -and -not [bool]$state.enabled) {
-  if (-not $Quiet) { Write-Host 'Automatic updates are disabled.' -ForegroundColor Yellow }
-  Emit (Get-StatusObject $state)
-  exit 0
-}
 if ($Action -eq 'InstallAuto' -and -not (Test-AutoCheckDue $state)) {
   Emit (Get-StatusObject $state)
   exit 0
@@ -221,6 +245,19 @@ if (-not $status.updateAvailable) {
   if (-not $Quiet) { Write-Host "Remote Workstation MCP is up to date (v$($status.installedVersion))." -ForegroundColor Green }
   Emit $status
   exit 0
+}
+
+if ($Action -eq 'InstallAuto') {
+  if (-not [bool]$state.enabled) {
+    if (-not $Quiet) { Write-Host "Update v$($latest.version) is available; automatic patch updates are disabled, so owner approval is required." -ForegroundColor Yellow }
+    Emit $status
+    exit 0
+  }
+  if (-not (Test-PatchUpgrade ([string]$status.installedVersion) ([string]$latest.version))) {
+    if (-not $Quiet) { Write-Host "Update v$($latest.version) is a $($status.updateKind) release; automatic policy installs patch releases only. Owner approval is required." -ForegroundColor Yellow }
+    Emit $status
+    exit 0
+  }
 }
 
 if (Test-RetryBlocked $state ([string]$latest.version)) {

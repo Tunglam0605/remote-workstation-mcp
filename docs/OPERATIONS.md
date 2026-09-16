@@ -239,7 +239,7 @@ node ~/.local/share/remote-workstation-mcp/current/scripts/update-user.mjs
 
 The Linux updater downloads official GitHub Release assets, verifies SHA-256, installs into a new version slot, restarts the service, checks health and rolls back on failure. It is upgrade-only: it will not silently downgrade to an older release.
 
-Linux automatic modes are opt-in: `off`, `notify`, `auto_patch`, or `auto`. For security-sensitive Linux systems, prefer `notify` and review release notes before updating.
+Managed Linux installs use `auto_patch`: verified patch releases install automatically, while minor/major releases are detected but require explicit owner approval. Advanced modes remain available for compatibility: `off`, `notify`, `auto_patch`, or `auto`; `auto` is not the managed default.
 
 ## 9. Rollback
 

@@ -133,6 +133,8 @@ Managed Windows installs default to:
 
 GitHub Releases are the production distribution source. Production update does not run `git pull` against a source tree.
 
+Automatic installation is patch-only. Newer minor or major releases are reported but require explicit owner approval. Manual `Update` remains the approval path for any newer stable release.
+
 Update flow:
 
 1. check the stable GitHub Release channel when due;
@@ -182,7 +184,7 @@ The production v0.8.1 Settings modal currently contains:
 - Configuration;
 - Advanced settings.
 
-Advanced settings includes the MCP/Control Center ports, managed runtime option, **Automatic stable updates**, and **Check for updates**.
+Advanced settings includes the MCP/Control Center ports, managed runtime option, **Automatic patch updates**, and **Check for updates**.
 
 ![Runtime settings](images/v0.8.1/04-settings-runtime-v081.png)
 

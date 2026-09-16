@@ -88,6 +88,23 @@ test('Windows restart is handed off outside the managed runtime tree and OpenAI 
   assert.match(runtime, /'RECONNECTING'/);
   assert.match(runtime, /'ONLINE'/);
 });
+test('Windows tunnel readiness requires fresh control-plane polling, not only local readyz', async () => {
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const host = await read('scripts/runtime-host-windows.ps1');
+  const helper = await read('scripts/lib/tunnel-health-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(helper, /commands_poll_last_successful_timestamp_seconds/);
+  assert.match(helper, /MaxPollAgeSeconds/);
+  assert.match(helper, /poll-stale/);
+  assert.match(helper, /waiting-for-first-successful-poll/);
+  assert.match(runtime, /tunnel-health-windows\.ps1/);
+  assert.match(runtime, /Test-RwmcpTunnelConnected/);
+  assert.match(host, /tunnel-health-windows\.ps1/);
+  assert.match(host, /control-plane-poll-stale/);
+  assert.match(ci, /test-tunnel-health-windows\.ps1/);
+});
+
 test('Windows managed upgrades self-heal the stable launcher from the current runtime slot', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
   const runtime = await read('scripts/runtime-control-windows.ps1');

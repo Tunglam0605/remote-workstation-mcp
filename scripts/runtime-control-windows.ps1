@@ -141,17 +141,14 @@ function Get-StartupRegistrationMethod {
   return $null
 }
 
+$tunnelHealthScript = Join-Path $Root 'scripts\lib\tunnel-health-windows.ps1'
+if (-not (Test-Path $tunnelHealthScript)) { throw "Tunnel health helper not found: $tunnelHealthScript" }
+. $tunnelHealthScript
+$TunnelPollMaxAgeSeconds = 75
+
 function Test-TunnelReady {
   $healthUrlPath = Join-Path $Root 'runtime\openai-tunnel\health-url'
-  if (-not (Test-Path $healthUrlPath)) { return $false }
-  try {
-    $base = (Get-Content -Path $healthUrlPath -Raw).Trim()
-    if (-not $base) { return $false }
-    $ready = Invoke-WebRequest -Uri "$base/readyz" -UseBasicParsing -TimeoutSec 2
-    return $ready.StatusCode -eq 200
-  } catch {
-    return $false
-  }
+  return Test-RwmcpTunnelConnected -HealthUrlPath $healthUrlPath -MaxPollAgeSeconds $TunnelPollMaxAgeSeconds
 }
 
 function Apply-RuntimeEnvironment([string]$runtimeMode) {

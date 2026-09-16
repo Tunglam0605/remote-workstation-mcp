@@ -98,6 +98,8 @@ jobs:
             'scripts/privileged-helper-windows.ps1',
             'scripts/windows-settings.ps1',
             'scripts/windows-secret.ps1',
+            'scripts/lib/tunnel-health-windows.ps1',
+            'scripts/test-tunnel-health-windows.ps1',
             'scripts/setup-web-windows.ps1',
             'scripts/start-windows.ps1',
             'scripts/start-openai-windows.ps1'
@@ -115,6 +117,9 @@ jobs:
               throw "PowerShell parse failed for ${file}: $messages"
             }
           }
+      - name: Test Windows tunnel control-plane health parser
+        shell: pwsh
+        run: .\scripts\test-tunnel-health-windows.ps1
       - name: Smoke-test Windows updater state
         shell: pwsh
         run: |

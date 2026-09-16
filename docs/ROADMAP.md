@@ -284,6 +284,14 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 ## v0.9 - Engineering tools - current
 
+### v0.9.1 - Windows tunnel recovery hardening
+
+- require fresh `commands_poll_last_successful_timestamp_seconds` before Windows reports the tunnel ONLINE
+- distinguish local tunnel readiness from real control-plane polling
+- recycle stale pollers automatically after bounded grace and retain exponential watchdog backoff
+- make update/restart health gates fail closed when tunnel-client is locally alive but no longer polling OpenAI
+- run a dedicated PowerShell parser/freshness regression in Windows CI
+
 ### v0.9.0 - Typed engineering foundation
 
 - true PTY/ConPTY terminal sessions with caller ownership and bounded lifecycle/output

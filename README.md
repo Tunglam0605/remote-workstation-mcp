@@ -6,7 +6,14 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.0**
+**v0.9.1**
+
+v0.9.1 hardens Windows post-update tunnel recovery:
+
+- tunnel readiness now requires a recent successful OpenAI control-plane poll, not only local `/readyz`;
+- the Windows watchdog detects stale control-plane polling and automatically recycles the managed tunnel runtime with bounded backoff;
+- runtime start/update health gates wait for a fresh poll before declaring the Direct Node online;
+- Windows CI validates the Prometheus poll metric parser and the new recovery contract.
 
 v0.9.0 introduces the first typed engineering-tool layer for Remote Workstation MCP:
 

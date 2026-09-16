@@ -49,16 +49,13 @@ function Append-WatchdogLog([string]$message) {
   "[$([DateTimeOffset]::UtcNow.ToString('o'))] $message" | Add-Content -Path $StderrLog -Encoding utf8
 }
 
-function Test-TunnelReady {
-  if (-not (Test-Path $healthUrlPath)) { return $false }
-  try {
-    $base = (Get-Content -Path $healthUrlPath -Raw).Trim()
-    if (-not $base) { return $false }
-    $ready = Invoke-WebRequest -Uri "$base/readyz" -UseBasicParsing -TimeoutSec 2
-    return $ready.StatusCode -eq 200
-  } catch {
-    return $false
-  }
+$tunnelHealthScript = Join-Path $Root 'scripts\lib\tunnel-health-windows.ps1'
+if (-not (Test-Path $tunnelHealthScript)) { throw "Tunnel health helper not found: $tunnelHealthScript" }
+. $tunnelHealthScript
+$TunnelPollMaxAgeSeconds = 75
+
+function Get-TunnelHealth {
+  return Get-RwmcpTunnelHealth -HealthUrlPath $healthUrlPath -MaxPollAgeSeconds $TunnelPollMaxAgeSeconds
 }
 
 function Stop-ChildTree([int]$processId) {
@@ -121,22 +118,23 @@ while ($true) {
     $unreadySince = [DateTimeOffset]::UtcNow
 
     while (-not $child.HasExited) {
-      $ready = Test-TunnelReady
-      if ($ready) {
+      $tunnelHealth = Get-TunnelHealth
+      if ($tunnelHealth.connected) {
         if (-not $everReady) {
           $everReady = $true
-          Append-WatchdogLog "OpenAI tunnel ONLINE attempt=$attempt childPid=$($child.Id)"
+          Append-WatchdogLog "OpenAI tunnel ONLINE with fresh control-plane polling attempt=$attempt childPid=$($child.Id)"
         }
         $unreadySince = $null
-        Write-ConnectionState 'ONLINE' 'tunnel-ready' $attempt $child.Id
+        Write-ConnectionState 'ONLINE' 'control-plane-poll-fresh' $attempt $child.Id
       } else {
         if ($null -eq $unreadySince) { $unreadySince = [DateTimeOffset]::UtcNow }
         $unreadySeconds = ([DateTimeOffset]::UtcNow - $unreadySince).TotalSeconds
-        $reason = if ($everReady) { 'tunnel-readiness-lost' } else { 'waiting-for-tunnel-ready' }
+        $healthReason = [string]$tunnelHealth.reason
+        $reason = if ($healthReason -eq 'poll-stale') { 'control-plane-poll-stale' } elseif ($everReady) { "tunnel-readiness-lost:$healthReason" } else { $healthReason }
         Write-ConnectionState 'RECONNECTING' $reason $attempt $child.Id
-        $limit = if ($everReady) { 30 } else { 90 }
+        $limit = if ($everReady) { 15 } else { 90 }
         if ($unreadySeconds -ge $limit) {
-          Append-WatchdogLog "OpenAI tunnel unready for $([Math]::Round($unreadySeconds,1))s; recycling childPid=$($child.Id) attempt=$attempt"
+          Append-WatchdogLog "OpenAI tunnel control-plane health lost reason=$healthReason for $([Math]::Round($unreadySeconds,1))s; recycling childPid=$($child.Id) attempt=$attempt"
           Stop-ChildTree $child.Id
           break
         }

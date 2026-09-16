@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.9.0';
+export const SERVER_VERSION = '0.9.1';
 
 export type CapabilityStatus = 'available' | 'planned';
 

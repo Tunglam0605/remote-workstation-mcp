@@ -234,7 +234,15 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.12 - Linux bootstrap/update polish - current
+### v0.8.13 - Conservative cross-platform update policy - current
+
+- auto-install verified patch releases only on managed Windows and Linux nodes
+- detect minor/major releases without auto-installing them
+- require explicit owner approval for minor/major stable updates
+- expose check/install controls in the local Control Center on both Windows and Linux
+- preserve SHA-256 verification, health checks, version slots and automatic rollback
+
+### v0.8.12 - Linux bootstrap/update polish - complete
 
 - discover existing user-local Node.js before downloading a runtime during Linux bootstrap
 - reconstruct the user-systemd bus for update/restart operations launched from SSH, MCP or other non-interactive sessions

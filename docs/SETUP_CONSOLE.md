@@ -75,10 +75,10 @@ Advanced settings includes:
 - MCP loopback port;
 - Control Center loopback port;
 - managed runtime option;
-- **Automatic stable updates**;
+- **Automatic patch updates**;
 - **Check for updates**.
 
-![Automatic stable updates](images/v0.8.1/08-auto-update-v081.png)
+![Automatic patch updates](images/v0.8.1/08-auto-update-v081.png)
 
 Managed Windows defaults to stable automatic updates, startup checks, and a 12-hour check interval.
 
@@ -154,8 +154,8 @@ The stable launcher implements:
 | `AutostartOn` | Register current-user start-at-logon. |
 | `AutostartOff` | Remove current-user start-at-logon. |
 | `UpdateCheck` | Check stable GitHub Release availability. |
-| `AutoUpdateOn` | Enable automatic stable updates. |
-| `AutoUpdateOff` | Disable automatic stable updates. |
+| `AutoUpdateOn` | Enable automatic patch updates. |
+| `AutoUpdateOff` | Disable automatic patch updates. |
 | `Update` | Install/activate the latest verified stable release. |
 | `Rollback` | Switch back to the previous version slot and start it. |
 

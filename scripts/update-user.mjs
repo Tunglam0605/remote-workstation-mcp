@@ -125,6 +125,16 @@ if (installed !== undefined) {
 }
 const updateAvailable = installed === undefined || comparison > 0;
 const installedIsNewer = comparison !== undefined && comparison < 0;
+const installedParts = installed ? parseSemver(installed) : undefined;
+const latestParts = parseSemver(latest);
+const updateKind = updateAvailable && installedParts && latestParts
+  ? latestParts.major !== installedParts.major ? 'major'
+    : latestParts.minor !== installedParts.minor ? 'minor'
+      : 'patch'
+  : undefined;
+const automaticInstallAllowed = Boolean(
+  scheduled && updateMode === 'auto_patch' && installed && isPatchUpgrade(installed, latest)
+) || Boolean(scheduled && updateMode === 'auto');
 
 console.log(JSON.stringify({
   installed,
@@ -132,6 +142,9 @@ console.log(JSON.stringify({
   release: release.html_url,
   updateAvailable,
   installedIsNewer,
+  updateKind,
+  automaticPolicy: 'patch',
+  automaticInstallAllowed,
   mode: updateMode,
   scheduled
 }, null, 2));

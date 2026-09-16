@@ -26,6 +26,8 @@ test('Windows updater defaults to stable automatic startup checks with failed-re
   const updater = await read('scripts/update-windows.ps1');
 
   assert.match(updater, /enabled = \$true/);
+  assert.match(updater, /automaticPolicy = 'patch'/);
+  assert.match(updater, /function Test-PatchUpgrade/);
   assert.match(updater, /channel = 'stable'/);
   assert.match(updater, /checkOnStartup = \$true/);
   assert.match(updater, /retryFailedAfterHours/);
@@ -44,7 +46,9 @@ test('automatic boot update and manual update are distinct operations', async ()
   assert.match(installer, /Invoke-Updater 'InstallAuto' -Quiet/);
   assert.match(installer, /Invoke-Updater 'Install'/);
   assert.match(updater, /ValidateSet\('Check','Install','InstallAuto'/);
-  assert.match(updater, /\$Action -eq 'InstallAuto' -and -not \[bool\]\$state\.enabled/);
+  assert.match(updater, /\$Action -eq 'InstallAuto'/);
+  assert.match(updater, /automatic policy installs patch releases only/);
+  assert.match(updater, /Owner approval is required/);
 });
 
 test('Windows Control Center refuses foreign port ownership and verifies its managed listener', async () => {

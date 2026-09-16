@@ -456,7 +456,7 @@ async function installTunnelClient(repoRoot: string): Promise<string> {
 }
 
 async function enableAutomaticUpdates(repoRoot: string): Promise<unknown> {
-  if (process.platform === 'win32') return await windowsUpdateControl(repoRoot, 'Enable');
+  if (process.platform === 'win32') return await updateControl(repoRoot, 'Enable');
   const updateEnv = path.join(path.dirname(linuxOpenAiEnvPath()), 'update.env');
   await updateEnvFile(updateEnv, {
     RWMCP_UPDATE_MODE: 'auto_patch',
@@ -559,7 +559,9 @@ function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'Op
   return { accepted: true, action: 'Restart', mode };
 }
 
-async function windowsUpdateControl(repoRoot: string, action: 'Status' | 'Check' | 'Enable' | 'Disable'): Promise<unknown> {
+type UpdateAction = 'Status' | 'Check' | 'Enable' | 'Disable' | 'Install';
+
+async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
   if (process.platform !== 'win32') {
     return { supported: false, enabled: false, message: 'Windows update control is available on Windows only.' };
   }
@@ -567,13 +569,109 @@ async function windowsUpdateControl(repoRoot: string, action: 'Status' | 'Check'
   if (!(await pathExists(script))) {
     return { supported: false, enabled: false, message: 'Windows update helper is not installed in this runtime.' };
   }
+  if (action === 'Install') {
+    const localBase = process.env.LOCALAPPDATA?.trim();
+    const launcher = localBase ? path.join(localBase, 'RemoteWorkstationMCP', 'bin', 'rwmcp.ps1') : '';
+    if (launcher && await pathExists(launcher)) {
+      const install = await runProcess('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher,
+        '-Action', 'Update'
+      ], { cwd: repoRoot, maxBytes: 512 * 1024, timeoutMs: 180000 });
+      if (install.code !== 0) throw new Error(install.output || `Windows update install failed with exit code ${install.code}.`);
+    } else {
+      const install = await runProcess('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+        '-Action', 'Install'
+      ], { cwd: repoRoot, maxBytes: 512 * 1024, timeoutMs: 180000 });
+      if (install.code !== 0) throw new Error(install.output || `Windows update install failed with exit code ${install.code}.`);
+    }
+  }
   const result = await runProcess('powershell.exe', [
     '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Action', action,
+    '-Action', action === 'Install' ? 'Check' : action,
     '-Json'
-  ], { cwd: repoRoot, maxBytes: 128 * 1024, timeoutMs: 15000 });
+  ], { cwd: repoRoot, maxBytes: 128 * 1024, timeoutMs: 30000 });
   if (result.code !== 0) throw new Error(result.output || `Windows update action '${action}' failed with exit code ${result.code}.`);
-  return parseJsonOutput(result.output);
+  return { supported: true, ...(parseJsonOutput(result.output) as Record<string, unknown>) };
+}
+
+async function linuxUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
+  if (process.platform === 'win32') {
+    return { supported: false, enabled: false, message: 'Linux update control is available on Linux only.' };
+  }
+  const updateEnv = path.join(path.dirname(linuxOpenAiEnvPath()), 'update.env');
+  const updater = path.join(repoRoot, 'scripts', 'update-user.mjs');
+  if (!(await pathExists(updater))) {
+    return { supported: false, enabled: false, message: 'Linux update helper is not installed in this runtime.' };
+  }
+  const envFile = await readEnvFile(updateEnv);
+  let mode = envFile.get('RWMCP_UPDATE_MODE')?.trim() || 'notify';
+  const repository = envFile.get('RWMCP_UPDATE_REPO')?.trim() || 'Tunglam0605/remote-workstation-mcp';
+
+  if (action === 'Enable' || action === 'Disable') {
+    mode = action === 'Enable' ? 'auto_patch' : 'notify';
+    await updateEnvFile(updateEnv, {
+      RWMCP_UPDATE_MODE: mode,
+      RWMCP_UPDATE_REPO: repository
+    });
+    const timer = await runProcess('systemctl', ['--user', 'enable', '--now', 'remote-workstation-mcp-update.timer'], {
+      cwd: repoRoot,
+      env: linuxSystemdEnv(),
+      timeoutMs: 15000,
+      maxBytes: 64 * 1024
+    });
+    if (timer.code !== 0) throw new Error(timer.output || 'Failed to enable the Linux update timer.');
+  }
+
+  if (action === 'Install') {
+    const install = await runProcess(process.execPath, [updater], {
+      cwd: repoRoot,
+      env: { ...linuxSystemdEnv(), RWMCP_UPDATE_MODE: mode, RWMCP_UPDATE_REPO: repository },
+      timeoutMs: 180000,
+      maxBytes: 512 * 1024
+    });
+    if (install.code !== 0) throw new Error(install.output || `Linux update install failed with exit code ${install.code}.`);
+  }
+
+  if (action === 'Check' || action === 'Install') {
+    const check = await runProcess(process.execPath, [updater, '--check'], {
+      cwd: repoRoot,
+      env: { ...linuxSystemdEnv(), RWMCP_UPDATE_MODE: mode, RWMCP_UPDATE_REPO: repository },
+      timeoutMs: 30000,
+      maxBytes: 128 * 1024
+    });
+    if (check.code !== 0) throw new Error(check.output || `Linux update check failed with exit code ${check.code}.`);
+    const status = JSON.parse(check.output.trim()) as Record<string, unknown>;
+    return {
+      supported: true,
+      ...status,
+      enabled: mode === 'auto_patch',
+      channel: 'stable',
+      automaticPolicy: 'patch',
+      automaticInstallAllowed: status.updateAvailable === true && status.updateKind === 'patch' && mode === 'auto_patch'
+    };
+  }
+
+  let installedVersion: string | undefined;
+  try {
+    const manifest = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version?: string };
+    installedVersion = manifest.version;
+  } catch {}
+  return {
+    supported: true,
+    enabled: mode === 'auto_patch',
+    mode,
+    channel: 'stable',
+    automaticPolicy: 'patch',
+    installedVersion,
+    updateAvailable: false
+  };
+}
+
+async function updateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
+  return process.platform === 'win32'
+    ? await windowsUpdateControl(repoRoot, action)
+    : await linuxUpdateControl(repoRoot, action);
 }
 
 async function openBrowser(url: string): Promise<void> {
@@ -807,19 +905,24 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         return;
       }
       if (url.pathname === '/api/update/status' && req.method === 'GET') {
-        json(res, 200, await windowsUpdateControl(repoRoot, 'Status'));
+        json(res, 200, await updateControl(repoRoot, 'Status'));
         return;
       }
 
       if (url.pathname === '/api/update/check' && req.method === 'POST') {
-        json(res, 200, await windowsUpdateControl(repoRoot, 'Check'));
+        json(res, 200, await updateControl(repoRoot, 'Check'));
         return;
       }
 
       if (url.pathname === '/api/update/config' && req.method === 'POST') {
         const body = await readJsonBody(req) as { enabled?: boolean };
         if (typeof body.enabled !== 'boolean') throw new Error('enabled must be a boolean.');
-        json(res, 200, await windowsUpdateControl(repoRoot, body.enabled ? 'Enable' : 'Disable'));
+        json(res, 200, await updateControl(repoRoot, body.enabled ? 'Enable' : 'Disable'));
+        return;
+      }
+
+      if (url.pathname === '/api/update/install' && req.method === 'POST') {
+        json(res, 200, await updateControl(repoRoot, 'Install'));
         return;
       }
 

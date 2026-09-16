@@ -234,7 +234,14 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.9 - TUI launcher and non-interactive Direct Node polish - current
+### v0.8.10 - Linux Desktop Web Control Center parity - current
+
+- auto-enable the loopback-only Web Control Center on Ubuntu Desktop while retaining the terminal TUI
+- share Linux Direct Node settings and permission policy between WebUI and TUI
+- keep headless/server Linux TUI-first by default with an explicit `rwmcp-webui` launcher
+- support Linux systemd --user runtime control and Runtime API key rotation from the local WebUI
+
+### v0.8.9 - TUI launcher and non-interactive Direct Node polish
 
 - expose `rwmcp-tui` as a stable Windows command through the managed per-user bin directory
 - reconstruct Linux `systemd --user` bus variables for SSH/MCP/non-interactive TUI and upgrade workflows

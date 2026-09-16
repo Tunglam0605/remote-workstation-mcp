@@ -1,8 +1,9 @@
-﻿import { spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
 import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
@@ -10,6 +11,7 @@ import { loadHosts } from '../hosts.js';
 import { PairingStore } from '../pairing/pairing-store.js';
 import { PairingBootstrapAdapter } from '../pairing/pairing-bootstrap.js';
 import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
+import { linuxOpenAiEnvPath, readEnvFile, readTuiRuntimeState, updateEnvFile } from '../tui/config.js';
 import {
   applyOwnerPermissionMode,
   applyPermissionConfig,
@@ -261,17 +263,168 @@ async function readWindowsRuntimeKey(repoRoot: string): Promise<string | null> {
   return value || null;
 }
 
+function linuxDataHome(): string {
+  return path.resolve(process.env.RWMCP_HOME?.trim() || path.join(os.homedir(), '.local', 'share', 'remote-workstation-mcp'));
+}
+
+function linuxSystemdEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  const runtimeDir = env.XDG_RUNTIME_DIR || (uid !== undefined ? `/run/user/${uid}` : undefined);
+  if (runtimeDir) {
+    env.XDG_RUNTIME_DIR = runtimeDir;
+    env.DBUS_SESSION_BUS_ADDRESS ||= `unix:path=${runtimeDir}/bus`;
+  }
+  return env;
+}
+
+function tunnelClientPath(repoRoot: string): string {
+  return process.platform === 'win32'
+    ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
+    : path.join(linuxDataHome(), 'runtime', 'openai-tunnel', 'tunnel-client');
+}
+
+async function runtimeKeyStored(repoRoot: string): Promise<boolean> {
+  if (process.platform === 'win32') return await pathExists(setupSecretPath());
+  const envFile = await readEnvFile(linuxOpenAiEnvPath());
+  return Boolean(envFile.get('CONTROL_PLANE_API_KEY'));
+}
+
+async function readRuntimeKey(repoRoot: string): Promise<string | null> {
+  if (process.platform === 'win32') return await readWindowsRuntimeKey(repoRoot);
+  const envFile = await readEnvFile(linuxOpenAiEnvPath());
+  return envFile.get('CONTROL_PLANE_API_KEY')?.trim() || null;
+}
+
+async function storeRuntimeKey(repoRoot: string, secret: string): Promise<void> {
+  if (secret.length < 20 || /\s/.test(secret)) throw new Error('Runtime API key format is invalid.');
+  if (process.platform === 'win32') {
+    await storeWindowsRuntimeKey(repoRoot, secret);
+    return;
+  }
+  await updateEnvFile(linuxOpenAiEnvPath(), { CONTROL_PLANE_API_KEY: secret });
+}
+
+async function removeRuntimeKey(repoRoot: string): Promise<void> {
+  if (process.platform === 'win32') {
+    await removeWindowsRuntimeKey(repoRoot);
+    return;
+  }
+  await updateEnvFile(linuxOpenAiEnvPath(), { CONTROL_PLANE_API_KEY: undefined });
+}
+
+async function syncLinuxDirectNodeSettings(settings: SetupSettings): Promise<void> {
+  if (process.platform === 'win32') return;
+  await updateEnvFile(linuxOpenAiEnvPath(), {
+    CONTROL_PLANE_TUNNEL_ID: settings.tunnelId || undefined,
+    RWMCP_PORT: String(settings.mcpPort),
+    RWMCP_HTTP_SCOPES: settings.httpScopes.join(',')
+  });
+}
+
+async function loadEffectiveSetupSettings(repoRoot: string): Promise<SetupSettings> {
+  const settings = await loadSetupSettings();
+  if (process.platform === 'win32') return settings;
+  const envFile = await readEnvFile(linuxOpenAiEnvPath());
+  const tui = await readTuiRuntimeState(repoRoot);
+  const envPort = Number(envFile.get('RWMCP_PORT'));
+  const scopes = (envFile.get('RWMCP_HTTP_SCOPES') || tui.httpScopes.join(','))
+    .split(',').map(value => value.trim()).filter(Boolean);
+  return normalizeSetupSettings({
+    ...settings,
+    mcpPort: Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : tui.mcpPort,
+    workspaceRoot: tui.workspaceRoot && tui.workspaceRoot !== '-' ? tui.workspaceRoot : settings.workspaceRoot,
+    tunnelId: envFile.get('CONTROL_PLANE_TUNNEL_ID') || settings.tunnelId,
+    httpScopes: scopes.length ? scopes : settings.httpScopes
+  });
+}
+async function linuxRuntimeStatus(repoRoot: string): Promise<Record<string, unknown>> {
+  const state = await readTuiRuntimeState(repoRoot);
+  const systemdEnv = linuxSystemdEnv();
+  const directUnit = 'remote-workstation-mcp-openai.service';
+  const localUnit = 'remote-workstation-mcp.service';
+  const directEnabled = await runProcess('systemctl', ['--user', 'is-enabled', directUnit], { cwd: repoRoot, env: systemdEnv, timeoutMs: 4000 });
+  const localEnabled = await runProcess('systemctl', ['--user', 'is-enabled', localUnit], { cwd: repoRoot, env: systemdEnv, timeoutMs: 4000 });
+  const startupRegistered = directEnabled.code === 0 || localEnabled.code === 0;
+  let mcpHealthy = false;
+  let mcpVersion = '';
+  let httpAuth = '';
+  try {
+    const response = await fetch(`http://127.0.0.1:${state.mcpPort}/healthz`, { signal: AbortSignal.timeout(1500) });
+    if (response.ok) {
+      const health = await response.json() as { ok?: boolean; version?: string; httpAuth?: string };
+      mcpHealthy = health.ok === true;
+      mcpVersion = health.version || '';
+      httpAuth = health.httpAuth || '';
+    }
+  } catch {}
+  const running = state.service === 'active';
+  const tunnelReady = state.tunnelReady === true;
+  return {
+    supported: true,
+    running,
+    mode: directEnabled.code === 0 ? 'OpenAI' : 'Local',
+    root: repoRoot,
+    port: state.mcpPort,
+    mcpHealthy,
+    mcpVersion,
+    httpAuth,
+    tunnelReady,
+    connectionState: tunnelReady ? 'ONLINE' : (running ? 'RECONNECTING' : 'OFFLINE'),
+    connectionReason: tunnelReady ? 'tunnel-ready' : (running ? 'tunnel-not-ready' : 'runtime-stopped'),
+    reconnectAttempt: 0,
+    startupRegistered,
+    startupMethod: 'systemd-user'
+  };
+}
+
+async function linuxRuntimeControl(repoRoot: string, action: RuntimeAction | 'Status', mode: RuntimeMode = 'OpenAI'): Promise<unknown> {
+  if (action === 'Status') return await linuxRuntimeStatus(repoRoot);
+  const env = linuxSystemdEnv();
+  const unit = mode === 'OpenAI' ? 'remote-workstation-mcp-openai.service' : 'remote-workstation-mcp.service';
+  const argsByAction: Record<RuntimeAction, string[]> = {
+    Start: ['--user', 'start', unit],
+    Stop: ['--user', 'stop', unit],
+    Restart: ['--user', 'restart', unit],
+    RegisterStartup: ['--user', 'enable', unit],
+    UnregisterStartup: ['--user', 'disable', unit]
+  };
+  const result = await runProcess('systemctl', argsByAction[action], { cwd: repoRoot, env, timeoutMs: 30000, maxBytes: 128 * 1024 });
+  if (result.code !== 0) throw new Error(result.output || `systemctl ${action} failed for ${unit}.`);
+  if (action === 'Start' || action === 'Restart') await new Promise(resolve => setTimeout(resolve, 500));
+  return await linuxRuntimeStatus(repoRoot);
+}
+
+async function runtimeControl(repoRoot: string, action: RuntimeAction | 'Status', mode: RuntimeMode = 'OpenAI'): Promise<unknown> {
+  return process.platform === 'win32'
+    ? await windowsRuntimeControl(repoRoot, action, mode)
+    : await linuxRuntimeControl(repoRoot, action, mode);
+}
+
+async function safeRuntimeStatus(repoRoot: string): Promise<Record<string, unknown>> {
+  try {
+    return await runtimeControl(repoRoot, 'Status') as Record<string, unknown>;
+  } catch (error) {
+    return {
+      supported: true,
+      running: false,
+      mcpHealthy: false,
+      tunnelReady: false,
+      connectionState: 'OFFLINE',
+      connectionReason: 'runtime-control-unavailable',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
 async function testOpenAiTunnel(repoRoot: string, tunnelId: string, runtimeApiKey?: string): Promise<{ ok: boolean; tunnelId: string; message: string }> {
   if (!/^tunnel_[0-9a-f]{32}$/.test(tunnelId)) {
     return { ok: false, tunnelId, message: "Tunnel ID must match 'tunnel_' followed by 32 lowercase hexadecimal characters." };
   }
-  const tunnelClient = process.platform === 'win32'
-    ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
-    : path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client');
+  const tunnelClient = tunnelClientPath(repoRoot);
   if (!(await pathExists(tunnelClient))) {
     return { ok: false, tunnelId, message: 'OpenAI tunnel-client is not installed in this runtime slot.' };
   }
-  const key = runtimeApiKey?.trim() || await readWindowsRuntimeKey(repoRoot);
+  const key = runtimeApiKey?.trim() || await readRuntimeKey(repoRoot);
   if (!key) return { ok: false, tunnelId, message: 'No runtime API key is available. Paste a restricted key with Tunnels Read + Use.' };
   if (key.length < 20 || /\s/.test(key)) return { ok: false, tunnelId, message: 'Runtime API key format is invalid.' };
   const result = await runProcess(tunnelClient, ['admin', 'tunnels', 'get', tunnelId, '--json'], {
@@ -368,6 +521,10 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
   if (!Number.isInteger(preferredPort) || preferredPort < 1024 || preferredPort > 65535) {
     throw new Error('RWMCP_SETUP_PORT must be an integer between 1024 and 65535.');
   }
+  if (process.platform !== 'win32') {
+    const effective = await loadEffectiveSetupSettings(repoRoot);
+    await saveSetupSettings(effective);
+  }
   const token = crypto.randomBytes(32).toString('base64url');
   let boundPort = preferredPort;
 
@@ -407,11 +564,11 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
 
       if (url.pathname === '/api/status' && req.method === 'GET') {
         const settingsFileExists = await pathExists(setupSettingsPath());
-        let settings = await loadSetupSettings();
+        let settings = await loadEffectiveSetupSettings(repoRoot);
         const configuredPortFree = await portAvailable(settings.mcpPort);
         let configuredPortOwnedByManagedRuntime = false;
-        if (!configuredPortFree && process.platform === 'win32') {
-          const runtime = await safeWindowsRuntimeStatus(repoRoot) as { running?: boolean; port?: number };
+        if (!configuredPortFree) {
+          const runtime = await safeRuntimeStatus(repoRoot) as { running?: boolean; port?: number };
           configuredPortOwnedByManagedRuntime = runtime.running === true && runtime.port === settings.mcpPort;
         }
         const configuredPortAvailable = configuredPortFree || configuredPortOwnedByManagedRuntime;
@@ -421,9 +578,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         }
         const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
         const identity = await loadOrCreateDeviceIdentity();
-        const tunnelClient = process.platform === 'win32'
-          ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
-          : path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client');
+        const tunnelClient = tunnelClientPath(repoRoot);
         json(res, 200, {
           version: packageJson.version,
           identity,
@@ -433,7 +588,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings,
           settingsPersisted: settingsFileExists,
           settingsPath: setupSettingsPath(),
-          runtimeApiKeyStored: await pathExists(setupSecretPath()),
+          runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable,
@@ -445,19 +600,17 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/recovery/status' && req.method === 'GET') {
-        const settings = await loadSetupSettings();
+        const settings = await loadEffectiveSetupSettings(repoRoot);
         const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
         const identity = await loadOrCreateDeviceIdentity();
-        const tunnelClient = process.platform === 'win32'
-          ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
-          : path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client');
+        const tunnelClient = tunnelClientPath(repoRoot);
         json(res, 200, {
           version: packageJson.version,
           identity,
           recommendedAppName: recommendedChatGptAppName(identity),
           settings,
           settingsPersisted: await pathExists(setupSettingsPath()),
-          runtimeApiKeyStored: await pathExists(setupSecretPath()),
+          runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable: true,
@@ -472,7 +625,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
 
       if (url.pathname === '/api/recovery/test' && req.method === 'POST') {
         const body = await readJsonBody(req) as { tunnelId?: string; runtimeApiKey?: string };
-        const currentSettings = await loadSetupSettings();
+        const currentSettings = await loadEffectiveSetupSettings(repoRoot);
         const tunnelId = (body.tunnelId ?? currentSettings.tunnelId).trim();
         json(res, 200, await testOpenAiTunnel(repoRoot, tunnelId, body.runtimeApiKey));
         return;
@@ -480,23 +633,26 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
 
       if (url.pathname === '/api/recovery/apply' && req.method === 'POST') {
         const body = await readJsonBody(req) as { tunnelId?: string; organizationId?: string; runtimeApiKey?: string; reconnect?: boolean };
-        const currentSettings = await loadSetupSettings();
+        const currentSettings = await loadEffectiveSetupSettings(repoRoot);
         const settings = normalizeSetupSettings({
           ...currentSettings,
           tunnelId: body.tunnelId ?? currentSettings.tunnelId,
           organizationId: body.organizationId ?? currentSettings.organizationId
         });
         await saveSetupSettings(settings);
-        if (body.runtimeApiKey?.trim()) await storeWindowsRuntimeKey(repoRoot, body.runtimeApiKey.trim());
+        if (body.runtimeApiKey?.trim()) await storeRuntimeKey(repoRoot, body.runtimeApiKey.trim());
+        await syncLinuxDirectNodeSettings(settings);
         const reconnect = body.reconnect !== false;
-        const restart = reconnect && process.platform === 'win32'
-          ? scheduleWindowsRuntimeRestart(repoRoot, 'OpenAI')
+        const restart = reconnect
+          ? (process.platform === 'win32'
+              ? scheduleWindowsRuntimeRestart(repoRoot, 'OpenAI')
+              : await linuxRuntimeControl(repoRoot, 'Restart', 'OpenAI'))
           : null;
         json(res, 200, {
           ok: true,
           settings,
-          runtimeApiKeyStored: await pathExists(setupSecretPath()),
-          reconnectAccepted: restart?.accepted === true,
+          runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
+          reconnectAccepted: reconnect && restart !== null,
           restart
         });
         return;
@@ -598,6 +754,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         if (!body.mode || !allowed.has(body.mode)) throw new Error('Unsupported permission mode.');
         const state = await applyOwnerPermissionMode(repoRoot, body.mode as 'read_only' | 'workspace' | 'full_control');
         process.env.RWMCP_HTTP_SCOPES = state.httpScopes.join(',');
+        if (process.platform !== 'win32') await updateEnvFile(linuxOpenAiEnvPath(), { RWMCP_HTTP_SCOPES: state.httpScopes.join(',') });
         json(res, 200, { ...state, restartRequired: true });
         return;
       }
@@ -618,6 +775,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         // Refresh the inherited scope environment immediately so a following Restart
         // uses the just-saved owner choice instead of the scope snapshot from startup.
         process.env.RWMCP_HTTP_SCOPES = state.httpScopes.join(',');
+        if (process.platform !== 'win32') await updateEnvFile(linuxOpenAiEnvPath(), { RWMCP_HTTP_SCOPES: state.httpScopes.join(',') });
         json(res, 200, { ...state, restartRequired: true });
         return;
       }
@@ -643,7 +801,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/runtime/status' && req.method === 'GET') {
-        json(res, 200, await safeWindowsRuntimeStatus(repoRoot));
+        json(res, 200, await safeRuntimeStatus(repoRoot));
         return;
       }
 
@@ -652,17 +810,17 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const actions = new Set<RuntimeAction>(['Start', 'Stop', 'Restart', 'RegisterStartup', 'UnregisterStartup']);
         if (!body.action || !actions.has(body.action as RuntimeAction)) throw new Error('Unsupported runtime action.');
         const mode: RuntimeMode = body.mode === 'Local' ? 'Local' : 'OpenAI';
-        if (body.action === 'Restart') {
+        if (body.action === 'Restart' && process.platform === 'win32') {
           json(res, 202, scheduleWindowsRuntimeRestart(repoRoot, mode));
           return;
         }
-        json(res, 200, await windowsRuntimeControl(repoRoot, body.action as RuntimeAction, mode));
+        json(res, 200, await runtimeControl(repoRoot, body.action as RuntimeAction, mode));
         return;
       }
 
       if (url.pathname === '/api/save' && req.method === 'POST') {
         const body = await readJsonBody(req) as Partial<SetupSaveRequest>;
-        const currentSettings = await loadSetupSettings();
+        const currentSettings = await loadEffectiveSetupSettings(repoRoot);
         const settings = normalizeSetupSettings({
           ...currentSettings,
           version: 1,
@@ -676,8 +834,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         });
         const mcpPortFree = await portAvailable(settings.mcpPort);
         let managedRuntimeOwnsPort = false;
-        if (!mcpPortFree && process.platform === 'win32') {
-          const runtime = await windowsRuntimeControl(repoRoot, 'Status') as { running?: boolean; port?: number };
+        if (!mcpPortFree) {
+          const runtime = await runtimeControl(repoRoot, 'Status') as { running?: boolean; port?: number };
           managedRuntimeOwnsPort = runtime.running === true && runtime.port === settings.mcpPort;
         }
         if (!mcpPortFree && !managedRuntimeOwnsPort) {
@@ -688,24 +846,25 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         }
         await fs.mkdir(settings.workspaceRoot, { recursive: true });
         const settingsPath = await saveSetupSettings(settings);
+        await syncLinuxDirectNodeSettings(settings);
         const policy = await ensureDefaultPolicy(repoRoot, settings.workspaceRoot);
         const hosts = await ensureHostsConfig(repoRoot);
         if (body.runtimeApiKey) {
           if (body.storeRuntimeApiKey === false) {
             throw new Error('A supplied runtime API key must either be stored securely or omitted. Session-only keys should be set in the terminal environment instead of the setup form.');
           }
-          await storeWindowsRuntimeKey(repoRoot, body.runtimeApiKey);
+          await storeRuntimeKey(repoRoot, body.runtimeApiKey);
         }
         json(res, 200, {
           ok: true,
           message: `${settingsPath}; ${policy.created ? 'created default policy' : 'existing policy preserved'} at ${policy.path}; ${hosts.created ? 'created hosts config' : 'existing hosts config preserved'} at ${hosts.path}.`,
-          runtimeApiKeyStored: await pathExists(setupSecretPath())
+          runtimeApiKeyStored: await runtimeKeyStored(repoRoot)
         });
         return;
       }
 
       if (url.pathname === '/api/runtime-key' && req.method === 'DELETE') {
-        await removeWindowsRuntimeKey(repoRoot);
+        await removeRuntimeKey(repoRoot);
         json(res, 200, { ok: true });
         return;
       }

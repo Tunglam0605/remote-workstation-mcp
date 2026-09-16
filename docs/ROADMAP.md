@@ -214,14 +214,20 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - render explicit `OFFLINE` / `RECOVERY` states instead of permanent `Loading...`
 - reclaim orphaned RWMCP setup-web listeners while still rejecting unrelated foreign processes
 
-### v0.8.5 - Recovery and Linux release polish - current
+### v0.8.5 - Recovery and Linux release polish - complete
 
 - automatically self-reload a stale local Control Center page when its ephemeral CSRF token expires after restart
 - distinguish Linux source checkout installation from prebuilt GitHub Release installation
 - make prebuilt Linux installation depend only on packaged `dist/` + runtime dependencies, not omitted TypeScript/test files
 - retain v0.8.4 offline-first recovery and v0.8.3 Direct Multi-Node behavior
 
-### v0.8.6 - Direct-node engineering ergonomics
+### v0.8.6 - Linux Direct Node upgrade hardening - current
+
+- discover user-local Node.js from `$HOME/.local/bin` during non-interactive Direct Node setup
+- preserve Direct Node topology during Linux upgrades instead of re-enabling the local-only service
+- restart the configured Direct Node after slot activation so it immediately loads the new release
+
+### v0.8.7 - Direct-node engineering ergonomics
 
 - one-command Windows/Linux node enrollment once a tunnel ID/runtime key is available
 - per-node health overview and deterministic app-name export

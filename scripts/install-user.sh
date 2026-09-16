@@ -8,6 +8,9 @@ SERVICE_DIR="$HOME/.config/systemd/user"
 SERVICE_FILE="$SERVICE_DIR/remote-workstation-mcp.service"
 UPDATE_SERVICE="$SERVICE_DIR/remote-workstation-mcp-update.service"
 UPDATE_TIMER="$SERVICE_DIR/remote-workstation-mcp-update.timer"
+DIRECT_SERVICE_FILE="$SERVICE_DIR/remote-workstation-mcp-openai.service"
+DIRECT_NODE_CONFIGURED=false
+[[ -f "$DIRECT_SERVICE_FILE" ]] && DIRECT_NODE_CONFIGURED=true
 
 for command in node npm tar; do
   command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
@@ -172,10 +175,22 @@ EOF
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload
-  systemctl --user enable --now remote-workstation-mcp.service
   systemctl --user enable --now remote-workstation-mcp-update.timer
-  sleep 1
-  systemctl --user --no-pager --full status remote-workstation-mcp.service || true
+  if [[ "$DIRECT_NODE_CONFIGURED" == "true" ]]; then
+    # Preserve Direct Node topology across upgrades: never re-enable the local-only
+    # listener when the outbound OpenAI service is already configured. Restarting
+    # the Direct Node is required so the current symlink change takes effect.
+    systemctl --user disable --now remote-workstation-mcp.service >/dev/null 2>&1 || true
+    systemctl --user enable remote-workstation-mcp-openai.service >/dev/null 2>&1 || true
+    systemctl --user restart remote-workstation-mcp-openai.service
+    sleep 1
+    systemctl --user --no-pager --full status remote-workstation-mcp-openai.service || true
+  else
+    systemctl --user enable remote-workstation-mcp.service >/dev/null 2>&1 || true
+    systemctl --user restart remote-workstation-mcp.service
+    sleep 1
+    systemctl --user --no-pager --full status remote-workstation-mcp.service || true
+  fi
 else
   echo "systemctl is not available; run manually:"
   echo "  RWMCP_POLICY=$CONFIG_HOME/policy.yaml RWMCP_HOSTS=$CONFIG_HOME/hosts.yaml RWMCP_LEASE=$DATA_HOME/runtime/permission-lease.json RWMCP_CLIENT_ID=local-http $NODE_BIN $DATA_HOME/current/dist/cli.js --http"

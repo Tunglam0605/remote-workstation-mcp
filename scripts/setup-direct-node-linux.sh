@@ -37,6 +37,10 @@ ENV_FILE="$CONFIG/openai.env"
 TUNNEL_DIR="$ROOT/runtime/openai-tunnel"
 TUNNEL_BIN="$TUNNEL_DIR/tunnel-client"
 
+# User-local Node installations are common on Ubuntu engineering PCs and may not be
+# present in non-interactive SSH/systemd bootstrap PATHs.
+export PATH="$HOME/.local/bin:$PATH"
+
 [[ -e "$CURRENT/dist/openai-tunnel-cli.js" ]] || { echo "Managed RWMCP install not found at $CURRENT. Run scripts/install-user.sh first." >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo 'node is required.' >&2; exit 1; }
 command -v systemctl >/dev/null 2>&1 || { echo 'systemd user services are required for managed Direct Node mode.' >&2; exit 1; }

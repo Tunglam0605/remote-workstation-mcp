@@ -227,15 +227,20 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - preserve Direct Node topology during Linux upgrades instead of re-enabling the local-only service
 - restart the configured Direct Node after slot activation so it immediately loads the new release
 
-### v0.8.7 - Control Center UTF-8 and embedded-JS hardening - current
+### v0.8.7 - Control Center UTF-8 and embedded-JS hardening - complete
 
 - restore clean UTF-8 text, icons and Vietnamese translations in the local Control Center
 - fix the embedded pairing-code newline that could break generated browser JavaScript
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.8 - Direct-node engineering ergonomics
+### v0.8.8 - Terminal Control Center + direct-node ergonomics - current
 
+- dependency-free interactive TUI (`rwmcp-tui`) for owner-local terminal administration
+- terminal editing for access mode, MCP port, device name, Tunnel ID, and Runtime API key rotation
+- TUI status surface for managed service, tunnel readiness, workspace, and current access mode
+- Linux managed/direct-node default MCP port standardized on `8683`
+- configuration changes reuse the same policy/scopes model as the Web Control Center and restart the managed runtime deterministically
 - one-command Windows/Linux node enrollment once a tunnel ID/runtime key is available
 - per-node health overview and deterministic app-name export
 - device-scoped typed filesystem/Git/build/process contracts where cross-app orchestration benefits from explicit target metadata

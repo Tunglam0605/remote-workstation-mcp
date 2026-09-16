@@ -13,7 +13,7 @@ export interface LoopbackHttpTransportOptions {
 }
 
 function configuredPort(value: number | undefined): number {
-  const port = value ?? Number(process.env.RWMCP_PORT ?? 8765);
+  const port = value ?? Number(process.env.RWMCP_PORT ?? 8683);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('RWMCP_PORT must be a valid TCP port.');
   }

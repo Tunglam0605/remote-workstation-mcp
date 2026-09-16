@@ -201,7 +201,7 @@ export class OpenAiSecureTunnelConnectionProvider implements ConnectionProvider 
     this.env = options.env ?? process.env;
     this.cwd = path.resolve(options.cwd ?? process.cwd());
     this.runtimeDir = path.resolve(options.runtimeDir ?? this.env.RWMCP_OPENAI_TUNNEL_DIR ?? path.join(this.cwd, 'runtime', 'openai-tunnel'));
-    this.localEndpoint = options.localEndpoint ?? `http://127.0.0.1:${this.env.RWMCP_PORT ?? '8765'}/mcp`;
+    this.localEndpoint = options.localEndpoint ?? `http://127.0.0.1:${this.env.RWMCP_PORT ?? '8683'}/mcp`;
     this.explicitTunnelBinary = options.tunnelClientPath ?? this.env.RWMCP_OPENAI_TUNNEL_CLIENT;
     this.readyTimeoutMs = options.readyTimeoutMs ?? parsePositiveMs(this.env.RWMCP_OPENAI_TUNNEL_READY_TIMEOUT_MS, 60_000);
     this.descriptor = {

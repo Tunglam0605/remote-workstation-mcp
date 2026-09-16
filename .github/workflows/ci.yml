@@ -273,14 +273,14 @@ jobs:
           $env:RWMCP_AUDIT = Join-Path $tmp 'audit.jsonl'
           $env:RWMCP_CLIENT_ID = 'windows-ci'
           $env:RWMCP_CLIENT_TYPE = 'ci'
-          $env:RWMCP_PORT = '8765'
+          $env:RWMCP_PORT = '8683'
           $process = Start-Process -FilePath node -ArgumentList 'dist/cli.js','--http' -PassThru -WindowStyle Hidden
           try {
             $healthy = $false
             foreach ($attempt in 1..30) {
               Start-Sleep -Milliseconds 250
               try {
-                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/healthz' -TimeoutSec 2
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8683/healthz' -TimeoutSec 2
                 if ($health.ok -eq $true) { $healthy = $true; break }
               } catch {}
             }

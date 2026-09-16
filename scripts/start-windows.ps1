@@ -11,7 +11,7 @@ $PolicyPath = if ($env:RWMCP_POLICY) { $env:RWMCP_POLICY } else { Join-Path $Roo
 $HostsPath = if ($env:RWMCP_HOSTS) { $env:RWMCP_HOSTS } else { Join-Path $Root 'config\hosts.yaml' }
 $RuntimeDir = Join-Path $Root 'runtime'
 $CliPath = Join-Path $Root 'dist\cli.js'
-$Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8765' }
+$Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8683' }
 
 if (-not (Test-Path $PolicyPath)) {
   throw "Policy file not found: $PolicyPath. Run the Setup & Control Center first."

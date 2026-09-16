@@ -10,6 +10,7 @@ import { compareSemver, isPatchUpgrade, normalizeVersion, parseSemver } from './
 const exec = promisify(execFile);
 const home = os.homedir();
 const dataHome = process.env.RWMCP_HOME ?? path.join(home, '.local/share/remote-workstation-mcp');
+const configHome = process.env.RWMCP_CONFIG_HOME ?? path.join(home, '.config/remote-workstation-mcp');
 const repository = process.env.RWMCP_UPDATE_REPO ?? 'Tunglam0605/remote-workstation-mcp';
 const checkOnly = process.argv.includes('--check');
 const scheduled = process.argv.includes('--scheduled');
@@ -51,18 +52,44 @@ async function download(url, target) {
   return buffer;
 }
 
-async function restartService() {
+async function exists(target) {
+  try { await fs.access(target); return true; } catch { return false; }
+}
+
+async function managedMcpPort() {
   try {
-    await exec('systemctl', ['--user', 'restart', 'remote-workstation-mcp.service']);
+    const text = await fs.readFile(path.join(configHome, 'openai.env'), 'utf8');
+    const match = /^RWMCP_PORT=(?:["']?)(\d+)/m.exec(text);
+    if (match) return Number(match[1]);
+  } catch {}
+  try {
+    const settings = JSON.parse((await fs.readFile(path.join(configHome, 'settings.json'), 'utf8')).replace(/^\uFEFF/, ''));
+    const value = Number(settings?.mcpPort);
+    if (Number.isInteger(value) && value >= 1024 && value <= 65535) return value;
+  } catch {}
+  const envPort = Number(process.env.RWMCP_PORT);
+  return Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : 8683;
+}
+
+async function managedServiceName() {
+  const direct = path.join(home, '.config/systemd/user/remote-workstation-mcp-openai.service');
+  return await exists(direct) ? 'remote-workstation-mcp-openai.service' : 'remote-workstation-mcp.service';
+}
+
+async function restartService() {
+  const service = await managedServiceName();
+  try {
+    await exec('systemctl', ['--user', 'restart', service]);
   } catch (error) {
-    throw new Error(`Failed to restart user service: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to restart ${service}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 async function waitForHealth(expectedVersion) {
+  const port = await managedMcpPort();
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      const response = await fetch('http://127.0.0.1:8765/healthz', { signal: AbortSignal.timeout(1000) });
+      const response = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1000) });
       if (response.ok) {
         const body = await response.json();
         if (body?.ok === true && body?.version === expectedVersion) return true;

@@ -134,6 +134,7 @@ Environment=RWMCP_LEASE=$DATA_HOME/runtime/permission-lease.json
 Environment=RWMCP_AUDIT=$DATA_HOME/runtime/audit.jsonl
 Environment=RWMCP_CLIENT_ID=local-http
 Environment=RWMCP_CLIENT_TYPE=managed-http
+Environment=RWMCP_PORT=8683
 ExecStart=$NODE_BIN $DATA_HOME/current/dist/cli.js --http
 Restart=on-failure
 RestartSec=3
@@ -202,6 +203,13 @@ echo "Policy:    $CONFIG_HOME/policy.yaml"
 echo "SSH hosts: $CONFIG_HOME/hosts.yaml"
 echo "Lease:     $DATA_HOME/runtime/permission-lease.json"
 echo "Updates:   $CONFIG_HOME/update.env (default: notify)"
-echo "MCP:       http://127.0.0.1:8765/mcp"
-echo "Health:    http://127.0.0.1:8765/healthz"
+echo "MCP:       http://127.0.0.1:8683/mcp"
+echo "Health:    http://127.0.0.1:8683/healthz"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/rwmcp-tui" <<EOF
+#!/usr/bin/env bash
+exec "$NODE_BIN" "$DATA_HOME/current/dist/tui-cli.js" "\$@"
+EOF
+chmod 700 "$HOME/.local/bin/rwmcp-tui"
+echo "TUI:       rwmcp-tui"
 echo "Put projects you want to expose in $WORKSPACE or edit the local policy explicitly."

@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  CONTROL_PLANE_API_KEY='sk-...' ./scripts/setup-direct-node-linux.sh --tunnel-id tunnel_<id> [--name 'Ubuntu Lab'] [--port 8765]
+  CONTROL_PLANE_API_KEY='sk-...' ./scripts/setup-direct-node-linux.sh --tunnel-id tunnel_<id> [--name 'Ubuntu Lab'] [--port 8683]
 
 The runtime API key is written only to ~/.config/remote-workstation-mcp/openai.env (0600).
 Use one distinct OpenAI Secure MCP Tunnel ID per workstation.
@@ -13,7 +13,7 @@ EOF
 
 TUNNEL_ID=""
 DEVICE_NAME=""
-PORT="8765"
+PORT="8683"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tunnel-id) TUNNEL_ID="${2:-}"; shift 2 ;;

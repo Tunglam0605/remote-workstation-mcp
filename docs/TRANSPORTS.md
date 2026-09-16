@@ -30,7 +30,7 @@ Current transport providers:
 
 - MCP Streamable HTTP;
 - binds to `127.0.0.1` only;
-- default endpoint `http://127.0.0.1:8765/mcp`;
+- default endpoint `http://127.0.0.1:8683/mcp`;
 - optional bearer authentication establishes a request-scoped principal;
 - intended for local clients and as the private origin behind a secure outbound connection provider.
 

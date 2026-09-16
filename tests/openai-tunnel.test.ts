@@ -7,7 +7,7 @@ test('OpenAI tunnel profile keeps secrets as environment references and MCP loop
   const runtimeDir = path.resolve('runtime-test');
   const profile = buildOpenAiTunnelProfile({
     tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
-    localEndpoint: 'http://127.0.0.1:8765/mcp',
+    localEndpoint: 'http://127.0.0.1:8683/mcp',
     runtimeDir
   }) as {
     control_plane: { tunnel_id: string; api_key: string };
@@ -21,7 +21,7 @@ test('OpenAI tunnel profile keeps secrets as environment references and MCP loop
 
   assert.equal(profile.control_plane.tunnel_id, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.equal(profile.control_plane.api_key, 'env:CONTROL_PLANE_API_KEY');
-  assert.deepEqual(profile.mcp.server_urls, [{ channel: 'main', url: 'http://127.0.0.1:8765/mcp' }]);
+  assert.deepEqual(profile.mcp.server_urls, [{ channel: 'main', url: 'http://127.0.0.1:8683/mcp' }]);
   assert.equal(profile.mcp.extra_headers.Authorization, 'env:RWMCP_TUNNEL_AUTH');
   assert.equal(profile.mcp.discovery_extra_headers.Authorization, 'env:RWMCP_TUNNEL_AUTH');
   assert.equal(profile.cloudflared.managed, false);

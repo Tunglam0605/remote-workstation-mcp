@@ -1,6 +1,6 @@
 # Terminal Control Center (TUI)
 
-Remote Workstation MCP v0.8.8 includes a dependency-free terminal user interface for owner-local administration. It complements the browser Control Center; it does not replace the MCP or Secure MCP Tunnel.
+Remote Workstation MCP v0.8.9 includes a dependency-free terminal user interface for owner-local administration. It complements the browser Control Center; it does not replace the MCP or Secure MCP Tunnel.
 
 ## Launch
 

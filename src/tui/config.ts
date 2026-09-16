@@ -166,17 +166,28 @@ async function windowsRuntimeState(repoRoot: string): Promise<{ service: string;
   }
 }
 
-async function linuxServiceState(): Promise<string> {
+function linuxSystemdEnv(options: TuiConfigOptions = {}): NodeJS.ProcessEnv {
+  const env = { ...envOf(options) };
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  const runtimeDir = env.XDG_RUNTIME_DIR || (uid !== undefined ? `/run/user/${uid}` : undefined);
+  if (runtimeDir) {
+    env.XDG_RUNTIME_DIR = runtimeDir;
+    env.DBUS_SESSION_BUS_ADDRESS ||= `unix:path=${runtimeDir}/bus`;
+  }
+  return env;
+}
+
+async function linuxServiceState(options: TuiConfigOptions = {}): Promise<string> {
   try {
-    const result = await run('systemctl', ['--user', 'is-active', 'remote-workstation-mcp-openai.service']);
+    const env = linuxSystemdEnv(options);
+    const result = await run('systemctl', ['--user', 'is-active', 'remote-workstation-mcp-openai.service'], env);
     if (result.code === 0) return result.stdout.trim() || 'active';
-    const local = await run('systemctl', ['--user', 'is-active', 'remote-workstation-mcp.service']);
+    const local = await run('systemctl', ['--user', 'is-active', 'remote-workstation-mcp.service'], env);
     return local.stdout.trim() || 'inactive';
   } catch {
     return 'unknown';
   }
 }
-
 async function linuxTunnelReady(options: TuiConfigOptions): Promise<boolean | null> {
   const root = envOf(options).RWMCP_HOME || path.join(homeOf(options), '.local', 'share', 'remote-workstation-mcp');
   try {
@@ -211,7 +222,7 @@ export async function readTuiRuntimeState(repoRoot: string, options: TuiConfigOp
     const envPort = Number(envFile.get('RWMCP_PORT'));
     if (Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535) mcpPort = envPort;
     runtimeKeyConfigured = Boolean(envFile.get('CONTROL_PLANE_API_KEY'));
-    service = await linuxServiceState();
+    service = await linuxServiceState(options);
     tunnelReady = await linuxTunnelReady(options);
   } else {
     try {

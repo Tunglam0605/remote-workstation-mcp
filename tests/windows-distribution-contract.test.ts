@@ -96,3 +96,12 @@ test('Windows managed upgrades self-heal the stable launcher from the current ru
   assert.match(launcher, /safe-restart-windows\.ps1/);
   assert.match(launcher, /Invoke-Updater 'Install'/);
 });
+
+test('Windows managed install exposes a stable rwmcp-tui command on the user PATH', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+  assert.match(installer, /Install-TuiLauncher/);
+  assert.match(installer, /rwmcp-tui\.ps1/);
+  assert.match(installer, /rwmcp-tui\.cmd/);
+  assert.match(installer, /SetEnvironmentVariable\('Path'.*'User'\)/s);
+  assert.match(installer, /dist\\tui-cli\.js/);
+});

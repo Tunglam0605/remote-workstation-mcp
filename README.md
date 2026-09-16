@@ -6,8 +6,13 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.8**
+**v0.8.9**
 
+v0.8.9 polishes the new terminal workflow:
+
+- Windows managed installs now expose `rwmcp-tui` as a stable command and add the managed `bin` directory to the current-user `PATH`;
+- Linux TUI/service operations reconstruct the `systemd --user` bus environment when invoked from SSH, MCP, or other non-interactive sessions;
+- non-interactive Linux upgrades can restart the existing Direct Node without requiring a login-shell DBus environment.
 v0.8.8 adds a local **Terminal Control Center (TUI)** and standardizes the managed MCP port on `8683` across Windows and Linux:
 
 - run `rwmcp-tui` on a managed Linux node to inspect service/tunnel state and edit owner settings from the terminal;
@@ -125,11 +130,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.8 release contains:
+The v0.8.9 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.8.tgz`
+- `remote-workstation-mcp-v0.8.9.tgz`
 - `SHA256SUMS.txt`
 
 

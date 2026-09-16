@@ -23,6 +23,7 @@ export class EngineeringCommandRunner {
           cwd,
           shell: false,
           windowsHide: true,
+          detached: process.platform !== 'win32',
           env: buildSafeEnvironment(this.policy.config.process.inheritEnv)
         });
       } catch (error) {
@@ -47,12 +48,19 @@ export class EngineeringCommandRunner {
         clearTimeout(timer);
         resolve({ program, args: [...args], cwd, exitCode: code, stdout, stderr, timedOut, durationMs: Date.now() - started });
       });
+      const terminate = (signal: NodeJS.Signals) => {
+        if (process.platform !== 'win32' && child.pid) {
+          try { process.kill(-child.pid, signal); } catch { child.kill(signal); }
+        } else {
+          child.kill(signal);
+        }
+      };
       const timer = setTimeout(() => {
         if (settled) return;
         timedOut = true;
-        child.kill('SIGTERM');
+        terminate('SIGTERM');
         setTimeout(() => {
-          if (!settled) child.kill('SIGKILL');
+          if (!settled) terminate('SIGKILL');
         }, 2000).unref();
       }, limit);
     });

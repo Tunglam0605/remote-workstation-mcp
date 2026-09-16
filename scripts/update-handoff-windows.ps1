@@ -65,6 +65,33 @@ function Write-Transaction(
   Move-Item -LiteralPath $tmp -Destination $StatePath -Force
 }
 
+function Invoke-LauncherAction([string]$Action) {
+  $powershell = Get-Command powershell.exe -ErrorAction Stop
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $powershell.Source
+  $psi.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$Launcher`" -Action $Action"
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  try {
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($stdout) { $stdout.TrimEnd() | Add-Content -Path $LogPath -Encoding utf8 }
+    if ($stderr) { $stderr.TrimEnd() | Add-Content -Path $LogPath -Encoding utf8 }
+    return [int]$process.ExitCode
+  } finally {
+    $process.Dispose()
+  }
+}
+
 $mutex = New-Object System.Threading.Mutex($false, 'Local\RemoteWorkstationMCP.UpdateHandoff')
 $lockAcquired = $false
 try {
@@ -86,8 +113,7 @@ try {
     throw "Stable launcher is missing: $Launcher"
   }
 
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Launcher -Action Update *>> $LogPath
-  $updateExitCode = $LASTEXITCODE
+  $updateExitCode = Invoke-LauncherAction 'Update'
   if ($updateExitCode -ne 0) {
     throw "Stable launcher Update exited with code $updateExitCode."
   }
@@ -121,8 +147,7 @@ try {
   if (Test-Path -LiteralPath $Launcher) {
     try {
       Append-UpdateLog 'Attempting best-effort StartOpenAI recovery on the current slot.'
-      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Launcher -Action StartOpenAI *>> $LogPath
-      $recoveryExit = $LASTEXITCODE
+      $recoveryExit = Invoke-LauncherAction 'StartOpenAI'
       if ($recoveryExit -eq 0) { $recovery = 'start-openai-ok' }
       else { $recovery = "start-openai-exit-$recoveryExit" }
     } catch {

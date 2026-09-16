@@ -119,7 +119,12 @@ test('Windows update install is handed off to a durable worker and activation wa
   assert.match(setupServer, /accepted \? 202 : 200/);
   assert.match(worker, /update-transaction\.json/);
   assert.match(worker, /RemoteWorkstationMCP\.UpdateHandoff/);
-  assert.match(worker, /-Action Update/);
+  assert.match(worker, /System\.Diagnostics\.ProcessStartInfo/);
+  assert.match(worker, /Invoke-LauncherAction 'Update'/);
+  assert.match(worker, /RedirectStandardOutput = \$true/);
+  assert.match(worker, /RedirectStandardError = \$true/);
+  assert.match(worker, /WaitForExit\(\)/);
+  assert.match(worker, /process\.ExitCode/);
   assert.match(worker, /StartOpenAI/);
   assert.match(worker, /SUCCEEDED/);
   assert.match(worker, /FAILED/);

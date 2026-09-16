@@ -6,7 +6,13 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.6**
+**v0.8.7**
+
+v0.8.7 fixes the local Control Center rendering path:
+
+- repairs UTF-8 text/icons/translations that were corrupted in the generated UI;
+- fixes an embedded JavaScript newline bug that could leave the page stuck on `Loading...`;
+- adds a regression test that renders the real HTML and parses the embedded script before release.
 
 v0.8.6 hardens Linux Direct Node upgrades:
 
@@ -108,11 +114,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.6 release contains:
+The v0.8.7 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.6.tgz`
+- `remote-workstation-mcp-v0.8.7.tgz`
 - `SHA256SUMS.txt`
 
 

@@ -202,7 +202,7 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - add Linux `systemd --user` Direct Node service with automatic restart/reconnect
 - keep Hub/SSH mode only for bootstrap, migration and explicitly requested gateway workflows
 
-### v0.8.4 - Offline-first Control Center Recovery - current
+### v0.8.4 - Offline-first Control Center Recovery - complete
 
 - keep the loopback Control Center usable when the runtime API key is missing, expired or revoked
 - keep the Control Center usable when a Tunnel ID changes/deletes or the OpenAI tunnel is disconnected
@@ -214,7 +214,14 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - render explicit `OFFLINE` / `RECOVERY` states instead of permanent `Loading...`
 - reclaim orphaned RWMCP setup-web listeners while still rejecting unrelated foreign processes
 
-### v0.8.5 - Direct-node engineering ergonomics
+### v0.8.5 - Recovery and Linux release polish - current
+
+- automatically self-reload a stale local Control Center page when its ephemeral CSRF token expires after restart
+- distinguish Linux source checkout installation from prebuilt GitHub Release installation
+- make prebuilt Linux installation depend only on packaged `dist/` + runtime dependencies, not omitted TypeScript/test files
+- retain v0.8.4 offline-first recovery and v0.8.3 Direct Multi-Node behavior
+
+### v0.8.6 - Direct-node engineering ergonomics
 
 - one-command Windows/Linux node enrollment once a tunnel ID/runtime key is available
 - per-node health overview and deterministic app-name export

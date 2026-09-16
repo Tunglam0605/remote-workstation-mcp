@@ -1,6 +1,6 @@
 # Windows quick start - one-time setup
 
-This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.8.4.
+This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.8.5.
 
 ## Before you start
 

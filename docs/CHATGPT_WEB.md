@@ -18,7 +18,7 @@ Current OpenAI references:
 
 Before creating the ChatGPT app, the workstation side should already have:
 
-- RWMCP v0.8.4 installed;
+- RWMCP v0.8.5 installed;
 - one OpenAI Secure MCP Tunnel ID;
 - one restricted Runtime API key with Tunnels Read + Use;
 - `tunnel-client` installed by the RWMCP managed installer;
@@ -91,7 +91,7 @@ The managed wizard:
 6. waits for MCP health and tunnel `/readyz`;
 7. enables current-user start-at-logon.
 
-A ready v0.8.4 workstation should show:
+A ready v0.8.5 workstation should show:
 
 ```text
 MCP          HEALTHY

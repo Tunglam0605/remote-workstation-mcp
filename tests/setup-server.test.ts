@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { SERVER_VERSION } from '../src/capabilities.js';
 import vm from 'node:vm';
 import { startSetupServer } from '../src/setup/setup-server.js';
 
@@ -84,7 +85,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; onboardingRequired: boolean; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.8.13');
+    assert.equal(body.version, SERVER_VERSION);
     assert.ok(Number.isInteger(body.settings.mcpPort));
     assert.equal(typeof body.onboardingRequired, 'boolean');
 

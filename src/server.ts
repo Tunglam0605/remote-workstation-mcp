@@ -5,6 +5,7 @@ import { registerChatGptWebTools } from './tools/chatgpt-web-tools.js';
 import { registerDeviceTools } from './tools/device-tools.js';
 import { registerCoreTools } from './tools/core-tools.js';
 import { registerFullControlTools } from './tools/full-control-tools.js';
+import { registerEngineeringTools } from './tools/engineering-tools.js';
 import { registerInteractiveProcessTools } from './tools/interactive-process-tools.js';
 import { registerLspTools } from './tools/lsp-tools.js';
 import { registerPrivilegedTools } from './tools/privileged-tools.js';
@@ -31,6 +32,7 @@ export function buildServer(ctx: AppContext): McpServer {
   registerChatGptWebTools(server, ctx);
   registerDeviceTools(server, ctx);
   registerCoreTools(server, ctx);
+  registerEngineeringTools(server, ctx);
   registerInteractiveProcessTools(server, ctx);
   registerLspTools(server, ctx);
   registerSshTools(server, ctx);

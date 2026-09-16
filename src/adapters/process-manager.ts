@@ -58,9 +58,10 @@ export class ProcessManager {
     return { text: text.slice(start), nextCursor: base + text.length, truncated };
   }
 
-  async start(workspace: string, program: string, args: string[], cwdRelative = '.'): Promise<ProcessSnapshot> {
+  async start(workspace: string, program: string, args: string[], cwdRelative = '.', trustedEngineering = false): Promise<ProcessSnapshot> {
     this.policy.workspace(workspace);
-    this.policy.assertExecute(program);
+    if (trustedEngineering) this.policy.assertEngineeringExecute();
+    else this.policy.assertExecute(program);
     const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
     const ownerId = this.ownerId();
     const child = spawn(program, args, {

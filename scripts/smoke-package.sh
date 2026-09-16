@@ -40,7 +40,8 @@ tar -xzf "$ARCHIVE" --strip-components=1 -C "$PKG"
 [[ -f "$PKG/scripts/install-windows-bootstrap.cmd" ]] || { echo "Packed release is missing scripts/install-windows-bootstrap.cmd" >&2; exit 1; }
 (
   cd "$PKG"
-  npm install --omit=dev --no-audit --no-fund
+  npm install --omit=dev --no-audit --no-fund --ignore-scripts
+  node scripts/smoke-engineering-native.mjs
 )
 
 VERSION="$(cd "$PKG" && node -p "require('./package.json').version")"

@@ -234,7 +234,7 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.13 - Conservative cross-platform update policy - current
+### v0.8.13 - Conservative cross-platform update policy - complete
 
 - auto-install verified patch releases only on managed Windows and Linux nodes
 - detect minor/major releases without auto-installing them
@@ -282,19 +282,29 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - device-scoped typed filesystem/Git/build/process contracts where cross-app orchestration benefits from explicit target metadata
 - safe parallel execution and result aggregation across directly connected apps
 
-## v0.9 - Engineering debug and hardware adapters
+## v0.9 - Engineering tools - current
 
-- true PTY/ConPTY terminal adapter with bounded lifecycle and output
-- DAP session adapter for language-agnostic debugger control
-- GDB/MI adapter for native/source-level debugging
-- Docker/container workflows
-- serial/USB discovery and bounded I/O
-- OpenOCD / ST-Link / J-Link adapters
-- STM32 / ESP32 build-flash-debug workflows
-- crash/fault/register diagnostics
-- RTT/SWO/log streaming through bounded cursors
-- ROS 2 process/topic/service/action/parameter adapters
-- richer LSP rename preview/code-action contracts
+### v0.9.0 - Typed engineering foundation
+
+- true PTY/ConPTY terminal sessions with caller ownership and bounded lifecycle/output
+- cross-platform serial discovery and bounded serial sessions
+- hardware resource leasing for probes/ports to prevent competing flash/debug/monitor operations
+- firmware project/artifact inspection and typed ESP-IDF/CMake/Make build providers
+- constrained OpenOCD/ST-Link flash-plan/flash/verify/reset workflows
+- token-correlated GDB/MI debugging with halt/resume/step/stack/register/variable/breakpoint/memory-read/fault tools
+- ROS 2 typed node/topic/service/action/parameter/bag workflows
+- typed Docker container lifecycle/log/exec/image-build workflows
+- project-subtree containment, target-config allowlisting, explicit probe/port identity and authenticated scope coverage
+- pinned `node-pty`/`serialport` dependencies and packed native-module smoke tests
+
+### Planned v0.9.x depth
+
+- deeper real-hardware STM32/ST-Link acceptance and provider fallback
+- ESP-IDF partition/app/security-state inspection and monitor workflow
+- FreeRTOS task/stack diagnostics and RTT/SWO support
+- ROS 2 and Docker production hardening
+- richer provider error taxonomy, observability and recovery
+- evaluate DAP/J-Link/pyOCD/probe-rs providers without changing the stable semantic contracts
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 

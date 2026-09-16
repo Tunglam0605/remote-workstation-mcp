@@ -109,4 +109,31 @@ export class PolicyEngine {
       throw new Error('sudo/admin execution is disabled by local owner policy (privileged.allowSudo=false).');
     }
   }
+
+  assertEngineeringEnabled(): void {
+    if (!(this.config.engineering?.enabled ?? true)) {
+      throw new Error('Engineering tools are disabled by local owner policy (engineering.enabled=false).');
+    }
+  }
+
+  assertEngineeringExecute(): void {
+    this.assertEngineeringEnabled();
+    if (this.effectiveMode() === 'read_only') {
+      throw new Error('Engineering execution is disabled in read_only mode.');
+    }
+  }
+
+  assertHardwareMutation(): void {
+    this.assertEngineeringExecute();
+    if (this.effectiveMode() === 'workspace' && !(this.config.engineering?.allowHardwareMutationInWorkspace ?? false)) {
+      throw new Error('Hardware mutation requires elevated/full_control mode or engineering.allowHardwareMutationInWorkspace=true.');
+    }
+  }
+
+  assertSerialWrite(): void {
+    this.assertEngineeringExecute();
+    if (this.effectiveMode() === 'workspace' && !(this.config.engineering?.allowSerialWriteInWorkspace ?? false)) {
+      throw new Error('Serial write requires elevated/full_control mode or engineering.allowSerialWriteInWorkspace=true.');
+    }
+  }
 }

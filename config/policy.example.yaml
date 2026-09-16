@@ -83,3 +83,11 @@ fullControl:
 privileged:
   allowSudo: false
   maxRuntimeMs: 600000
+
+# Typed engineering adapters. The adapters themselves constrain backend/argv;
+# destructive hardware changes remain separately permission-gated.
+engineering:
+  enabled: true
+  maxCommandRuntimeMs: 600000
+  allowHardwareMutationInWorkspace: false
+  allowSerialWriteInWorkspace: false

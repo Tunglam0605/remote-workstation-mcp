@@ -14,8 +14,8 @@ import { runAsPrincipal } from '../src/security/request-principal.js';
 
 test('admin requests are client-bound records that require a separate local approval step', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-admin-approval-'));
-  const previous = process.env.LOCALAPPDATA;
-  process.env.LOCALAPPDATA = root;
+  const previous = process.env.RWMCP_ADMIN_APPROVAL_DIR;
+  process.env.RWMCP_ADMIN_APPROVAL_DIR = root;
   try {
     const request = await runAsPrincipal({
       id: 'openai-tunnel',
@@ -45,16 +45,16 @@ test('admin requests are client-bound records that require a separate local appr
     assert.equal((await readAdminRequest(request.id)).state, 'approved');
     await assert.rejects(() => approveAdminRequest(request.id, request.commandHash), /only pending requests/);
   } finally {
-    if (previous === undefined) delete process.env.LOCALAPPDATA;
-    else process.env.LOCALAPPDATA = previous;
+    if (previous === undefined) delete process.env.RWMCP_ADMIN_APPROVAL_DIR;
+    else process.env.RWMCP_ADMIN_APPROVAL_DIR = previous;
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
 test('admin requests can be denied without executing anything', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-admin-deny-'));
-  const previous = process.env.LOCALAPPDATA;
-  process.env.LOCALAPPDATA = root;
+  const previous = process.env.RWMCP_ADMIN_APPROVAL_DIR;
+  process.env.RWMCP_ADMIN_APPROVAL_DIR = root;
   try {
     const request = await createAdminRequest({ program: 'whoami.exe', reason: 'Test deny flow' });
     const denied = await denyAdminRequest(request.id);
@@ -62,8 +62,8 @@ test('admin requests can be denied without executing anything', async () => {
     assert.ok(denied.deniedAt);
     await assert.rejects(() => denyAdminRequest(request.id), /only pending requests/);
   } finally {
-    if (previous === undefined) delete process.env.LOCALAPPDATA;
-    else process.env.LOCALAPPDATA = previous;
+    if (previous === undefined) delete process.env.RWMCP_ADMIN_APPROVAL_DIR;
+    else process.env.RWMCP_ADMIN_APPROVAL_DIR = previous;
     await fs.rm(root, { recursive: true, force: true });
   }
 });

@@ -209,6 +209,40 @@ switch ($Action) {
   if (Test-Path $updateScript) { Copy-Item -Path $updateScript -Destination (Join-Path $BinDir 'update-windows.ps1') -Force }
 }
 
+function Install-TuiLauncher([string]$NodeExe) {
+  $psLauncher = Join-Path $BinDir 'rwmcp-tui.ps1'
+  $cmdLauncher = Join-Path $BinDir 'rwmcp-tui.cmd'
+  $escapedNode = $NodeExe.Replace("'", "''")
+  $content = @'
+param(
+  [Parameter(ValueFromRemainingArguments = $true)]
+  [string[]]$TuiArgs
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$Base = Split-Path -Parent $PSScriptRoot
+$CurrentFile = Join-Path $Base 'current.txt'
+if (-not (Test-Path $CurrentFile)) { throw 'Remote Workstation MCP current runtime pointer is missing.' }
+$Root = (Get-Content -Path $CurrentFile -Raw).Trim()
+if (-not (Test-Path $Root)) { throw "Installed runtime does not exist: $Root" }
+$NodeExe = '__NODE_EXE__'
+$Tui = Join-Path $Root 'dist\tui-cli.js'
+if (-not (Test-Path $Tui)) { throw "TUI entrypoint is missing: $Tui" }
+& $NodeExe $Tui @TuiArgs
+exit $LASTEXITCODE
+'@.Replace('__NODE_EXE__', $escapedNode)
+  [IO.File]::WriteAllText($psLauncher, $content + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+  $cmd = '@echo off' + [Environment]::NewLine + 'powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0rwmcp-tui.ps1" %*' + [Environment]::NewLine
+  [IO.File]::WriteAllText($cmdLauncher, $cmd, (New-Object Text.ASCIIEncoding))
+
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $parts = @($userPath -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if (-not ($parts -contains $BinDir)) {
+    $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $BinDir } else { "$userPath;$BinDir" }
+    [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
+  }
+  if (-not (($env:Path -split ';') -contains $BinDir)) { $env:Path = "$env:Path;$BinDir" }
+}
 function Install-Shortcut {
   try {
     $programs = [Environment]::GetFolderPath('Programs')
@@ -367,6 +401,7 @@ try {
   }
   Set-Content -Path $CurrentFile -Value $Slot -Encoding utf8
   Write-StableLauncher $Slot
+  Install-TuiLauncher $NodeExe
   Install-Shortcut
   Initialize-AutoUpdate
   Migrate-ExistingAutostart

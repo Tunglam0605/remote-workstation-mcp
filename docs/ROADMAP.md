@@ -234,7 +234,13 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.8 - Terminal Control Center + direct-node ergonomics - current
+### v0.8.9 - TUI launcher and non-interactive Direct Node polish - current
+
+- expose `rwmcp-tui` as a stable Windows command through the managed per-user bin directory
+- reconstruct Linux `systemd --user` bus variables for SSH/MCP/non-interactive TUI and upgrade workflows
+- preserve v0.8.8 terminal controls and the standardized `8683` MCP default
+
+### v0.8.8 - Terminal Control Center + direct-node ergonomics
 
 - dependency-free interactive TUI (`rwmcp-tui`) for owner-local terminal administration
 - terminal editing for access mode, MCP port, device name, Tunnel ID, and Runtime API key rotation

@@ -69,3 +69,12 @@ test('Linux installer and direct-node bootstrap standardize MCP port 8683 and sh
   assert.match(direct, /PORT="8683"/);
   assert.doesNotMatch(direct, /PORT="8765"/);
 });
+test('TUI reconstructs the Linux user-systemd bus for non-interactive status and restart', async () => {
+  const source = await fs.readFile('src/tui/config.ts', 'utf8');
+  const installer = await fs.readFile('scripts/install-user.sh', 'utf8');
+  assert.match(source, /XDG_RUNTIME_DIR/);
+  assert.match(source, /DBUS_SESSION_BUS_ADDRESS/);
+  assert.match(source, /linuxSystemdEnv/);
+  assert.match(installer, /\/run\/user\/\$\(id -u\)/);
+  assert.match(installer, /DBUS_SESSION_BUS_ADDRESS/);
+});

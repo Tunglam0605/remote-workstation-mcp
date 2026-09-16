@@ -6,7 +6,13 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.4**
+**v0.8.5**
+
+v0.8.5 is a reliability polish release for the recovery/direct-node path:
+
+- stale Control Center tabs automatically reload once when their ephemeral CSRF token expires after a local Control Center restart;
+- Linux `install-user.sh` now distinguishes a source checkout from a prebuilt GitHub Release package;
+- prebuilt Linux releases validate `dist/` and install runtime dependencies directly instead of requiring omitted `tsconfig.json` / source-test files.
 
 v0.8.4 adds an **offline-first Recovery Mode** to the local Control Center while retaining the v0.8.3 Direct Multi-Node topology. The owner UI at `127.0.0.1:8684` stays usable when the runtime API key is missing, expired or revoked, when a Tunnel ID changes, when the OpenAI tunnel is disconnected, or when the MCP runtime itself is unavailable.
 
@@ -96,11 +102,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.4 release contains:
+The v0.8.5 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.4.tgz`
+- `remote-workstation-mcp-v0.8.5.tgz`
 - `SHA256SUMS.txt`
 
 

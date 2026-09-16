@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
 import { requiredScopeForTool } from '../src/security/request-principal.js';
@@ -10,6 +10,7 @@ test('direct multi-node identity is read-only and Linux direct-node scripts are 
   const install = await fs.readFile('scripts/install-openai-tunnel-linux.sh', 'utf8');
   const setup = await fs.readFile('scripts/setup-direct-node-linux.sh', 'utf8');
   const status = await fs.readFile('scripts/direct-node-status-linux.sh', 'utf8');
+  const installUser = await fs.readFile('scripts/install-user.sh', 'utf8');
 
   assert.match(capabilities, /multi_device\.direct_nodes/);
   assert.match(server, /Do not route routine multi-device work through SSH/);
@@ -20,4 +21,7 @@ test('direct multi-node identity is read-only and Linux direct-node scripts are 
   assert.match(setup, /disable --now remote-workstation-mcp\.service/);
   assert.match(setup, /Use one distinct OpenAI Secure MCP Tunnel ID per workstation/);
   assert.match(status, /Direct Node/);
+  assert.match(installUser, /Prebuilt release package detected/);
+  assert.match(installUser, /npm install --omit=dev --no-audit --no-fund --ignore-scripts/);
+  assert.match(installUser, /BUILT_VERSION=/);
 });

@@ -16,23 +16,44 @@ done
 cd "$ROOT"
 VERSION="$(node -p "require('./package.json').version")"
 echo "Installing Remote Workstation MCP v$VERSION"
-npm install --no-audit --no-fund
-npm run typecheck
-npm test
-npm run build
+if [[ -f "$ROOT/tsconfig.json" && -d "$ROOT/src" && -d "$ROOT/tests" ]]; then
+  INSTALL_KIND="source"
+  echo "Source checkout detected; running full validation before packaging."
+  npm install --no-audit --no-fund
+  npm run typecheck
+  npm test
+  npm run build
+else
+  INSTALL_KIND="prebuilt"
+  echo "Prebuilt release package detected; validating packaged runtime files."
+  [[ -f "$ROOT/dist/cli.js" ]] || { echo "Prebuilt release is missing dist/cli.js." >&2; exit 1; }
+fi
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-PACK="$(npm pack --pack-destination "$TMP" --silent)"
 VERSION_DIR="$DATA_HOME/versions/$VERSION"
-mkdir -p "$VERSION_DIR" "$DATA_HOME/runtime" "$CONFIG_HOME" "$SERVICE_DIR"
+mkdir -p "$DATA_HOME/versions" "$DATA_HOME/runtime" "$CONFIG_HOME" "$SERVICE_DIR"
 chmod 700 "$DATA_HOME" "$DATA_HOME/runtime" "$CONFIG_HOME" || true
-rm -rf "$VERSION_DIR"/*
-tar -xzf "$TMP/$PACK" --strip-components=1 -C "$VERSION_DIR"
+ROOT_REAL="$(readlink -f "$ROOT")"
+VERSION_REAL="$(readlink -m "$VERSION_DIR")"
+if [[ "$ROOT_REAL" != "$VERSION_REAL" ]]; then
+  rm -rf "$VERSION_DIR"
+  mkdir -p "$VERSION_DIR"
+  if [[ "$INSTALL_KIND" == "source" ]]; then
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
+    PACK="$(npm pack --pack-destination "$TMP" --silent)"
+    tar -xzf "$TMP/$PACK" --strip-components=1 -C "$VERSION_DIR"
+  else
+    (cd "$ROOT" && tar --exclude='./node_modules' --exclude='./.git' -cf - .) | tar -xf - -C "$VERSION_DIR"
+  fi
+else
+  echo "Release is already located in target version slot; preserving packaged files."
+fi
 (
   cd "$VERSION_DIR"
-  npm install --omit=dev --no-audit --no-fund
+  npm install --omit=dev --no-audit --no-fund --ignore-scripts
 )
+BUILT_VERSION="$(node "$VERSION_DIR/dist/cli.js" --version)"
+[[ "$BUILT_VERSION" == "$VERSION" ]] || { echo "Installed runtime version mismatch: package=$VERSION dist=$BUILT_VERSION" >&2; exit 1; }
 
 WORKSPACE="$HOME/RemoteWorkspaces"
 mkdir -p "$WORKSPACE"

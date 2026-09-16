@@ -1,6 +1,6 @@
-﻿# Setup & Control Center
+# Setup & Control Center
 
-Remote Workstation MCP v0.8.4 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
+Remote Workstation MCP v0.8.5 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
 
 ## Endpoints
 

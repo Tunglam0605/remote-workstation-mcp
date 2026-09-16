@@ -30,6 +30,32 @@ function Write-Version([string]$Root, [string]$Version) {
   Write-Utf8NoBom (Join-Path $Root 'package.json') ("{`"version`":`"$Version`"}")
 }
 
+function Invoke-HandoffProcess([string]$ExpectedVersion) {
+  $powershell = Get-Command powershell.exe -ErrorAction Stop
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $powershell.Source
+  $psi.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$handoff`" -Base `"$tempBase`" -ExpectedVersion $ExpectedVersion"
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  try {
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    return [pscustomobject]@{
+      exitCode = [int]$process.ExitCode
+      stdout = $stdoutTask.GetAwaiter().GetResult()
+      stderr = $stderrTask.GetAwaiter().GetResult()
+    }
+  } finally {
+    $process.Dispose()
+  }
+}
+
 try {
   New-Item -ItemType Directory -Force -Path $binDir, $runtimeDir, $versionsDir | Out-Null
   Write-Version $v091 '0.9.1'
@@ -51,11 +77,11 @@ exit 0
   Write-Utf8NoBom $launcher $successLauncher
 
   if ($Mode -in @('All','Success')) {
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
-    if ($LASTEXITCODE -ne 0) {
+    $successProcess = Invoke-HandoffProcess '0.9.2'
+    if ($successProcess.exitCode -ne 0) {
       $workerLog = if (Test-Path -LiteralPath (Join-Path $runtimeDir 'update-worker.log')) { Get-Content -LiteralPath (Join-Path $runtimeDir 'update-worker.log') -Raw } else { '<no worker log>' }
       $tx = if (Test-Path -LiteralPath $transaction) { Get-Content -LiteralPath $transaction -Raw } else { '<no transaction>' }
-      throw "Success-path handoff exited with code $LASTEXITCODE.`nTransaction:`n$tx`nWorker log:`n$workerLog"
+      throw "Success-path handoff exited with code $($successProcess.exitCode).`nSTDOUT:`n$($successProcess.stdout)`nSTDERR:`n$($successProcess.stderr)`nTransaction:`n$tx`nWorker log:`n$workerLog"
     }
     if (-not (Test-Path -LiteralPath $transaction)) { throw 'Success-path transaction file was not created.' }
     $success = Get-Content -LiteralPath $transaction -Raw | ConvertFrom-Json
@@ -82,9 +108,9 @@ exit 0
   Write-Utf8NoBom $launcher $failureLauncher
 
   if ($Mode -in @('All','Failure','FailureExit','FailureTransaction','FailureRecovery','FailureMarker')) {
-    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
-    $workerExit = $LASTEXITCODE
-    if ($workerExit -eq 0) { throw 'Failure-path handoff unexpectedly succeeded.' }
+    $failureProcess = Invoke-HandoffProcess '0.9.2'
+    $workerExit = $failureProcess.exitCode
+    if ($workerExit -eq 0) { throw "Failure-path handoff unexpectedly succeeded.`nSTDOUT:`n$($failureProcess.stdout)`nSTDERR:`n$($failureProcess.stderr)" }
     if ($Mode -eq 'FailureExit') { Write-Host 'Failure worker exit checkpoint passed.' -ForegroundColor Green; return }
 
     if (-not (Test-Path -LiteralPath $transaction)) { throw 'Failure-path transaction file was not created.' }

@@ -105,6 +105,30 @@ test('Windows tunnel readiness requires fresh control-plane polling, not only lo
   assert.match(ci, /test-tunnel-health-windows\.ps1/);
 });
 
+test('Windows update install is handed off to a durable worker and activation waits beyond the watchdog recycle window', async () => {
+  const setupServer = await read('src/setup/setup-server.ts');
+  const worker = await read('scripts/update-handoff-windows.ps1');
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const host = await read('scripts/runtime-host-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(setupServer, /scheduleWindowsUpdateInstall/);
+  assert.match(setupServer, /update-handoff-windows\.ps1/);
+  assert.match(setupServer, /detached:\s*true/);
+  assert.match(setupServer, /child\.unref\(\)/);
+  assert.match(setupServer, /accepted \? 202 : 200/);
+  assert.match(worker, /update-transaction\.json/);
+  assert.match(worker, /RemoteWorkstationMCP\.UpdateHandoff/);
+  assert.match(worker, /-Action Update/);
+  assert.match(worker, /StartOpenAI/);
+  assert.match(worker, /SUCCEEDED/);
+  assert.match(worker, /FAILED/);
+  assert.match(runtime, /TunnelStartupTimeoutSeconds\s*=\s*180/);
+  assert.match(host, /InitialControlPlaneGraceSeconds\s*=\s*60/);
+  assert.match(host, /PostReadyFailureGraceSeconds\s*=\s*15/);
+  assert.match(ci, /test-update-handoff-windows\.ps1/);
+});
+
 test('Windows managed upgrades self-heal the stable launcher from the current runtime slot', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
   const runtime = await read('scripts/runtime-control-windows.ps1');

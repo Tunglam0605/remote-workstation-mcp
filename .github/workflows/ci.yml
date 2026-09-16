@@ -90,6 +90,8 @@ jobs:
           $files = @(
             'scripts/install-windows-release.ps1',
             'scripts/update-windows.ps1',
+            'scripts/update-handoff-windows.ps1',
+            'scripts/test-update-handoff-windows.ps1',
             'scripts/runtime-control-windows.ps1',
             'scripts/runtime-host-windows.ps1',
             'scripts/control-center-host-windows.ps1',
@@ -120,6 +122,9 @@ jobs:
       - name: Test Windows tunnel control-plane health parser
         shell: pwsh
         run: .\scripts\test-tunnel-health-windows.ps1
+      - name: Test durable Windows update handoff
+        shell: pwsh
+        run: .\scripts\test-update-handoff-windows.ps1
       - name: Smoke-test Windows updater state
         shell: pwsh
         run: |

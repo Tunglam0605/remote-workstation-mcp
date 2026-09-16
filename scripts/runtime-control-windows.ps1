@@ -145,6 +145,7 @@ $tunnelHealthScript = Join-Path $Root 'scripts\lib\tunnel-health-windows.ps1'
 if (-not (Test-Path $tunnelHealthScript)) { throw "Tunnel health helper not found: $tunnelHealthScript" }
 . $tunnelHealthScript
 $TunnelPollMaxAgeSeconds = 75
+$TunnelStartupTimeoutSeconds = 180
 
 function Test-TunnelReady {
   $healthUrlPath = Join-Path $Root 'runtime\openai-tunnel\health-url'
@@ -355,7 +356,8 @@ function Start-Runtime([string]$runtimeMode) {
 
   if ($runtimeMode -eq 'OpenAI') {
     $tunnelReady = $false
-    foreach ($attempt in 1..300) {
+    $tunnelDeadline = [DateTimeOffset]::UtcNow.AddSeconds($TunnelStartupTimeoutSeconds)
+    while ([DateTimeOffset]::UtcNow -lt $tunnelDeadline) {
       if ($process.HasExited) { break }
       if (Test-TunnelReady) { $tunnelReady = $true; break }
       Start-Sleep -Milliseconds 250

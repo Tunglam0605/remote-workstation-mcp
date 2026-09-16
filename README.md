@@ -6,7 +6,15 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.1**
+**v0.9.2**
+
+v0.9.2 makes Windows managed updates durable across the runtime/tunnel restart boundary:
+
+- Control Center hands an owner-approved install to a detached update worker instead of awaiting the update inside the MCP runtime request path;
+- the worker persists `STARTING / RUNNING / SUCCEEDED / FAILED` transaction state and a local update log outside version slots;
+- failed activation performs a best-effort `StartOpenAI` recovery on the current/rolled-back slot;
+- OpenAI activation now allows 180 seconds while the supervisor may recycle an unhealthy first tunnel child after 60 seconds;
+- Windows CI simulates both successful slot activation and failed-update recovery through the real PowerShell handoff script.
 
 v0.9.1 hardens Windows post-update tunnel recovery:
 
@@ -68,11 +76,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.12 release contains:
+The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.12.tgz`
+- `remote-workstation-mcp-v0.9.2.tgz`
 - `SHA256SUMS.txt`
 
 
@@ -284,6 +292,8 @@ Managed policy: patch releases (`x.y.Z`) may install automatically; minor/major 
     update-windows.ps1
   config\
   runtime\
+    update-transaction.json
+    update-worker.log
   secrets\
   versions\
     v0.7.9\

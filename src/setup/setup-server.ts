@@ -561,6 +561,88 @@ function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'Op
 
 type UpdateAction = 'Status' | 'Check' | 'Enable' | 'Disable' | 'Install';
 
+type WindowsUpdateTransaction = Record<string, unknown> & {
+  state?: string;
+  workerPid?: number;
+  updatedAt?: string;
+};
+
+function windowsManagedBase(): string | null {
+  const localBase = process.env.LOCALAPPDATA?.trim();
+  return localBase ? path.join(localBase, 'RemoteWorkstationMCP') : null;
+}
+
+function windowsUpdateTransactionPath(): string | null {
+  const base = windowsManagedBase();
+  return base ? path.join(base, 'runtime', 'update-transaction.json') : null;
+}
+
+async function readWindowsUpdateTransaction(): Promise<WindowsUpdateTransaction | null> {
+  if (process.platform !== 'win32') return null;
+  const file = windowsUpdateTransactionPath();
+  if (!file) return null;
+  try {
+    const transaction = JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, '')) as WindowsUpdateTransaction;
+    const state = String(transaction.state ?? '');
+    if (state === 'STARTING' || state === 'RUNNING') {
+      const updatedAt = Date.parse(String(transaction.updatedAt ?? ''));
+      if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > 15 * 60 * 1000) {
+        return { ...transaction, stale: true };
+      }
+    }
+    return transaction;
+  } catch {
+    return null;
+  }
+}
+
+function activeWindowsUpdateTransaction(transaction: WindowsUpdateTransaction | null): boolean {
+  if (!transaction || transaction.stale === true) return false;
+  return transaction.state === 'STARTING' || transaction.state === 'RUNNING';
+}
+
+async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: string): Promise<Record<string, unknown>> {
+  if (process.platform !== 'win32') throw new Error('Windows update handoff is available on Windows only.');
+  const existing = await readWindowsUpdateTransaction();
+  if (activeWindowsUpdateTransaction(existing)) {
+    return { accepted: true, alreadyRunning: true, transaction: existing };
+  }
+
+  const base = windowsManagedBase();
+  if (!base) throw new Error('LOCALAPPDATA is unavailable; durable Windows update handoff cannot be scheduled.');
+  const script = path.join(repoRoot, 'scripts', 'update-handoff-windows.ps1');
+  if (!(await pathExists(script))) throw new Error(`Windows update handoff helper is missing: ${script}`);
+
+  const args = [
+    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Base', base
+  ];
+  if (expectedVersion) args.push('-ExpectedVersion', expectedVersion.replace(/^v/, ''));
+  const child = spawn('powershell.exe', args, {
+    cwd: repoRoot,
+    shell: false,
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore'
+  });
+  child.unref();
+
+  const transaction = {
+    version: 1,
+    state: 'STARTING',
+    workerPid: child.pid ?? null,
+    expectedVersion: expectedVersion.replace(/^v/, '') || null,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  const transactionPath = windowsUpdateTransactionPath();
+  if (transactionPath) {
+    await fs.mkdir(path.dirname(transactionPath), { recursive: true });
+    await fs.writeFile(transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  }
+  return { accepted: true, alreadyRunning: false, transaction };
+}
+
 async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
   if (process.platform !== 'win32') {
     return { supported: false, enabled: false, message: 'Windows update control is available on Windows only.' };
@@ -569,30 +651,25 @@ async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Pro
   if (!(await pathExists(script))) {
     return { supported: false, enabled: false, message: 'Windows update helper is not installed in this runtime.' };
   }
-  if (action === 'Install') {
-    const localBase = process.env.LOCALAPPDATA?.trim();
-    const launcher = localBase ? path.join(localBase, 'RemoteWorkstationMCP', 'bin', 'rwmcp.ps1') : '';
-    if (launcher && await pathExists(launcher)) {
-      const install = await runProcess('powershell.exe', [
-        '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher,
-        '-Action', 'Update'
-      ], { cwd: repoRoot, maxBytes: 512 * 1024, timeoutMs: 180000 });
-      if (install.code !== 0) throw new Error(install.output || `Windows update install failed with exit code ${install.code}.`);
-    } else {
-      const install = await runProcess('powershell.exe', [
-        '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-        '-Action', 'Install'
-      ], { cwd: repoRoot, maxBytes: 512 * 1024, timeoutMs: 180000 });
-      if (install.code !== 0) throw new Error(install.output || `Windows update install failed with exit code ${install.code}.`);
-    }
-  }
+
+  const effectiveAction = action === 'Install' ? 'Check' : action;
   const result = await runProcess('powershell.exe', [
     '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Action', action === 'Install' ? 'Check' : action,
+    '-Action', effectiveAction,
     '-Json'
   ], { cwd: repoRoot, maxBytes: 128 * 1024, timeoutMs: 30000 });
   if (result.code !== 0) throw new Error(result.output || `Windows update action '${action}' failed with exit code ${result.code}.`);
-  return { supported: true, ...(parseJsonOutput(result.output) as Record<string, unknown>) };
+  const status = parseJsonOutput(result.output) as Record<string, unknown>;
+
+  if (action === 'Install') {
+    if (status.updateAvailable !== true) {
+      return { supported: true, ...status, accepted: false, transaction: await readWindowsUpdateTransaction() };
+    }
+    const expectedVersion = typeof status.latestVersion === 'string' ? status.latestVersion : '';
+    return { supported: true, ...status, ...(await scheduleWindowsUpdateInstall(repoRoot, expectedVersion)) };
+  }
+
+  return { supported: true, ...status, transaction: await readWindowsUpdateTransaction() };
 }
 
 async function linuxUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
@@ -922,7 +999,9 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/update/install' && req.method === 'POST') {
-        json(res, 200, await updateControl(repoRoot, 'Install'));
+        const result = await updateControl(repoRoot, 'Install') as Record<string, unknown>;
+        const accepted = result.accepted === true;
+        json(res, accepted ? 202 : 200, result);
         return;
       }
 

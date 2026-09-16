@@ -53,6 +53,8 @@ $tunnelHealthScript = Join-Path $Root 'scripts\lib\tunnel-health-windows.ps1'
 if (-not (Test-Path $tunnelHealthScript)) { throw "Tunnel health helper not found: $tunnelHealthScript" }
 . $tunnelHealthScript
 $TunnelPollMaxAgeSeconds = 75
+$InitialControlPlaneGraceSeconds = 60
+$PostReadyFailureGraceSeconds = 15
 
 function Get-TunnelHealth {
   return Get-RwmcpTunnelHealth -HealthUrlPath $healthUrlPath -MaxPollAgeSeconds $TunnelPollMaxAgeSeconds
@@ -132,7 +134,7 @@ while ($true) {
         $healthReason = [string]$tunnelHealth.reason
         $reason = if ($healthReason -eq 'poll-stale') { 'control-plane-poll-stale' } elseif ($everReady) { "tunnel-readiness-lost:$healthReason" } else { $healthReason }
         Write-ConnectionState 'RECONNECTING' $reason $attempt $child.Id
-        $limit = if ($everReady) { 15 } else { 90 }
+        $limit = if ($everReady) { $PostReadyFailureGraceSeconds } else { $InitialControlPlaneGraceSeconds }
         if ($unreadySeconds -ge $limit) {
           Append-WatchdogLog "OpenAI tunnel control-plane health lost reason=$healthReason for $([Math]::Round($unreadySeconds,1))s; recycling childPid=$($child.Id) attempt=$attempt"
           Stop-ChildTree $child.Id

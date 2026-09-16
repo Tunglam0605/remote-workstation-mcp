@@ -284,6 +284,15 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 ## v0.9 - Engineering tools - current
 
+### v0.9.2 - Durable Windows update transaction
+
+- hand owner-approved Control Center updates to a detached worker outside the managed MCP/tunnel process tree
+- persist update transaction state and logs outside version slots so disconnects do not lose progress/evidence
+- preserve stable-launcher checksum/version-slot/rollback flow while making the HTTP request itself non-blocking
+- give tunnel activation 180 seconds while allowing the supervisor to recycle a bad first child after 60 seconds
+- attempt `StartOpenAI` recovery on the current or rolled-back slot if the update transaction fails
+- simulate success/failure transaction paths in Windows CI before release
+
 ### v0.9.1 - Windows tunnel recovery hardening
 
 - require fresh `commands_poll_last_successful_timestamp_seconds` before Windows reports the tunnel ONLINE

@@ -16,7 +16,9 @@ const policyPath = process.env.RWMCP_POLICY ?? path.join(configHome, 'policy.yam
 const hostsPath = process.env.RWMCP_HOSTS ?? path.join(configHome, 'hosts.yaml');
 const updatePath = path.join(configHome, 'update.env');
 const currentPath = path.join(dataHome, 'current');
-const serviceName = 'remote-workstation-mcp.service';
+const localServiceName = 'remote-workstation-mcp.service';
+const directServiceName = 'remote-workstation-mcp-openai.service';
+const directServicePath = path.join(home, '.config/systemd/user', directServiceName);
 const timerName = 'remote-workstation-mcp-update.timer';
 const checks = [];
 
@@ -26,6 +28,22 @@ function add(id, ok, level, detail) {
 
 async function exists(target) {
   try { await fs.access(target); return true; } catch { return false; }
+}
+
+async function managedMcpPort() {
+  const directEnv = path.join(configHome, 'openai.env');
+  try {
+    const text = await fs.readFile(directEnv, 'utf8');
+    const match = /^RWMCP_PORT=(?:["']?)(\d+)/m.exec(text);
+    if (match) return Number(match[1]);
+  } catch {}
+  try {
+    const settings = JSON.parse((await fs.readFile(path.join(configHome, 'settings.json'), 'utf8')).replace(/^\uFEFF/, ''));
+    const value = Number(settings?.mcpPort);
+    if (Number.isInteger(value) && value >= 1024 && value <= 65535) return value;
+  } catch {}
+  const envPort = Number(process.env.RWMCP_PORT);
+  return Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : 8683;
 }
 
 async function commandExists(command) {
@@ -93,6 +111,8 @@ if (await exists(currentPath)) {
   add('install.current', false, 'warn', `managed install not found at ${currentPath}`);
 }
 
+const serviceName = await exists(directServicePath) ? directServiceName : localServiceName;
+const mcpPort = await managedMcpPort();
 const systemctl = await commandExists('systemctl');
 if (systemctl) {
   for (const [id, unit] of [['service', serviceName], ['update_timer', timerName]]) {
@@ -110,7 +130,7 @@ if (systemctl) {
 }
 
 try {
-  const response = await fetch('http://127.0.0.1:8765/healthz', { signal: AbortSignal.timeout(1500) });
+  const response = await fetch(`http://127.0.0.1:${mcpPort}/healthz`, { signal: AbortSignal.timeout(1500) });
   const body = response.ok ? await response.json() : undefined;
   add('http.health', Boolean(response.ok && body?.ok === true), response.ok && body?.ok === true ? 'ok' : 'warn', body ? JSON.stringify(body) : `HTTP ${response.status}`);
 } catch (error) {

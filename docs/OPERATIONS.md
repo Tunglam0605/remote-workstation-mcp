@@ -61,7 +61,7 @@ The doctor checks Node/runtime prerequisites, config presence and permissions, Y
 
 ```bash
 systemctl --user status remote-workstation-mcp.service
-curl -fsS http://127.0.0.1:8765/healthz
+curl -fsS http://127.0.0.1:8683/healthz
 ```
 
 Expected health response includes `ok: true` and the installed version.
@@ -252,7 +252,7 @@ bash ~/.local/share/remote-workstation-mcp/current/scripts/rollback-user.sh
 Then verify:
 
 ```bash
-curl -fsS http://127.0.0.1:8765/healthz
+curl -fsS http://127.0.0.1:8683/healthz
 systemctl --user status remote-workstation-mcp.service
 ```
 
@@ -328,5 +328,5 @@ Confirm the client is using the correct transport. A cloud client cannot connect
 - Review `audit.jsonl` after elevated sessions.
 - Keep production credentials outside authorized workspaces when possible.
 - Use VM/container isolation for untrusted repositories or build scripts.
-- Do not expose port 8765 directly to the Internet.
+- Do not expose port 8683 directly to the Internet.
 - Run the doctor after installation, updates, or configuration changes.

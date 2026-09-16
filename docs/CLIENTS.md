@@ -10,7 +10,7 @@ Remote Workstation MCP is intentionally AI-vendor-neutral. The same server can b
 | Local application needs an HTTP MCP endpoint | loopback Streamable HTTP |
 | Cloud AI client needs the workstation | secure outbound tunnel/connector supported by that client |
 
-Do not expose `127.0.0.1:8765` through raw public port-forwarding.
+Do not expose `127.0.0.1:8683` through raw public port-forwarding.
 
 ## Common stdio command
 
@@ -107,8 +107,8 @@ npm start
 The server exposes:
 
 ```text
-http://127.0.0.1:8765/mcp
-http://127.0.0.1:8765/healthz
+http://127.0.0.1:8683/mcp
+http://127.0.0.1:8683/healthz
 ```
 
 HTTP intentionally stays on loopback. If a remote client needs access, use a secure authenticated transport layer rather than changing the listen address casually.

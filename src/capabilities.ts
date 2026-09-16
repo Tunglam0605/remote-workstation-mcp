@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.8.7';
+export const SERVER_VERSION = '0.8.8';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -14,6 +14,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
   { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update remains owner-controlled.' },
   { id: 'setup.local_web', status: 'available', tools: [], note: 'Owner-operated loopback-only Setup & Control Center persists non-secret workstation settings outside the repository, can protect the OpenAI runtime key with Windows DPAPI, and can start/stop/restart the user-level runtime without exposing these controls through MCP.' },
+  { id: 'setup.local_tui', status: 'available', tools: [], note: 'Owner-local terminal control surface for status, access mode, MCP port, device name, tunnel binding and hidden Runtime API key rotation without exposing configuration mutation through MCP.' },
   { id: 'installation.windows_managed', status: 'available', tools: [], note: 'Checksum-verified Windows release installer uses versioned per-user runtime slots, a stable launcher, optional start-at-logon, and one-step rollback without requiring a Git checkout for production use.' },
   { id: 'transport.providers', status: 'available', tools: [], note: 'The CLI selects a provider behind a common contract. Current providers are local stdio and loopback Streamable HTTP.' },
   { id: 'connection.openai_secure_tunnel', status: 'available', tools: [], note: 'Optional outbound-only OpenAI Secure MCP Tunnel supervisor keeps the workstation MCP bound to loopback, injects an ephemeral bearer into tunnel runtime headers, and does not forward the OpenAI runtime API key into the MCP child process.' },

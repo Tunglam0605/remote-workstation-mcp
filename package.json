@@ -1,10 +1,11 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {
-    "remote-workstation-mcp": "dist/cli.js"
+    "remote-workstation-mcp": "dist/cli.js",
+    "rwmcp-tui": "dist/tui-cli.js"
   },
   "files": [
     "dist/",
@@ -53,7 +54,8 @@
     "permission:revoke": "node scripts/grant-permission.mjs --revoke",
     "openai:tunnel:install:linux": "bash scripts/install-openai-tunnel-linux.sh",
     "setup:direct-node:linux": "bash scripts/setup-direct-node-linux.sh",
-    "status:direct-node:linux": "bash scripts/direct-node-status-linux.sh"
+    "status:direct-node:linux": "bash scripts/direct-node-status-linux.sh",
+    "tui": "node dist/tui-cli.js"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

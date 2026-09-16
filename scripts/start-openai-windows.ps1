@@ -12,7 +12,7 @@ $HostsPath = if ($env:RWMCP_HOSTS) { $env:RWMCP_HOSTS } else { Join-Path $Root '
 $RuntimeDir = Join-Path $Root 'runtime'
 $SupervisorPath = Join-Path $Root 'dist\openai-tunnel-cli.js'
 $TunnelBinary = if ($env:RWMCP_OPENAI_TUNNEL_CLIENT) { $env:RWMCP_OPENAI_TUNNEL_CLIENT } else { Join-Path $Root 'runtime\openai-tunnel\tunnel-client.exe' }
-$Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8765' }
+$Port = if ($env:RWMCP_PORT) { $env:RWMCP_PORT } else { '8683' }
 
 if (-not (Test-Path $PolicyPath)) {
   throw "Policy file not found: $PolicyPath. Run the Setup & Control Center first."

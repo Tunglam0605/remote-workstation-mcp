@@ -6,7 +6,16 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.7**
+**v0.8.8**
+
+v0.8.8 adds a local **Terminal Control Center (TUI)** and standardizes the managed MCP port on `8683` across Windows and Linux:
+
+- run `rwmcp-tui` on a managed Linux node to inspect service/tunnel state and edit owner settings from the terminal;
+- change access mode (`Read only`, `Workspace`, `Full access`) with the same policy mapping used by the Web Control Center;
+- edit MCP port, device name, Tunnel ID, and rotate the Runtime API key without exposing the key on-screen;
+- restart the managed Direct Node after configuration changes;
+- Linux install/direct-node defaults now use `127.0.0.1:8683` instead of the legacy `8765`;
+- the TUI is dependency-free and uses the existing owner-controlled configuration files and `systemd --user` service.
 
 v0.8.7 fixes the local Control Center rendering path:
 
@@ -75,6 +84,8 @@ Default managed Windows endpoints remain:
 
 Linux Direct Nodes use the managed per-user RWMCP install plus `remote-workstation-mcp-openai.service`.
 
+On Linux, run `rwmcp-tui` for the terminal-first owner control surface. See [Terminal Control Center](docs/TUI.md).
+
 ## Recover an expired/revoked key or changed tunnel
 
 The local Control Center is intentionally independent from the OpenAI tunnel. Even when ChatGPT cannot reach the workstation, open locally:
@@ -114,11 +125,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.7 release contains:
+The v0.8.8 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.7.tgz`
+- `remote-workstation-mcp-v0.8.8.tgz`
 - `SHA256SUMS.txt`
 
 

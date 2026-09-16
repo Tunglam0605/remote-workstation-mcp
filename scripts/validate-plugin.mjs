@@ -47,10 +47,10 @@ const portableServer = mcp.mcpServers?.['remote-workstation'];
 const legacyServer = legacyMcp.mcpServers?.['remote-workstation'];
 assert(portableServer, 'portable MCP mapping is missing');
 assert(portableServer.type === 'streamable-http', 'portable MCP transport must be streamable-http');
-assert(portableServer.url === 'http://127.0.0.1:8765/mcp', 'portable MCP URL must remain loopback-only');
+assert(portableServer.url === 'http://127.0.0.1:8683/mcp', 'portable MCP URL must remain loopback-only');
 assert(legacyServer, 'legacy MCP mapping is missing');
 assert(legacyServer.type === 'http', 'legacy MCP transport must be http');
-assert(legacyServer.url === 'http://127.0.0.1:8765/mcp', 'legacy MCP URL must remain loopback-only');
+assert(legacyServer.url === 'http://127.0.0.1:8683/mcp', 'legacy MCP URL must remain loopback-only');
 assert(compat.mcpServers === './.mcp.json', 'compatibility manifest must reference ./.mcp.json');
 assert(compat.skills === './skills/', 'compatibility manifest must reference ./skills/');
 

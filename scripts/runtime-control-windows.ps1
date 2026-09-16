@@ -169,7 +169,7 @@ function Apply-RuntimeEnvironment([string]$runtimeMode) {
   if (-not $env:RWMCP_AUDIT) { $env:RWMCP_AUDIT = Join-Path $UserConfigDir 'audit.jsonl' }
   if (-not $env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID = if ($runtimeMode -eq 'OpenAI') { 'openai-tunnel' } else { 'windows-local' } }
   if (-not $env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE = if ($runtimeMode -eq 'OpenAI') { 'chatgpt' } else { 'mcp' } }
-  if (-not $env:RWMCP_PORT) { $env:RWMCP_PORT = '8765' }
+  if (-not $env:RWMCP_PORT) { $env:RWMCP_PORT = '8683' }
 
   if (-not (Test-Path $env:RWMCP_POLICY)) { throw "Policy file not found: $($env:RWMCP_POLICY)" }
   if (-not (Test-Path $env:RWMCP_HOSTS)) { throw "SSH hosts config not found: $($env:RWMCP_HOSTS)" }
@@ -201,7 +201,7 @@ function Runtime-Status {
     Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
   }
 
-  $port = if ($state -and ($state.PSObject.Properties.Name -contains 'port')) { [int]$state.port } elseif ($env:RWMCP_PORT) { [int]$env:RWMCP_PORT } else { 8765 }
+  $port = if ($state -and ($state.PSObject.Properties.Name -contains 'port')) { [int]$state.port } elseif ($env:RWMCP_PORT) { [int]$env:RWMCP_PORT } else { 8683 }
   $mcpHealthy = $false
   $mcpVersion = $null
   $httpAuth = $null

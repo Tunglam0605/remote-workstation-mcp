@@ -6,6 +6,11 @@ import { LoopbackHttpTransportProvider } from './transports/http.js';
 import { StdioTransportProvider } from './transports/stdio.js';
 import type { TransportProvider } from './transports/types.js';
 
+if (process.argv.includes('--tui')) {
+  await import('./tui-cli.js');
+  process.exit(0);
+}
+
 if (process.argv.includes('--version') || process.argv.includes('-v')) {
   console.log(SERVER_VERSION);
   process.exit(0);

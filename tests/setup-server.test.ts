@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import vm from 'node:vm';
 import { startSetupServer } from '../src/setup/setup-server.js';
 
 test('Setup & Control Center requires the ephemeral token for API access', async () => {
@@ -43,6 +44,12 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /Quick setup for ChatGPT/);
     assert.match(pageText, /rwmcp\.language/);
     assert.match(pageText, /navigator\.language/);
+    const embeddedScript = pageText.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(embeddedScript, 'Control Center should contain an embedded script.');
+    assert.doesNotThrow(() => new vm.Script(embeddedScript[1]!), 'Embedded Control Center JavaScript must parse.');
+    assert.doesNotMatch(pageText, /\uFFFD|â€¦|â€”|Â·|Ã—|â˜|âš|Thiáº¿t|Trung tÃ¢m/, 'Control Center HTML must not contain known mojibake markers.');
+    assert.match(pageText, /Thiết lập & Trung tâm điều khiển/);
+
 
     const logo = await fetch(`${base}/assets/brand/logo.png`);
     assert.equal(logo.status, 200);
@@ -72,7 +79,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.8.6');
+    assert.equal(body.version, '0.8.7');
     assert.ok(Number.isInteger(body.settings.mcpPort));
 
     const recoveryStatus = await fetch(`${base}/api/recovery/status`, {

@@ -221,20 +221,27 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - make prebuilt Linux installation depend only on packaged `dist/` + runtime dependencies, not omitted TypeScript/test files
 - retain v0.8.4 offline-first recovery and v0.8.3 Direct Multi-Node behavior
 
-### v0.8.6 - Linux Direct Node upgrade hardening - current
+### v0.8.6 - Linux Direct Node upgrade hardening - complete
 
 - discover user-local Node.js from `$HOME/.local/bin` during non-interactive Direct Node setup
 - preserve Direct Node topology during Linux upgrades instead of re-enabling the local-only service
 - restart the configured Direct Node after slot activation so it immediately loads the new release
 
-### v0.8.7 - Direct-node engineering ergonomics
+### v0.8.7 - Control Center UTF-8 and embedded-JS hardening - current
+
+- restore clean UTF-8 text, icons and Vietnamese translations in the local Control Center
+- fix the embedded pairing-code newline that could break generated browser JavaScript
+- parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
+- add mojibake regression assertions for known corruption signatures
+
+### v0.8.8 - Direct-node engineering ergonomics
 
 - one-command Windows/Linux node enrollment once a tunnel ID/runtime key is available
 - per-node health overview and deterministic app-name export
 - device-scoped typed filesystem/Git/build/process contracts where cross-app orchestration benefits from explicit target metadata
 - safe parallel execution and result aggregation across directly connected apps
 
-## v0.9 — Engineering debug and hardware adapters
+## v0.9 - Engineering debug and hardware adapters
 
 - true PTY/ConPTY terminal adapter with bounded lifecycle and output
 - DAP session adapter for language-agnostic debugger control

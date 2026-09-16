@@ -1,6 +1,15 @@
-﻿import path from 'node:path';
+import path from 'node:path';
 import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
 import { DeviceRegistryAdapter } from './adapters/devices.js';
+import { EngineeringCommandRunner } from './adapters/engineering/command-runner.js';
+import { DebugSessionManager } from './adapters/engineering/debug-session.js';
+import { DockerAdapter } from './adapters/engineering/docker.js';
+import { FirmwareAdapter } from './adapters/engineering/firmware.js';
+import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
+import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
+import { Ros2Adapter } from './adapters/engineering/ros2.js';
+import { SerialSessionManager } from './adapters/engineering/serial-session.js';
+import { TerminalManager } from './adapters/engineering/terminal-manager.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
@@ -41,6 +50,15 @@ export async function createContext() {
   const processes = new ProcessManager(policy, paths, currentClientId);
   const ssh = new SshAdapter(policy, hostsConfig);
   const pairing = new PairingStore();
+  const engineeringResources = new EngineeringResourceManager(currentClientId);
+  const engineeringRunner = new EngineeringCommandRunner(policy);
+  const engineeringHardware = new HardwareDiscoveryAdapter();
+  const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
+  const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);
+  const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
+  const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
+  const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
+  const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   return {
     config,
     hostsConfig,
@@ -62,6 +80,17 @@ export async function createContext() {
     ssh,
     pairing,
     devices: new DeviceRegistryAdapter(ssh, pairing, identity),
+    engineering: {
+      resources: engineeringResources,
+      runner: engineeringRunner,
+      hardware: engineeringHardware,
+      serial: engineeringSerial,
+      terminals: engineeringTerminals,
+      firmware: engineeringFirmware,
+      debug: engineeringDebug,
+      ros2: engineeringRos2,
+      docker: engineeringDocker
+    },
     updates: new UpdateAdapter(SERVER_VERSION)
   };
 }

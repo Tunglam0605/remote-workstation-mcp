@@ -6,119 +6,21 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.13**
+**v0.9.0**
 
-v0.8.13 standardizes the managed update policy across Windows and Linux:
+v0.9.0 introduces the first typed engineering-tool layer for Remote Workstation MCP:
 
-- verified patch releases install automatically;
-- minor and major releases are detected but require explicit owner approval;
-- the local Control Center can check for and explicitly install a newer stable release on both Windows and Linux;
-- checksum verification, version slots, health validation and automatic rollback remain mandatory.
+- true PTY/ConPTY sessions and bounded serial I/O;
+- hardware discovery plus exclusive ST-Link/serial resource leases;
+- typed firmware project inspection, build, flash-plan, flash, verify and reset workflows;
+- constrained OpenOCD + GDB/MI debugging with stack/register/variable/breakpoint/memory-read/fault diagnostics;
+- ESP-IDF provider activation, ROS 2 typed workflows and Docker/container typed workflows;
+- project/workspace containment, authenticated scope classification and separate hardware-mutation/serial-write policy gates;
+- pinned native dependencies and packed-artifact smoke coverage for managed installs.
 
-v0.8.12 hardens the new-machine and update path:
+Raw shell remains an explicitly elevated escape hatch. v0.9.0 intentionally does not expose mass erase, STM32 Option Bytes, ESP eFuse writes, arbitrary OpenOCD/GDB commands, target memory writes or GDB flashing.
 
-- Linux bootstrap discovers an existing user-local Node.js before downloading another copy;
-- Linux user updates reconstruct the `systemd --user` bus environment when launched from SSH/MCP/non-interactive sessions;
-- the v0.8.11 two-field first-run WebUI/TUI workflow remains unchanged.
-
-v0.8.11 simplifies first-run onboarding and new-machine installation:
-
-- a new workstation needs only two values in WebUI or TUI: **Tunnel ID** and **Runtime API key**;
-- one setup action installs/verifies tunnel-client, configures the Direct Node, keeps MCP/WebUI on `8683`/`8684`, enables startup and automatic updates, and waits for tunnel readiness;
-- the Web Control Center shows a dedicated first-run card instead of exposing advanced settings before the workstation is connected;
-- `rwmcp-tui` automatically enters a first-run wizard when credentials are missing and keeps a single **Connection setup** action for later repair;
-- GitHub Releases now include `install-linux.sh`, which can install a user-local Node.js runtime when needed, verify the release checksum, install RWMCP, and open the local Control Center on Ubuntu Desktop;
-- new Linux installs default to safe automatic patch updates (`auto_patch`).
-
-v0.8.10 brought the local Web Control Center to Linux desktops while keeping the terminal workflow:
-
-- Ubuntu Desktop automatically runs the loopback-only WebUI at `127.0.0.1:8684` and also keeps `rwmcp-tui` available;
-- Linux WebUI and TUI share the same owner policy, Direct Node tunnel settings, MCP port and access mode;
-- `rwmcp-webui` starts/opens the local Control Center manually, while headless Linux keeps WebUI disabled by default;
-- Linux runtime start/stop/restart and restricted Runtime API key rotation are available through the local Control Center without exposing those controls through MCP.
-
-v0.8.9 polishes the new terminal workflow:
-
-- Windows managed installs now expose `rwmcp-tui` as a stable command and add the managed `bin` directory to the current-user `PATH`;
-- Linux TUI/service operations reconstruct the `systemd --user` bus environment when invoked from SSH, MCP, or other non-interactive sessions;
-- non-interactive Linux upgrades can restart the existing Direct Node without requiring a login-shell DBus environment.
-v0.8.8 adds a local **Terminal Control Center (TUI)** and standardizes the managed MCP port on `8683` across Windows and Linux:
-
-- run `rwmcp-tui` on a managed Linux node to inspect service/tunnel state and edit owner settings from the terminal;
-- change access mode (`Read only`, `Workspace`, `Full access`) with the same policy mapping used by the Web Control Center;
-- edit MCP port, device name, Tunnel ID, and rotate the Runtime API key without exposing the key on-screen;
-- restart the managed Direct Node after configuration changes;
-- Linux install/direct-node defaults now use `127.0.0.1:8683` instead of the legacy `8765`;
-- the TUI is dependency-free and uses the existing owner-controlled configuration files and `systemd --user` service.
-
-v0.8.7 fixes the local Control Center rendering path:
-
-- repairs UTF-8 text/icons/translations that were corrupted in the generated UI;
-- fixes an embedded JavaScript newline bug that could leave the page stuck on `Loading...`;
-- adds a regression test that renders the real HTML and parses the embedded script before release.
-
-v0.8.6 hardens Linux Direct Node upgrades:
-
-- Direct Node setup discovers user-local Node.js installs through `$HOME/.local/bin` even in non-interactive bootstrap sessions;
-- Linux upgrades preserve Direct Node topology instead of re-enabling the local-only service;
-- the active Direct Node service is restarted after slot activation so it immediately runs the new release.
-
-v0.8.5 is a reliability polish release for the recovery/direct-node path:
-
-- stale Control Center tabs automatically reload once when their ephemeral CSRF token expires after a local Control Center restart;
-- Linux `install-user.sh` now distinguishes a source checkout from a prebuilt GitHub Release package;
-- prebuilt Linux releases validate `dist/` and install runtime dependencies directly instead of requiring omitted `tsconfig.json` / source-test files.
-
-v0.8.4 adds an **offline-first Recovery Mode** to the local Control Center while retaining the v0.8.3 Direct Multi-Node topology. The owner UI at `127.0.0.1:8684` stays usable when the runtime API key is missing, expired or revoked, when a Tunnel ID changes, when the OpenAI tunnel is disconnected, or when the MCP runtime itself is unavailable.
-
-New in v0.8.4:
-
-- explicit **Control Center / MCP / Tunnel** health separation instead of one ambiguous READY state;
-- local recovery APIs that do not depend on the OpenAI tunnel or MCP runtime;
-- **Test credentials** for a Tunnel ID + restricted Runtime API key;
-- **Save & reconnect** to replace Tunnel ID and/or Runtime API key, store the key with Windows DPAPI, and restart OpenAI mode safely;
-- bounded runtime/update helper calls so a broken child process cannot leave the browser stuck on `Loading...`;
-- degraded `OFFLINE`/`RECOVERY` rendering instead of endless loading placeholders when runtime or permission APIs fail;
-- automatic reclaim of an orphaned RWMCP setup-web listener on the configured Control Center port while still refusing unrelated foreign processes.
-
-v0.8.3 made **Direct Multi-Node** the preferred multi-device topology:
-
-```text
-                         ChatGPT Web
-                    /        |         \
-                   /         |          \
-          Secure Tunnel  Secure Tunnel  Secure Tunnel
-               |             |              |
-          Windows Laptop   Ubuntu PC      Vision PC
-              RWMCP          RWMCP           RWMCP
-```
-
-Every workstation has its own stable device identity, its own Tunnel ID, its own local policy/audit boundary, and its own ChatGPT custom MCP app. Routine multi-device control no longer depends on one laptop acting as an SSH gateway or on the machines sharing a LAN/VPN.
-
-Direct Multi-Node capabilities introduced in v0.8.3:
-
-- stable local `device-identity.json` independent of DHCP/IP changes;
-- `workstation_identity` for deterministic target resolution;
-- identity included in `chatgpt_web_status` and `system_info`;
-- preferred direct-node instructions when multiple Remote Workstation apps are selected;
-- SHA-256-verified OpenAI tunnel-client installation for Linux amd64/arm64;
-- managed Linux Direct Node service through `systemd --user` with automatic restart/reconnect;
-- legacy Hub/SSH/pairing tools retained only for bootstrap and explicitly requested gateway workflows.
-
-OpenAI documents that ChatGPT can invoke multiple first-party and third-party apps in a single prompt. For private/local MCP servers, Secure MCP Tunnel keeps the MCP server private while providing ChatGPT reachability. Each independent tunnel should use its own Tunnel ID.
-
-See [Multi-device control](docs/MULTI_DEVICE.md).
-
-Default managed Windows endpoints remain:
-
-- MCP: `127.0.0.1:8683`
-- Control Center: `127.0.0.1:8684`
-- automatic updates: enabled
-- update channel: `stable`
-
-Linux Direct Nodes use the managed per-user RWMCP install plus `remote-workstation-mcp-openai.service`.
-
-On Linux, run `rwmcp-tui` for the terminal-first owner control surface. See [Terminal Control Center](docs/TUI.md).
+See `docs/ENGINEERING_TOOLS.md` for the tool families and safety model.
 
 ## Recover an expired/revoked key or changed tunnel
 

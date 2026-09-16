@@ -65,6 +65,12 @@ export interface PolicyConfig {
     allowSudo: boolean;
     maxRuntimeMs: number;
   };
+  engineering?: {
+    enabled: boolean;
+    maxCommandRuntimeMs: number;
+    allowHardwareMutationInWorkspace: boolean;
+    allowSerialWriteInWorkspace: boolean;
+  };
 }
 
 export type SshAuthMode = 'agent' | 'identity_file';

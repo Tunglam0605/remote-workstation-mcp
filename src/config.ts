@@ -57,7 +57,13 @@ const schema = z.object({
   privileged: z.object({
     allowSudo: z.boolean().default(false),
     maxRuntimeMs: z.number().int().positive().max(60 * 60 * 1000).default(10 * 60 * 1000)
-  }).default({ allowSudo: false, maxRuntimeMs: 600000 })
+  }).default({ allowSudo: false, maxRuntimeMs: 600000 }),
+  engineering: z.object({
+    enabled: z.boolean().default(true),
+    maxCommandRuntimeMs: z.number().int().positive().max(60 * 60 * 1000).default(10 * 60 * 1000),
+    allowHardwareMutationInWorkspace: z.boolean().default(false),
+    allowSerialWriteInWorkspace: z.boolean().default(false)
+  }).default({ enabled: true, maxCommandRuntimeMs: 600000, allowHardwareMutationInWorkspace: false, allowSerialWriteInWorkspace: false })
 });
 
 function expandHome(value: string): string {

@@ -80,6 +80,9 @@ jobs:
       - run: npm run build
       - name: Validate plugin package
         run: npm run plugin:validate
+      - name: Smoke-test packed Windows engineering runtime
+        shell: pwsh
+        run: .\scripts\smoke-package-windows.ps1
       - name: Parse Windows PowerShell scripts
         shell: pwsh
         run: |

@@ -323,6 +323,86 @@ export async function setRuntimeApiKey(apiKey: string, options: TuiConfigOptions
   await updateEnvFile(linuxOpenAiEnvPath(options), { CONTROL_PLANE_API_KEY: value });
 }
 
+export async function bootstrapManagedNode(
+  repoRoot: string,
+  tunnelId: string,
+  runtimeApiKey?: string,
+  options: TuiConfigOptions = {}
+): Promise<TuiRuntimeState> {
+  configureManagedEnvironment(options);
+  const tunnel = tunnelId.trim();
+  if (!/^tunnel_[0-9a-f]{32}$/.test(tunnel)) throw new Error("Tunnel ID must match 'tunnel_' followed by 32 lowercase hexadecimal characters.");
+  if (runtimeApiKey?.trim()) await setRuntimeApiKey(runtimeApiKey.trim(), options);
+  await setTunnelId(tunnel, options);
+
+  const before = await readTuiRuntimeState(repoRoot, options);
+  if (!before.runtimeKeyConfigured) throw new Error('Runtime API key is required for first-time setup.');
+  const platform = platformOf(options);
+  const home = homeOf(options);
+  const env = envOf(options);
+
+  if (platform === 'win32') {
+    const configBase = setupConfigDir({ platform, homeDir: home, env });
+    const currentFile = path.join(configBase, 'current.txt');
+    const currentRoot = (await fs.readFile(currentFile, 'utf8')).trim() || repoRoot;
+    const tunnelInstaller = path.join(currentRoot, 'scripts', 'install-openai-tunnel-windows.ps1');
+    const install = await run('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tunnelInstaller]);
+    if (install.code !== 0) throw new Error(install.stderr.trim() || install.stdout.trim() || 'Failed to install the OpenAI tunnel client.');
+    if (runtimeApiKey?.trim()) {
+      const tunnelClient = path.join(currentRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe');
+      const verify = await run(tunnelClient, ['admin', 'tunnels', 'get', tunnel, '--json'], {
+        ...process.env,
+        CONTROL_PLANE_API_KEY: runtimeApiKey.trim(),
+        OPENAI_API_KEY: runtimeApiKey.trim()
+      });
+      if (verify.code !== 0) throw new Error(verify.stderr.trim() || verify.stdout.trim() || 'Tunnel credentials could not be verified.');
+    }
+    const launcher = path.join(configBase, 'bin', 'rwmcp.ps1');
+    const autoUpdate = await run('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher, '-Action', 'AutoUpdateOn']);
+    if (autoUpdate.code !== 0) throw new Error(autoUpdate.stderr.trim() || 'Failed to enable automatic updates.');
+    const startup = await run('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher, '-Action', 'AutostartOn']);
+    if (startup.code !== 0) throw new Error(startup.stderr.trim() || 'Failed to enable startup.');
+    const action = before.service === 'active' ? 'Restart' : 'StartOpenAI';
+    const start = await run('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', launcher, '-Action', action]);
+    if (start.code !== 0) throw new Error(start.stderr.trim() || start.stdout.trim() || 'Failed to start the ChatGPT tunnel runtime.');
+  } else {
+    const dataBase = path.resolve(env.RWMCP_HOME || path.join(home, '.local', 'share', 'remote-workstation-mcp'));
+    const currentRoot = path.join(dataBase, 'current');
+    const envFile = await readEnvFile(linuxOpenAiEnvPath(options));
+    const key = runtimeApiKey?.trim() || envFile.get('CONTROL_PLANE_API_KEY')?.trim();
+    if (!key) throw new Error('Runtime API key is required for Linux Direct Node setup.');
+    const tunnelInstaller = path.join(currentRoot, 'scripts', 'install-openai-tunnel-linux.sh');
+    const install = await run('bash', [tunnelInstaller], linuxSystemdEnv(options));
+    if (install.code !== 0) throw new Error(install.stderr.trim() || install.stdout.trim() || 'Failed to install the OpenAI tunnel client.');
+    const tunnelClient = path.join(dataBase, 'runtime', 'openai-tunnel', 'tunnel-client');
+    const verify = await run(tunnelClient, ['admin', 'tunnels', 'get', tunnel, '--json'], {
+      ...linuxSystemdEnv(options),
+      CONTROL_PLANE_API_KEY: key,
+      OPENAI_API_KEY: key
+    });
+    if (verify.code !== 0) throw new Error(verify.stderr.trim() || verify.stdout.trim() || 'Tunnel credentials could not be verified.');
+    const script = path.join(currentRoot, 'scripts', 'setup-direct-node-linux.sh');
+    const setup = await run('bash', [script, '--tunnel-id', tunnel, '--name', before.deviceName, '--port', String(before.mcpPort)], {
+      ...linuxSystemdEnv(options),
+      CONTROL_PLANE_API_KEY: key
+    });
+    if (setup.code !== 0) throw new Error(setup.stderr.trim() || setup.stdout.trim() || 'Linux Direct Node setup failed.');
+    const updateEnv = path.join(setupConfigDir({ platform, homeDir: home, env }), 'update.env');
+    await updateEnvFile(updateEnv, {
+      RWMCP_UPDATE_MODE: 'auto_patch',
+      RWMCP_UPDATE_REPO: 'Tunglam0605/remote-workstation-mcp'
+    });
+    const updateTimer = await run('systemctl', ['--user', 'enable', '--now', 'remote-workstation-mcp-update.timer'], linuxSystemdEnv(options));
+    if (updateTimer.code !== 0) throw new Error(updateTimer.stderr.trim() || 'Failed to enable automatic update timer.');
+  }
+
+  for (let attempt = 0; attempt < 70; attempt += 1) {
+    const state = await readTuiRuntimeState(repoRoot, options);
+    if (state.service === 'active' && state.tunnelReady === true) return state;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return await readTuiRuntimeState(repoRoot, options);
+}
 export async function restartManagedRuntime(repoRoot: string, options: TuiConfigOptions = {}): Promise<string> {
   if (platformOf(options) === 'win32') {
     const configuredLauncher = process.env.RWMCP_WINDOWS_LAUNCHER?.trim();

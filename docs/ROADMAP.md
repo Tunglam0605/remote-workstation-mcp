@@ -234,7 +234,16 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.10 - Linux Desktop Web Control Center parity - current
+### v0.8.11 - First-run UX and one-step workstation onboarding - current
+
+- require only Tunnel ID + restricted Runtime API key for normal first-time setup
+- add a dedicated WebUI first-run card and one-step bootstrap endpoint
+- make TUI automatically enter setup when connection credentials are missing
+- configure tunnel-client, Direct Node, startup, safe default ports/workspace and automatic updates without manual per-setting work
+- publish `install-linux.sh` for verified release installation and user-local Node.js bootstrap on supported Linux architectures
+- keep advanced settings available for experienced operators without putting them in the first-run path
+
+### v0.8.10 - Linux Desktop Web Control Center parity - complete
 
 - auto-enable the loopback-only Web Control Center on Ubuntu Desktop while retaining the terminal TUI
 - share Linux Direct Node settings and permission policy between WebUI and TUI

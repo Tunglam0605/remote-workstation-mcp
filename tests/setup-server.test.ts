@@ -20,6 +20,11 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="langEn"/);
     assert.match(pageText, /id="langVi"/);
     assert.match(pageText, /id="accessMode"/);
+    assert.match(pageText, /id="firstRunCard"/);
+    assert.match(pageText, /id="bootstrapTunnel"/);
+    assert.match(pageText, /id="bootstrapKey"/);
+    assert.match(pageText, /id="bootstrapConnect"/);
+    assert.match(pageText, /api\/bootstrap/);
     assert.match(pageText, /id="autoUpdate"/);
     assert.match(pageText, /id="checkUpdate"/);
     assert.match(pageText, /id="devicePairingCard"/);
@@ -78,9 +83,10 @@ test('Setup & Control Center requires the ephemeral token for API access', async
       headers: { 'x-rwmcp-setup-token': token }
     });
     assert.equal(ok.status, 200);
-    const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.8.10');
+    const body = await ok.json() as { version: string; onboardingRequired: boolean; settings: { mcpPort: number } };
+    assert.equal(body.version, '0.8.11');
     assert.ok(Number.isInteger(body.settings.mcpPort));
+    assert.equal(typeof body.onboardingRequired, 'boolean');
 
     const recoveryStatus = await fetch(`${base}/api/recovery/status`, {
       headers: { 'x-rwmcp-setup-token': token }

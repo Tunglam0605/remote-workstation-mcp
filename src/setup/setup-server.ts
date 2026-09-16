@@ -134,25 +134,48 @@ async function recommendedMcpPort(configured: number): Promise<number> {
   throw new Error('No free loopback MCP port was found in the setup candidate range.');
 }
 
-function runProcess(program: string, args: string[], options: { cwd: string; stdin?: string; maxBytes?: number }): Promise<{ code: number; output: string }> {
+function runProcess(program: string, args: string[], options: { cwd: string; stdin?: string; maxBytes?: number; timeoutMs?: number; env?: NodeJS.ProcessEnv }): Promise<{ code: number; output: string }> {
   const maxBytes = options.maxBytes ?? 128 * 1024;
   return new Promise((resolve, reject) => {
     const child = spawn(program, args, {
       cwd: options.cwd,
       shell: false,
       windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: options.env ? { ...process.env, ...options.env } : process.env
     });
     let output = '';
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
     const append = (chunk: Buffer | string) => {
       if (Buffer.byteLength(output) >= maxBytes) return;
       output += chunk.toString();
       if (Buffer.byteLength(output) > maxBytes) output = output.slice(0, maxBytes);
     };
+    const finish = (result: { code: number; output: string }) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
     child.stdout?.on('data', append);
     child.stderr?.on('data', append);
-    child.once('error', reject);
-    child.once('close', code => resolve({ code: code ?? -1, output: output.trim() }));
+    child.once('error', error => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', code => finish({ code: code ?? -1, output: output.trim() }));
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        append(`
+Process timed out after ${options.timeoutMs} ms.`);
+        try { child.kill(); } catch {}
+        finish({ code: -2, output: output.trim() });
+      }, options.timeoutMs);
+      timer.unref?.();
+    }
     if (options.stdin !== undefined) child.stdin?.end(options.stdin);
     else child.stdin?.end();
   });
@@ -203,9 +226,65 @@ async function windowsRuntimeControl(repoRoot: string, action: RuntimeAction | '
     '-Root', repoRoot,
     '-Json'
   ];
-  const result = await runProcess('powershell.exe', args, { cwd: repoRoot, maxBytes: 256 * 1024 });
+  const result = await runProcess('powershell.exe', args, { cwd: repoRoot, maxBytes: 256 * 1024, timeoutMs: action === 'Status' ? 5000 : 30000 });
   if (result.code !== 0) throw new Error(result.output || `Runtime control '${action}' failed with exit code ${result.code}.`);
   return parseJsonOutput(result.output);
+}
+
+async function safeWindowsRuntimeStatus(repoRoot: string): Promise<Record<string, unknown>> {
+  try {
+    return await windowsRuntimeControl(repoRoot, 'Status') as Record<string, unknown>;
+  } catch (error) {
+    return {
+      supported: process.platform === 'win32',
+      running: false,
+      mcpHealthy: false,
+      tunnelReady: false,
+      connectionState: 'OFFLINE',
+      connectionReason: 'runtime-control-unavailable',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function readWindowsRuntimeKey(repoRoot: string): Promise<string | null> {
+  if (process.platform !== 'win32') return null;
+  const script = path.join(repoRoot, 'scripts', 'windows-secret.ps1');
+  const secretPath = setupSecretPath();
+  if (!(await pathExists(secretPath))) return null;
+  const result = await runProcess('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
+    '-Action', 'Get', '-Path', secretPath
+  ], { cwd: repoRoot, maxBytes: 16 * 1024, timeoutMs: 5000 });
+  if (result.code !== 0) throw new Error(result.output || `Secret read failed with exit code ${result.code}.`);
+  const value = result.output.trim();
+  return value || null;
+}
+
+async function testOpenAiTunnel(repoRoot: string, tunnelId: string, runtimeApiKey?: string): Promise<{ ok: boolean; tunnelId: string; message: string }> {
+  if (!/^tunnel_[0-9a-f]{32}$/.test(tunnelId)) {
+    return { ok: false, tunnelId, message: "Tunnel ID must match 'tunnel_' followed by 32 lowercase hexadecimal characters." };
+  }
+  const tunnelClient = process.platform === 'win32'
+    ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
+    : path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client');
+  if (!(await pathExists(tunnelClient))) {
+    return { ok: false, tunnelId, message: 'OpenAI tunnel-client is not installed in this runtime slot.' };
+  }
+  const key = runtimeApiKey?.trim() || await readWindowsRuntimeKey(repoRoot);
+  if (!key) return { ok: false, tunnelId, message: 'No runtime API key is available. Paste a restricted key with Tunnels Read + Use.' };
+  if (key.length < 20 || /\s/.test(key)) return { ok: false, tunnelId, message: 'Runtime API key format is invalid.' };
+  const result = await runProcess(tunnelClient, ['admin', 'tunnels', 'get', tunnelId, '--json'], {
+    cwd: repoRoot,
+    maxBytes: 64 * 1024,
+    timeoutMs: 15000,
+    env: { CONTROL_PLANE_API_KEY: key, OPENAI_API_KEY: key }
+  });
+  if (result.code !== 0) {
+    const message = result.output || `tunnel-client verification failed with exit code ${result.code}.`;
+    return { ok: false, tunnelId, message };
+  }
+  return { ok: true, tunnelId, message: 'Runtime API key can read this OpenAI Secure MCP Tunnel.' };
 }
 
 function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'OpenAI'): { accepted: true; action: 'Restart'; mode: RuntimeMode } {
@@ -239,7 +318,7 @@ async function windowsUpdateControl(repoRoot: string, action: 'Status' | 'Check'
     '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
     '-Action', action,
     '-Json'
-  ], { cwd: repoRoot, maxBytes: 128 * 1024 });
+  ], { cwd: repoRoot, maxBytes: 128 * 1024, timeoutMs: 15000 });
   if (result.code !== 0) throw new Error(result.output || `Windows update action '${action}' failed with exit code ${result.code}.`);
   return parseJsonOutput(result.output);
 }
@@ -332,7 +411,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const configuredPortFree = await portAvailable(settings.mcpPort);
         let configuredPortOwnedByManagedRuntime = false;
         if (!configuredPortFree && process.platform === 'win32') {
-          const runtime = await windowsRuntimeControl(repoRoot, 'Status') as { running?: boolean; port?: number };
+          const runtime = await safeWindowsRuntimeStatus(repoRoot) as { running?: boolean; port?: number };
           configuredPortOwnedByManagedRuntime = runtime.running === true && runtime.port === settings.mcpPort;
         }
         const configuredPortAvailable = configuredPortFree || configuredPortOwnedByManagedRuntime;
@@ -361,6 +440,64 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           configuredPortFree,
           configuredPortOwnedByManagedRuntime,
           recommendedMcpPort: recommendedPort
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/recovery/status' && req.method === 'GET') {
+        const settings = await loadSetupSettings();
+        const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
+        const identity = await loadOrCreateDeviceIdentity();
+        const tunnelClient = process.platform === 'win32'
+          ? path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client.exe')
+          : path.join(repoRoot, 'runtime', 'openai-tunnel', 'tunnel-client');
+        json(res, 200, {
+          version: packageJson.version,
+          identity,
+          recommendedAppName: recommendedChatGptAppName(identity),
+          settings,
+          settingsPersisted: await pathExists(setupSettingsPath()),
+          runtimeApiKeyStored: await pathExists(setupSecretPath()),
+          tunnelClientInstalled: await pathExists(tunnelClient),
+          workspaceExists: await directoryExists(settings.workspaceRoot),
+          configuredPortAvailable: true,
+          configuredPortFree: await portAvailable(settings.mcpPort),
+          configuredPortOwnedByManagedRuntime: false,
+          recommendedMcpPort: settings.mcpPort,
+          recoveryMode: true,
+          localControlCenter: 'ONLINE'
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/recovery/test' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { tunnelId?: string; runtimeApiKey?: string };
+        const currentSettings = await loadSetupSettings();
+        const tunnelId = (body.tunnelId ?? currentSettings.tunnelId).trim();
+        json(res, 200, await testOpenAiTunnel(repoRoot, tunnelId, body.runtimeApiKey));
+        return;
+      }
+
+      if (url.pathname === '/api/recovery/apply' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { tunnelId?: string; organizationId?: string; runtimeApiKey?: string; reconnect?: boolean };
+        const currentSettings = await loadSetupSettings();
+        const settings = normalizeSetupSettings({
+          ...currentSettings,
+          tunnelId: body.tunnelId ?? currentSettings.tunnelId,
+          organizationId: body.organizationId ?? currentSettings.organizationId
+        });
+        await saveSetupSettings(settings);
+        if (body.runtimeApiKey?.trim()) await storeWindowsRuntimeKey(repoRoot, body.runtimeApiKey.trim());
+        const reconnect = body.reconnect !== false;
+        const restart = reconnect && process.platform === 'win32'
+          ? scheduleWindowsRuntimeRestart(repoRoot, 'OpenAI')
+          : null;
+        json(res, 200, {
+          ok: true,
+          settings,
+          runtimeApiKeyStored: await pathExists(setupSecretPath()),
+          reconnectAccepted: restart?.accepted === true,
+          restart
         });
         return;
       }
@@ -506,7 +643,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/runtime/status' && req.method === 'GET') {
-        json(res, 200, await windowsRuntimeControl(repoRoot, 'Status'));
+        json(res, 200, await safeWindowsRuntimeStatus(repoRoot));
         return;
       }
 

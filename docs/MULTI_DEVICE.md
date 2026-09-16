@@ -1,6 +1,6 @@
 ﻿# Multi-device control
 
-Remote Workstation MCP v0.8.3 makes **Direct Multi-Node** the preferred topology.
+Remote Workstation MCP v0.8.4 retains the **Direct Multi-Node** topology introduced in v0.8.3 and adds offline-first local recovery for each independent node.
 
 ## Preferred topology: every workstation connects directly
 

@@ -54,6 +54,8 @@ test('Windows Control Center refuses foreign port ownership and verifies its man
   assert.match(control, /Get-NetTCPConnection/);
   assert.match(control, /Test-ProcessDescendant/);
   assert.match(control, /is already in use by process/);
+  assert.match(control, /Test-OrphanedRwmcpControlCenter/);
+  assert.match(control, /Recovering orphaned Remote Workstation Control Center/);
   assert.match(control, /managedPortOwned/);
   assert.match(control, /portOwnerPid/);
 });

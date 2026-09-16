@@ -6,9 +6,21 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.3**
+**v0.8.4**
 
-v0.8.3 makes **Direct Multi-Node** the preferred multi-device topology:
+v0.8.4 adds an **offline-first Recovery Mode** to the local Control Center while retaining the v0.8.3 Direct Multi-Node topology. The owner UI at `127.0.0.1:8684` stays usable when the runtime API key is missing, expired or revoked, when a Tunnel ID changes, when the OpenAI tunnel is disconnected, or when the MCP runtime itself is unavailable.
+
+New in v0.8.4:
+
+- explicit **Control Center / MCP / Tunnel** health separation instead of one ambiguous READY state;
+- local recovery APIs that do not depend on the OpenAI tunnel or MCP runtime;
+- **Test credentials** for a Tunnel ID + restricted Runtime API key;
+- **Save & reconnect** to replace Tunnel ID and/or Runtime API key, store the key with Windows DPAPI, and restart OpenAI mode safely;
+- bounded runtime/update helper calls so a broken child process cannot leave the browser stuck on `Loading...`;
+- degraded `OFFLINE`/`RECOVERY` rendering instead of endless loading placeholders when runtime or permission APIs fail;
+- automatic reclaim of an orphaned RWMCP setup-web listener on the configured Control Center port while still refusing unrelated foreign processes.
+
+v0.8.3 made **Direct Multi-Node** the preferred multi-device topology:
 
 ```text
                          ChatGPT Web
@@ -22,7 +34,7 @@ v0.8.3 makes **Direct Multi-Node** the preferred multi-device topology:
 
 Every workstation has its own stable device identity, its own Tunnel ID, its own local policy/audit boundary, and its own ChatGPT custom MCP app. Routine multi-device control no longer depends on one laptop acting as an SSH gateway or on the machines sharing a LAN/VPN.
 
-New in v0.8.3:
+Direct Multi-Node capabilities introduced in v0.8.3:
 
 - stable local `device-identity.json` independent of DHCP/IP changes;
 - `workstation_identity` for deterministic target resolution;
@@ -44,6 +56,23 @@ Default managed Windows endpoints remain:
 - update channel: `stable`
 
 Linux Direct Nodes use the managed per-user RWMCP install plus `remote-workstation-mcp-openai.service`.
+
+## Recover an expired/revoked key or changed tunnel
+
+The local Control Center is intentionally independent from the OpenAI tunnel. Even when ChatGPT cannot reach the workstation, open locally:
+
+```text
+http://127.0.0.1:8684
+```
+
+Then open **Settings -> OpenAI connection**:
+
+1. replace the Tunnel ID only if it actually changed;
+2. paste a new restricted Runtime API key with **Tunnels Read + Use**;
+3. choose **Test credentials**;
+4. when verification succeeds, choose **Save & reconnect**.
+
+The saved key is protected with current-user Windows DPAPI and is never read back into the browser. A failed or unavailable MCP runtime is shown as `OFFLINE`/`RECOVERY`; it must not prevent the local Control Center from loading.
 
 ## New user path: from zero to READY
 
@@ -67,11 +96,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.3 release contains:
+The v0.8.4 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.3.tgz`
+- `remote-workstation-mcp-v0.8.4.tgz`
 - `SHA256SUMS.txt`
 
 

@@ -1,6 +1,6 @@
 # Windows quick start - one-time setup
 
-This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.8.3.
+This guide takes a new Windows PC from no installation to a ChatGPT-ready Remote Workstation MCP v0.8.4.
 
 ## Before you start
 
@@ -100,6 +100,19 @@ In ChatGPT, call `chatgpt_web_status` first, then `workspace_list`.
 Restart Windows or sign out/in once. RWMCP should return automatically without rerunning setup.
 
 Startup uses the current-user registry `Run` key and the stable launcher `rwmcp.ps1 -Action Boot`.
+
+## Recover a key/tunnel without PowerShell
+
+v0.8.4 keeps `http://127.0.0.1:8684` independent from the OpenAI tunnel. If the runtime key expires/is revoked, the tunnel is temporarily unavailable, or the Tunnel ID is intentionally replaced, the local page must still load.
+
+Open **Settings -> OpenAI connection** and use:
+
+1. **Tunnel ID** — keep the existing value unless the tunnel itself changed;
+2. **Runtime API key** — paste the replacement restricted key;
+3. **Test credentials** — verify that the key can read/use the selected tunnel;
+4. **Save & reconnect** — save the settings/key locally and restart OpenAI mode.
+
+The status strip reports the local Control Center separately from MCP/tunnel health. A tunnel failure should display `OFFLINE` or `RECOVERY`, not leave the interface stuck on `Loading...`.
 
 ## 10. From now on
 

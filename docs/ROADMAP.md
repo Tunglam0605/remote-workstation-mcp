@@ -191,7 +191,7 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - revocable per-device credential
 - SSH bootstrap path and device inventory
 
-### v0.8.3 - Direct Multi-Node - current
+### v0.8.3 - Direct Multi-Node - complete
 
 - make one RWMCP + one OpenAI Secure MCP Tunnel per workstation the preferred topology
 - no workstation-to-workstation SSH hop for routine ChatGPT control
@@ -202,7 +202,19 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - add Linux `systemd --user` Direct Node service with automatic restart/reconnect
 - keep Hub/SSH mode only for bootstrap, migration and explicitly requested gateway workflows
 
-### v0.8.4 - Direct-node engineering ergonomics
+### v0.8.4 - Offline-first Control Center Recovery - current
+
+- keep the loopback Control Center usable when the runtime API key is missing, expired or revoked
+- keep the Control Center usable when a Tunnel ID changes/deletes or the OpenAI tunnel is disconnected
+- separate local Control Center, MCP runtime and OpenAI tunnel health states
+- add local-only recovery status/test/apply APIs that do not depend on the tunnel
+- add **Test credentials** and **Save & reconnect** for Tunnel ID/runtime-key rotation
+- store replacement Windows runtime keys with current-user DPAPI without reading them back into the browser
+- bound runtime/update helper calls so broken child processes cannot hang the owner UI
+- render explicit `OFFLINE` / `RECOVERY` states instead of permanent `Loading...`
+- reclaim orphaned RWMCP setup-web listeners while still rejecting unrelated foreign processes
+
+### v0.8.5 - Direct-node engineering ergonomics
 
 - one-command Windows/Linux node enrollment once a tunnel ID/runtime key is available
 - per-node health overview and deterministic app-name export

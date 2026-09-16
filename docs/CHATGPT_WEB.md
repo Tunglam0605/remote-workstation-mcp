@@ -18,7 +18,7 @@ Current OpenAI references:
 
 Before creating the ChatGPT app, the workstation side should already have:
 
-- RWMCP v0.8.3 installed;
+- RWMCP v0.8.4 installed;
 - one OpenAI Secure MCP Tunnel ID;
 - one restricted Runtime API key with Tunnels Read + Use;
 - `tunnel-client` installed by the RWMCP managed installer;
@@ -91,7 +91,7 @@ The managed wizard:
 6. waits for MCP health and tunnel `/readyz`;
 7. enables current-user start-at-logon.
 
-A ready v0.8.3 workstation should show:
+A ready v0.8.4 workstation should show:
 
 ```text
 MCP          HEALTHY
@@ -101,6 +101,20 @@ Start logon  ON
 ```
 
 The runtime also exposes `connectionState` as `ONLINE`, `RECONNECTING`, or `OFFLINE`.
+
+## v0.8.4 local recovery when the app cannot connect
+
+A ChatGPT app can become unreachable because the runtime API key expired/was revoked, the tunnel is offline, or the app was removed from ChatGPT. None of those conditions should prevent local recovery.
+
+On the workstation itself open:
+
+```text
+http://127.0.0.1:8684
+```
+
+The Control Center should continue to show **Control Center: ONLINE** even when MCP or Tunnel is offline. In **Settings -> OpenAI connection**, keep or replace the Tunnel ID as appropriate, paste the replacement restricted Runtime API key, choose **Test credentials**, then **Save & reconnect**.
+
+Do not create a new tunnel merely because a runtime key was rotated. Reuse the existing Tunnel ID unless the tunnel itself was intentionally replaced/deleted.
 
 ## Step 4 - Enable Developer Mode in ChatGPT when required
 

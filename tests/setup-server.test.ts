@@ -24,6 +24,11 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="devicePairingCard"/);
     assert.match(pageText, /id="createPairingCode"/);
     assert.match(pageText, /id="pairSelectedHost"/);
+    assert.match(pageText, /id="testConnection"/);
+    assert.match(pageText, /id="saveReconnect"/);
+    assert.match(pageText, /api\/recovery\/status/);
+    assert.match(pageText, /api\/recovery\/test/);
+    assert.match(pageText, /api\/recovery\/apply/);
     assert.match(pageText, /id="openSetup"/);
     assert.match(pageText, /<dialog class="gw-modal setup-modal" id="setupModal">/);
     assert.match(pageText, /<dialog class="gw-modal confirm-modal" id="fullAccessConfirmModal">/);
@@ -35,7 +40,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.doesNotMatch(pageText, /id="applyMode"/);
     assert.doesNotMatch(pageText, /id="scopeFull"/);
     assert.doesNotMatch(pageText, /id="gateRawShell"/);
-    assert.match(pageText, /Thiết lập nhanh cho ChatGPT/);
+    assert.match(pageText, /Quick setup for ChatGPT/);
     assert.match(pageText, /rwmcp\.language/);
     assert.match(pageText, /navigator\.language/);
 
@@ -67,8 +72,25 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(ok.status, 200);
     const body = await ok.json() as { version: string; settings: { mcpPort: number } };
-    assert.equal(body.version, '0.8.3');
+    assert.equal(body.version, '0.8.4');
     assert.ok(Number.isInteger(body.settings.mcpPort));
+
+    const recoveryStatus = await fetch(`${base}/api/recovery/status`, {
+      headers: { 'x-rwmcp-setup-token': token }
+    });
+    assert.equal(recoveryStatus.status, 200);
+    const recoveryBody = await recoveryStatus.json() as { recoveryMode: boolean; localControlCenter: string };
+    assert.equal(recoveryBody.recoveryMode, true);
+    assert.equal(recoveryBody.localControlCenter, 'ONLINE');
+
+    const recoveryTest = await fetch(`${base}/api/recovery/test`, {
+      method: 'POST',
+      headers: { 'x-rwmcp-setup-token': token, 'content-type': 'application/json' },
+      body: JSON.stringify({ tunnelId: 'not-a-tunnel' })
+    });
+    assert.equal(recoveryTest.status, 200);
+    const recoveryTestBody = await recoveryTest.json() as { ok: boolean };
+    assert.equal(recoveryTestBody.ok, false);
   } finally {
     await setup.close();
   }

@@ -1,3 +1,8 @@
+param(
+  [ValidateSet('All','Success','Failure')]
+  [string]$Mode = 'All'
+)
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -45,14 +50,20 @@ exit 0
 '@
   Write-Utf8NoBom $launcher $successLauncher
 
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
-  if ($LASTEXITCODE -ne 0) { throw "Success-path handoff exited with code $LASTEXITCODE." }
-  if (-not (Test-Path -LiteralPath $transaction)) { throw 'Success-path transaction file was not created.' }
-  $success = Get-Content -LiteralPath $transaction -Raw | ConvertFrom-Json
-  if ([string]$success.state -ne 'SUCCEEDED') { throw "Expected SUCCEEDED transaction, got '$($success.state)'." }
-  if ([string]$success.fromVersion -ne '0.9.1') { throw "Unexpected fromVersion '$($success.fromVersion)'." }
-  if ([string]$success.toVersion -ne '0.9.2') { throw "Unexpected toVersion '$($success.toVersion)'." }
-  if ([string]$success.expectedVersion -ne '0.9.2') { throw "Unexpected expectedVersion '$($success.expectedVersion)'." }
+  if ($Mode -in @('All','Success')) {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
+    if ($LASTEXITCODE -ne 0) {
+      $workerLog = if (Test-Path -LiteralPath (Join-Path $runtimeDir 'update-worker.log')) { Get-Content -LiteralPath (Join-Path $runtimeDir 'update-worker.log') -Raw } else { '<no worker log>' }
+      $tx = if (Test-Path -LiteralPath $transaction) { Get-Content -LiteralPath $transaction -Raw } else { '<no transaction>' }
+      throw "Success-path handoff exited with code $LASTEXITCODE.`nTransaction:`n$tx`nWorker log:`n$workerLog"
+    }
+    if (-not (Test-Path -LiteralPath $transaction)) { throw 'Success-path transaction file was not created.' }
+    $success = Get-Content -LiteralPath $transaction -Raw | ConvertFrom-Json
+    if ([string]$success.state -ne 'SUCCEEDED') { throw "Expected SUCCEEDED transaction, got '$($success.state)'." }
+    if ([string]$success.fromVersion -ne '0.9.1') { throw "Unexpected fromVersion '$($success.fromVersion)'." }
+    if ([string]$success.toVersion -ne '0.9.2') { throw "Unexpected toVersion '$($success.toVersion)'." }
+    if ([string]$success.expectedVersion -ne '0.9.2') { throw "Unexpected expectedVersion '$($success.expectedVersion)'." }
+  }
 
   Write-Utf8NoBom $currentFile $v091
   $failureLauncher = @'
@@ -70,14 +81,16 @@ exit 0
 '@
   Write-Utf8NoBom $launcher $failureLauncher
 
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
-  if ($LASTEXITCODE -eq 0) { throw 'Failure-path handoff unexpectedly succeeded.' }
-  $failure = Get-Content -LiteralPath $transaction -Raw | ConvertFrom-Json
-  if ([string]$failure.state -ne 'FAILED') { throw "Expected FAILED transaction, got '$($failure.state)'." }
-  if ([string]$failure.recovery -ne 'start-openai-ok') { throw "Expected StartOpenAI recovery, got '$($failure.recovery)'." }
-  if (-not (Test-Path -LiteralPath $recoveryMarker)) { throw 'Recovery marker was not created.' }
+  if ($Mode -in @('All','Failure')) {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
+    if ($LASTEXITCODE -eq 0) { throw 'Failure-path handoff unexpectedly succeeded.' }
+    $failure = Get-Content -LiteralPath $transaction -Raw | ConvertFrom-Json
+    if ([string]$failure.state -ne 'FAILED') { throw "Expected FAILED transaction, got '$($failure.state)'." }
+    if ([string]$failure.recovery -ne 'start-openai-ok') { throw "Expected StartOpenAI recovery, got '$($failure.recovery)'." }
+    if (-not (Test-Path -LiteralPath $recoveryMarker)) { throw 'Recovery marker was not created.' }
+  }
 
-  Write-Host 'Windows durable update handoff tests passed.' -ForegroundColor Green
+  Write-Host "Windows durable update handoff test mode '$Mode' passed." -ForegroundColor Green
 } finally {
   Remove-Item -LiteralPath $tempBase -Recurse -Force -ErrorAction SilentlyContinue
 }

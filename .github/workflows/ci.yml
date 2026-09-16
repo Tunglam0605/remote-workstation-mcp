@@ -122,9 +122,12 @@ jobs:
       - name: Test Windows tunnel control-plane health parser
         shell: pwsh
         run: .\scripts\test-tunnel-health-windows.ps1
-      - name: Test durable Windows update handoff
+      - name: Test durable Windows update handoff success path
         shell: pwsh
-        run: .\scripts\test-update-handoff-windows.ps1
+        run: .\scripts\test-update-handoff-windows.ps1 -Mode Success
+      - name: Test durable Windows update handoff recovery path
+        shell: pwsh
+        run: .\scripts\test-update-handoff-windows.ps1 -Mode Failure
       - name: Smoke-test Windows updater state
         shell: pwsh
         run: |

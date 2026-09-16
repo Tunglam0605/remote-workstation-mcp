@@ -234,7 +234,13 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - parse the rendered `<script>` in automated tests so malformed generated JavaScript blocks release
 - add mojibake regression assertions for known corruption signatures
 
-### v0.8.11 - First-run UX and one-step workstation onboarding - current
+### v0.8.12 - Linux bootstrap/update polish - current
+
+- discover existing user-local Node.js before downloading a runtime during Linux bootstrap
+- reconstruct the user-systemd bus for update/restart operations launched from SSH, MCP or other non-interactive sessions
+- preserve the v0.8.11 two-field first-run setup workflow unchanged
+
+### v0.8.11 - First-run UX and one-step workstation onboarding - complete
 
 - require only Tunnel ID + restricted Runtime API key for normal first-time setup
 - add a dedicated WebUI first-run card and one-step bootstrap endpoint

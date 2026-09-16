@@ -76,10 +76,21 @@ async function managedServiceName() {
   return await exists(direct) ? 'remote-workstation-mcp-openai.service' : 'remote-workstation-mcp.service';
 }
 
+function linuxUserSystemdEnv() {
+  const env = { ...process.env };
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  const runtimeDir = env.XDG_RUNTIME_DIR || (uid !== undefined ? `/run/user/${uid}` : undefined);
+  if (runtimeDir) {
+    env.XDG_RUNTIME_DIR = runtimeDir;
+    env.DBUS_SESSION_BUS_ADDRESS ||= `unix:path=${runtimeDir}/bus`;
+  }
+  return env;
+}
+
 async function restartService() {
   const service = await managedServiceName();
   try {
-    await exec('systemctl', ['--user', 'restart', service]);
+    await exec('systemctl', ['--user', 'restart', service], { env: linuxUserSystemdEnv() });
   } catch (error) {
     throw new Error(`Failed to restart ${service}: ${error instanceof Error ? error.message : String(error)}`);
   }

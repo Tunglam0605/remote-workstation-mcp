@@ -6,7 +6,14 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.9**
+**v0.8.10**
+
+v0.8.10 brings the local Web Control Center to Linux desktops while keeping the terminal workflow:
+
+- Ubuntu Desktop automatically runs the loopback-only WebUI at 127.0.0.1:8684 and also keeps `rwmcp-tui` available;
+- Linux WebUI and TUI share the same owner policy, Direct Node tunnel settings, MCP port and access mode;
+- `rwmcp-webui` starts/opens the local Control Center manually, while headless Linux keeps WebUI disabled by default;
+- Linux runtime start/stop/restart and restricted Runtime API key rotation are available through the local Control Center without exposing those controls through MCP.
 
 v0.8.9 polishes the new terminal workflow:
 
@@ -130,11 +137,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.9 release contains:
+The v0.8.10 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.9.tgz`
+- `remote-workstation-mcp-v0.8.10.tgz`
 - `SHA256SUMS.txt`
 
 

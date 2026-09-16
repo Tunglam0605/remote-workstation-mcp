@@ -19,8 +19,26 @@ SERVICE_FILE="$SERVICE_DIR/remote-workstation-mcp.service"
 UPDATE_SERVICE="$SERVICE_DIR/remote-workstation-mcp-update.service"
 UPDATE_TIMER="$SERVICE_DIR/remote-workstation-mcp-update.timer"
 DIRECT_SERVICE_FILE="$SERVICE_DIR/remote-workstation-mcp-openai.service"
+CONTROL_SERVICE_FILE="$SERVICE_DIR/remote-workstation-mcp-control-center.service"
 DIRECT_NODE_CONFIGURED=false
 [[ -f "$DIRECT_SERVICE_FILE" ]] && DIRECT_NODE_CONFIGURED=true
+
+linux_desktop_detected() {
+  [[ -n "${XDG_CURRENT_DESKTOP:-}" || -n "${DESKTOP_SESSION:-}" ]] && return 0
+  compgen -G "/usr/share/xsessions/*.desktop" >/dev/null 2>&1 && return 0
+  compgen -G "/usr/share/wayland-sessions/*.desktop" >/dev/null 2>&1 && return 0
+  command -v gnome-shell >/dev/null 2>&1 && return 0
+  command -v plasmashell >/dev/null 2>&1 && return 0
+  return 1
+}
+
+WEBUI_MODE="${RWMCP_ENABLE_WEBUI:-auto}"
+WEBUI_ENABLED=false
+if [[ "$WEBUI_MODE" == "1" || "$WEBUI_MODE" == "true" || "$WEBUI_MODE" == "on" ]]; then
+  WEBUI_ENABLED=true
+elif [[ "$WEBUI_MODE" != "0" && "$WEBUI_MODE" != "false" && "$WEBUI_MODE" != "off" ]] && linux_desktop_detected; then
+  WEBUI_ENABLED=true
+fi
 
 for command in node npm tar; do
   command -v "$command" >/dev/null 2>&1 || { echo "Missing required command: $command" >&2; exit 1; }
@@ -155,6 +173,29 @@ NoNewPrivileges=true
 WantedBy=default.target
 EOF
 
+cat > "$CONTROL_SERVICE_FILE" <<EOF
+[Unit]
+Description=Remote Workstation MCP - Local Web Control Center
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$DATA_HOME/current
+Environment=RWMCP_POLICY=$CONFIG_HOME/policy.yaml
+Environment=RWMCP_HOSTS=$CONFIG_HOME/hosts.yaml
+Environment=RWMCP_LEASE=$DATA_HOME/runtime/permission-lease.json
+Environment=RWMCP_AUDIT=$DATA_HOME/runtime/audit.jsonl
+Environment=RWMCP_SETUP_PORT=8684
+ExecStart=$NODE_BIN $DATA_HOME/current/dist/setup-web-cli.js --persistent --no-open --port 8684 --strict-port
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
+EOF
 cat > "$UPDATE_SERVICE" <<EOF
 [Unit]
 Description=Check/update Remote Workstation MCP
@@ -187,6 +228,12 @@ EOF
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload
   systemctl --user enable --now remote-workstation-mcp-update.timer
+  if [[ "$WEBUI_ENABLED" == "true" ]]; then
+    systemctl --user enable remote-workstation-mcp-control-center.service >/dev/null 2>&1 || true
+    systemctl --user restart remote-workstation-mcp-control-center.service
+  else
+    systemctl --user disable --now remote-workstation-mcp-control-center.service >/dev/null 2>&1 || true
+  fi
   if [[ "$DIRECT_NODE_CONFIGURED" == "true" ]]; then
     # Preserve Direct Node topology across upgrades: never re-enable the local-only
     # listener when the outbound OpenAI service is already configured. Restarting
@@ -221,5 +268,19 @@ cat > "$HOME/.local/bin/rwmcp-tui" <<EOF
 exec "$NODE_BIN" "$DATA_HOME/current/dist/tui-cli.js" "\$@"
 EOF
 chmod 700 "$HOME/.local/bin/rwmcp-tui"
+cat > "$HOME/.local/bin/rwmcp-webui" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [[ -S "$XDG_RUNTIME_DIR/bus" ]]; then export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"; fi
+systemctl --user start remote-workstation-mcp-control-center.service
+URL="http://127.0.0.1:8684/"
+echo "$URL"
+if command -v xdg-open >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+  xdg-open "$URL" >/dev/null 2>&1 || true
+fi
+EOF
+chmod 700 "$HOME/.local/bin/rwmcp-webui"
 echo "TUI:       rwmcp-tui"
+echo "WebUI:     http://127.0.0.1:8684/ (rwmcp-webui; auto-enabled on Ubuntu Desktop)"
 echo "Put projects you want to expose in $WORKSPACE or edit the local policy explicitly."

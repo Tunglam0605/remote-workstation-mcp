@@ -61,13 +61,28 @@ test('TUI writes Linux direct-node port, tunnel id and runtime key to managed co
   assert.equal(values.get('CONTROL_PLANE_API_KEY'), 'runtime-key-example-123456');
 });
 
-test('Linux installer and direct-node bootstrap standardize MCP port 8683 and ship TUI launcher', async () => {
+test('Linux installer standardizes MCP 8683 and gives Ubuntu Desktop both WebUI and TUI', async () => {
   const install = await fs.readFile('scripts/install-user.sh', 'utf8');
   const direct = await fs.readFile('scripts/setup-direct-node-linux.sh', 'utf8');
   assert.match(install, /RWMCP_PORT=8683/);
+  assert.match(install, /remote-workstation-mcp-control-center\.service/);
+  assert.match(install, /RWMCP_SETUP_PORT=8684/);
+  assert.match(install, /setup-web-cli\.js --persistent --no-open --port 8684 --strict-port/);
+  assert.match(install, /linux_desktop_detected/);
+  assert.match(install, /rwmcp-webui/);
   assert.match(install, /rwmcp-tui/);
   assert.match(direct, /PORT="8683"/);
   assert.doesNotMatch(direct, /PORT="8765"/);
+});
+
+test('Linux Web Control Center shares Direct Node settings and systemd runtime control', async () => {
+  const source = await fs.readFile('src/setup/setup-server.ts', 'utf8');
+  assert.match(source, /linuxOpenAiEnvPath/);
+  assert.match(source, /CONTROL_PLANE_API_KEY/);
+  assert.match(source, /RWMCP_HTTP_SCOPES/);
+  assert.match(source, /linuxRuntimeControl/);
+  assert.match(source, /systemctl/);
+  assert.match(source, /safeRuntimeStatus/);
 });
 test('TUI reconstructs the Linux user-systemd bus for non-interactive status and restart', async () => {
   const source = await fs.readFile('src/tui/config.ts', 'utf8');

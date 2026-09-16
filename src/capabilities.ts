@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.8.3';
+export const SERVER_VERSION = '0.8.4';
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -19,6 +19,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'connection.openai_secure_tunnel', status: 'available', tools: [], note: 'Optional outbound-only OpenAI Secure MCP Tunnel supervisor keeps the workstation MCP bound to loopback, injects an ephemeral bearer into tunnel runtime headers, and does not forward the OpenAI runtime API key into the MCP child process.' },
   { id: 'transport.auth.http', status: 'available', tools: [], note: 'Optional loopback HTTP bearer authentication establishes a request-scoped principal and workstation read/write/execute/full-control scopes.' },
   { id: 'multi_device.direct_nodes', status: 'available', tools: ['workstation_identity', 'chatgpt_web_status'], note: 'Preferred v0.8.3 topology: every workstation runs its own RWMCP and OpenAI Secure MCP Tunnel, so ChatGPT can select multiple independent apps in one prompt without an SSH hub or shared LAN.' },
+  { id: 'control_center.offline_recovery', status: 'available', tools: [], note: 'v0.8.4 keeps the loopback Control Center usable when the runtime API key or tunnel is missing, expired, revoked, or disconnected, with local credential testing and Save & reconnect recovery.' },
   { id: 'multi_device.hub_gateway', status: 'available', tools: ['device_list', 'device_probe', 'device_exec'], note: 'Legacy/bootstrap topology retained for owner-approved SSH hosts. Prefer direct-node apps for routine multi-device work.' },
   { id: 'workspace.discover', status: 'available', tools: ['workspace_list'] },
   { id: 'filesystem.read', status: 'available', tools: ['fs_list', 'fs_read', 'fs_find', 'fs_search_text'] },

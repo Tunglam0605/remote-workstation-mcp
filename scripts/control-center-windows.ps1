@@ -77,6 +77,22 @@ function Test-ProcessDescendant([int]$processId, [int]$ancestorId) {
   return $false
 }
 
+function Test-OrphanedRwmcpControlCenter([int]$processId, [int]$port) {
+  try {
+    $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction Stop
+    if (-not $entry) { return $false }
+    $commandLine = [string]$entry.CommandLine
+    if ([string]::IsNullOrWhiteSpace($commandLine)) { return $false }
+    $isNode = [string]::Equals([string]$entry.Name, 'node.exe', [StringComparison]::OrdinalIgnoreCase)
+    $isSetupWeb = $commandLine -match 'setup-web-cli\.js'
+    $hasPort = $commandLine -match "--port\s+$port(?:\s|$)"
+    $expectedEntrypoint = [IO.Path]::GetFullPath((Join-Path $Root 'dist\setup-web-cli.js'))
+    $isExpectedRoot = $commandLine.IndexOf($expectedEntrypoint, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $isManagedInstall = $commandLine -match 'RemoteWorkstationMCP[\\/]versions[\\/]v[0-9]'
+    return $isNode -and $isSetupWeb -and $hasPort -and ($isExpectedRoot -or $isManagedInstall)
+  } catch { return $false }
+}
+
 function Apply-ControlEnvironment {
   Apply-RwmcpPersistedEnvironment -Root $Root | Out-Null
   $externalConfigDir = Join-Path $UserConfigDir 'config'
@@ -124,6 +140,12 @@ function Start-ControlCenter {
   $existing = Get-ManagedProcess $existingState
   if (-not $existing) {
     $foreignOwner = Get-LoopbackListenerOwner $port
+    if ($null -ne $foreignOwner -and (Test-OrphanedRwmcpControlCenter ([int]$foreignOwner) $port)) {
+      if (-not $Json) { Write-Host "Recovering orphaned Remote Workstation Control Center on port $port (PID $foreignOwner)." -ForegroundColor Yellow }
+      Stop-ProcessTree ([int]$foreignOwner)
+      Start-Sleep -Milliseconds 500
+      $foreignOwner = Get-LoopbackListenerOwner $port
+    }
     if ($null -ne $foreignOwner) {
       throw "Control Center port $port is already in use by process $foreignOwner and is not owned by the managed Control Center."
     }

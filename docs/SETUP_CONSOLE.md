@@ -1,6 +1,6 @@
 ﻿# Setup & Control Center
 
-Remote Workstation MCP v0.8.1 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
+Remote Workstation MCP v0.8.4 includes a loopback-only owner Control Center for first-time setup, runtime operations, access-mode selection, updates, and one-shot Administrator approval.
 
 ## Endpoints
 
@@ -21,7 +21,7 @@ The daily dashboard exposes three primary concepts:
 
 ![Control Center](images/v0.8.1/01-control-center-home-v081.png)
 
-The v0.8.1 production Settings modal currently contains these sections, in one scrollable modal:
+The v0.8.4 production Settings modal contains these sections, in one scrollable modal:
 
 1. **Quick setup for ChatGPT**
 2. **Workstation**
@@ -124,7 +124,7 @@ The normal MCP/tunnel/Control Center stays non-elevated. A mode switch never gra
 
 ## Start at logon
 
-Managed v0.8.1 uses the current-user registry:
+Managed Windows uses the current-user registry:
 
 ```text
 HKCU\Software\Microsoft\Windows\CurrentVersion\Run
@@ -140,7 +140,7 @@ The entry points at:
 
 ## Stable launcher actions
 
-The v0.8.1 stable launcher implements:
+The stable launcher implements:
 
 | Action | Purpose |
 | --- | --- |
@@ -166,11 +166,25 @@ $ctl = "$env:LOCALAPPDATA\RemoteWorkstationMCP\bin\rwmcp.ps1"
 & $ctl -Action Status
 ```
 
-## v0.7.10 port ownership behavior
+## v0.8.4 offline-first Recovery Mode
 
-The Control Center supervisor validates that the listener on its configured port belongs to its managed process tree. A foreign process on port `8684` is not accepted as a healthy RWMCP Control Center.
+The local owner console is a recovery surface, not a child of tunnel health. `127.0.0.1:8684` remains available when the OpenAI Runtime API key is missing/expired/revoked, the tunnel is disconnected, or runtime control is unavailable.
 
-When a conflict exists, close the owning application or change the Control Center port in Advanced settings. The reported PID/process information can be checked with Windows networking/process tools.
+The dashboard separates:
+
+```text
+Control Center   ONLINE/OFFLINE
+MCP              HEALTHY/OFFLINE/UNKNOWN
+Tunnel           ONLINE/RECONNECTING/OFFLINE
+```
+
+Under **OpenAI connection** the owner can replace the Tunnel ID and/or Runtime API key, then choose **Test credentials** and **Save & reconnect**. The credential test is local-only; the saved replacement key is protected with Windows DPAPI and is never returned to browser JavaScript.
+
+Runtime-control child calls are time-bounded. If they fail, the Control Center returns degraded state instead of hanging the page on `Loading...`.
+
+## Control Center port ownership and self-recovery
+
+The supervisor validates that the listener on its configured port belongs to its managed process tree. An unrelated foreign process on port `8684` is still rejected. If the listener is an orphaned/manual RWMCP `setup-web-cli.js` instance for the same managed runtime, v0.8.4 safely reclaims it and starts the persistent Control Center instead of permanently failing startup.
 
 ## Security boundary
 

@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('All','Success','Failure')]
+  [ValidateSet('All','Success','Failure','FailureExit','FailureTransaction','FailureRecovery','FailureMarker')]
   [string]$Mode = 'All'
 )
 
@@ -81,13 +81,22 @@ exit 0
 '@
   Write-Utf8NoBom $launcher $failureLauncher
 
-  if ($Mode -in @('All','Failure')) {
+  if ($Mode -in @('All','Failure','FailureExit','FailureTransaction','FailureRecovery','FailureMarker')) {
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $handoff -Base $tempBase -ExpectedVersion '0.9.2'
-    if ($LASTEXITCODE -eq 0) { throw 'Failure-path handoff unexpectedly succeeded.' }
+    $workerExit = $LASTEXITCODE
+    if ($workerExit -eq 0) { throw 'Failure-path handoff unexpectedly succeeded.' }
+    if ($Mode -eq 'FailureExit') { Write-Host 'Failure worker exit checkpoint passed.' -ForegroundColor Green; return }
+
+    if (-not (Test-Path -LiteralPath $transaction)) { throw 'Failure-path transaction file was not created.' }
     $failure = Get-Content -LiteralPath $transaction -Raw | ConvertFrom-Json
     if ([string]$failure.state -ne 'FAILED') { throw "Expected FAILED transaction, got '$($failure.state)'." }
+    if ($Mode -eq 'FailureTransaction') { Write-Host 'Failure transaction checkpoint passed.' -ForegroundColor Green; return }
+
     if ([string]$failure.recovery -ne 'start-openai-ok') { throw "Expected StartOpenAI recovery, got '$($failure.recovery)'." }
+    if ($Mode -eq 'FailureRecovery') { Write-Host 'Failure recovery-state checkpoint passed.' -ForegroundColor Green; return }
+
     if (-not (Test-Path -LiteralPath $recoveryMarker)) { throw 'Recovery marker was not created.' }
+    if ($Mode -eq 'FailureMarker') { Write-Host 'Failure recovery-marker checkpoint passed.' -ForegroundColor Green; return }
   }
 
   Write-Host "Windows durable update handoff test mode '$Mode' passed." -ForegroundColor Green

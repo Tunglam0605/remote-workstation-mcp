@@ -125,9 +125,18 @@ jobs:
       - name: Test durable Windows update handoff success path
         shell: pwsh
         run: .\scripts\test-update-handoff-windows.ps1 -Mode Success
-      - name: Test durable Windows update handoff recovery path
+      - name: Test durable Windows recovery worker exit
         shell: pwsh
-        run: .\scripts\test-update-handoff-windows.ps1 -Mode Failure
+        run: .\scripts\test-update-handoff-windows.ps1 -Mode FailureExit
+      - name: Test durable Windows recovery transaction state
+        shell: pwsh
+        run: .\scripts\test-update-handoff-windows.ps1 -Mode FailureTransaction
+      - name: Test durable Windows recovery status
+        shell: pwsh
+        run: .\scripts\test-update-handoff-windows.ps1 -Mode FailureRecovery
+      - name: Test durable Windows recovery marker
+        shell: pwsh
+        run: .\scripts\test-update-handoff-windows.ps1 -Mode FailureMarker
       - name: Smoke-test Windows updater state
         shell: pwsh
         run: |

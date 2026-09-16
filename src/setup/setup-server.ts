@@ -440,6 +440,106 @@ async function testOpenAiTunnel(repoRoot: string, tunnelId: string, runtimeApiKe
   return { ok: true, tunnelId, message: 'Runtime API key can read this OpenAI Secure MCP Tunnel.' };
 }
 
+async function installTunnelClient(repoRoot: string): Promise<string> {
+  const result = process.platform === 'win32'
+    ? await runProcess('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'scripts', 'install-openai-tunnel-windows.ps1')
+      ], { cwd: repoRoot, maxBytes: 256 * 1024, timeoutMs: 90000 })
+    : await runProcess('bash', [path.join(repoRoot, 'scripts', 'install-openai-tunnel-linux.sh')], {
+        cwd: repoRoot,
+        maxBytes: 256 * 1024,
+        timeoutMs: 90000,
+        env: linuxSystemdEnv()
+      });
+  if (result.code !== 0) throw new Error(result.output || `Tunnel-client installer exited with code ${result.code}.`);
+  return result.output;
+}
+
+async function enableAutomaticUpdates(repoRoot: string): Promise<unknown> {
+  if (process.platform === 'win32') return await windowsUpdateControl(repoRoot, 'Enable');
+  const updateEnv = path.join(path.dirname(linuxOpenAiEnvPath()), 'update.env');
+  await updateEnvFile(updateEnv, {
+    RWMCP_UPDATE_MODE: 'auto_patch',
+    RWMCP_UPDATE_REPO: 'Tunglam0605/remote-workstation-mcp'
+  });
+  const result = await runProcess('systemctl', ['--user', 'enable', '--now', 'remote-workstation-mcp-update.timer'], {
+    cwd: repoRoot,
+    env: linuxSystemdEnv(),
+    timeoutMs: 15000,
+    maxBytes: 64 * 1024
+  });
+  if (result.code !== 0) throw new Error(result.output || 'Failed to enable the Linux automatic update timer.');
+  return { supported: true, enabled: true, mode: 'auto_patch' };
+}
+
+async function waitForRuntimeReady(repoRoot: string, timeoutMs = 35000): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + timeoutMs;
+  let last = await safeRuntimeStatus(repoRoot);
+  while (Date.now() < deadline) {
+    if (last.running === true && last.mcpHealthy === true && last.tunnelReady === true && last.httpAuth === 'bearer') return last;
+    await new Promise(resolve => setTimeout(resolve, 500));
+    last = await safeRuntimeStatus(repoRoot);
+  }
+  return last;
+}
+
+async function bootstrapWorkstation(repoRoot: string, tunnelId: string, runtimeApiKey: string): Promise<Record<string, unknown>> {
+  const tunnel = tunnelId.trim();
+  const key = runtimeApiKey.trim();
+  if (!/^tunnel_[0-9a-f]{32}$/.test(tunnel)) throw new Error("Tunnel ID must match 'tunnel_' followed by 32 lowercase hexadecimal characters.");
+  if (key.length < 20 || /\s/.test(key)) throw new Error('Runtime API key format is invalid.');
+
+  const currentSettings = await loadEffectiveSetupSettings(repoRoot);
+  await fs.mkdir(currentSettings.workspaceRoot, { recursive: true });
+  await ensureDefaultPolicy(repoRoot, currentSettings.workspaceRoot);
+  await ensureHostsConfig(repoRoot);
+
+  const installerOutput = await installTunnelClient(repoRoot);
+  const credentialTest = await testOpenAiTunnel(repoRoot, tunnel, key);
+  if (!credentialTest.ok) throw new Error(credentialTest.message);
+
+  const settings = normalizeSetupSettings({ ...currentSettings, tunnelId: tunnel });
+  await saveSetupSettings(settings);
+  const identity = await loadOrCreateDeviceIdentity();
+
+  if (process.platform === 'win32') {
+    await storeRuntimeKey(repoRoot, key);
+    await enableAutomaticUpdates(repoRoot);
+    const before = await safeRuntimeStatus(repoRoot);
+    if (before.running === true) await windowsRuntimeControl(repoRoot, 'Restart', 'OpenAI');
+    else await windowsRuntimeControl(repoRoot, 'Start', 'OpenAI');
+    await windowsRuntimeControl(repoRoot, 'RegisterStartup', 'OpenAI');
+  } else {
+    const script = path.join(repoRoot, 'scripts', 'setup-direct-node-linux.sh');
+    const result = await runProcess('bash', [
+      script,
+      '--tunnel-id', tunnel,
+      '--name', identity.name,
+      '--port', String(settings.mcpPort)
+    ], {
+      cwd: repoRoot,
+      env: { ...linuxSystemdEnv(), CONTROL_PLANE_API_KEY: key },
+      timeoutMs: 90000,
+      maxBytes: 512 * 1024
+    });
+    if (result.code !== 0) throw new Error(result.output || `Linux Direct Node setup exited with code ${result.code}.`);
+    await enableAutomaticUpdates(repoRoot);
+  }
+
+  const runtime = await waitForRuntimeReady(repoRoot);
+  const ready = runtime.running === true && runtime.mcpHealthy === true && runtime.tunnelReady === true && runtime.httpAuth === 'bearer';
+  return {
+    ok: ready,
+    ready,
+    deviceName: identity.name,
+    recommendedAppName: recommendedChatGptAppName(identity),
+    settings: { ...settings, tunnelId: tunnel },
+    runtime,
+    automaticUpdates: process.platform === 'win32' ? 'stable' : 'auto_patch',
+    tunnelClientInstalled: true,
+    installerOutput
+  };
+}
 function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'OpenAI'): { accepted: true; action: 'Restart'; mode: RuntimeMode } {
   if (process.platform !== 'win32') {
     throw new Error('Windows runtime restart handoff is available on Windows only.');
@@ -589,6 +689,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settingsPersisted: settingsFileExists,
           settingsPath: setupSettingsPath(),
           runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
+          onboardingRequired: !settings.tunnelId || !(await runtimeKeyStored(repoRoot)),
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable,
@@ -611,6 +712,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings,
           settingsPersisted: await pathExists(setupSettingsPath()),
           runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
+          onboardingRequired: !settings.tunnelId || !(await runtimeKeyStored(repoRoot)),
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable: true,
@@ -623,6 +725,13 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         return;
       }
 
+      if (url.pathname === '/api/bootstrap' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { tunnelId?: string; runtimeApiKey?: string };
+        if (!body.tunnelId?.trim()) throw new Error('Tunnel ID is required.');
+        if (!body.runtimeApiKey?.trim()) throw new Error('Runtime API key is required.');
+        json(res, 200, await bootstrapWorkstation(repoRoot, body.tunnelId, body.runtimeApiKey));
+        return;
+      }
       if (url.pathname === '/api/recovery/test' && req.method === 'POST') {
         const body = await readJsonBody(req) as { tunnelId?: string; runtimeApiKey?: string };
         const currentSettings = await loadEffectiveSetupSettings(repoRoot);
@@ -870,16 +979,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/install-tunnel-client' && req.method === 'POST') {
-        const result = process.platform === 'win32'
-          ? await runProcess('powershell.exe', [
-              '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'scripts', 'install-openai-tunnel-windows.ps1')
-            ], { cwd: repoRoot, maxBytes: 256 * 1024 })
-          : await runProcess('bash', [path.join(repoRoot, 'scripts', 'install-openai-tunnel-linux.sh')], { cwd: repoRoot, maxBytes: 256 * 1024 });
-        if (result.code !== 0) {
-          json(res, 500, { error: result.output || `Installer exited with code ${result.code}.` });
-          return;
-        }
-        json(res, 200, { ok: true, output: result.output });
+        json(res, 200, { ok: true, output: await installTunnelClient(repoRoot) });
         return;
       }
 

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { SERVER_VERSION } from './capabilities.js';
 import {
+  bootstrapManagedNode,
   readTuiRuntimeState,
   restartManagedRuntime,
   setAccessMode,
@@ -144,14 +145,45 @@ async function chooseAccessMode(current: string): Promise<'read_only' | 'workspa
   }
 }
 
+async function runConnectionSetup(state: Awaited<ReturnType<typeof readTuiRuntimeState>>): Promise<string> {
+  clear();
+  console.log(bold('Connect this workstation to ChatGPT'));
+  console.log(dim('First-time setup only needs two values. Ports, workspace, tunnel-client, startup and updates are configured automatically.\n'));
+  console.log(line('Device', state.deviceName));
+  console.log(line('MCP', `127.0.0.1:${state.mcpPort}`));
+  console.log(line('Access', state.accessMode));
+  console.log('');
+  const tunnelId = await promptText('Tunnel ID', state.tunnelId);
+  if (!tunnelId) return 'Connection setup cancelled.';
+  const keyPrompt = state.runtimeKeyConfigured
+    ? 'Runtime API key (leave blank to keep the saved key)'
+    : 'Runtime API key';
+  const runtimeApiKey = await promptSecret(keyPrompt);
+  if (!runtimeApiKey && !state.runtimeKeyConfigured) return 'Connection setup cancelled: Runtime API key is required.';
+  console.log(dim('\nConfiguring tunnel-client, Direct Node service, automatic startup and updates...'));
+  const result = await bootstrapManagedNode(repoRoot, tunnelId, runtimeApiKey || undefined);
+  if (result.service === 'active' && result.tunnelReady === true) {
+    return `ChatGPT connection READY on 127.0.0.1:${result.mcpPort}.`;
+  }
+  return `Setup saved, but tunnel is not ready yet (service=${result.service}, tunnel=${String(result.tunnelReady)}).`;
+}
 let selected = 0;
 let message = '';
 let running = true;
 
 try {
+  const initialState = await readTuiRuntimeState(repoRoot);
+  if (process.argv.includes('--setup') || !initialState.tunnelId || !initialState.runtimeKeyConfigured) {
+    message = await runConnectionSetup(initialState);
+  }
   while (running) {
     const state = await readTuiRuntimeState(repoRoot);
     const items: MenuItem[] = [
+      {
+        label: 'Connection setup',
+        hint: state.tunnelReady === true ? 'READY' : 'configure / repair',
+        action: async () => await runConnectionSetup(state)
+      },
       {
         label: 'Access mode',
         hint: state.accessMode,
@@ -181,27 +213,6 @@ try {
           await setDeviceName(value);
           await restartManagedRuntime(repoRoot);
           return `Device name changed to ${value}; runtime restarted.`;
-        }
-      },
-      {
-        label: 'Tunnel ID',
-        hint: state.tunnelId || '(not configured)',
-        action: async () => {
-          const value = await promptText('Tunnel ID', state.tunnelId);
-          await setTunnelId(value);
-          await restartManagedRuntime(repoRoot);
-          return 'Tunnel ID saved; runtime restarted.';
-        }
-      },
-      {
-        label: 'Runtime API key',
-        hint: state.runtimeKeyConfigured ? 'configured (hidden)' : 'not configured',
-        action: async () => {
-          const value = await promptSecret('Runtime API key');
-          if (!value) return 'Runtime API key unchanged.';
-          await setRuntimeApiKey(value);
-          await restartManagedRuntime(repoRoot);
-          return 'Runtime API key replaced securely; runtime restarted.';
         }
       },
       {

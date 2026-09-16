@@ -6,11 +6,20 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.8.10**
+**v0.8.11**
 
-v0.8.10 brings the local Web Control Center to Linux desktops while keeping the terminal workflow:
+v0.8.11 simplifies first-run onboarding and new-machine installation:
 
-- Ubuntu Desktop automatically runs the loopback-only WebUI at 127.0.0.1:8684 and also keeps `rwmcp-tui` available;
+- a new workstation needs only two values in WebUI or TUI: **Tunnel ID** and **Runtime API key**;
+- one setup action installs/verifies tunnel-client, configures the Direct Node, keeps MCP/WebUI on `8683`/`8684`, enables startup and automatic updates, and waits for tunnel readiness;
+- the Web Control Center shows a dedicated first-run card instead of exposing advanced settings before the workstation is connected;
+- `rwmcp-tui` automatically enters a first-run wizard when credentials are missing and keeps a single **Connection setup** action for later repair;
+- GitHub Releases now include `install-linux.sh`, which can install a user-local Node.js runtime when needed, verify the release checksum, install RWMCP, and open the local Control Center on Ubuntu Desktop;
+- new Linux installs default to safe automatic patch updates (`auto_patch`).
+
+v0.8.10 brought the local Web Control Center to Linux desktops while keeping the terminal workflow:
+
+- Ubuntu Desktop automatically runs the loopback-only WebUI at `127.0.0.1:8684` and also keeps `rwmcp-tui` available;
 - Linux WebUI and TUI share the same owner policy, Direct Node tunnel settings, MCP port and access mode;
 - `rwmcp-webui` starts/opens the local Control Center manually, while headless Linux keeps WebUI disabled by default;
 - Linux runtime start/stop/restart and restricted Runtime API key rotation are available through the local Control Center without exposing those controls through MCP.
@@ -137,11 +146,11 @@ After that, RWMCP starts with Windows and maintains the tunnel automatically.
 
 Open the latest GitHub Release and download `install-windows.cmd`.
 
-The v0.8.10 release contains:
+The v0.8.11 release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.8.10.tgz`
+- `remote-workstation-mcp-v0.8.11.tgz`
 - `SHA256SUMS.txt`
 
 

@@ -132,7 +132,7 @@ fi
 if [[ ! -f "$CONFIG_HOME/update.env" ]]; then
   cat > "$CONFIG_HOME/update.env" <<EOF
 # off | notify | auto_patch | auto
-RWMCP_UPDATE_MODE=notify
+RWMCP_UPDATE_MODE=auto_patch
 RWMCP_UPDATE_REPO=Tunglam0605/remote-workstation-mcp
 EOF
   chmod 600 "$CONFIG_HOME/update.env"
@@ -259,7 +259,7 @@ echo "Installed: $DATA_HOME/current -> v$VERSION"
 echo "Policy:    $CONFIG_HOME/policy.yaml"
 echo "SSH hosts: $CONFIG_HOME/hosts.yaml"
 echo "Lease:     $DATA_HOME/runtime/permission-lease.json"
-echo "Updates:   $CONFIG_HOME/update.env (default: notify)"
+echo "Updates:   $CONFIG_HOME/update.env (default: auto_patch)"
 echo "MCP:       http://127.0.0.1:8683/mcp"
 echo "Health:    http://127.0.0.1:8683/healthz"
 mkdir -p "$HOME/.local/bin"

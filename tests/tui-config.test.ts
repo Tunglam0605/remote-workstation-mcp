@@ -93,3 +93,22 @@ test('TUI reconstructs the Linux user-systemd bus for non-interactive status and
   assert.match(installer, /\/run\/user\/\$\(id -u\)/);
   assert.match(installer, /DBUS_SESSION_BUS_ADDRESS/);
 });
+
+test('first-run UX keeps new-machine setup to tunnel ID + runtime key and automates the rest', async () => {
+  const tui = await fs.readFile('src/tui-cli.ts', 'utf8');
+  const config = await fs.readFile('src/tui/config.ts', 'utf8');
+  const install = await fs.readFile('scripts/install-user.sh', 'utf8');
+  const bootstrap = await fs.readFile('scripts/install-linux.sh', 'utf8');
+  const release = await fs.readFile('.github/workflows/release.yml', 'utf8');
+  assert.match(tui, /Connect this workstation to ChatGPT/);
+  assert.match(tui, /Connection setup/);
+  assert.match(tui, /bootstrapManagedNode/);
+  assert.match(config, /setup-direct-node-linux\.sh/);
+  assert.match(config, /AutoUpdateOn/);
+  assert.match(config, /RWMCP_UPDATE_MODE: 'auto_patch'/);
+  assert.match(install, /RWMCP_UPDATE_MODE=auto_patch/);
+  assert.match(bootstrap, /Node\.js >=22 not found/);
+  assert.match(bootstrap, /sha256sum -c/);
+  assert.match(bootstrap, /scripts\/install-user\.sh/);
+  assert.match(release, /install-linux\.sh/);
+});

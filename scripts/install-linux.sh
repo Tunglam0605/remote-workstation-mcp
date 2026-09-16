@@ -5,6 +5,7 @@ REPO="${RWMCP_UPDATE_REPO:-Tunglam0605/remote-workstation-mcp}"
 NODE_VERSION="${RWMCP_NODE_VERSION:-24.19.0}"
 INSTALL_BASE="${RWMCP_HOME:-$HOME/.local/share/remote-workstation-mcp}"
 BIN_DIR="$HOME/.local/bin"
+export PATH="$BIN_DIR:$PATH"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

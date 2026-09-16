@@ -109,6 +109,14 @@ test('first-run UX keeps new-machine setup to tunnel ID + runtime key and automa
   assert.match(install, /RWMCP_UPDATE_MODE=auto_patch/);
   assert.match(bootstrap, /Node\.js >=22 not found/);
   assert.match(bootstrap, /sha256sum -c/);
+  assert.match(bootstrap, /export PATH=\"\$BIN_DIR:\$PATH\"/);
   assert.match(bootstrap, /scripts\/install-user\.sh/);
   assert.match(release, /install-linux\.sh/);
+});
+
+test('Linux updater reconstructs the user-systemd bus for non-interactive restart', async () => {
+  const updater = await fs.readFile('scripts/update-user.mjs', 'utf8');
+  assert.match(updater, /XDG_RUNTIME_DIR/);
+  assert.match(updater, /DBUS_SESSION_BUS_ADDRESS/);
+  assert.match(updater, /env: linuxUserSystemdEnv\(\)/);
 });

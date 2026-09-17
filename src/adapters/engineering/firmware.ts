@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EngineeringCommandResult, FirmwareArtifact, FirmwareFlashPlan, FirmwareProjectInfo } from '../../engineering/types.js';
+import type { EngineeringCommandResult, FirmwareArtifact, FirmwareFlashPlan, FirmwareProjectInfo, FirmwareProviderStatus } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
 import { FirmwareArtifactFinder } from './artifact-finder.js';
@@ -10,6 +10,7 @@ import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
+import { classifyOpenOcdResult, openOcdAdapterSpeedArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
@@ -126,6 +127,30 @@ export class FirmwareAdapter {
     return this.artifacts.find(workspace, projectPath);
   }
 
+  async providerStatus(provider: 'openocd' = 'openocd'): Promise<FirmwareProviderStatus> {
+    this.policy.assertEngineeringEnabled();
+    if (provider !== 'openocd') throw new Error(`Unsupported firmware provider '${provider}'.`);
+    const resolved = await resolveOpenOcdExecutable();
+    const base = {
+      provider: 'openocd' as const,
+      capabilities: ['swd', 'st-link', 'flash', 'verify', 'reset', 'gdb-server'],
+      intentionallyUnavailable: ['arbitrary-tcl', 'mass-erase', 'option-bytes', 'readout-protection-change', 'memory-write']
+    };
+    if (!resolved) return { ...base, available: false, diagnostic: { code: 'provider-unavailable', ok: false, retryable: false, message: 'OpenOCD is not configured or available on PATH.', hint: 'Install OpenOCD or set owner-controlled RWMCP_OPENOCD_EXECUTABLE to an absolute executable path.' } };
+    const result = await this.runner.run(resolved.path, ['--version'], process.cwd(), 5000);
+    const text = `${result.stdout}
+${result.stderr}`.trim();
+    const match = /Open On-Chip Debugger\s+([^\s]+)/i.exec(text);
+    return {
+      ...base,
+      available: result.exitCode === 0 && !result.timedOut,
+      executable: resolved.path,
+      executableSource: resolved.source,
+      ...(match?.[1] ? { version: match[1] } : {}),
+      diagnostic: classifyOpenOcdResult(result)
+    };
+  }
+
   async build(workspace: string, projectPath = '.', provider: 'auto' | 'esp-idf' | 'cmake' | 'make' = 'auto', buildDir = 'build'): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult }> {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
@@ -158,6 +183,7 @@ export class FirmwareAdapter {
     port?: string;
     probeSerial?: string;
     targetConfig?: string;
+    adapterSpeedKhz?: number;
   }): Promise<FirmwareFlashPlan> {
     this.policy.assertEngineeringEnabled();
     const projectPath = options.projectPath ?? '.';
@@ -190,33 +216,35 @@ export class FirmwareAdapter {
     const targetConfigRaw = options.targetConfig ?? stm32OpenOcdTargetConfig(project.target);
     if (!targetConfigRaw) throw new Error(`Unable to map target '${project.target ?? 'unknown'}' to an OpenOCD target config; provide targetConfig explicitly.`);
     const targetConfig = validateOpenOcdTargetConfig(targetConfigRaw);
-    const openocd = await resolveFirstExecutable(['openocd']);
+    const openocd = await resolveOpenOcdExecutable();
     if (!openocd) throw new Error('OpenOCD is unavailable. Install/configure OpenOCD before flashing.');
     const selectedProbe = await this.selectProbe(options.probeSerial);
     const probeSerial = selectedProbe.probeSerial;
+    const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
     const tclArtifact = normalizedOpenOcdPath(artifactAbsolute);
     const args = [
       '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(probeSerial ? ['-c', `adapter serial ${probeSerial}`] : []),
+      ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', 'init', '-c', 'reset halt', '-c', `program {${tclArtifact}} verify`, '-c', 'reset run', '-c', 'shutdown'
     ];
     return {
       provider: 'openocd', family: project.family, target: project.target, artifact: artifactAbsolute,
-      probeSerial, program: openocd.path, args,
+      probeSerial, ...(adapterSpeedKhz !== undefined ? { adapterSpeedKhz } : {}), program: openocd.path, args,
       resourceId: selectedProbe.resourceId, destructive: true,
       notes: ['OpenOCD is bound to an explicit ST-Link/SWD target transaction.', 'No mass erase, Option Byte, readout-protection, or arbitrary TCL surface is exposed.']
     };
   }
 
-  async flash(options: Parameters<FirmwareAdapter['flashPlan']>[0]): Promise<{ plan: FirmwareFlashPlan; result: EngineeringCommandResult }> {
+  async flash(options: Parameters<FirmwareAdapter['flashPlan']>[0]): Promise<{ plan: FirmwareFlashPlan; result: EngineeringCommandResult; diagnostic?: ReturnType<typeof classifyOpenOcdResult> }> {
     this.policy.assertHardwareMutation();
     const plan = await this.flashPlan(options);
     const cwd = await this.paths.resolveExisting(options.workspace, options.projectPath ?? '.');
     const result = await this.resources.withLease(plan.resourceId, 'flashing', () => this.runner.run(plan.program, plan.args, cwd));
-    return { plan, result };
+    return { plan, result, ...(plan.provider === 'openocd' ? { diagnostic: classifyOpenOcdResult(result) } : {}) };
   }
 
-  async verify(options: Omit<Parameters<FirmwareAdapter['flashPlan']>[0], 'provider'> & { targetConfig?: string }): Promise<{ provider: 'openocd'; result: EngineeringCommandResult }> {
+  async verify(options: Omit<Parameters<FirmwareAdapter['flashPlan']>[0], 'provider'> & { targetConfig?: string }): Promise<{ provider: 'openocd'; result: EngineeringCommandResult; diagnostic: ReturnType<typeof classifyOpenOcdResult> }> {
     this.policy.assertHardwareMutation();
     const projectPath = options.projectPath ?? '.';
     const project = await this.inspect(options.workspace, projectPath);
@@ -225,32 +253,37 @@ export class FirmwareAdapter {
     const targetConfigRaw = options.targetConfig ?? stm32OpenOcdTargetConfig(project.target);
     if (!targetConfigRaw) throw new Error('Unable to determine OpenOCD target config.');
     const targetConfig = validateOpenOcdTargetConfig(targetConfigRaw);
-    const openocd = await resolveFirstExecutable(['openocd']);
+    const openocd = await resolveOpenOcdExecutable();
     if (!openocd) throw new Error('OpenOCD is unavailable.');
     const selectedProbe = await this.selectProbe(options.probeSerial);
     const resourceId = selectedProbe.resourceId;
+    const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
     const args = ['-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(selectedProbe.probeSerial ? ['-c', `adapter serial ${selectedProbe.probeSerial}`] : []),
+      ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', 'init', '-c', 'reset halt', '-c', `verify_image {${normalizedOpenOcdPath(artifactAbsolute)}}`, '-c', 'reset run', '-c', 'shutdown'];
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
     const result = await this.resources.withLease(resourceId, 'reading', () => this.runner.run(openocd.path, args, cwd));
-    return { provider: 'openocd', result };
+    return { provider: 'openocd', result, diagnostic: classifyOpenOcdResult(result) };
   }
 
-  async reset(options: { workspace: string; projectPath?: string; probeSerial?: string; targetConfig?: string }): Promise<EngineeringCommandResult> {
+  async reset(options: { workspace: string; projectPath?: string; probeSerial?: string; targetConfig?: string; adapterSpeedKhz?: number }): Promise<EngineeringCommandResult & { diagnostic: ReturnType<typeof classifyOpenOcdResult> }> {
     this.policy.assertHardwareMutation();
     const projectPath = options.projectPath ?? '.';
     const project = await this.inspect(options.workspace, projectPath);
     const targetConfigRaw = options.targetConfig ?? stm32OpenOcdTargetConfig(project.target);
     if (!targetConfigRaw) throw new Error('Unable to determine OpenOCD target config.');
     const targetConfig = validateOpenOcdTargetConfig(targetConfigRaw);
-    const openocd = await resolveFirstExecutable(['openocd']);
+    const openocd = await resolveOpenOcdExecutable();
     if (!openocd) throw new Error('OpenOCD is unavailable.');
     const selectedProbe = await this.selectProbe(options.probeSerial);
+    const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
     const args = ['-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(selectedProbe.probeSerial ? ['-c', `adapter serial ${selectedProbe.probeSerial}`] : []),
+      ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', 'init', '-c', 'reset run', '-c', 'shutdown'];
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
-    return this.resources.withLease(selectedProbe.resourceId, 'resetting', () => this.runner.run(openocd.path, args, cwd));
+    const result = await this.resources.withLease(selectedProbe.resourceId, 'resetting', () => this.runner.run(openocd.path, args, cwd));
+    return { ...result, diagnostic: classifyOpenOcdResult(result) };
   }
 }

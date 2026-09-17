@@ -9,6 +9,7 @@ import { PathGuard } from '../../security/path-guard.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
 import { decodeCortexMFault } from './fault-decode.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
+import { openOcdAdapterSpeedArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
@@ -215,7 +216,7 @@ export class DebugSessionManager {
 
   async capabilities() {
     const [openocd, gdb] = await Promise.all([
-      resolveFirstExecutable(['openocd']),
+      resolveOpenOcdExecutable(),
       resolveFirstExecutable(['arm-none-eabi-gdb', 'gdb-multiarch', 'gdb'])
     ]);
     return {
@@ -227,7 +228,7 @@ export class DebugSessionManager {
     };
   }
 
-  async start(options: { workspace: string; projectPath?: string; symbols: string; probeSerial?: string; targetConfig?: string }): Promise<DebugSessionSnapshot> {
+  async start(options: { workspace: string; projectPath?: string; symbols: string; probeSerial?: string; targetConfig?: string; adapterSpeedKhz?: number }): Promise<DebugSessionSnapshot> {
     this.policy.assertHardwareMutation();
     const projectPath = options.projectPath ?? '.';
     const project = await this.inspector.inspect(options.workspace, projectPath);
@@ -240,15 +241,17 @@ export class DebugSessionManager {
     if (!['.elf', '.axf'].includes(path.extname(symbols).toLowerCase())) throw new Error('Debug symbols must be an ELF or AXF file.');
     await fs.access(symbols);
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
-    const openocd = await resolveFirstExecutable(['openocd']);
+    const openocd = await resolveOpenOcdExecutable();
     const gdbExec = await resolveFirstExecutable(['arm-none-eabi-gdb', 'gdb-multiarch', 'gdb']);
     if (!openocd) throw new Error('OpenOCD is unavailable.');
     if (!gdbExec) throw new Error('GDB is unavailable.');
+    const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
     const resourceId = `debug-probe:${options.probeSerial ?? 'auto'}`;
     const lease = this.resources.acquire(resourceId, 'debugging');
     const port = await reservePort();
     const args = ['-c', 'bindto 127.0.0.1', '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(options.probeSerial ? ['-c', `adapter serial ${options.probeSerial}`] : []),
+      ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', `gdb port ${port}`, '-c', 'telnet port disabled', '-c', 'tcl port disabled', '-c', 'gdb flash_program disable', '-c', 'init'];
     const env = buildSafeEnvironment(this.policy.config.process.inheritEnv);
     const openocdProcess = spawn(openocd.path, args, { cwd, shell: false, windowsHide: true, env });

@@ -6,7 +6,16 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.2**
+**v0.9.3**
+
+v0.9.3 hardens the STM32/OpenOCD provider contract without opening new dangerous debug surfaces:
+
+- add `firmware_provider_status` for OpenOCD availability/version/capability preflight;
+- allow an owner-controlled absolute `RWMCP_OPENOCD_EXECUTABLE` override so RWMCP can reuse pinned xPack/ST OpenOCD backends such as those used by B300 tooling without accepting executable paths from AI tool calls;
+- add bounded `adapterSpeedKhz` (50..24000 kHz) to STM32 flash/verify/reset and debug-session startup;
+- classify common OpenOCD failures into actionable codes such as probe missing/permission denied, target power/connect failure, verify failure, timeout and config missing;
+- keep arbitrary TCL, mass erase, Option Bytes, readout-protection changes, memory write and GDB flash unavailable;
+- CI/provider simulation is accepted on Windows/Linux; real ST-Link target acceptance remains a separate hardware gate because the current Ubuntu nodes have no probe attached.
 
 v0.9.2 makes Windows managed updates durable across the runtime/tunnel restart boundary:
 
@@ -80,7 +89,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.9.2.tgz`
+- `remote-workstation-mcp-v0.9.3.tgz`
 - `SHA256SUMS.txt`
 
 

@@ -78,6 +78,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   terminal_stop: 'workstation.execute',
   firmware_project_inspect: 'workstation.read',
   firmware_artifacts: 'workstation.read',
+  firmware_provider_status: 'workstation.execute',
   firmware_build: 'workstation.execute',
   firmware_flash_plan: 'workstation.read',
   firmware_flash: 'workstation.execute',

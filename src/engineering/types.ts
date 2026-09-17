@@ -1,4 +1,4 @@
-﻿export type EngineeringResourceMode = 'reading' | 'monitoring' | 'flashing' | 'debugging' | 'resetting';
+export type EngineeringResourceMode = 'reading' | 'monitoring' | 'flashing' | 'debugging' | 'resetting';
 
 export interface EngineeringResourceLease {
   id: string;
@@ -57,6 +57,37 @@ export interface EngineeringCommandResult {
   durationMs: number;
 }
 
+export type OpenOcdDiagnosticCode =
+  | 'ok'
+  | 'provider-unavailable'
+  | 'backend-timeout'
+  | 'probe-not-found'
+  | 'probe-permission-denied'
+  | 'target-power-invalid'
+  | 'target-connect-failed'
+  | 'verify-failed'
+  | 'target-config-not-found'
+  | 'backend-failed';
+
+export interface OpenOcdDiagnostic {
+  code: OpenOcdDiagnosticCode;
+  ok: boolean;
+  retryable: boolean;
+  message: string;
+  hint?: string;
+}
+
+export interface FirmwareProviderStatus {
+  provider: 'openocd';
+  available: boolean;
+  executable?: string;
+  executableSource?: 'owner-override' | 'path';
+  version?: string;
+  diagnostic?: OpenOcdDiagnostic;
+  capabilities: string[];
+  intentionallyUnavailable: string[];
+}
+
 export interface FirmwareFlashPlan {
   provider: 'openocd' | 'esp-idf';
   family: FirmwareFamily;
@@ -64,6 +95,7 @@ export interface FirmwareFlashPlan {
   artifact?: string;
   port?: string;
   probeSerial?: string;
+  adapterSpeedKhz?: number;
   program: string;
   args: string[];
   resourceId: string;

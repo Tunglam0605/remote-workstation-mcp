@@ -284,6 +284,15 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 ## v0.9 - Engineering tools - current
 
+### v0.9.3 - STM32/OpenOCD provider hardening
+
+- add typed OpenOCD provider preflight with version/capability reporting and structured failure diagnostics
+- permit only an owner-configured absolute `RWMCP_OPENOCD_EXECUTABLE` override; tool callers cannot supply executable paths
+- add bounded SWD adapter-speed control to flash/verify/reset/debug workflows
+- preserve ST-Link resource leasing, target-config allowlisting and project-subtree artifact containment
+- keep mass erase, Option Bytes, RDP changes, arbitrary TCL/GDB commands, target memory write and GDB flash unavailable
+- validate provider behavior with Windows/Linux simulated backends; keep real ST-Link board acceptance as an explicit pending hardware gate
+
 ### v0.9.2 - Durable Windows update transaction
 
 - hand owner-approved Control Center updates to a detached worker outside the managed MCP/tunnel process tree

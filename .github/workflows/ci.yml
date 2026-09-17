@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/v0.9.3-stm32-openocd-acceptance]
   pull_request:
 
 permissions:

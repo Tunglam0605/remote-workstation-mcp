@@ -240,3 +240,15 @@ test('Windows autonomous recovery watchdog requires a fresh heartbeat and restar
   assert.match(recovery, /updatedAt/);
   assert.match(recovery, /Write-RecoveryHeartbeat/);
 });
+
+
+test('Windows runtime start is serialized across processes before spawning a supervisor', async () => {
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+  assert.match(runtime, /runtime-start\.lock/);
+  assert.match(runtime, /FileShare\]::None|FileShare\.None/);
+  assert.match(runtime, /Acquire-RuntimeStartLock/);
+  assert.match(runtime, /Release-RuntimeStartLock/);
+  assert.match(runtime, /Start-Runtime/);
+  assert.match(ci, /test-runtime-start-concurrency-windows\.ps1/);
+});

@@ -333,6 +333,14 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - pinned `node-pty`/`serialport` dependencies and packed native-module smoke tests
 
 
+
+### v0.9.9 - Windows runtime-start serialization
+
+- Serialize Windows runtime creation with a cross-process filesystem lock outside version slots.
+- Re-check managed runtime state only after acquiring the lock so concurrent Boot/Update/Restart/Recovery callers converge on one supervisor.
+- Add Windows CI coverage that launches two runtime Start operations concurrently and requires the same supervisor PID from both callers.
+- Real-machine acceptance must show one runtime host, one MCP listener, one tunnel client, healthy recovery heartbeat, and no SSH/manual rescue.
+
 ### v0.9.8 - Autonomous Windows recovery supervisor
 
 - persist `desired-state.json` outside version slots with owner Start/Stop intent and bounded maintenance deadlines

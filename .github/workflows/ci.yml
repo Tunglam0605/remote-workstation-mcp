@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/v0.9.9-runtime-start-mutex]
   pull_request:
 
 permissions:
@@ -93,6 +93,7 @@ jobs:
             'scripts/update-handoff-windows.ps1',
             'scripts/test-update-handoff-windows.ps1',
             'scripts/runtime-control-windows.ps1',
+            'scripts/test-runtime-start-concurrency-windows.ps1',
             'scripts/windows-recovery-state.ps1',
             'scripts/autonomous-recovery-windows.ps1',
             'scripts/test-autonomous-recovery-state-windows.ps1',
@@ -133,6 +134,9 @@ jobs:
       - name: Test durable Windows restart handoff
         shell: pwsh
         run: .\scripts\test-restart-handoff-windows.ps1
+      - name: Test concurrent Windows runtime start serialization
+        shell: pwsh
+        run: .\scripts\test-runtime-start-concurrency-windows.ps1
       - name: Test Windows autonomous recovery desired state
         shell: pwsh
         run: .\scripts\test-autonomous-recovery-state-windows.ps1

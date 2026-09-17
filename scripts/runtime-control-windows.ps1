@@ -27,10 +27,30 @@ $StatePath = Join-Path $StateDir 'supervisor.json'
 $StdoutLog = Join-Path $StateDir 'supervisor.stdout.log'
 $StderrLog = Join-Path $StateDir 'supervisor.stderr.log'
 $ConnectionStatePath = Join-Path $StateDir 'connection-state.json'
+$RuntimeStartLockPath = Join-Path $StateDir 'runtime-start.lock'
+$RuntimeStartLockTimeoutSeconds = 240
 $TaskName = 'Remote Workstation MCP'
 $StartupRunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $StartupRunName = 'RemoteWorkstationMCP'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+
+function Acquire-RuntimeStartLock {
+  $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RuntimeStartLockTimeoutSeconds)
+  while ([DateTimeOffset]::UtcNow -lt $deadline) {
+    try {
+      return [IO.File]::Open($RuntimeStartLockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch [IO.IOException] {
+      Start-Sleep -Milliseconds 200
+    }
+  }
+  throw "Timed out waiting for the cross-process runtime start lock: $RuntimeStartLockPath"
+}
+
+function Release-RuntimeStartLock($LockHandle) {
+  if ($null -ne $LockHandle) {
+    try { $LockHandle.Dispose() } catch {}
+  }
+}
 
 function Read-State {
   if (-not (Test-Path $StatePath)) { return $null }
@@ -297,83 +317,93 @@ function Start-Runtime([string]$runtimeMode) {
     }
   }
 
-  $existing = Runtime-Status
-  if ($existing.running) {
-    if ($runtimeMode -eq 'OpenAI' -and $existing.mode -ne 'OpenAI') {
-      throw 'A local-only runtime is already running. Stop or restart it in OpenAI mode before starting the ChatGPT tunnel.'
+  # Serialize the full start transaction across all Windows processes/sessions.
+  # FileShare.None is a machine-wide filesystem lock, so updater/WMI, Control
+  # Center, recovery and interactive launchers cannot concurrently spawn hosts.
+  $startLock = Acquire-RuntimeStartLock
+  try {
+    # Re-check only after owning the lock: another caller may have completed
+    # startup while this process was waiting.
+    $existing = Runtime-Status
+    if ($existing.running) {
+      if ($runtimeMode -eq 'OpenAI' -and $existing.mode -ne 'OpenAI') {
+        throw 'A local-only runtime is already running. Stop or restart it in OpenAI mode before starting the ChatGPT tunnel.'
+      }
+      return $existing
     }
-    return $existing
-  }
 
-  Apply-RuntimeEnvironment $runtimeMode
-  $hostScript = Join-Path $Root 'scripts\runtime-host-windows.ps1'
-  if (-not (Test-Path $hostScript)) { throw "Runtime host script not found: $hostScript" }
+    Apply-RuntimeEnvironment $runtimeMode
+    $hostScript = Join-Path $Root 'scripts\runtime-host-windows.ps1'
+    if (-not (Test-Path $hostScript)) { throw "Runtime host script not found: $hostScript" }
 
-  Remove-Item -Path $StdoutLog, $StderrLog, $ConnectionStatePath -Force -ErrorAction SilentlyContinue
-  $powershell = Get-Command powershell.exe -ErrorAction Stop
+    Remove-Item -Path $StdoutLog, $StderrLog, $ConnectionStatePath -Force -ErrorAction SilentlyContinue
+    $powershell = Get-Command powershell.exe -ErrorAction Stop
 
-  # Do not use Start-Process -RedirectStandardOutput/-RedirectStandardError for
-  # this long-running process. When the control command itself is invoked through
-  # a captured pipe (CI, Node child_process, agent shells), those redirected
-  # handles can keep the caller open until the runtime exits. The detached host
-  # performs file redirection internally instead.
-  $argumentLine = @(
-    '-NoLogo',
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', "`"$hostScript`"",
-    '-Mode', $runtimeMode,
-    '-Root', "`"$Root`"",
-    '-StdoutLog', "`"$StdoutLog`"",
-    '-StderrLog', "`"$StderrLog`""
-  ) -join ' '
-  $process = Start-Process -FilePath $powershell.Source -ArgumentList $argumentLine -WorkingDirectory $Root -WindowStyle Hidden -PassThru
-  $startedAt = [DateTimeOffset]$process.StartTime.ToUniversalTime()
-  $state = [ordered]@{
-    version = 1
-    pid = $process.Id
-    mode = $runtimeMode
-    root = $Root
-    entrypoint = $hostScript
-    processPath = $powershell.Source
-    port = [int]$env:RWMCP_PORT
-    startedAt = $startedAt.ToString('o')
-  }
-  $state | ConvertTo-Json | Set-Content -Path $StatePath -Encoding utf8
+    # Do not use Start-Process -RedirectStandardOutput/-RedirectStandardError for
+    # this long-running process. When the control command itself is invoked through
+    # a captured pipe (CI, Node child_process, agent shells), those redirected
+    # handles can keep the caller open until the runtime exits. The detached host
+    # performs file redirection internally instead.
+    $argumentLine = @(
+      '-NoLogo',
+      '-NoProfile',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', "`"$hostScript`"",
+      '-Mode', $runtimeMode,
+      '-Root', "`"$Root`"",
+      '-StdoutLog', "`"$StdoutLog`"",
+      '-StderrLog', "`"$StderrLog`""
+    ) -join ' '
+    $process = Start-Process -FilePath $powershell.Source -ArgumentList $argumentLine -WorkingDirectory $Root -WindowStyle Hidden -PassThru
+    $startedAt = [DateTimeOffset]$process.StartTime.ToUniversalTime()
+    $state = [ordered]@{
+      version = 1
+      pid = $process.Id
+      mode = $runtimeMode
+      root = $Root
+      entrypoint = $hostScript
+      processPath = $powershell.Source
+      port = [int]$env:RWMCP_PORT
+      startedAt = $startedAt.ToString('o')
+    }
+    $state | ConvertTo-Json | Set-Content -Path $StatePath -Encoding utf8
 
-  $ready = $false
-  foreach ($attempt in 1..60) {
-    Start-Sleep -Milliseconds 250
-    if ($process.HasExited) { break }
-    try {
-      $health = Invoke-RestMethod -Uri "http://127.0.0.1:$($env:RWMCP_PORT)/healthz" -TimeoutSec 1
-      if ($health.ok -eq $true) { $ready = $true; break }
-    } catch {}
-  }
-  if (-not $ready) {
-    Stop-ProcessTree $process.Id
-    Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
-    $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 40 | Out-String).Trim() } else { '' }
-    throw "Runtime did not become healthy.$([Environment]::NewLine)$tail"
-  }
-
-  if ($runtimeMode -eq 'OpenAI') {
-    $tunnelReady = $false
-    $tunnelDeadline = [DateTimeOffset]::UtcNow.AddSeconds($TunnelStartupTimeoutSeconds)
-    while ([DateTimeOffset]::UtcNow -lt $tunnelDeadline) {
-      if ($process.HasExited) { break }
-      if (Test-TunnelReady) { $tunnelReady = $true; break }
+    $ready = $false
+    foreach ($attempt in 1..60) {
       Start-Sleep -Milliseconds 250
+      if ($process.HasExited) { break }
+      try {
+        $health = Invoke-RestMethod -Uri "http://127.0.0.1:$($env:RWMCP_PORT)/healthz" -TimeoutSec 1
+        if ($health.ok -eq $true) { $ready = $true; break }
+      } catch {}
     }
-    if (-not $tunnelReady) {
+    if (-not $ready) {
       Stop-ProcessTree $process.Id
       Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
-      $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 60 | Out-String).Trim() } else { '' }
-      throw "OpenAI tunnel did not become ready before the deadline.$([Environment]::NewLine)$tail"
+      $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 40 | Out-String).Trim() } else { '' }
+      throw "Runtime did not become healthy.$([Environment]::NewLine)$tail"
     }
-  }
 
-  return Runtime-Status
+    if ($runtimeMode -eq 'OpenAI') {
+      $tunnelReady = $false
+      $tunnelDeadline = [DateTimeOffset]::UtcNow.AddSeconds($TunnelStartupTimeoutSeconds)
+      while ([DateTimeOffset]::UtcNow -lt $tunnelDeadline) {
+        if ($process.HasExited) { break }
+        if (Test-TunnelReady) { $tunnelReady = $true; break }
+        Start-Sleep -Milliseconds 250
+      }
+      if (-not $tunnelReady) {
+        Stop-ProcessTree $process.Id
+        Remove-Item -Path $StatePath -Force -ErrorAction SilentlyContinue
+        $tail = if (Test-Path $StderrLog) { (Get-Content $StderrLog -Tail 60 | Out-String).Trim() } else { '' }
+        throw "OpenAI tunnel did not become ready before the deadline.$([Environment]::NewLine)$tail"
+      }
+    }
+
+    return Runtime-Status
+  } finally {
+    Release-RuntimeStartLock $startLock
+  }
 }
 
 function Stop-Runtime {

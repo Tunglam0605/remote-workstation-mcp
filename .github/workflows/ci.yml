@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, fix/v0.9.5-windows-restart-durability]
+    branches: [main]
   pull_request:
 
 permissions:

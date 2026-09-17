@@ -19,6 +19,27 @@ function Get-CurrentRoot {
   return $root
 }
 
+function Get-RecoveryRoot {
+  foreach ($pointer in @($CurrentFile, $PreviousFile)) {
+    if (-not (Test-Path $pointer)) { continue }
+    try {
+      $candidate = (Get-Content -Path $pointer -Raw -ErrorAction Stop).Trim()
+      if (-not $candidate -or -not (Test-Path $candidate)) { continue }
+      $control = Join-Path $candidate 'scripts\control-center-windows.ps1'
+      if (Test-Path $control) { return [IO.Path]::GetFullPath($candidate) }
+    } catch { }
+  }
+  throw 'No usable runtime slot is available for local Control Center recovery.'
+}
+
+function Start-RecoveryControlCenter([string]$Root = '') {
+  if (-not $Root) { $Root = Get-RecoveryRoot }
+  $control = Join-Path $Root 'scripts\control-center-windows.ps1'
+  if (-not (Test-Path $control)) { throw "Control Center recovery script is missing: $control" }
+  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $control -Action Start -Root $Root -Json | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Control Center recovery start failed with exit code $LASTEXITCODE." }
+}
+
 function Get-RootVersion([string]$Root) {
   try {
     $manifest = Get-Content -Path (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
@@ -75,6 +96,13 @@ function Invoke-Updater([string]$UpdateAction, [switch]$Quiet) {
 }
 
 function Invoke-SafeBoot {
+  $recoveryRoot = Get-RecoveryRoot
+  try {
+    Start-RecoveryControlCenter $recoveryRoot
+  } catch {
+    Write-Warning "Local Control Center recovery start failed; continuing boot recovery: $($_.Exception.Message)"
+  }
+
   $before = Get-CurrentRoot
   try {
     Invoke-Updater 'InstallAuto' -Quiet
@@ -101,7 +129,7 @@ function Invoke-SafeBoot {
   }
 }
 
-$Root = Get-CurrentRoot
+$Root = if ($Action -in @('Boot','Setup')) { Get-RecoveryRoot } else { Get-CurrentRoot }
 switch ($Action) {
   'Setup' { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'scripts\setup-web-windows.ps1') }
   'Start' { Invoke-Runtime 'Start' 'Local' $Root }
@@ -121,6 +149,7 @@ switch ($Action) {
   'AutoUpdateOff' { Invoke-Updater 'Disable' }
   'Update' {
     $before = Get-CurrentRoot
+    try { Start-RecoveryControlCenter (Get-RecoveryRoot) } catch { Write-Warning "Control Center recovery start before update failed: $($_.Exception.Message)" }
     try { Invoke-Runtime 'Stop' 'OpenAI' $before } catch {}
     Invoke-Updater 'Install'
     $candidate = Get-CurrentRoot
@@ -140,6 +169,7 @@ switch ($Action) {
     }
   }
   'Rollback' {
+    try { Start-RecoveryControlCenter (Get-RecoveryRoot) } catch { Write-Warning "Control Center recovery start before rollback failed: $($_.Exception.Message)" }
     try { Invoke-Runtime 'Stop' 'OpenAI' $Root } catch {}
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
     if ($LASTEXITCODE -ne 0) { throw 'Rollback failed.' }

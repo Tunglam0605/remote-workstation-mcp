@@ -95,6 +95,7 @@ jobs:
             'scripts/runtime-control-windows.ps1',
             'scripts/runtime-host-windows.ps1',
             'scripts/control-center-host-windows.ps1',
+            'scripts/test-control-center-watchdog-windows.ps1',
             'scripts/control-center-windows.ps1',
             'scripts/admin-approval-windows.ps1',
             'scripts/privileged-helper-windows.ps1',
@@ -119,6 +120,9 @@ jobs:
               throw "PowerShell parse failed for ${file}: $messages"
             }
           }
+      - name: Test Windows Control Center watchdog recovery
+        shell: pwsh
+        run: .\scripts\test-control-center-watchdog-windows.ps1
       - name: Test Windows tunnel control-plane health parser
         shell: pwsh
         run: .\scripts\test-tunnel-health-windows.ps1

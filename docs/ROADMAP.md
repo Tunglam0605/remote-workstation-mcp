@@ -284,6 +284,15 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 ## v0.9 - Engineering tools - current
 
+### v0.9.4 - Always-on Windows Control Center recovery
+
+- treat the loopback Control Center as the last-resort local recovery plane independent from MCP/tunnel health
+- start Control Center before automatic update and OpenAI runtime activation during Boot
+- fall back to the previous installed slot for Control Center recovery when the current slot is unusable
+- keep Control Center alive through runtime update/rollback handoff
+- watchdog-restart a crashed WebUI child with bounded backoff
+- validate real child crash/recovery on Windows CI before release
+
 ### v0.9.3 - STM32/OpenOCD provider hardening
 
 - add typed OpenOCD provider preflight with version/capability reporting and structured failure diagnostics

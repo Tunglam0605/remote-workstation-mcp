@@ -6,7 +6,15 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.3**
+**v0.9.4**
+
+v0.9.4 hardens the Windows Control Center as the always-on local recovery plane:
+
+- Boot starts the loopback Control Center before automatic updates or MCP/tunnel activation;
+- recovery root selection falls back to the previous installed slot when the current slot is unusable;
+- manual update and rollback ensure the Control Center is alive before stopping the managed runtime;
+- the Control Center host now watchdog-restarts a crashed WebUI child with bounded 1/2/5/10/30 second backoff;
+- Windows CI kills the WebUI child and verifies a replacement process restores HTTP health.
 
 v0.9.3 hardens the STM32/OpenOCD provider contract without opening new dangerous debug surfaces:
 

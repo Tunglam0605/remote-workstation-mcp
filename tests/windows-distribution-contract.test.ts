@@ -51,6 +51,31 @@ test('automatic boot update and manual update are distinct operations', async ()
   assert.match(updater, /Owner approval is required/);
 });
 
+test('Windows Boot starts the recovery Control Center before updater or runtime activation', async () => {
+  const launcher = await read('scripts/rwmcp-launcher-windows.ps1');
+
+  assert.match(launcher, /function Start-RecoveryControlCenter/);
+  assert.match(launcher, /function Get-RecoveryRoot/);
+  const bootStart = launcher.indexOf("function Invoke-SafeBoot");
+  const controlStart = launcher.indexOf("Start-RecoveryControlCenter", bootStart);
+  const updateStart = launcher.indexOf("Invoke-Updater 'InstallAuto'", bootStart);
+  const runtimeStart = launcher.indexOf("Invoke-Runtime 'Start' 'OpenAI'", bootStart);
+  assert.ok(controlStart > bootStart, 'Boot must start Control Center inside Invoke-SafeBoot.');
+  assert.ok(controlStart < updateStart, 'Control Center must start before automatic update.');
+  assert.ok(controlStart < runtimeStart, 'Control Center must start before OpenAI runtime activation.');
+});
+
+test('Windows Control Center host restarts its WebUI child with bounded watchdog backoff', async () => {
+  const host = await read('scripts/control-center-host-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(host, /restartDelaysSeconds\s*=\s*@\(1, 2, 5, 10, 30\)/);
+  assert.match(host, /while \(\$true\)/);
+  assert.match(host, /Control Center child exited/);
+  assert.match(host, /watchdog restart in/);
+  assert.match(ci, /test-control-center-watchdog-windows\.ps1/);
+});
+
 test('Windows Control Center refuses foreign port ownership and verifies its managed listener', async () => {
   const control = await read('scripts/control-center-windows.ps1');
 

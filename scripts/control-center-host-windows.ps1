@@ -20,12 +20,13 @@ $recoveryChild = $null
 $webStartedAt = $null
 $recoveryStartedAt = $null
 $stateDir = Split-Path -Parent $StderrLog
+$hostLog = Join-Path $stateDir 'control-center-host.log'
 $recoveryLog = Join-Path $stateDir 'autonomous-recovery.log'
 $recoveryStdout = Join-Path $stateDir 'autonomous-recovery.stdout.log'
 $recoveryStderr = Join-Path $stateDir 'autonomous-recovery.stderr.log'
 
 function Append-HostLog([string]$Message) {
-  "[$([DateTimeOffset]::UtcNow.ToString('o'))] $Message" | Add-Content -Path $StderrLog -Encoding utf8
+  "[$([DateTimeOffset]::UtcNow.ToString('o'))] $Message" | Add-Content -Path $hostLog -Encoding utf8
 }
 
 function Start-WebChild {

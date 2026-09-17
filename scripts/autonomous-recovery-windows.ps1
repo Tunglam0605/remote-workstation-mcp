@@ -96,7 +96,7 @@ function Stop-ManagedProcessTree([int]$ProcessId, [string]$OwnershipNeedle) {
     Append-RecoveryLog "Stopped managed process tree pid=$ProcessId ownership=$OwnershipNeedle."
     return $true
   } catch {
-    Append-RecoveryLog "Managed process cleanup failed pid=$ProcessId: $($_.Exception.Message)"
+    Append-RecoveryLog "Managed process cleanup failed pid=${ProcessId}: $($_.Exception.Message)"
     return $false
   }
 }

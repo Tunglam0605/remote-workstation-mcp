@@ -12,14 +12,39 @@ export function quotePosix(value: string): string {
   return `'${value.replaceAll("'", `'\"'\"'`)}'`;
 }
 
+function quotePowerShellLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function encodePowerShellScript(script: string): string {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  return `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ${encoded}`;
+}
+
+export function buildWindowsPowerShellRemoteCommand(program: string, args: string[] = [], cwd?: string): string {
+  const lines = ["$ErrorActionPreference = 'Stop'"];
+  if (cwd) lines.push(`Set-Location -LiteralPath ${quotePowerShellLiteral(cwd)}`);
+  lines.push(`$__rwmcpProgram = ${quotePowerShellLiteral(program)}`);
+  lines.push(`$__rwmcpArgs = @(${args.map(quotePowerShellLiteral).join(', ')})`);
+  lines.push('& $__rwmcpProgram @__rwmcpArgs');
+  lines.push('exit $LASTEXITCODE');
+  return encodePowerShellScript(lines.join('\r\n'));
+}
+
+function remoteShell(host: SshHostConfig): 'posix' | 'windows-powershell' {
+  return host.remoteShell ?? 'posix';
+}
+
 function remoteCwd(host: SshHostConfig, cwd: string): string | undefined {
   if (cwd === '.' && !host.remoteRoot) return undefined;
-  if (path.posix.isAbsolute(cwd)) throw new Error('SSH cwd must be relative to the configured remoteRoot.');
-  const normalized = path.posix.normalize(cwd);
-  if (normalized === '..' || normalized.startsWith('../')) throw new Error('SSH cwd escapes remoteRoot.');
+  const windows = remoteShell(host) === 'windows-powershell';
+  const pathApi = windows ? path.win32 : path.posix;
+  if (pathApi.isAbsolute(cwd)) throw new Error('SSH cwd must be relative to the configured remoteRoot.');
+  const normalized = pathApi.normalize(cwd);
+  if (normalized === '..' || normalized.startsWith(`..${pathApi.sep}`)) throw new Error('SSH cwd escapes remoteRoot.');
   if (!host.remoteRoot) throw new Error(`SSH host '${host.id}' has no remoteRoot; cwd must be '.'.`);
-  if (!path.posix.isAbsolute(host.remoteRoot)) throw new Error(`SSH host '${host.id}' remoteRoot must be absolute.`);
-  return path.posix.join(host.remoteRoot, normalized);
+  if (!pathApi.isAbsolute(host.remoteRoot)) throw new Error(`SSH host '${host.id}' remoteRoot must be absolute.`);
+  return pathApi.join(host.remoteRoot, normalized);
 }
 
 function destination(host: SshHostConfig): string {
@@ -39,9 +64,10 @@ export class SshAdapter {
   private assertRemoteExecution(host: SshHostConfig, program: string): void {
     if (this.policy.config.mode === 'read_only') throw new Error('SSH execution is disabled in read_only mode.');
     const containsPath = program.includes('/') || program.includes('\\');
+    const basename = remoteShell(host) === 'windows-powershell' ? path.win32.basename : path.posix.basename;
     const allowed = containsPath
       ? host.allowPrograms.includes(program)
-      : host.allowPrograms.some(item => path.posix.basename(item).toLowerCase() === program.toLowerCase());
+      : host.allowPrograms.some(item => basename(item).toLowerCase() === program.toLowerCase());
     if (!allowed) throw new Error(`Remote program '${program}' is not allowed for SSH host '${host.id}'.`);
   }
 
@@ -73,6 +99,7 @@ export class SshAdapter {
       user: host.user,
       auth: host.auth,
       strictHostKeyChecking: host.strictHostKeyChecking,
+      remoteShell: remoteShell(host),
       remoteRoot: host.remoteRoot,
       allowPrograms: [...host.allowPrograms],
       maxRuntimeMs: host.maxRuntimeMs
@@ -82,7 +109,10 @@ export class SshAdapter {
   async probe(id: string) {
     const host = this.host(id);
     const args = await this.baseArgs(host);
-    args.push('--', destination(host), 'true');
+    const probeCommand = remoteShell(host) === 'windows-powershell'
+      ? encodePowerShellScript('exit 0')
+      : 'true';
+    args.push('--', destination(host), probeCommand);
     const started = Date.now();
     try {
       await exec('ssh', args, {
@@ -102,10 +132,12 @@ export class SshAdapter {
     this.assertRemoteExecution(host, program);
     const base = await this.baseArgs(host);
     const requestedCwd = remoteCwd(host, cwd);
-    const command = [quotePosix(program), ...args.map(quotePosix)].join(' ');
-    const remoteCommand = requestedCwd
-      ? `cd -- ${quotePosix(requestedCwd)} && exec ${command}`
-      : `exec ${command}`;
+    const remoteCommand = remoteShell(host) === 'windows-powershell'
+      ? buildWindowsPowerShellRemoteCommand(program, args, requestedCwd)
+      : (() => {
+          const command = [quotePosix(program), ...args.map(quotePosix)].join(' ');
+          return requestedCwd ? `cd -- ${quotePosix(requestedCwd)} && exec ${command}` : `exec ${command}`;
+        })();
     base.push('--', destination(host), remoteCommand);
     const effectiveTimeout = Math.min(Math.max(timeoutMs ?? host.maxRuntimeMs, 1), host.maxRuntimeMs);
     try {

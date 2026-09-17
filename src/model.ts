@@ -74,6 +74,7 @@ export interface PolicyConfig {
 }
 
 export type SshAuthMode = 'agent' | 'identity_file';
+export type SshRemoteShell = 'posix' | 'windows-powershell';
 
 export interface SshHostConfig {
   id: string;
@@ -84,6 +85,7 @@ export interface SshHostConfig {
   auth: SshAuthMode;
   identityFile?: string;
   strictHostKeyChecking: 'yes' | 'accept-new';
+  remoteShell?: SshRemoteShell;
   remoteRoot?: string;
   allowPrograms: string[];
   maxRuntimeMs: number;

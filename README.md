@@ -6,7 +6,7 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.5**
+**v0.9.6**
 
 v0.9.4 hardens the Windows Control Center as the always-on local recovery plane:
 

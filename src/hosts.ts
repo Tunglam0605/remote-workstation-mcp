@@ -14,6 +14,7 @@ const hostSchema = z.object({
   auth: z.enum(['agent', 'identity_file']).default('agent'),
   identityFile: z.string().optional(),
   strictHostKeyChecking: z.enum(['yes', 'accept-new']).default('yes'),
+  remoteShell: z.enum(['posix', 'windows-powershell']).default('posix'),
   remoteRoot: z.string().optional(),
   allowPrograms: z.array(z.string().min(1)).default([]),
   maxRuntimeMs: z.number().int().positive().max(60 * 60 * 1000).default(10 * 60 * 1000)

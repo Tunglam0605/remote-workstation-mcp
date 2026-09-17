@@ -400,7 +400,7 @@ Target criteria:
 - public/private distribution story with clear trust boundaries
 - security review of workspace, SSH, update, full-control, remote connection, UI automation and privileged-helper boundaries
 
-### v0.9.5 - Durable Windows restart handoff
+### v0.9.6 - Durable Windows restart handoff
 
 - Persist restart transaction state and bounded worker logs.
 - Serialize restart handoffs with a per-user mutex.

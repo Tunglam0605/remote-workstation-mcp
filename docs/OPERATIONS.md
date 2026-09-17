@@ -304,6 +304,7 @@ Check all of the following:
 - host key is known/accepted according to policy;
 - `ssh-agent` or configured identity file works outside MCP;
 - remote root/cwd is allowed.
+- Windows OpenSSH targets set `remoteShell: windows-powershell`; POSIX/Linux targets keep the default `posix`.
 
 ### Full-control tool denied
 

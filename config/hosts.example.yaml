@@ -30,3 +30,17 @@ hosts:
   #   remoteRoot: /home/engineer/work
   #   allowPrograms: [git, python3]
   #   maxRuntimeMs: 600000
+
+  # Windows OpenSSH host. PowerShell argv is transported with -EncodedCommand;
+  # RWMCP does not prepend POSIX `exec` or interpolate caller argv through cmd.exe.
+  # - id: windows-laptop
+  #   name: Windows Engineering Laptop
+  #   hostname: 192.168.1.122
+  #   port: 22
+  #   user: Admin
+  #   auth: identity_file
+  #   identityFile: ~/.ssh/id_ed25519_windows
+  #   strictHostKeyChecking: yes
+  #   remoteShell: windows-powershell
+  #   allowPrograms: [powershell.exe, cmd.exe]
+  #   maxRuntimeMs: 600000

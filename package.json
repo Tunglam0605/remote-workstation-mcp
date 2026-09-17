@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation-mcp",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "AI-vendor-neutral MCP control plane for securely operating engineering workstations.",
   "type": "module",
   "bin": {

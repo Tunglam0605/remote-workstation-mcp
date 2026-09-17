@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { compareSemver, isPatchUpgrade, normalizeVersion, parseSemver } from './lib/semver.mjs';
+import { fetchReleaseAsset, verifySha256 } from './lib/release-download.mjs';
 
 const exec = promisify(execFile);
 const home = os.homedir();
@@ -42,14 +42,6 @@ function scheduledMayApply(installed, latest) {
   if (updateMode === 'auto') return true;
   if (updateMode !== 'auto_patch' || !installed) return false;
   return isPatchUpgrade(installed, latest);
-}
-
-async function download(url, target) {
-  const response = await fetch(url, { headers: { 'User-Agent': 'remote-workstation-mcp-updater' }, redirect: 'follow' });
-  if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}: ${url}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await fs.writeFile(target, buffer, { mode: 0o600 });
-  return buffer;
 }
 
 async function exists(target) {
@@ -160,14 +152,15 @@ const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-update-'));
 try {
   const tgzPath = path.join(temp, tgzAsset.name);
   const sumsPath = path.join(temp, 'SHA256SUMS.txt');
-  const archive = await download(tgzAsset.browser_download_url, tgzPath);
-  await download(sumsAsset.browser_download_url, sumsPath);
-  const sums = await fs.readFile(sumsPath, 'utf8');
+  const archive = await fetchReleaseAsset(tgzAsset);
+  const sumsBuffer = await fetchReleaseAsset(sumsAsset);
+  await fs.writeFile(tgzPath, archive, { mode: 0o600 });
+  await fs.writeFile(sumsPath, sumsBuffer, { mode: 0o600 });
+  const sums = sumsBuffer.toString('utf8');
   const expectedLine = sums.split(/\r?\n/).find(line => line.trim().endsWith(`  ${tgzAsset.name}`) || line.trim().endsWith(` *${tgzAsset.name}`));
   if (!expectedLine) throw new Error('Package checksum is missing from SHA256SUMS.txt.');
   const expected = expectedLine.trim().split(/\s+/)[0].toLowerCase();
-  const actual = crypto.createHash('sha256').update(archive).digest('hex');
-  if (actual !== expected) throw new Error(`Checksum mismatch: expected ${expected}, got ${actual}.`);
+  verifySha256(archive, expected);
 
   const versionDir = path.join(dataHome, 'versions', latest);
   await fs.rm(versionDir, { recursive: true, force: true });

@@ -93,6 +93,12 @@ jobs:
             'scripts/update-handoff-windows.ps1',
             'scripts/test-update-handoff-windows.ps1',
             'scripts/runtime-control-windows.ps1',
+            'scripts/windows-lifecycle-state.ps1',
+            'scripts/windows-recovery-circuit.ps1',
+            'scripts/test-lifecycle-state-windows.ps1',
+            'scripts/test-recovery-circuit-windows.ps1',
+            'scripts/test-recovery-convergence-windows.ps1',
+            'scripts/rwmcp-launcher-windows.ps1',
             'scripts/test-runtime-start-concurrency-windows.ps1',
             'scripts/windows-recovery-state.ps1',
             'scripts/autonomous-recovery-windows.ps1',
@@ -137,6 +143,15 @@ jobs:
       - name: Test concurrent Windows runtime start serialization
         shell: pwsh
         run: .\scripts\test-runtime-start-concurrency-windows.ps1
+      - name: Test Windows lifecycle epoch and interlock state
+        shell: pwsh
+        run: .\scripts\test-lifecycle-state-windows.ps1
+      - name: Test Windows recovery circuit breaker
+        shell: pwsh
+        run: .\scripts\test-recovery-circuit-windows.ps1
+      - name: Test Windows recovery convergence and lifecycle suppression
+        shell: pwsh
+        run: .\scripts\test-recovery-convergence-windows.ps1
       - name: Test Windows autonomous recovery desired state
         shell: pwsh
         run: .\scripts\test-autonomous-recovery-state-windows.ps1

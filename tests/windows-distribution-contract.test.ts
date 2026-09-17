@@ -268,3 +268,15 @@ test('Windows lifecycle transactions persist monotonic epochs and suppress recov
   assert.match(runtime, /windows-lifecycle-state\.ps1/);
   assert.match(launcher, /windows-lifecycle-state\.ps1/);
 });
+
+test('Windows autonomous recovery converges stale and duplicate managed processes without racing lifecycle work', async () => {
+  const recovery = await read('scripts/autonomous-recovery-windows.ps1');
+  assert.match(recovery, /windows-lifecycle-state\.ps1/);
+  assert.match(recovery, /Test-RwmcpLifecycleTransactionActive/);
+  assert.match(recovery, /Invoke-RuntimeConvergence/);
+  assert.match(recovery, /runtime-host-windows\.ps1/);
+  assert.match(recovery, /tunnel-client\.exe/);
+  assert.match(recovery, /Stop-ManagedProcessTree/);
+  assert.match(recovery, /stale-supervisor-state/);
+  assert.match(recovery, /suppressed-lifecycle/);
+});

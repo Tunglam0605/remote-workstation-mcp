@@ -10,8 +10,10 @@ Set-StrictMode -Version Latest
 $Root = (Resolve-Path $Root).Path
 . (Join-Path $Root 'scripts\windows-settings.ps1')
 . (Join-Path $Root 'scripts\windows-recovery-state.ps1')
+. (Join-Path $Root 'scripts\windows-lifecycle-state.ps1')
 
 $UserConfigDir = Get-RwmcpUserConfigDir
+$ManagedBase = [IO.Path]::GetFullPath($UserConfigDir)
 $RuntimeDir = Join-Path $UserConfigDir 'runtime'
 $SupervisorStatePath = Join-Path $RuntimeDir 'supervisor.json'
 $ConnectionStatePath = Join-Path $RuntimeDir 'connection-state.json'
@@ -51,11 +53,98 @@ function Read-JsonFile([string]$Path) {
   catch { return $null }
 }
 
+
+function Get-ManagedProcessEntries([string]$Needle) {
+  try {
+    return @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      $line = [string]$_.CommandLine
+      $line -and $line.IndexOf($ManagedBase, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        $line.IndexOf($Needle, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    })
+  } catch {
+    Append-RecoveryLog "Managed process discovery failed for '$Needle': $($_.Exception.Message)"
+    return @()
+  }
+}
+
+function Test-ProcessDescendant([int]$ProcessId, [int]$AncestorId) {
+  $current = $ProcessId
+  foreach ($depth in 1..32) {
+    if ($current -eq $AncestorId) { return $true }
+    try { $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction Stop }
+    catch { return $false }
+    if (-not $entry) { return $false }
+    $parent = [int]$entry.ParentProcessId
+    if ($parent -le 0 -or $parent -eq $current) { return $false }
+    $current = $parent
+  }
+  return $false
+}
+
+function Stop-ManagedProcessTree([int]$ProcessId, [string]$OwnershipNeedle) {
+  try {
+    $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop
+    if (-not $entry) { return $false }
+    $line = [string]$entry.CommandLine
+    $owned = $line -and $line.IndexOf($ManagedBase, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+      $line.IndexOf($OwnershipNeedle, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    if (-not $owned) {
+      Append-RecoveryLog "Refusing to stop unverified process pid=$ProcessId needle=$OwnershipNeedle."
+      return $false
+    }
+    $taskkill = Get-Command taskkill.exe -ErrorAction SilentlyContinue
+    if ($taskkill) { & $taskkill.Source /PID $ProcessId /T /F *> $null }
+    else { Stop-Process -Id $ProcessId -Force -ErrorAction Stop }
+    Append-RecoveryLog "Stopped managed process tree pid=$ProcessId ownership=$OwnershipNeedle."
+    return $true
+  } catch {
+    Append-RecoveryLog "Managed process cleanup failed pid=$ProcessId: $($_.Exception.Message)"
+    return $false
+  }
+}
+
+function Invoke-RuntimeConvergence {
+  $state = Read-JsonFile $SupervisorStatePath
+  $managed = Get-ManagedSupervisor
+  $runtimeHosts = @(Get-ManagedProcessEntries 'runtime-host-windows.ps1')
+
+  if ($state -and -not $managed) {
+    Append-RecoveryLog "stale-supervisor-state pid=$($state.pid); converging managed runtime hosts."
+    foreach ($hostEntry in $runtimeHosts) {
+      [void](Stop-ManagedProcessTree ([int]$hostEntry.ProcessId) 'runtime-host-windows.ps1')
+    }
+    foreach ($tunnelEntry in @(Get-ManagedProcessEntries 'tunnel-client.exe')) {
+      [void](Stop-ManagedProcessTree ([int]$tunnelEntry.ProcessId) 'tunnel-client.exe')
+    }
+    Remove-Item -LiteralPath $SupervisorStatePath, $ConnectionStatePath -Force -ErrorAction SilentlyContinue
+    return $null
+  }
+
+  if ($managed) {
+    foreach ($hostEntry in $runtimeHosts) {
+      if ([int]$hostEntry.ProcessId -ne [int]$managed.Id) {
+        Append-RecoveryLog "Duplicate managed runtime host detected pid=$($hostEntry.ProcessId); active=$($managed.Id)."
+        [void](Stop-ManagedProcessTree ([int]$hostEntry.ProcessId) 'runtime-host-windows.ps1')
+      }
+    }
+    foreach ($tunnelEntry in @(Get-ManagedProcessEntries 'tunnel-client.exe')) {
+      if (-not (Test-ProcessDescendant ([int]$tunnelEntry.ProcessId) ([int]$managed.Id))) {
+        Append-RecoveryLog "Orphan managed tunnel detected pid=$($tunnelEntry.ProcessId); active-supervisor=$($managed.Id)."
+        [void](Stop-ManagedProcessTree ([int]$tunnelEntry.ProcessId) 'tunnel-client.exe')
+      }
+    }
+  }
+  return $managed
+}
+
 function Get-ManagedSupervisor {
   $state = Read-JsonFile $SupervisorStatePath
   if (-not $state -or -not ($state.PSObject.Properties.Name -contains 'pid')) { return $null }
   try {
     $process = Get-Process -Id ([int]$state.pid) -ErrorAction Stop
+    $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$state.pid)" -ErrorAction Stop
+    $line = [string]$entry.CommandLine
+    if (-not $line -or $line.IndexOf($ManagedBase, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or $line.IndexOf('runtime-host-windows.ps1', [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $null }
     if ($state.PSObject.Properties.Name -contains 'startedAt') {
       $expected = [DateTimeOffset]::Parse([string]$state.startedAt).UtcDateTime
       if ([Math]::Abs(($process.StartTime.ToUniversalTime() - $expected).TotalSeconds) -gt 10) { return $null }
@@ -134,8 +223,13 @@ function Invoke-RecoveryEvaluation {
     $script:TunnelUnhealthySince = $null
     return 'suppressed-maintenance'
   }
+  if (Test-RwmcpLifecycleTransactionActive) {
+    $script:McpUnhealthySince = $null
+    $script:TunnelUnhealthySince = $null
+    return 'suppressed-lifecycle'
+  }
 
-  $managed = Get-ManagedSupervisor
+  $managed = Invoke-RuntimeConvergence
   if (-not $managed) {
     $action = if ([string]$desired.mode -eq 'Local') { 'Start' } else { 'StartOpenAI' }
     if (Start-RecoveryAction $action 'runtime-supervisor-missing') { return 'start-requested' }

@@ -540,14 +540,59 @@ async function bootstrapWorkstation(repoRoot: string, tunnelId: string, runtimeA
     installerOutput
   };
 }
-function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'OpenAI'): { accepted: true; action: 'Restart'; mode: RuntimeMode } {
+type WindowsRestartTransaction = Record<string, unknown> & {
+  state?: string;
+  workerPid?: number;
+  updatedAt?: string;
+};
+
+function windowsRestartTransactionPath(): string | null {
+  const base = windowsManagedBase();
+  return base ? path.join(base, 'runtime', 'restart-transaction.json') : null;
+}
+
+async function readWindowsRestartTransaction(): Promise<WindowsRestartTransaction | null> {
+  if (process.platform !== 'win32') return null;
+  const file = windowsRestartTransactionPath();
+  if (!file) return null;
+  try {
+    return JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, '')) as WindowsRestartTransaction;
+  } catch {
+    return null;
+  }
+}
+
+function activeWindowsRestartTransaction(transaction: WindowsRestartTransaction | null): boolean {
+  return Boolean(transaction && (transaction.state === 'RUNNING' || transaction.state === 'STARTING'));
+}
+
+async function waitForWindowsRestartWorker(workerPid: number, timeoutMs = 1500): Promise<WindowsRestartTransaction | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const transaction = await readWindowsRestartTransaction();
+    if (transaction && Number(transaction.workerPid) === workerPid && ['RUNNING', 'SUCCEEDED', 'FAILED'].includes(String(transaction.state ?? ''))) {
+      return transaction;
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  return null;
+}
+
+async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'OpenAI'): Promise<Record<string, unknown>> {
   if (process.platform !== 'win32') {
     throw new Error('Windows runtime restart handoff is available on Windows only.');
   }
+  const existing = await readWindowsRestartTransaction();
+  if (activeWindowsRestartTransaction(existing)) {
+    return { accepted: true, action: 'Restart', mode, alreadyRunning: true, transaction: existing };
+  }
+  const base = windowsManagedBase();
+  if (!base) throw new Error('LOCALAPPDATA is unavailable; durable Windows restart handoff cannot be scheduled.');
   const script = path.join(repoRoot, 'scripts', 'runtime-restart-handoff-windows.ps1');
+  if (!(await pathExists(script))) throw new Error(`Windows restart handoff helper is missing: ${script}`);
   const child = spawn('powershell.exe', [
     '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Root', repoRoot, '-Mode', mode
+    '-Root', repoRoot, '-Mode', mode, '-Base', base
   ], {
     cwd: repoRoot,
     shell: false,
@@ -555,8 +600,16 @@ function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'Op
     detached: true,
     stdio: 'ignore'
   });
+  await new Promise<void>((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
+  const workerPid = child.pid;
   child.unref();
-  return { accepted: true, action: 'Restart', mode };
+  if (!workerPid) throw new Error('Windows restart worker started without a process id.');
+  const transaction = await waitForWindowsRestartWorker(workerPid);
+  if (!transaction) throw new Error('Windows restart worker did not acknowledge startup.');
+  return { accepted: true, action: 'Restart', mode, alreadyRunning: false, transaction };
 }
 
 type UpdateAction = 'Status' | 'Check' | 'Enable' | 'Disable' | 'Install';
@@ -929,7 +982,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const reconnect = body.reconnect !== false;
         const restart = reconnect
           ? (process.platform === 'win32'
-              ? scheduleWindowsRuntimeRestart(repoRoot, 'OpenAI')
+              ? await scheduleWindowsRuntimeRestart(repoRoot, 'OpenAI')
               : await linuxRuntimeControl(repoRoot, 'Restart', 'OpenAI'))
           : null;
         json(res, 200, {
@@ -1102,7 +1155,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         if (!body.action || !actions.has(body.action as RuntimeAction)) throw new Error('Unsupported runtime action.');
         const mode: RuntimeMode = body.mode === 'Local' ? 'Local' : 'OpenAI';
         if (body.action === 'Restart' && process.platform === 'win32') {
-          json(res, 202, scheduleWindowsRuntimeRestart(repoRoot, mode));
+          json(res, 202, await scheduleWindowsRuntimeRestart(repoRoot, mode));
           return;
         }
         json(res, 200, await runtimeControl(repoRoot, body.action as RuntimeAction, mode));

@@ -103,7 +103,7 @@ test('Windows restart is handed off outside the managed runtime tree and OpenAI 
   assert.match(safeRestart, /Refusing a direct self-killing restart/);
   assert.match(handoff, /Start-Sleep -Milliseconds/);
   assert.match(setupServer, /scheduleWindowsRuntimeRestart/);
-  assert.match(setupServer, /json\(res, 202, scheduleWindowsRuntimeRestart/);
+  assert.match(setupServer, /json\(res, 202, await scheduleWindowsRuntimeRestart/);
   assert.match(host, /watchdog restart in/);
   assert.match(host, /restartDelaysSeconds = @\(1, 2, 5, 10, 30\)/);
   assert.match(host, /tunnel-readiness-lost/);
@@ -159,6 +159,25 @@ test('Windows update install is handed off to a durable worker and activation wa
   assert.match(ci, /test-update-handoff-windows\.ps1/);
 });
 
+
+
+test('Windows restart handoff is durable, observable, and self-recovers after restart failure', async () => {
+  const setupServer = await read('src/setup/setup-server.ts');
+  const worker = await read('scripts/runtime-restart-handoff-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(setupServer, /restart-transaction\.json/);
+  assert.match(setupServer, /await scheduleWindowsRuntimeRestart/);
+  assert.match(setupServer, /waitForWindowsRestartWorker/);
+  assert.match(worker, /RemoteWorkstationMCP\.RestartHandoff/);
+  assert.match(worker, /restart-transaction\.json/);
+  assert.match(worker, /restart-worker\.log/);
+  assert.match(worker, /Write-Transaction 'RUNNING'/);
+  assert.match(worker, /Invoke-RuntimeAction 'Restart'/);
+  assert.match(worker, /Invoke-RuntimeAction 'Start'/);
+  assert.match(worker, /recovery/);
+  assert.match(ci, /test-restart-handoff-windows\.ps1/);
+});
 test('Windows managed upgrades self-heal the stable launcher from the current runtime slot', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
   const runtime = await read('scripts/runtime-control-windows.ps1');

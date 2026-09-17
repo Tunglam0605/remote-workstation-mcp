@@ -399,3 +399,11 @@ Target criteria:
 - operational documentation and migration guidance
 - public/private distribution story with clear trust boundaries
 - security review of workspace, SSH, update, full-control, remote connection, UI automation and privileged-helper boundaries
+
+### v0.9.5 - Durable Windows restart handoff
+
+- Persist restart transaction state and bounded worker logs.
+- Serialize restart handoffs with a per-user mutex.
+- Control Center waits for worker startup acknowledgement before returning HTTP 202.
+- If Restart fails after stopping the runtime, the worker automatically attempts a typed Start recovery.
+- Windows CI simulates both restart success and restart-failure recovery.

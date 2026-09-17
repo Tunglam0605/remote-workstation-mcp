@@ -20,6 +20,9 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 $recoveryStateScript = Join-Path $Root 'scripts\windows-recovery-state.ps1'
 if (-not (Test-Path $recoveryStateScript)) { throw "Recovery state helper not found: $recoveryStateScript" }
 . $recoveryStateScript
+$lifecycleStateScript = Join-Path $Root 'scripts\windows-lifecycle-state.ps1'
+if (-not (Test-Path $lifecycleStateScript)) { throw "Lifecycle state helper not found: $lifecycleStateScript" }
+. $lifecycleStateScript
 
 $UserConfigDir = Get-RwmcpUserConfigDir
 $StateDir = Join-Path $UserConfigDir 'runtime'
@@ -457,6 +460,17 @@ function Unregister-Startup {
 }
 
 $preserveDesired = $env:RWMCP_RECOVERY_PRESERVE_DESIRED -eq '1'
+$lifecycleEpoch = $null
+$lifecycleOwned = $false
+if ($Action -in @('Start','Restart')) {
+  if (-not (Test-RwmcpLifecycleTransactionActive)) {
+    $lifecycleKind = if ($Action -eq 'Start') { 'start' } else { 'restart' }
+    $tx = Begin-RwmcpLifecycleTransaction -Kind $lifecycleKind -LeaseSeconds 300 -Message "runtime-$($Action.ToLowerInvariant())"
+    $lifecycleEpoch = [int64]$tx.epoch
+    $lifecycleOwned = [int]$tx.ownerPid -eq $PID
+  }
+}
+try {
 $result = switch ($Action) {
   'Start' {
     Set-RwmcpDesiredState -DesiredRunning $true -Mode $Mode -Reason 'runtime-start' | Out-Null
@@ -487,6 +501,16 @@ $result = switch ($Action) {
   'Status' { Runtime-Status }
   'RegisterStartup' { Register-Startup $Mode }
   'UnregisterStartup' { Unregister-Startup }
+}
+
+  if ($lifecycleOwned -and $null -ne $lifecycleEpoch) {
+    Complete-RwmcpLifecycleTransaction -Epoch $lifecycleEpoch -Outcome SUCCEEDED -Message "runtime-$($Action.ToLowerInvariant()) complete" | Out-Null
+  }
+} catch {
+  if ($lifecycleOwned -and $null -ne $lifecycleEpoch) {
+    Complete-RwmcpLifecycleTransaction -Epoch $lifecycleEpoch -Outcome FAILED -Message $_.Exception.Message | Out-Null
+  }
+  throw
 }
 
 if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }

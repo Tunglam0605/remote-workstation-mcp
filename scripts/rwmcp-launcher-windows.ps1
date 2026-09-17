@@ -44,6 +44,9 @@ $RecoveryStateRoot = Get-RecoveryRoot
 $RecoveryStateScript = Join-Path $RecoveryStateRoot 'scripts\windows-recovery-state.ps1'
 if (-not (Test-Path $RecoveryStateScript)) { throw "Recovery state helper is missing: $RecoveryStateScript" }
 . $RecoveryStateScript
+$LifecycleStateScript = Join-Path $RecoveryStateRoot 'scripts\windows-lifecycle-state.ps1'
+if (-not (Test-Path $LifecycleStateScript)) { throw "Lifecycle state helper is missing: $LifecycleStateScript" }
+. $LifecycleStateScript
 
 function Get-RootVersion([string]$Root) {
   try {
@@ -101,6 +104,15 @@ function Invoke-Updater([string]$UpdateAction, [switch]$Quiet) {
 }
 
 function Invoke-SafeBoot {
+  $bootTx = $null
+  $bootOwned = $false
+  $bootOutcome = 'FAILED'
+  $bootMessage = 'safe boot did not complete'
+  if (-not (Test-RwmcpLifecycleTransactionActive)) {
+    $bootTx = Begin-RwmcpLifecycleTransaction -Kind boot -LeaseSeconds 600 -Message 'safe boot'
+    $bootOwned = [int]$bootTx.ownerPid -eq $PID
+  }
+  try {
   $recoveryRoot = Get-RecoveryRoot
   $desiredBefore = Get-RwmcpDesiredState
   $explicitStop = $desiredBefore.reason -ne 'not-configured' -and -not [bool]$desiredBefore.desiredRunning
@@ -124,6 +136,8 @@ function Invoke-SafeBoot {
   if ($explicitStop) {
     Clear-RwmcpRecoveryMaintenance -Reason 'boot-owner-stop-preserved' | Out-Null
     Cleanup-VersionSlots
+    $bootOutcome = 'SUCCEEDED'
+    $bootMessage = 'safe boot preserved owner stop'
     return
   }
   try {
@@ -142,6 +156,14 @@ function Invoke-SafeBoot {
       return
     }
     throw
+  }
+  $bootOutcome = 'SUCCEEDED'
+  $bootMessage = 'safe boot complete'
+  } catch {
+    $bootMessage = $_.Exception.Message
+    throw
+  } finally {
+    if ($bootOwned -and $bootTx) { Complete-RwmcpLifecycleTransaction -Epoch ([int64]$bootTx.epoch) -Outcome $bootOutcome -Message $bootMessage | Out-Null }
   }
 }
 
@@ -164,6 +186,15 @@ switch ($Action) {
   'AutoUpdateOn' { Invoke-Updater 'Enable' }
   'AutoUpdateOff' { Invoke-Updater 'Disable' }
   'Update' {
+    $updateTx = $null
+    $updateOwned = $false
+    $updateOutcome = 'FAILED'
+    $updateMessage = 'update did not complete'
+    if (-not (Test-RwmcpLifecycleTransactionActive)) {
+      $updateTx = Begin-RwmcpLifecycleTransaction -Kind update -LeaseSeconds 900 -Message 'manual update'
+      $updateOwned = [int]$updateTx.ownerPid -eq $PID
+    }
+    try {
     $before = Get-CurrentRoot
     $desiredBefore = Get-RwmcpDesiredState
     Set-RwmcpRecoveryMaintenance -Seconds 600 -Reason 'update-maintenance' -Mode OpenAI | Out-Null
@@ -179,6 +210,8 @@ switch ($Action) {
     if (-not [bool]$desiredBefore.desiredRunning -and $desiredBefore.reason -ne 'not-configured') {
       Clear-RwmcpRecoveryMaintenance -Reason 'update-complete-owner-stop-preserved' | Out-Null
       Cleanup-VersionSlots
+      $updateOutcome = 'SUCCEEDED'
+      $updateMessage = 'update complete; owner stop preserved'
       return
     }
     try {
@@ -195,8 +228,25 @@ switch ($Action) {
       }
       throw
     }
+    $updateOutcome = 'SUCCEEDED'
+    $updateMessage = 'update complete'
+    } catch {
+      $updateMessage = $_.Exception.Message
+      throw
+    } finally {
+      if ($updateOwned -and $updateTx) { Complete-RwmcpLifecycleTransaction -Epoch ([int64]$updateTx.epoch) -Outcome $updateOutcome -Message $updateMessage | Out-Null }
+    }
   }
   'Rollback' {
+    $rollbackTx = $null
+    $rollbackOwned = $false
+    $rollbackOutcome = 'FAILED'
+    $rollbackMessage = 'rollback did not complete'
+    if (-not (Test-RwmcpLifecycleTransactionActive)) {
+      $rollbackTx = Begin-RwmcpLifecycleTransaction -Kind rollback -LeaseSeconds 600 -Message 'rollback'
+      $rollbackOwned = [int]$rollbackTx.ownerPid -eq $PID
+    }
+    try {
     $desiredBefore = Get-RwmcpDesiredState
     Set-RwmcpRecoveryMaintenance -Seconds 300 -Reason 'rollback-maintenance' -Mode OpenAI | Out-Null
     try { Start-RecoveryControlCenter (Get-RecoveryRoot) } catch { Write-Warning "Control Center recovery start before rollback failed: $($_.Exception.Message)" }
@@ -212,6 +262,14 @@ switch ($Action) {
       Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
     } else {
       Clear-RwmcpRecoveryMaintenance -Reason 'rollback-complete-owner-stop-preserved' | Out-Null
+    }
+    $rollbackOutcome = 'SUCCEEDED'
+    $rollbackMessage = 'rollback complete'
+    } catch {
+      $rollbackMessage = $_.Exception.Message
+      throw
+    } finally {
+      if ($rollbackOwned -and $rollbackTx) { Complete-RwmcpLifecycleTransaction -Epoch ([int64]$rollbackTx.epoch) -Outcome $rollbackOutcome -Message $rollbackMessage | Out-Null }
     }
   }
 }

@@ -252,3 +252,19 @@ test('Windows runtime start is serialized across processes before spawning a sup
   assert.match(runtime, /Start-Runtime/);
   assert.match(ci, /test-runtime-start-concurrency-windows\.ps1/);
 });
+
+test('Windows lifecycle transactions persist monotonic epochs and suppress recovery only for a live owner', async () => {
+  const helper = await read('scripts/windows-lifecycle-state.ps1');
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const launcher = await read('scripts/rwmcp-launcher-windows.ps1');
+  assert.match(helper, /lifecycle-state\.json/);
+  assert.match(helper, /Begin-RwmcpLifecycleTransaction/);
+  assert.match(helper, /Complete-RwmcpLifecycleTransaction/);
+  assert.match(helper, /Test-RwmcpLifecycleTransactionActive/);
+  assert.match(helper, /ownerPid/);
+  assert.match(helper, /ownerStartedAt/);
+  assert.match(helper, /epoch/);
+  assert.match(helper, /Text\.UTF8Encoding\(\$false\)/);
+  assert.match(runtime, /windows-lifecycle-state\.ps1/);
+  assert.match(launcher, /windows-lifecycle-state\.ps1/);
+});

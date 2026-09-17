@@ -17,6 +17,9 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 }
 
 . (Join-Path $Root 'scripts\windows-settings.ps1')
+$recoveryStateScript = Join-Path $Root 'scripts\windows-recovery-state.ps1'
+if (-not (Test-Path $recoveryStateScript)) { throw "Recovery state helper not found: $recoveryStateScript" }
+. $recoveryStateScript
 
 $UserConfigDir = Get-RwmcpUserConfigDir
 $StateDir = Join-Path $UserConfigDir 'runtime'
@@ -423,17 +426,33 @@ function Unregister-Startup {
   return Runtime-Status
 }
 
+$preserveDesired = $env:RWMCP_RECOVERY_PRESERVE_DESIRED -eq '1'
 $result = switch ($Action) {
-  'Start' { Start-Runtime $Mode }
-  'Stop' { Stop-Runtime }
+  'Start' {
+    Set-RwmcpDesiredState -DesiredRunning $true -Mode $Mode -Reason 'runtime-start' | Out-Null
+    $started = Start-Runtime $Mode
+    Clear-RwmcpRecoveryMaintenance -Reason 'runtime-started' | Out-Null
+    $started
+  }
+  'Stop' {
+    if (-not $preserveDesired) {
+      Set-RwmcpDesiredState -DesiredRunning $false -Mode $Mode -Reason 'owner-stop' | Out-Null
+      Clear-RwmcpRecoveryMaintenance -Reason 'owner-stop' | Out-Null
+    }
+    Stop-Runtime
+  }
   'Restart' {
+    Set-RwmcpDesiredState -DesiredRunning $true -Mode $Mode -Reason 'runtime-restart' | Out-Null
+    Set-RwmcpRecoveryMaintenance -Seconds 240 -Reason 'runtime-restart' -Mode $Mode | Out-Null
     $state = Read-State
     $managed = Get-ManagedProcess $state
     if ($managed -and (Test-ProcessDescendant $PID ([int]$managed.Id))) {
       throw 'Direct Restart cannot run from inside the managed runtime process tree because it would kill its own caller. Use the stable launcher Restart action or the persistent Control Center.'
     }
     Stop-Runtime | Out-Null
-    Start-Runtime $Mode
+    $started = Start-Runtime $Mode
+    Clear-RwmcpRecoveryMaintenance -Reason 'runtime-restarted' | Out-Null
+    $started
   }
   'Status' { Runtime-Status }
   'RegisterStartup' { Register-Startup $Mode }

@@ -6,7 +6,17 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.6**
+**v0.9.7**
+
+
+v0.9.7 adds an autonomous Windows recovery supervisor so normal operation no longer depends on LAN SSH or a manual tunnel restart:
+
+- persist owner desired state outside version slots; explicit Stop remains stopped across recovery and reboot paths;
+- planned boot/update/rollback/restart use bounded maintenance windows instead of racing the watchdog;
+- the persistent Control Center host supervises both the WebUI child and an autonomous runtime-recovery child;
+- missing runtime supervisor triggers stable `StartOpenAI`, while sustained MCP/tunnel health failures trigger the durable Restart handoff;
+- recovery retries use bounded 2/4/8/15/30/60 second backoff and never require SSH as part of the normal path;
+- Windows CI validates desired-state persistence, owner-stop suppression and missing-runtime recovery before release.
 
 v0.9.4 hardens the Windows Control Center as the always-on local recovery plane:
 

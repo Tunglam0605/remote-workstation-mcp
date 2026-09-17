@@ -40,6 +40,11 @@ function Start-RecoveryControlCenter([string]$Root = '') {
   if ($LASTEXITCODE -ne 0) { throw "Control Center recovery start failed with exit code $LASTEXITCODE." }
 }
 
+$RecoveryStateRoot = Get-RecoveryRoot
+$RecoveryStateScript = Join-Path $RecoveryStateRoot 'scripts\windows-recovery-state.ps1'
+if (-not (Test-Path $RecoveryStateScript)) { throw "Recovery state helper is missing: $RecoveryStateScript" }
+. $RecoveryStateScript
+
 function Get-RootVersion([string]$Root) {
   try {
     $manifest = Get-Content -Path (Join-Path $Root 'package.json') -Raw | ConvertFrom-Json
@@ -97,6 +102,12 @@ function Invoke-Updater([string]$UpdateAction, [switch]$Quiet) {
 
 function Invoke-SafeBoot {
   $recoveryRoot = Get-RecoveryRoot
+  $desiredBefore = Get-RwmcpDesiredState
+  $explicitStop = $desiredBefore.reason -ne 'not-configured' -and -not [bool]$desiredBefore.desiredRunning
+  if (-not $explicitStop) {
+    Set-RwmcpDesiredState -DesiredRunning $true -Mode OpenAI -Reason 'boot' | Out-Null
+  }
+  Set-RwmcpRecoveryMaintenance -Seconds 300 -Reason 'boot-maintenance' -Mode OpenAI | Out-Null
   try {
     Start-RecoveryControlCenter $recoveryRoot
   } catch {
@@ -107,9 +118,14 @@ function Invoke-SafeBoot {
   try {
     Invoke-Updater 'InstallAuto' -Quiet
   } catch {
-    Write-Warning "Automatic update check failed; starting the installed version: $($_.Exception.Message)"
+    Write-Warning "Automatic update check failed; continuing with the installed version: $($_.Exception.Message)"
   }
   $candidate = Get-CurrentRoot
+  if ($explicitStop) {
+    Clear-RwmcpRecoveryMaintenance -Reason 'boot-owner-stop-preserved' | Out-Null
+    Cleanup-VersionSlots
+    return
+  }
   try {
     Invoke-Runtime 'Start' 'OpenAI' $candidate
     Cleanup-VersionSlots
@@ -149,10 +165,22 @@ switch ($Action) {
   'AutoUpdateOff' { Invoke-Updater 'Disable' }
   'Update' {
     $before = Get-CurrentRoot
+    $desiredBefore = Get-RwmcpDesiredState
+    Set-RwmcpRecoveryMaintenance -Seconds 600 -Reason 'update-maintenance' -Mode OpenAI | Out-Null
     try { Start-RecoveryControlCenter (Get-RecoveryRoot) } catch { Write-Warning "Control Center recovery start before update failed: $($_.Exception.Message)" }
-    try { Invoke-Runtime 'Stop' 'OpenAI' $before } catch {}
+    $savedPreserve = $env:RWMCP_RECOVERY_PRESERVE_DESIRED
+    $env:RWMCP_RECOVERY_PRESERVE_DESIRED = '1'
+    try { Invoke-Runtime 'Stop' 'OpenAI' $before } catch {} finally {
+      if ($null -eq $savedPreserve) { Remove-Item Env:RWMCP_RECOVERY_PRESERVE_DESIRED -ErrorAction SilentlyContinue }
+      else { $env:RWMCP_RECOVERY_PRESERVE_DESIRED = $savedPreserve }
+    }
     Invoke-Updater 'Install'
     $candidate = Get-CurrentRoot
+    if (-not [bool]$desiredBefore.desiredRunning -and $desiredBefore.reason -ne 'not-configured') {
+      Clear-RwmcpRecoveryMaintenance -Reason 'update-complete-owner-stop-preserved' | Out-Null
+      Cleanup-VersionSlots
+      return
+    }
     try {
       Invoke-Runtime 'Start' 'OpenAI' $candidate
       Cleanup-VersionSlots
@@ -169,10 +197,21 @@ switch ($Action) {
     }
   }
   'Rollback' {
+    $desiredBefore = Get-RwmcpDesiredState
+    Set-RwmcpRecoveryMaintenance -Seconds 300 -Reason 'rollback-maintenance' -Mode OpenAI | Out-Null
     try { Start-RecoveryControlCenter (Get-RecoveryRoot) } catch { Write-Warning "Control Center recovery start before rollback failed: $($_.Exception.Message)" }
-    try { Invoke-Runtime 'Stop' 'OpenAI' $Root } catch {}
+    $savedPreserve = $env:RWMCP_RECOVERY_PRESERVE_DESIRED
+    $env:RWMCP_RECOVERY_PRESERVE_DESIRED = '1'
+    try { Invoke-Runtime 'Stop' 'OpenAI' $Root } catch {} finally {
+      if ($null -eq $savedPreserve) { Remove-Item Env:RWMCP_RECOVERY_PRESERVE_DESIRED -ErrorAction SilentlyContinue }
+      else { $env:RWMCP_RECOVERY_PRESERVE_DESIRED = $savedPreserve }
+    }
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
     if ($LASTEXITCODE -ne 0) { throw 'Rollback failed.' }
-    Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+    if ([bool]$desiredBefore.desiredRunning -or $desiredBefore.reason -eq 'not-configured') {
+      Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+    } else {
+      Clear-RwmcpRecoveryMaintenance -Reason 'rollback-complete-owner-stop-preserved' | Out-Null
+    }
   }
 }

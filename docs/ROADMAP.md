@@ -332,6 +332,16 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - project-subtree containment, target-config allowlisting, explicit probe/port identity and authenticated scope coverage
 - pinned `node-pty`/`serialport` dependencies and packed native-module smoke tests
 
+
+### v0.9.7 - Autonomous Windows recovery supervisor
+
+- persist `desired-state.json` outside version slots with owner Start/Stop intent and bounded maintenance deadlines
+- keep explicit owner Stop authoritative across watchdog cycles and reboot/login paths
+- supervise the WebUI child and autonomous recovery worker from the persistent Control Center host
+- automatically restore a missing MCP/tunnel runtime through the stable launcher without SSH or manual UI actions
+- escalate sustained MCP/tunnel health failures through the durable Restart handoff with bounded backoff
+- require real-machine failure injection to pass without SSH rescue before treating the Windows node as stable
+
 ### Planned v0.9.x depth
 
 - deeper real-hardware STM32/ST-Link acceptance and provider fallback

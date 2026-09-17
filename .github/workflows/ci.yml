@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/v0.9.7-autonomous-recovery]
   pull_request:
 
 permissions:
@@ -93,6 +93,10 @@ jobs:
             'scripts/update-handoff-windows.ps1',
             'scripts/test-update-handoff-windows.ps1',
             'scripts/runtime-control-windows.ps1',
+            'scripts/windows-recovery-state.ps1',
+            'scripts/autonomous-recovery-windows.ps1',
+            'scripts/test-autonomous-recovery-state-windows.ps1',
+            'scripts/test-autonomous-recovery-windows.ps1',
             'scripts/runtime-host-windows.ps1',
             'scripts/control-center-host-windows.ps1',
             'scripts/test-control-center-watchdog-windows.ps1',
@@ -129,6 +133,12 @@ jobs:
       - name: Test durable Windows restart handoff
         shell: pwsh
         run: .\scripts\test-restart-handoff-windows.ps1
+      - name: Test Windows autonomous recovery desired state
+        shell: pwsh
+        run: .\scripts\test-autonomous-recovery-state-windows.ps1
+      - name: Test Windows autonomous recovery decision loop
+        shell: pwsh
+        run: .\scripts\test-autonomous-recovery-windows.ps1
       - name: Test durable Windows update handoff success path
         shell: pwsh
         run: .\scripts\test-update-handoff-windows.ps1 -Mode Success

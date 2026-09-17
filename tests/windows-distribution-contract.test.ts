@@ -69,7 +69,7 @@ test('Windows Control Center host restarts its WebUI child with bounded watchdog
   const host = await read('scripts/control-center-host-windows.ps1');
   const ci = await read('.github/workflows/ci.yml');
 
-  assert.match(host, /restartDelaysSeconds\s*=\s*@\(1, 2, 5, 10, 30\)/);
+  assert.match(host, /webRestartDelaysSeconds\s*=\s*@\(1, 2, 5, 10, 30\)/);
   assert.match(host, /while \(\$true\)/);
   assert.match(host, /Control Center child exited/);
   assert.match(host, /watchdog restart in/);
@@ -177,6 +177,34 @@ test('Windows restart handoff is durable, observable, and self-recovers after re
   assert.match(worker, /Invoke-RuntimeAction 'Start'/);
   assert.match(worker, /recovery/);
   assert.match(ci, /test-restart-handoff-windows\.ps1/);
+});
+
+
+test('Windows autonomous recovery persists desired state and maintenance outside version slots', async () => {
+  const helper = await read('scripts/windows-recovery-state.ps1');
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const launcher = await read('scripts/rwmcp-launcher-windows.ps1');
+  const host = await read('scripts/control-center-host-windows.ps1');
+  const recovery = await read('scripts/autonomous-recovery-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(helper, /desired-state\.json/);
+  assert.match(helper, /Set-RwmcpDesiredState/);
+  assert.match(helper, /Set-RwmcpRecoveryMaintenance/);
+  assert.match(helper, /Clear-RwmcpRecoveryMaintenance/);
+  assert.match(helper, /Text\.UTF8Encoding\(\$false\)/);
+  assert.match(runtime, /windows-recovery-state\.ps1/);
+  assert.match(runtime, /RWMCP_RECOVERY_PRESERVE_DESIRED/);
+  assert.match(launcher, /Set-RwmcpRecoveryMaintenance/);
+  assert.match(host, /autonomous-recovery-windows\.ps1/);
+  assert.match(host, /recoveryRestartDelaysSeconds\s*=\s*@\(2, 4, 8, 15, 30, 60\)/);
+  assert.match(recovery, /desiredRunning/);
+  assert.match(recovery, /maintenanceUntil|Test-RwmcpRecoveryMaintenanceActive/);
+  assert.match(recovery, /StartOpenAI/);
+  assert.match(recovery, /mcp-health-stale/);
+  assert.match(recovery, /tunnel-stale/);
+  assert.match(ci, /test-autonomous-recovery-state-windows\.ps1/);
+  assert.match(ci, /test-autonomous-recovery-windows\.ps1/);
 });
 test('Windows managed upgrades self-heal the stable launcher from the current runtime slot', async () => {
   const installer = await read('scripts/install-windows-release.ps1');

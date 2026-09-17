@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, fix/v0.9.2-windows-update-worker]
+    branches: [main]
   pull_request:
 
 permissions:

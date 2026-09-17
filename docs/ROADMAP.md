@@ -334,6 +334,15 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 
 
+### v0.9.10 - Stability hardening and self-convergence
+
+- persist lifecycle epochs and live-owner interlocks across Boot/Start/Restart/Update/Rollback;
+- converge stale supervisor state and duplicate managed runtime/tunnel processes only when ownership is provable;
+- persist autonomous-recovery circuit state with bounded cooldown and a five-minute open state after six failed recovery attempts;
+- fall back to the exact GitHub API release asset on transient browser-download HTTP 5xx while retaining SHA-256 verification;
+- gate Windows releases with lifecycle, convergence, circuit-breaker, concurrent-start and heartbeat integration tests;
+- require real-machine acceptance and soak without SSH/manual rescue after Windows reaches v0.9.10.
+
 ### v0.9.9 - Windows runtime-start serialization
 
 - Serialize Windows runtime creation with a cross-process filesystem lock outside version slots.

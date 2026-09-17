@@ -6,8 +6,9 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.9**
+**v0.9.10**
 
+v0.9.10 adds persisted lifecycle epochs, ownership-safe convergence, a bounded recovery circuit breaker, and SHA-verified GitHub API release-asset fallback. Together with the v0.9.9 cross-process runtime-start lock, Windows recovery now converges toward exactly one managed runtime/tunnel stack while planned lifecycle transactions suppress recovery races.
 
 v0.9.9 hardens the autonomous Windows recovery path against concurrent runtime starts. A cross-process file lock serializes Boot, Update, Restart, StartOpenAI, and recovery startup so only one supervisor can bind the MCP port at a time. v0.9.8 added the autonomous Windows recovery supervisor and heartbeat watchdog:
 

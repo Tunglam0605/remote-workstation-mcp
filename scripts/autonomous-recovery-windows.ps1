@@ -11,6 +11,7 @@ $Root = (Resolve-Path $Root).Path
 . (Join-Path $Root 'scripts\windows-settings.ps1')
 . (Join-Path $Root 'scripts\windows-recovery-state.ps1')
 . (Join-Path $Root 'scripts\windows-lifecycle-state.ps1')
+. (Join-Path $Root 'scripts\windows-recovery-circuit.ps1')
 
 $UserConfigDir = Get-RwmcpUserConfigDir
 $ManagedBase = [IO.Path]::GetFullPath($UserConfigDir)
@@ -22,9 +23,6 @@ $StableLauncher = Join-Path $UserConfigDir 'bin\rwmcp.ps1'
 if (-not $LogPath) { $LogPath = Join-Path $RuntimeDir 'autonomous-recovery.log' }
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
 
-$RecoveryBackoffSeconds = @(2, 4, 8, 15, 30, 60)
-$RecoveryAttempt = 0
-$NextRecoveryAt = [DateTimeOffset]::MinValue
 $McpUnhealthySince = $null
 $TunnelUnhealthySince = $null
 $ActionProcess = $null
@@ -182,40 +180,37 @@ function Recovery-ActionAvailable {
     Append-RecoveryLog "Recovery action process pid=$($ActionProcess.Id) exited code=$($ActionProcess.ExitCode)."
     $script:ActionProcess = $null
   }
-  return [DateTimeOffset]::UtcNow -ge $NextRecoveryAt
+  return Test-RwmcpRecoveryCircuitAllowsAction
 }
 
 function Start-RecoveryAction([string]$Action, [string]$Reason) {
   if (-not (Recovery-ActionAvailable)) { return $false }
   if (-not (Test-Path -LiteralPath $StableLauncher)) {
+    [void](Register-RwmcpRecoveryFailure -Reason "launcher-missing:$Reason")
     Append-RecoveryLog "Stable launcher missing; cannot recover: $StableLauncher"
     return $false
   }
   $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
   $argumentLine = @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$StableLauncher`"",'-Action',$Action) -join ' '
   $script:ActionProcess = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
-  $delayIndex = [Math]::Min($RecoveryAttempt, $RecoveryBackoffSeconds.Count - 1)
-  $delay = $RecoveryBackoffSeconds[$delayIndex]
-  $script:NextRecoveryAt = [DateTimeOffset]::UtcNow.AddSeconds($delay)
-  if ($RecoveryAttempt -lt ($RecoveryBackoffSeconds.Count - 1)) { $script:RecoveryAttempt += 1 }
-  Append-RecoveryLog "Recovery action=$Action reason=$Reason pid=$($ActionProcess.Id) next-attempt-after=${delay}s."
+  $circuit = Register-RwmcpRecoveryFailure -Reason $Reason
+  Append-RecoveryLog "Recovery action=$Action reason=$Reason pid=$($ActionProcess.Id) failureCount=$($circuit.failureCount) cooldownUntil=$($circuit.cooldownUntil) openUntil=$($circuit.openUntil)."
   if ($OneShot) {
     try { [void]$ActionProcess.WaitForExit(10000) } catch {}
   }
   return $true
 }
 
-function Reset-RecoveryHealth {
+function Reset-RecoveryHealth([switch]$ResetCircuit) {
   $script:McpUnhealthySince = $null
   $script:TunnelUnhealthySince = $null
-  $script:RecoveryAttempt = 0
-  $script:NextRecoveryAt = [DateTimeOffset]::MinValue
+  if ($ResetCircuit) { [void](Reset-RwmcpRecoveryCircuit -Reason 'healthy') }
 }
 
 function Invoke-RecoveryEvaluation {
   $desired = Get-RwmcpDesiredState
   if (-not [bool]$desired.desiredRunning) {
-    Reset-RecoveryHealth
+    Reset-RecoveryHealth -ResetCircuit
     return 'suppressed-owner-stop'
   }
   if (Test-RwmcpRecoveryMaintenanceActive) {
@@ -255,7 +250,7 @@ function Invoke-RecoveryEvaluation {
     }
   }
 
-  Reset-RecoveryHealth
+  Reset-RecoveryHealth -ResetCircuit
   return 'healthy'
 }
 

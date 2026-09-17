@@ -280,3 +280,17 @@ test('Windows autonomous recovery converges stale and duplicate managed processe
   assert.match(recovery, /stale-supervisor-state/);
   assert.match(recovery, /suppressed-lifecycle/);
 });
+
+test('Windows recovery circuit breaker persists cooldowns and opens after repeated failed recovery attempts', async () => {
+  const helper = await read('scripts/windows-recovery-circuit.ps1');
+  const recovery = await read('scripts/autonomous-recovery-windows.ps1');
+  assert.match(helper, /recovery-circuit\.json/);
+  assert.match(helper, /Register-RwmcpRecoveryFailure/);
+  assert.match(helper, /Reset-RwmcpRecoveryCircuit/);
+  assert.match(helper, /Test-RwmcpRecoveryCircuitAllowsAction/);
+  assert.match(helper, /2, 4, 8, 15, 30, 60/);
+  assert.match(helper, /AddMinutes\(5\)/);
+  assert.match(recovery, /windows-recovery-circuit\.ps1/);
+  assert.match(recovery, /Register-RwmcpRecoveryFailure/);
+  assert.match(recovery, /Reset-RwmcpRecoveryCircuit/);
+});

@@ -227,3 +227,16 @@ test('Windows managed install exposes a stable rwmcp-tui command on the user PAT
   assert.match(installer, /SetEnvironmentVariable\('Path'.*'User'\)/s);
   assert.match(installer, /dist\\tui-cli\.js/);
 });
+
+test('Windows autonomous recovery watchdog requires a fresh heartbeat and restarts a hung recovery worker', async () => {
+  const host = await read('scripts/control-center-host-windows.ps1');
+  const recovery = await read('scripts/autonomous-recovery-windows.ps1');
+  assert.match(host, /recovery-supervisor-state\.json/);
+  assert.match(host, /RecoveryHeartbeatStartupGraceSeconds/);
+  assert.match(host, /RecoveryHeartbeatStaleSeconds/);
+  assert.match(host, /heartbeat.*stale|stale.*heartbeat/i);
+  assert.match(host, /Stop-Process.*recoveryChild\.Id/i);
+  assert.match(recovery, /recovery-supervisor-state\.json/);
+  assert.match(recovery, /updatedAt/);
+  assert.match(recovery, /Write-RecoveryHeartbeat/);
+});

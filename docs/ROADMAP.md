@@ -333,7 +333,7 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - pinned `node-pty`/`serialport` dependencies and packed native-module smoke tests
 
 
-### v0.9.7 - Autonomous Windows recovery supervisor
+### v0.9.8 - Autonomous Windows recovery supervisor
 
 - persist `desired-state.json` outside version slots with owner Start/Stop intent and bounded maintenance deadlines
 - keep explicit owner Stop authoritative across watchdog cycles and reboot/login paths

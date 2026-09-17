@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/v0.9.8-recovery-heartbeat]
   pull_request:
 
 permissions:

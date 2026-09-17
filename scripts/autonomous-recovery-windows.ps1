@@ -15,6 +15,7 @@ $UserConfigDir = Get-RwmcpUserConfigDir
 $RuntimeDir = Join-Path $UserConfigDir 'runtime'
 $SupervisorStatePath = Join-Path $RuntimeDir 'supervisor.json'
 $ConnectionStatePath = Join-Path $RuntimeDir 'connection-state.json'
+$RecoveryStatePath = Join-Path $RuntimeDir 'recovery-supervisor-state.json'
 $StableLauncher = Join-Path $UserConfigDir 'bin\rwmcp.ps1'
 if (-not $LogPath) { $LogPath = Join-Path $RuntimeDir 'autonomous-recovery.log' }
 New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
@@ -28,6 +29,20 @@ $ActionProcess = $null
 
 function Append-RecoveryLog([string]$Message) {
   "[$([DateTimeOffset]::UtcNow.ToString('o'))] $Message" | Add-Content -Path $LogPath -Encoding utf8
+}
+
+function Write-RecoveryHeartbeat([string]$Evaluation, [string]$ErrorMessage = '') {
+  $payload = [ordered]@{
+    version = 1
+    pid = $PID
+    root = $Root
+    evaluation = $Evaluation
+    error = if ($ErrorMessage) { $ErrorMessage } else { $null }
+    updatedAt = [DateTimeOffset]::UtcNow.ToString('o')
+  }
+  $tmp = "$RecoveryStatePath.tmp"
+  [IO.File]::WriteAllText($tmp, ($payload | ConvertTo-Json -Depth 4) + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+  Move-Item -LiteralPath $tmp -Destination $RecoveryStatePath -Force
 }
 
 function Read-JsonFile([string]$Path) {
@@ -151,14 +166,25 @@ function Invoke-RecoveryEvaluation {
 }
 
 if ($OneShot) {
-  $result = Invoke-RecoveryEvaluation
-  Write-Output $result
-  exit 0
+  try {
+    $result = Invoke-RecoveryEvaluation
+    Write-RecoveryHeartbeat $result
+    Write-Output $result
+    exit 0
+  } catch {
+    Write-RecoveryHeartbeat 'error' $_.Exception.Message
+    throw
+  }
 }
 
 Append-RecoveryLog "Autonomous recovery supervisor started root=$Root poll=${PollSeconds}s."
 while ($true) {
-  try { [void](Invoke-RecoveryEvaluation) }
-  catch { Append-RecoveryLog "Recovery evaluation error: $($_.Exception.Message)" }
+  try {
+    $result = Invoke-RecoveryEvaluation
+    Write-RecoveryHeartbeat $result
+  } catch {
+    Append-RecoveryLog "Recovery evaluation error: $($_.Exception.Message)"
+    Write-RecoveryHeartbeat 'error' $_.Exception.Message
+  }
   Start-Sleep -Seconds $PollSeconds
 }

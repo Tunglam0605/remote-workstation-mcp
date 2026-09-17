@@ -2,7 +2,9 @@ param(
   [Parameter(Mandatory = $true)][string]$Root,
   [Parameter(Mandatory = $true)][int]$Port,
   [Parameter(Mandatory = $true)][string]$StdoutLog,
-  [Parameter(Mandatory = $true)][string]$StderrLog
+  [Parameter(Mandatory = $true)][string]$StderrLog,
+  [ValidateRange(1,300)][int]$RecoveryHeartbeatStartupGraceSeconds = 15,
+  [ValidateRange(2,600)][int]$RecoveryHeartbeatStaleSeconds = 30
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +26,7 @@ $hostLog = Join-Path $stateDir 'control-center-host.log'
 $recoveryLog = Join-Path $stateDir 'autonomous-recovery.log'
 $recoveryStdout = Join-Path $stateDir 'autonomous-recovery.stdout.log'
 $recoveryStderr = Join-Path $stateDir 'autonomous-recovery.stderr.log'
+$recoveryStatePath = Join-Path $stateDir 'recovery-supervisor-state.json'
 
 function Append-HostLog([string]$Message) {
   "[$([DateTimeOffset]::UtcNow.ToString('o'))] $Message" | Add-Content -Path $hostLog -Encoding utf8
@@ -79,7 +82,25 @@ function Observe-WebChild {
 function Observe-RecoveryChild {
   if ($recoveryChild) {
     try { $recoveryChild.Refresh() } catch {}
-    if (-not $recoveryChild.HasExited) { return }
+    if (-not $recoveryChild.HasExited) {
+      $lifetime = ([DateTimeOffset]::UtcNow - $recoveryStartedAt).TotalSeconds
+      if ($lifetime -ge $RecoveryHeartbeatStartupGraceSeconds) {
+        $heartbeatFresh = $false
+        if (Test-Path -LiteralPath $recoveryStatePath) {
+          try {
+            $heartbeat = Get-Content -LiteralPath $recoveryStatePath -Raw -ErrorAction Stop | ConvertFrom-Json
+            $heartbeatAge = ([DateTimeOffset]::UtcNow - [DateTimeOffset]::Parse([string]$heartbeat.updatedAt)).TotalSeconds
+            $heartbeatFresh = $heartbeatAge -le $RecoveryHeartbeatStaleSeconds
+          } catch {}
+        }
+        if (-not $heartbeatFresh) {
+          Append-HostLog "Autonomous recovery heartbeat stale; recycling recovery child pid=$($recoveryChild.Id)."
+          Stop-Process -Id $recoveryChild.Id -Force -ErrorAction SilentlyContinue
+          return
+        }
+      }
+      return
+    }
     $lifetime = ([DateTimeOffset]::UtcNow - $recoveryStartedAt).TotalSeconds
     if ($lifetime -ge 60) { $script:recoveryRestartAttempt = 0 }
     Append-HostLog "Autonomous recovery child exited code=$($recoveryChild.ExitCode) after=$([Math]::Round($lifetime,1))s."

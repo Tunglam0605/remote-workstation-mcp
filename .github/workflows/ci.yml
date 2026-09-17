@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/v0.9.3-stm32-openocd-acceptance]
+    branches: [main, fix/v0.9.4-windows-recovery]
   pull_request:
 
 permissions:

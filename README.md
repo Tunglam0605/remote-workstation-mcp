@@ -6,7 +6,14 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.10.0**
+**v0.10.1**
+
+v0.10.1 closes the Windows Control Center update-handoff failure found during real-machine acceptance:
+
+- replace Node `spawn(... detached: true)` for update workers with a short-lived PowerShell starter that creates the durable worker through `Win32_Process.Create`/CIM outside the managed RWMCP process tree;
+- require a real `RUNNING`/`SUCCEEDED` startup acknowledgement before the Control Center returns HTTP 202, eliminating false-positive accepted updates;
+- mark abandoned unacknowledged `STARTING` transactions stale after a short startup grace instead of blocking updates for 15 minutes;
+- add Windows regression coverage for the real CIM parent boundary, successful handoff, and a worker that exits before acknowledgement.
 
 v0.10.0 introduces the Engineering Workflow Engine for recurring ChatGPT Web engineering work:
 
@@ -21,7 +28,7 @@ v0.9.11 closes the Windows update/convergence failures found during real-machine
 - runtime startup now converges stale, duplicate, cross-slot, and orphan managed MCP/tunnel processes before the candidate slot binds port 8683;
 - the full Windows start path, including Control Center startup, is serialized by the cross-process runtime-start lock so concurrent starts cannot create duplicate recovery/control planes;
 - manual update fails closed when the active runtime cannot be stopped safely instead of switching version slots and racing the old runtime;
-- Windows update transactions persist `STARTING` before worker spawn, and the detached worker becomes the sole owner of `RUNNING / SUCCEEDED / FAILED`, preventing a completed transaction from being overwritten back to stale `STARTING`;
+- Windows update transactions persist `STARTING` before worker launch so a completed transaction cannot be overwritten back to stale `STARTING`; v0.10.1 later replaces the fragile Node detached-spawn boundary with CIM-backed durable worker creation;
 - CI now reproduces cross-slot cleanup, orphan MCP/tunnel cleanup, concurrent startup, lifecycle interlocks, and all durable update-handoff success/failure modes.
 
 v0.9.10 adds persisted lifecycle epochs, ownership-safe convergence, a bounded recovery circuit breaker, and SHA-verified GitHub API release-asset fallback. Together with the v0.9.9 cross-process runtime-start lock, Windows recovery now converges toward exactly one managed runtime/tunnel stack while planned lifecycle transactions suppress recovery races.
@@ -173,7 +180,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.10.0.tgz`
+- `remote-workstation-mcp-v0.10.1.tgz`
 - `SHA256SUMS.txt`
 
 

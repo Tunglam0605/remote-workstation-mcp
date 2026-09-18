@@ -380,6 +380,14 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.10 — Engineering Workflow Engine
 
+### v0.10.1 - Windows WebUI update handoff acceptance hotfix
+
+- replace Node detached-spawn update handoff with a CIM/Win32_Process.Create starter so the durable worker is outside the managed runtime/Control Center process tree;
+- require RUNNING/SUCCEEDED worker acknowledgement before returning an accepted update response;
+- fail closed when the worker exits before acknowledgement and preserve terminal FAILED state from the worker;
+- treat an unacknowledged STARTING transaction with no worker PID as stale after a short startup grace;
+- add real Windows CI coverage for the CIM parent boundary, success path and early worker exit.
+
 The v0.10 priority is reducing repeated per-chat engineering setup and shell command sequences now that Direct Node control is stable.
 
 - add project-local .rwmcp/project.yaml as the canonical recurring engineering configuration;

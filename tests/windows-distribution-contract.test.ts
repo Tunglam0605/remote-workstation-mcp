@@ -132,6 +132,7 @@ test('Windows tunnel readiness requires fresh control-plane polling, not only lo
 
 test('Windows update install is handed off to a durable worker and activation waits beyond the watchdog recycle window', async () => {
   const setupServer = await read('src/setup/setup-server.ts');
+  const starter = await read('scripts/start-update-handoff-windows.ps1');
   const worker = await read('scripts/update-handoff-windows.ps1');
   const convergence = await read('scripts/windows-runtime-convergence.ps1');
   const runtime = await read('scripts/runtime-control-windows.ps1');
@@ -140,20 +141,33 @@ test('Windows update install is handed off to a durable worker and activation wa
 
   assert.match(setupServer, /scheduleWindowsUpdateInstall/);
   assert.match(setupServer, /update-handoff-windows\.ps1/);
-  assert.match(setupServer, /detached:\s*true/);
-  assert.match(setupServer, /child\.unref\(\)/);
+  assert.match(setupServer, /start-update-handoff-windows\.ps1/);
+  assert.match(setupServer, /AckTimeoutSeconds/);
+  assert.match(setupServer, /acknowledged/);
   assert.match(setupServer, /accepted \? 202 : 200/);
   assert.match(worker, /update-transaction\.json/);
   assert.match(worker, /RemoteWorkstationMCP\.UpdateHandoff/);
   assert.match(runtime, /windows-runtime-convergence\.ps1/);
   assert.match(convergence, /openai-tunnel-cli\.js/);
   assert.match(convergence, /dist\\cli\.js/);
+
   const updateSchedule = setupServer.slice(
     setupServer.indexOf('async function scheduleWindowsUpdateInstall'),
     setupServer.indexOf('async function windowsUpdateControl')
   );
-  assert.ok(updateSchedule.indexOf("state: 'STARTING'") < updateSchedule.indexOf("spawn('powershell.exe'"), 'STARTING must be persisted before spawning the Windows update worker');
-  assert.match(updateSchedule, /Do not[\s\S]*rewrite the transaction file after spawn/);
+  assert.ok(
+    updateSchedule.indexOf("state: 'STARTING'") < updateSchedule.indexOf("await runProcess('powershell.exe'"),
+    'STARTING must be persisted before executing the durable Windows update starter'
+  );
+  assert.doesNotMatch(updateSchedule, /detached:\s*true/);
+  assert.doesNotMatch(updateSchedule, /child\.unref\(\)/);
+  assert.match(updateSchedule, /readWindowsUpdateTransaction[\s\S]*RUNNING[\s\S]*SUCCEEDED/);
+  assert.match(setupServer, /starter-never-acknowledged/);
+
+  assert.match(starter, /Invoke-CimMethod[\s\S]*Win32_Process[\s\S]*Create/);
+  assert.match(starter, /acknowledged/);
+  assert.match(starter, /Get-Process -Id \$workerPid/);
+  assert.match(starter, /Stop-Process -Id \$workerPid -Force/);
   assert.match(worker, /System\.Diagnostics\.ProcessStartInfo/);
   assert.match(worker, /Invoke-LauncherAction 'Update'/);
   assert.match(worker, /RedirectStandardOutput = \$true/);
@@ -167,6 +181,7 @@ test('Windows update install is handed off to a durable worker and activation wa
   assert.match(host, /InitialControlPlaneGraceSeconds\s*=\s*60/);
   assert.match(host, /PostReadyFailureGraceSeconds\s*=\s*15/);
   assert.match(ci, /test-update-handoff-windows\.ps1/);
+  assert.match(ci, /test-update-starter-windows\.ps1/);
 });
 
 

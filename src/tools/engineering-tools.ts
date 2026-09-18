@@ -13,7 +13,7 @@ const workspacePath = z.object({ workspace: z.string().min(1), projectPath: z.st
 const debugSession = z.object({ id: z.string().uuid() });
 
 export function registerEngineeringTools(server: McpServer, ctx: AppContext): void {
-  const workflowId = z.enum(['firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor', 'ros2.health']);
+  const workflowId = z.enum(['firmware.build', 'firmware.build_flash', 'firmware.build_flash_verify', 'firmware.build_flash_monitor', 'firmware.build_flash_monitor_expect', 'stm32.debug_fault_snapshot', 'ros2.build', 'ros2.health', 'ros2.build_health']);
   const workflowOverrides = z.object({
     artifact: z.string().optional(),
     port: z.string().optional(),
@@ -21,7 +21,13 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     targetConfig: z.string().optional(),
     adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
     monitorPort: z.string().optional(),
-    monitorBaudRate: z.number().int().min(300).max(12_000_000).optional()
+    monitorBaudRate: z.number().int().min(300).max(12_000_000).optional(),
+    expectText: z.string().min(1).max(512).optional(),
+    expectTimeoutMs: z.number().int().min(100).max(120_000).optional(),
+    rosPackagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).optional(),
+    rosSymlinkInstall: z.boolean().optional(),
+    rosMergeInstall: z.boolean().optional(),
+    debugMaxFrames: z.number().int().min(1).max(64).optional()
   }).default({});
   const profileProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
 
@@ -47,13 +53,23 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
         probeSerial: z.string().min(1).optional(),
         targetConfig: z.string().min(1).optional(),
         adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
-        monitor: z.object({ port: z.string().min(1).optional(), baudRate: z.number().int().min(300).max(12_000_000).optional() }).optional()
+        monitor: z.object({
+          port: z.string().min(1).optional(),
+          baudRate: z.number().int().min(300).max(12_000_000).optional(),
+          expectText: z.string().min(1).max(512).optional(),
+          expectTimeoutMs: z.number().int().min(100).max(120_000).optional()
+        }).optional()
       }).optional(),
       ros2: z.object({
         distro: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/).optional(),
         cwd: z.string().min(1).optional(),
         workspaceSetup: z.string().min(1).optional(),
-        domainId: z.number().int().min(0).max(232).optional()
+        domainId: z.number().int().min(0).max(232).optional(),
+        build: z.object({
+          symlinkInstall: z.boolean().optional(),
+          mergeInstall: z.boolean().optional(),
+          packagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).optional()
+        }).optional()
       }).optional()
     }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
@@ -105,6 +121,19 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0) }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, cursor }) => result(await audited(ctx.audit, 'serial_read', undefined, async () => ctx.engineering.serial.read(id, cursor))));
+
+  server.registerTool('serial_wait_for_text', {
+    description: 'Wait for a bounded UTF-8 marker in a caller-owned serial session. Useful for boot/readiness acceptance without repeated polling from ChatGPT.',
+    inputSchema: z.object({
+      id: z.string().uuid(),
+      expectedText: z.string().min(1).max(512),
+      timeoutMs: z.number().int().min(100).max(120_000).default(10_000),
+      cursor: z.number().int().nonnegative().default(0)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ id, expectedText, timeoutMs, cursor }) => result(
+    await audited(ctx.audit, 'serial_wait_for_text', undefined, () => ctx.engineering.serial.waitForText(id, expectedText, timeoutMs, cursor))
+  ));
 
   server.registerTool('serial_write', {
     description: 'Write bounded data to a caller-owned serial session. Requires hardware-mutation permission unless the owner explicitly relaxes serial-write policy.',
@@ -271,6 +300,35 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   server.registerTool('debug_session_stop', { description: 'Stop a caller-owned debug session and release the debug probe.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, async ({ id }) => result(await audited(ctx.audit, 'debug_session_stop', undefined, () => ctx.engineering.debug.stop(id))));
 
   const rosWorkspace = z.object({ workspace: z.string(), cwd: z.string().default('.') });
+  server.registerTool('ros2_build', {
+    description: 'Build a ROS 2 workspace with typed colcon options. No arbitrary colcon or shell arguments are accepted.',
+    inputSchema: z.object({
+      workspace: z.string(),
+      cwd: z.string().default('.'),
+      distro: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/).optional(),
+      domainId: z.number().int().min(0).max(232).optional(),
+      symlinkInstall: z.boolean().default(true),
+      mergeInstall: z.boolean().default(false),
+      packagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).default([])
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, cwd, distro, domainId, symlinkInstall, mergeInstall, packagesSelect }) => result(
+    await audited(ctx.audit, 'ros2_build', workspace, () => ctx.engineering.ros2.build(
+      workspace,
+      cwd,
+      distro || domainId !== undefined ? { distro, domainId } : undefined,
+      { symlinkInstall, mergeInstall, packagesSelect }
+    ))
+  ));
+
+  server.registerTool('ros2_topic_info', {
+    description: 'Read verbose ROS 2 topic endpoint/QoS information for one absolute topic name.',
+    inputSchema: z.object({ workspace: z.string(), topic: z.string(), cwd: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, topic, cwd }) => result(
+    await audited(ctx.audit, 'ros2_topic_info', workspace, () => ctx.engineering.ros2.topicInfo(workspace, topic, cwd))
+  ));
+
   server.registerTool('ros2_node_list', { description: 'List ROS 2 nodes using bounded ros2cli execution.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ nodes: await audited(ctx.audit, 'ros2_node_list', workspace, () => ctx.engineering.ros2.nodeList(workspace, cwd)) }));
   server.registerTool('ros2_topic_list', { description: 'List ROS 2 topics and reported types.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ topics: await audited(ctx.audit, 'ros2_topic_list', workspace, () => ctx.engineering.ros2.topicList(workspace, cwd)) }));
   server.registerTool('ros2_topic_echo', { description: 'Echo one ROS 2 topic message with --once and a bounded timeout.', inputSchema: z.object({ workspace: z.string(), topic: z.string(), cwd: z.string().default('.'), timeoutMs: z.number().int().min(500).max(60_000).default(10_000) }), annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, topic, cwd, timeoutMs }) => result(await audited(ctx.audit, 'ros2_topic_echo', workspace, () => ctx.engineering.ros2.topicEchoOnce(workspace, topic, cwd, timeoutMs))));

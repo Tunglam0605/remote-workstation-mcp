@@ -93,6 +93,55 @@ export class SerialSessionManager {
     };
   }
 
+  async waitForText(id: string, expectedText: string, timeoutMs = 10_000, cursor = 0): Promise<{
+    matched: boolean;
+    expectedText: string;
+    text: string;
+    nextCursor: number;
+    elapsedMs: number;
+    session: SerialSessionSnapshot;
+  }> {
+    const managed = this.owned(id);
+    if (!expectedText || Buffer.byteLength(expectedText, 'utf8') > 4096) {
+      throw new Error('expectedText must be 1..4096 UTF-8 bytes.');
+    }
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 120_000) {
+      throw new Error('timeoutMs must be an integer in range 100..120000.');
+    }
+
+    const started = Date.now();
+    let nextCursor = Math.max(0, Math.floor(cursor));
+    let collected = '';
+    while (Date.now() - started <= timeoutMs) {
+      const chunk = this.read(id, nextCursor);
+      nextCursor = chunk.nextCursor;
+      collected += chunk.text;
+      if (Buffer.byteLength(collected, 'utf8') > this.policy.config.process.maxOutputBytes) {
+        collected = Buffer.from(collected, 'utf8').subarray(-this.policy.config.process.maxOutputBytes).toString('utf8');
+      }
+      if (collected.includes(expectedText)) {
+        return {
+          matched: true,
+          expectedText,
+          text: collected,
+          nextCursor,
+          elapsedMs: Date.now() - started,
+          session: this.snapshot(managed)
+        };
+      }
+      if (managed.status === 'failed' || managed.status === 'closed') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return {
+      matched: false,
+      expectedText,
+      text: collected,
+      nextCursor,
+      elapsedMs: Date.now() - started,
+      session: this.snapshot(managed)
+    };
+  }
+
   async write(id: string, data: string, encoding: BufferEncoding = 'utf8'): Promise<{ acceptedBytes: number }> {
     this.policy.assertSerialWrite();
     const managed = this.owned(id);

@@ -6,7 +6,15 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.10.2**
+**v0.11.0**
+
+v0.11.0 deepens the Engineering Workflow Engine so repeated embedded/ROS work can collapse into one typed MCP call:
+
+- add `firmware.build_flash_verify` for STM32 build -> flash -> independent OpenOCD verify acceptance;
+- add `stm32.debug_fault_snapshot` for ELF/AXF selection -> debug session -> halt -> Cortex-M fault decode -> stack capture -> automatic probe release;
+- add `firmware.build_flash_monitor_expect` plus `serial_wait_for_text` so ESP-IDF flashing can wait for a persisted boot/readiness marker without chat-side polling;
+- add typed `ros2_build`/`ros2.build` and `ros2.build_health` using bounded colcon options from `.rwmcp/project.yaml`;
+- add `ros2_topic_info` for verbose endpoint/QoS inspection while keeping arbitrary shell/colcon/OpenOCD/GDB commands unavailable.
 
 v0.10.2 closes the recovery-plane convergence gap found during the next real-machine acceptance:
 
@@ -110,7 +118,7 @@ High-level tools:
 - `engineering_workflow_plan` — resolve defaults/steps before execution;
 - `engineering_workflow_run` — execute the approved typed workflow and return per-step structured results.
 
-Initial built-in workflows are `firmware.build`, `firmware.build_flash`, `firmware.build_flash_monitor`, and `ros2.health`.
+Built-in workflows now include `firmware.build`, `firmware.build_flash`, `firmware.build_flash_verify`, `firmware.build_flash_monitor`, `firmware.build_flash_monitor_expect`, `stm32.debug_fault_snapshot`, `ros2.build`, `ros2.health`, and `ros2.build_health`.
 
 Example ESP-IDF profile:
 
@@ -126,6 +134,8 @@ firmware:
   monitor:
     port: COM7
     baudRate: 115200
+    expectText: APP_READY
+    expectTimeoutMs: 10000
 ```
 
 Example ROS 2 profile:
@@ -139,6 +149,9 @@ ros2:
   cwd: .
   workspaceSetup: install/setup.bash
   domainId: 10
+  build:
+    symlinkInstall: true
+    packagesSelect: [robot_bringup, robot_control]
 ```
 
 The ROS 2 workflow performs the distro/workspace environment bootstrap internally, so each new chat does not need to rediscover and repeat `source /opt/ros/.../setup.bash`, `source install/setup.bash`, and `export ROS_DOMAIN_ID=...` before normal graph inspection.
@@ -188,7 +201,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.10.2.tgz`
+- `remote-workstation-mcp-v0.11.0.tgz`
 - `SHA256SUMS.txt`
 
 

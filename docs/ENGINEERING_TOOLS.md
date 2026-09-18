@@ -1,31 +1,99 @@
-﻿# Engineering Tools
+# Engineering Tools
 
-RWMCP v0.9 introduces typed engineering operations so routine embedded, robotics and workstation tasks do not need arbitrary shell strings.
+RWMCP v0.11 extends the typed engineering layer so recurring STM32, ESP-IDF and ROS 2 work can be represented as persistent project profiles plus semantic workflows instead of repeated shell sequences.
 
 ## Tool families
 
+- `engineering_*`: inspect a project, create/load `.rwmcp/project.yaml`, list/plan/run approved high-level workflows.
 - `hardware_*`: discover serial ports/debug probes and inspect exclusive resource leases.
-- `serial_*`: caller-owned bounded serial monitoring and policy-gated writes.
+- `serial_*`: caller-owned bounded serial monitoring, readiness-marker waiting and policy-gated writes.
 - `terminal_*`: true PTY/ConPTY sessions with bounded I/O.
-- `firmware_*` / `target_reset`: inspect, build, plan, flash, verify and reset firmware through constrained providers.
+- `firmware_*` / `target_reset`: inspect, build, plan, flash, independently verify and reset firmware through constrained providers.
 - `debug_*` / `fault_decode`: OpenOCD + GDB/MI debugging, Cortex-M register/memory/fault inspection.
-- `ros2_*`: bounded node/topic/service/action/parameter/bag workflows.
+- `ros2_*`: typed colcon build plus bounded node/topic/QoS/service/action/parameter/bag operations.
 - `container_*` / `image_build`: typed Docker lifecycle, logs, exec and build operations.
+
+## High-level workflow catalog
+
+### STM32
+
+- `firmware.build`
+- `firmware.build_flash`
+- `firmware.build_flash_verify`
+- `stm32.debug_fault_snapshot`
+
+`firmware.build_flash_verify` performs a normal constrained flash transaction and then a separate OpenOCD `verify_image` acceptance pass. `stm32.debug_fault_snapshot` requires an explicit/persisted ST-Link serial and one unambiguous ELF/AXF symbols artifact, opens a loopback-only OpenOCD/GDB-MI session, halts the core, captures Cortex-M fault state and stack frames, then closes the session and releases the probe.
+
+### ESP-IDF
+
+- `firmware.build`
+- `firmware.build_flash`
+- `firmware.build_flash_monitor`
+- `firmware.build_flash_monitor_expect`
+
+The monitor-expect workflow persists serial port/baud/readiness marker in `.rwmcp/project.yaml` and uses `serial_wait_for_text` internally, eliminating repeated chat polling while keeping output and timeout bounded.
+
+### ROS 2
+
+- `ros2.build`
+- `ros2.health`
+- `ros2.build_health`
+
+ROS build configuration accepts only typed fields such as `symlinkInstall`, `mergeInstall`, and a bounded `packagesSelect` list. It does not accept arbitrary colcon arguments or shell strings. `ros2_topic_info` provides verbose endpoint/QoS inspection.
 
 ## Initial providers
 
 - STM32: OpenOCD/ST-Link and `arm-none-eabi-gdb`/GDB-MI.
 - ESP32: ESP-IDF (`idf.py`) with deterministic environment activation.
 - Generic builds: CMake and Make.
-- ROS 2: `ros2cli` typed argv contracts.
+- ROS 2: `colcon` + `ros2cli` typed argv contracts.
 - Containers: Docker CLI typed argv contracts.
+
+## Project profile examples
+
+ESP-IDF:
+
+```yaml
+version: 1
+id: callbox
+kind: esp-idf
+firmware:
+  buildProvider: esp-idf
+  buildDir: build
+  flashProvider: esp-idf
+  port: COM7
+  monitor:
+    port: COM7
+    baudRate: 115200
+    expectText: APP_READY
+    expectTimeoutMs: 10000
+```
+
+ROS 2:
+
+```yaml
+version: 1
+id: robot-ws
+kind: ros2
+ros2:
+  distro: humble
+  cwd: .
+  workspaceSetup: install/setup.bash
+  domainId: 10
+  build:
+    symlinkInstall: true
+    mergeInstall: false
+    packagesSelect:
+      - robot_bringup
+      - robot_control
+```
 
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.
 
-v0.9.0 intentionally does **not** expose mass erase, STM32 Option Bytes, ESP eFuse writes, arbitrary OpenOCD TCL, arbitrary GDB commands, target memory writes or GDB flashing.
+Project manifests are data-only. They cannot contain executable paths, shell commands, arbitrary OpenOCD TCL, arbitrary GDB commands, arbitrary colcon arguments, STM32 Option Byte/RDP operations, ESP eFuse writes, target memory writes or mass-erase recipes.
 
-## Why typed tools
+## Why typed workflows
 
-The stable tool contract can be improved internally without changing how ChatGPT uses it. A future `firmware_flash` implementation may select a different verified provider while preserving the same policy, audit and result model.
+The stable semantic contract lets ChatGPT ask for intent such as “build, flash, verify” or “build ROS workspace and check graph health” instead of rebuilding a shell recipe in every conversation. Provider implementation can evolve internally without changing the project-level workflow contract.

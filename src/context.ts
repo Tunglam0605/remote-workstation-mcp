@@ -62,7 +62,7 @@ export async function createContext() {
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringRos2);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
   return {
     config,
     hostsConfig,

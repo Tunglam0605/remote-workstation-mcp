@@ -109,6 +109,78 @@ export class Ros2Adapter {
     return result;
   }
 
+  async build(
+    workspace: string,
+    cwd = '.',
+    runtime?: Ros2RuntimeContext,
+    options: { symlinkInstall?: boolean; mergeInstall?: boolean; packagesSelect?: string[] } = {}
+  ) {
+    this.policy.assertEngineeringExecute();
+    validateRuntime(runtime);
+    const resolvedCwd = await this.paths.resolveExisting(workspace, cwd);
+    const packages = options.packagesSelect ?? [];
+    if (packages.length > 50 || packages.some(name => !/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(name))) {
+      throw new Error('ROS 2 packagesSelect must contain at most 50 safe package names.');
+    }
+    if (options.symlinkInstall && options.mergeInstall) {
+      throw new Error('colcon --symlink-install and --merge-install cannot be combined.');
+    }
+
+    const args = ['build'];
+    if (options.symlinkInstall ?? true) args.push('--symlink-install');
+    if (options.mergeInstall) args.push('--merge-install');
+    if (packages.length) args.push('--packages-select', ...packages);
+
+    let program: string;
+    let commandArgs: string[];
+    if (runtime?.distro) {
+      if (os.platform() === 'win32') {
+        throw new Error('Profile-driven colcon environment bootstrap is currently supported on POSIX hosts only.');
+      }
+      const distroSetup = `/opt/ros/${runtime.distro}/setup.bash`;
+      try {
+        await fs.access(distroSetup);
+      } catch {
+        throw new Error(`ROS 2 distro setup was not found: ${distroSetup}`);
+      }
+      const bash = await resolveFirstExecutable(['bash']);
+      if (!bash) throw new Error('bash is required for ROS 2 colcon environment bootstrap.');
+      program = bash.path;
+      commandArgs = [
+        helperPath('ros2-colcon-run.sh'),
+        distroSetup,
+        '',
+        runtime.domainId === undefined ? '' : String(runtime.domainId),
+        ...args
+      ];
+    } else {
+      const colcon = await resolveFirstExecutable(['colcon']);
+      if (!colcon) throw new Error('colcon is unavailable in the RWMCP runtime environment.');
+      program = colcon.path;
+      commandArgs = args;
+    }
+
+    const result = await this.runner.run(program, commandArgs, resolvedCwd, 600_000);
+    if (result.exitCode !== 0 || result.timedOut) {
+      throw new Error(`colcon build failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+    }
+    return {
+      provider: 'colcon' as const,
+      options: {
+        symlinkInstall: options.symlinkInstall ?? true,
+        mergeInstall: options.mergeInstall ?? false,
+        packagesSelect: packages
+      },
+      result
+    };
+  }
+
+  async topicInfo(workspace: string, topic: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    if (!/^\/[A-Za-z0-9_\/]+$/.test(topic)) throw new Error('Invalid ROS 2 topic name.');
+    const result = await this.run(workspace, cwd, ['topic', 'info', topic, '--verbose'], 15_000, runtime);
+    return { topic, output: result.stdout.trim() };
+  }
+
   async nodeList(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {
     const result = await this.run(workspace, cwd, ['node', 'list'], 15_000, runtime);
     return lines(result.stdout);

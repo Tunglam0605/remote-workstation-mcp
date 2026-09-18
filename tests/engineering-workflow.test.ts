@@ -33,9 +33,11 @@ async function fixture(project: FirmwareProjectInfo) {
   const profiles = new EngineeringProjectProfileStore(policy, paths);
   const calls: string[] = [];
   let buildResult = okCommand();
+  let verifyResult = okCommand();
+  let artifacts: Array<{ path: string; kind: string; size: number }> = [];
   const firmware = {
     async inspect() { return project; },
-    async listArtifacts() { return []; },
+    async listArtifacts() { return artifacts; },
     async build() {
       calls.push('build');
       return { project, provider: project.family === 'esp32' ? 'esp-idf' : 'cmake', result: buildResult };
@@ -45,6 +47,14 @@ async function fixture(project: FirmwareProjectInfo) {
       return {
         plan: { provider: project.family === 'esp32' ? 'esp-idf' : 'openocd' },
         result: okCommand()
+      };
+    },
+    async verify(options: Record<string, unknown>) {
+      calls.push(`verify:${String(options.artifact ?? 'none')}`);
+      return {
+        provider: 'openocd',
+        result: verifyResult,
+        diagnostic: { code: verifyResult.exitCode === 0 ? 'ok' : 'verify-failed', ok: verifyResult.exitCode === 0 }
       };
     }
   };
@@ -62,11 +72,59 @@ async function fixture(project: FirmwareProjectInfo) {
         bytesRead: 0,
         bufferedBytes: 0
       };
+    },
+    async waitForText(id: string, expectedText: string, timeoutMs: number) {
+      calls.push(`expect:${expectedText}:${timeoutMs}`);
+      return {
+        matched: expectedText !== 'NEVER',
+        expectedText,
+        text: expectedText === 'NEVER' ? 'booting...' : `booting... ${expectedText}`,
+        nextCursor: 10,
+        elapsedMs: 25,
+        session: {
+          id,
+          resourceId: 'serial:test',
+          port: 'test',
+          baudRate: 115200,
+          status: 'open',
+          startedAt: new Date(0).toISOString(),
+          bytesRead: 10,
+          bufferedBytes: 10
+        }
+      };
     }
   };
-  const rosCalls: Array<{ workspace: string; cwd: string; runtime: unknown }> = [];
+  const debug = {
+    async start(options: Record<string, unknown>) {
+      calls.push(`debug.start:${String(options.symbols)}:${String(options.probeSerial)}`);
+      return { id: '22222222-2222-4222-8222-222222222222', status: 'connected' };
+    },
+    async halt(id: string) {
+      calls.push(`debug.halt:${id}`);
+      return { stopped: true };
+    },
+    async faultSnapshot(id: string) {
+      calls.push(`debug.fault:${id}`);
+      return { core: { pc: '0x08001234', lr: '0x08005678' }, decoded: { faults: ['BusFault'] } };
+    },
+    async stack(id: string, maxFrames: number) {
+      calls.push(`debug.stack:${id}:${maxFrames}`);
+      return [{ level: 0, function: 'HardFault_Handler' }];
+    },
+    async stop(id: string) {
+      calls.push(`debug.stop:${id}`);
+      return { id, status: 'stopped' };
+    }
+  };
+  const rosCalls: Array<{ workspace: string; cwd: string; runtime: unknown; options?: unknown }> = [];
   const ros2 = {
+    async build(workspace: string, cwd: string, runtime: unknown, options: unknown) {
+      calls.push('ros2.build');
+      rosCalls.push({ workspace, cwd, runtime, options });
+      return { provider: 'colcon', options, result: okCommand() };
+    },
     async health(workspace: string, cwd: string, runtime: unknown) {
+      calls.push('ros2.health');
       rosCalls.push({ workspace, cwd, runtime });
       return { summary: { nodes: 1, topics: 2, services: 3, actions: 4 } };
     }
@@ -77,6 +135,7 @@ async function fixture(project: FirmwareProjectInfo) {
     firmware as never,
     hardware as never,
     serial as never,
+    debug as never,
     ros2 as never
   );
   return {
@@ -85,7 +144,9 @@ async function fixture(project: FirmwareProjectInfo) {
     engine,
     calls,
     rosCalls,
-    setBuildResult(result: EngineeringCommandResult) { buildResult = result; }
+    setArtifacts(value: Array<{ path: string; kind: string; size: number }>) { artifacts = value; },
+    setBuildResult(result: EngineeringCommandResult) { buildResult = result; },
+    setVerifyResult(result: EngineeringCommandResult) { verifyResult = result; }
   };
 }
 
@@ -216,5 +277,214 @@ test('project profile loader blocks .rwmcp symlink escape outside the authorized
     );
   } finally {
     await fs.rm(base, { recursive: true, force: true });
+  }
+});
+
+
+test('STM32 build-flash-verify resolves one artifact and verifies after flash', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 1024 }]);
+    await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-H743' } });
+    const result = await f.engine.run('w', 'project', 'firmware.build_flash_verify');
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, ['build', 'flash:STLINK-H743', 'verify:build/main.elf']);
+    assert.equal((result as any).outputs.artifact, 'build/main.elf');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 build-flash-verify fails closed when independent verify fails', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407VET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/app.hex', kind: 'hex', size: 512 }]);
+    f.setVerifyResult({ ...okCommand(), exitCode: 1, stderr: 'verify mismatch' });
+    await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-F407' } });
+    const result = await f.engine.run('w', 'project', 'firmware.build_flash_verify');
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(f.calls, ['build', 'flash:STLINK-F407', 'verify:build/app.hex']);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('ESP monitor-expect collapses build flash monitor and readiness acceptance into one workflow', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'esp-idf',
+    target: 'esp32s3', buildSystem: 'idf.py', markers: ['sdkconfig'], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        port: '/dev/ttyUSB0',
+        monitor: { baudRate: 115200, expectText: 'APP_READY', expectTimeoutMs: 5000 }
+      }
+    });
+    const result = await f.engine.run('w', 'project', 'firmware.build_flash_monitor_expect');
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, [
+      'build',
+      'flash:/dev/ttyUSB0',
+      'serial:/dev/ttyUSB0:115200',
+      'expect:APP_READY:5000'
+    ]);
+    assert.equal((result as any).outputs.expectation.matched, true);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('ESP monitor-expect fails acceptance without discarding the open serial session', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'esp-idf',
+    target: 'esp32', buildSystem: 'idf.py', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: { port: 'COM9', monitor: { expectText: 'NEVER', expectTimeoutMs: 1000 } }
+    });
+    const result = await f.engine.run('w', 'project', 'firmware.build_flash_monitor_expect');
+    assert.equal(result.status, 'failed');
+    assert.equal((result as any).outputs.serialSession.id, '11111111-1111-4111-8111-111111111111');
+    assert.equal((result as any).outputs.expectation.matched, false);
+    assert.match(result.steps.at(-1)?.error ?? '', /did not contain expected readiness marker/i);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('monitor-expect plan fails closed without a persisted or explicit readiness marker', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'esp-idf',
+    target: 'esp32', buildSystem: 'idf.py', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', { firmware: { port: 'COM3' } });
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'firmware.build_flash_monitor_expect'),
+      /expectText|readiness marker/i
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('ROS 2 build-health runs typed colcon before graph health with canonical build options', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'unknown', framework: 'unknown',
+    markers: ['src'], ros2: true, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await fs.mkdir(path.join(f.root, 'project', 'install'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'install', 'setup.bash'), '# test\n');
+    await f.engine.initProfile('w', 'project', {
+      id: 'robot-ws',
+      ros2: {
+        distro: 'humble',
+        workspaceSetup: 'install/setup.bash',
+        domainId: 7,
+        build: { symlinkInstall: true, packagesSelect: ['robot_bringup', 'robot_control'] }
+      }
+    });
+    const plan = await f.engine.plan('w', 'project', 'ros2.build_health');
+    assert.deepEqual(plan.steps, [
+      'ros2.colcon.build',
+      'ros2.environment.bootstrap',
+      'ros2.node.list',
+      'ros2.topic.list',
+      'ros2.service.list',
+      'ros2.action.list'
+    ]);
+    const result = await f.engine.run('w', 'project', 'ros2.build_health');
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, ['ros2.build', 'ros2.health']);
+    assert.equal(f.rosCalls.length, 2);
+    assert.deepEqual((plan.resolved.ros2 as any).build.packagesSelect, ['robot_bringup', 'robot_control']);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('ROS 2 build rejects mutually exclusive merge and symlink install options', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'unknown', framework: 'unknown',
+    markers: ['src'], ros2: true, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      ros2: { distro: 'humble', build: { symlinkInstall: true, mergeInstall: true } }
+    });
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'ros2.build'),
+      /cannot combine symlinkInstall=true with mergeInstall=true/i
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('STM32 debug fault workflow opens, halts, snapshots, stacks and releases the probe', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-H743' } });
+    const plan = await f.engine.plan('w', 'project', 'stm32.debug_fault_snapshot', { debugMaxFrames: 8 });
+    assert.deepEqual(plan.steps, [
+      'debug.session.start',
+      'debug.halt',
+      'debug.fault_snapshot',
+      'debug.stack',
+      'debug.session.stop'
+    ]);
+    const result = await f.engine.run('w', 'project', 'stm32.debug_fault_snapshot', { debugMaxFrames: 8 });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, [
+      'debug.start:build/main.elf:STLINK-H743',
+      'debug.halt:22222222-2222-4222-8222-222222222222',
+      'debug.fault:22222222-2222-4222-8222-222222222222',
+      'debug.stack:22222222-2222-4222-8222-222222222222:8',
+      'debug.stop:22222222-2222-4222-8222-222222222222'
+    ]);
+    assert.equal((result as any).outputs.symbols, 'build/main.elf');
+    assert.equal((result as any).outputs.stack[0].function, 'HardFault_Handler');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 debug fault workflow refuses to guess a probe or non-symbol artifact', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407VET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/app.hex', kind: 'hex', size: 1024 }]);
+    await f.engine.initProfile('w', 'project', { firmware: {} });
+    await assert.rejects(
+      () => f.engine.run('w', 'project', 'stm32.debug_fault_snapshot'),
+      /ELF\/AXF|ELF or AXF|probeSerial/i
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
   }
 });

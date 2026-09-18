@@ -378,6 +378,17 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
+## v0.11 — Reusable engineering workflows
+
+### v0.11.0 - STM32 / ESP-IDF / ROS 2 workflow depth
+
+- add STM32 build -> flash -> independent verify workflow;
+- add one-call STM32 Cortex-M fault snapshot + stack workflow with guaranteed debug-session cleanup;
+- add ESP-IDF build -> flash -> serial monitor -> readiness-marker acceptance without chat-side polling;
+- add typed ROS 2 colcon build and build -> graph-health workflows with persisted distro/domain/package selection;
+- add verbose ROS 2 topic endpoint/QoS inspection;
+- retain data-only project manifests, explicit hardware identity, resource leases and no arbitrary shell/provider command surface.
+
 ## v0.10 — Engineering Workflow Engine
 
 ### v0.10.2 - Recovery-plane convergence hardening

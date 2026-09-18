@@ -133,6 +133,7 @@ test('Windows tunnel readiness requires fresh control-plane polling, not only lo
 test('Windows update install is handed off to a durable worker and activation waits beyond the watchdog recycle window', async () => {
   const setupServer = await read('src/setup/setup-server.ts');
   const worker = await read('scripts/update-handoff-windows.ps1');
+  const convergence = await read('scripts/windows-runtime-convergence.ps1');
   const runtime = await read('scripts/runtime-control-windows.ps1');
   const host = await read('scripts/runtime-host-windows.ps1');
   const ci = await read('.github/workflows/ci.yml');
@@ -144,6 +145,15 @@ test('Windows update install is handed off to a durable worker and activation wa
   assert.match(setupServer, /accepted \? 202 : 200/);
   assert.match(worker, /update-transaction\.json/);
   assert.match(worker, /RemoteWorkstationMCP\.UpdateHandoff/);
+  assert.match(runtime, /windows-runtime-convergence\.ps1/);
+  assert.match(convergence, /openai-tunnel-cli\.js/);
+  assert.match(convergence, /dist\\cli\.js/);
+  const updateSchedule = setupServer.slice(
+    setupServer.indexOf('async function scheduleWindowsUpdateInstall'),
+    setupServer.indexOf('async function windowsUpdateControl')
+  );
+  assert.ok(updateSchedule.indexOf("state: 'STARTING'") < updateSchedule.indexOf("spawn('powershell.exe'"), 'STARTING must be persisted before spawning the Windows update worker');
+  assert.match(updateSchedule, /Do not[\s\S]*rewrite the transaction file after spawn/);
   assert.match(worker, /System\.Diagnostics\.ProcessStartInfo/);
   assert.match(worker, /Invoke-LauncherAction 'Update'/);
   assert.match(worker, /RedirectStandardOutput = \$true/);
@@ -271,14 +281,18 @@ test('Windows lifecycle transactions persist monotonic epochs and suppress recov
 
 test('Windows autonomous recovery converges stale and duplicate managed processes without racing lifecycle work', async () => {
   const recovery = await read('scripts/autonomous-recovery-windows.ps1');
+  const convergence = await read('scripts/windows-runtime-convergence.ps1');
   assert.match(recovery, /windows-lifecycle-state\.ps1/);
   assert.match(recovery, /Test-RwmcpLifecycleTransactionActive/);
+  assert.match(recovery, /windows-runtime-convergence\.ps1/);
   assert.match(recovery, /Invoke-RuntimeConvergence/);
-  assert.match(recovery, /runtime-host-windows\.ps1/);
-  assert.match(recovery, /tunnel-client\.exe/);
-  assert.match(recovery, /Stop-ManagedProcessTree/);
-  assert.match(recovery, /stale-supervisor-state/);
   assert.match(recovery, /suppressed-lifecycle/);
+  assert.match(convergence, /runtime-host-windows\.ps1/);
+  assert.match(convergence, /openai-tunnel-cli\.js/);
+  assert.match(convergence, /dist\\cli\.js/);
+  assert.match(convergence, /tunnel-client\.exe/);
+  assert.match(convergence, /Stop-RwmcpManagedProcessTree/);
+  assert.match(convergence, /Stale supervisor state detected/);
 });
 
 test('Windows recovery circuit breaker persists cooldowns and opens after repeated failed recovery attempts', async () => {

@@ -80,8 +80,16 @@ tasks: {}
 
   if (-not $p1.WaitForExit(60000)) { throw 'First concurrent Start timed out.' }
   if (-not $p2.WaitForExit(60000)) { throw 'Second concurrent Start timed out.' }
-  if ($p1.ExitCode -ne 0) { throw "First concurrent Start failed code=$($p1.ExitCode): $(Get-Content $err1 -Raw -ErrorAction SilentlyContinue)" }
-  if ($p2.ExitCode -ne 0) { throw "Second concurrent Start failed code=$($p2.ExitCode): $(Get-Content $err2 -Raw -ErrorAction SilentlyContinue)" }
+  # Complete redirected-stream handling before reading ExitCode on Windows PowerShell.
+  $p1.WaitForExit()
+  $p2.WaitForExit()
+  $p1.Refresh()
+  $p2.Refresh()
+  # Windows PowerShell may expose a null ExitCode even after WaitForExit when
+  # Start-Process owns redirected file handles. A non-null nonzero code is a
+  # hard failure; otherwise the JSON status below remains the authoritative gate.
+  if ($null -ne $p1.ExitCode -and $p1.ExitCode -ne 0) { throw "First concurrent Start failed code=$($p1.ExitCode): $(Get-Content $err1 -Raw -ErrorAction SilentlyContinue)" }
+  if ($null -ne $p2.ExitCode -and $p2.ExitCode -ne 0) { throw "Second concurrent Start failed code=$($p2.ExitCode): $(Get-Content $err2 -Raw -ErrorAction SilentlyContinue)" }
 
   $first = Read-LastJson $out1
   $second = Read-LastJson $out2

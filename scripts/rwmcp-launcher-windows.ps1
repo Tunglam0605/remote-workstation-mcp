@@ -201,7 +201,11 @@ switch ($Action) {
     try { Start-RecoveryControlCenter (Get-RecoveryRoot) } catch { Write-Warning "Control Center recovery start before update failed: $($_.Exception.Message)" }
     $savedPreserve = $env:RWMCP_RECOVERY_PRESERVE_DESIRED
     $env:RWMCP_RECOVERY_PRESERVE_DESIRED = '1'
-    try { Invoke-Runtime 'Stop' 'OpenAI' $before } catch {} finally {
+    try {
+      Invoke-Runtime 'Stop' 'OpenAI' $before
+    } catch {
+      throw "Update aborted because the current runtime could not be stopped safely: $($_.Exception.Message)"
+    } finally {
       if ($null -eq $savedPreserve) { Remove-Item Env:RWMCP_RECOVERY_PRESERVE_DESIRED -ErrorAction SilentlyContinue }
       else { $env:RWMCP_RECOVERY_PRESERVE_DESIRED = $savedPreserve }
     }

@@ -17,6 +17,9 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 }
 
 . (Join-Path $Root 'scripts\windows-settings.ps1')
+$runtimeConvergenceScript = Join-Path $Root 'scripts\windows-runtime-convergence.ps1'
+if (-not (Test-Path $runtimeConvergenceScript)) { throw "Runtime convergence helper not found: $runtimeConvergenceScript" }
+. $runtimeConvergenceScript
 $recoveryStateScript = Join-Path $Root 'scripts\windows-recovery-state.ps1'
 if (-not (Test-Path $recoveryStateScript)) { throw "Recovery state helper not found: $recoveryStateScript" }
 . $recoveryStateScript
@@ -307,26 +310,31 @@ function Sync-StableLauncherFromRuntimeSlot {
 }
 
 function Start-Runtime([string]$runtimeMode) {
-  Sync-StableLauncherFromRuntimeSlot
-  # Keep the owner-only Control Center on a separate loopback port/process so
-  # runtime Stop/Restart cannot tear down the page that issued the action.
-  $controlScript = Join-Path $Root 'scripts\control-center-windows.ps1'
-  if (Test-Path $controlScript) {
-    try {
-      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $controlScript -Action Start -Root $Root -Json | Out-Null
-      if ($LASTEXITCODE -ne 0) { Write-Warning 'Local Control Center did not start; continuing with the MCP runtime.' }
-    } catch {
-      Write-Warning "Local Control Center start failed; continuing with the MCP runtime: $($_.Exception.Message)"
-    }
-  }
-
-  # Serialize the full start transaction across all Windows processes/sessions.
-  # FileShare.None is a machine-wide filesystem lock, so updater/WMI, Control
-  # Center, recovery and interactive launchers cannot concurrently spawn hosts.
+  # Serialize the entire start transaction, including launcher self-heal and
+  # Control Center startup. Otherwise concurrent Start callers can create
+  # duplicate Control Center/recovery workers before runtime serialization.
   $startLock = Acquire-RuntimeStartLock
   try {
+    Sync-StableLauncherFromRuntimeSlot
+    # Keep the owner-only Control Center on a separate loopback port/process so
+    # runtime Stop/Restart cannot tear down the page that issued the action.
+    $controlScript = Join-Path $Root 'scripts\control-center-windows.ps1'
+    if (Test-Path $controlScript) {
+      try {
+        & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $controlScript -Action Start -Root $Root -Json | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Warning 'Local Control Center did not start; continuing with the MCP runtime.' }
+      } catch {
+        Write-Warning "Local Control Center start failed; continuing with the MCP runtime: $($_.Exception.Message)"
+      }
+    }
     # Re-check only after owning the lock: another caller may have completed
-    # startup while this process was waiting.
+    # startup while this process was waiting. Managed release slots also converge
+    # stale/duplicate hosts and orphan tunnel/MCP children before binding the port.
+    $managedBase = [IO.Path]::GetFullPath($UserConfigDir).TrimEnd('\')
+    $rootFull = [IO.Path]::GetFullPath($Root)
+    if ($rootFull.StartsWith($managedBase + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+      [void](Invoke-RwmcpRuntimeConvergence -SupervisorStatePath $StatePath -ConnectionStatePath $ConnectionStatePath -TargetRoot $Root)
+    }
     $existing = Runtime-Status
     if ($existing.running) {
       if ($runtimeMode -eq 'OpenAI' -and $existing.mode -ne 'OpenAI') {
@@ -412,8 +420,18 @@ function Start-Runtime([string]$runtimeMode) {
 function Stop-Runtime {
   $state = Read-State
   $managed = Get-ManagedProcess $state
+  if ($managed -and (Test-RwmcpProcessDescendant -ProcessId $PID -AncestorId ([int]$managed.Id))) {
+    throw 'Direct Stop cannot run from inside the managed runtime process tree because it would kill its own caller. Use the persistent Control Center or a detached lifecycle worker.'
+  }
   if ($managed) { Stop-ProcessTree ([int]$managed.Id) }
   Remove-Item -Path $StatePath, $ConnectionStatePath -Force -ErrorAction SilentlyContinue
+
+  $managedBase = [IO.Path]::GetFullPath($UserConfigDir).TrimEnd('\')
+  $rootFull = [IO.Path]::GetFullPath($Root)
+  if ($rootFull.StartsWith($managedBase + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    [void](Invoke-RwmcpRuntimeConvergence -SupervisorStatePath $StatePath -ConnectionStatePath $ConnectionStatePath -TargetRoot $Root)
+  }
+
   Start-Sleep -Milliseconds 300
   return Runtime-Status
 }

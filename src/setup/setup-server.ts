@@ -666,34 +666,56 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
   const script = path.join(repoRoot, 'scripts', 'update-handoff-windows.ps1');
   if (!(await pathExists(script))) throw new Error(`Windows update handoff helper is missing: ${script}`);
 
+  const transactionPath = windowsUpdateTransactionPath();
+  const transaction = {
+    version: 1,
+    state: 'STARTING',
+    workerPid: null,
+    expectedVersion: expectedVersion.replace(/^v/, '') || null,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  if (transactionPath) {
+    await fs.mkdir(path.dirname(transactionPath), { recursive: true });
+    await fs.writeFile(transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  }
+
   const args = [
     '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
     '-Base', base
   ];
   if (expectedVersion) args.push('-ExpectedVersion', expectedVersion.replace(/^v/, ''));
-  const child = spawn('powershell.exe', args, {
-    cwd: repoRoot,
-    shell: false,
-    windowsHide: true,
-    detached: true,
-    stdio: 'ignore'
-  });
-  child.unref();
-
-  const transaction = {
-    version: 1,
-    state: 'STARTING',
-    workerPid: child.pid ?? null,
-    expectedVersion: expectedVersion.replace(/^v/, '') || null,
-    startedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  const transactionPath = windowsUpdateTransactionPath();
-  if (transactionPath) {
-    await fs.mkdir(path.dirname(transactionPath), { recursive: true });
-    await fs.writeFile(transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  let child;
+  try {
+    child = spawn('powershell.exe', args, {
+      cwd: repoRoot,
+      shell: false,
+      windowsHide: true,
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+  } catch (error) {
+    if (transactionPath) {
+      const failed = {
+        ...transaction,
+        state: 'FAILED',
+        updatedAt: new Date().toISOString(),
+        message: error instanceof Error ? error.message : String(error)
+      };
+      await fs.writeFile(transactionPath, `${JSON.stringify(failed, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    }
+    throw error;
   }
-  return { accepted: true, alreadyRunning: false, transaction };
+
+  // The worker owns RUNNING/SUCCEEDED/FAILED from this point forward. Do not
+  // rewrite the transaction file after spawn or a fast worker can be regressed
+  // from a terminal state back to STARTING.
+  return {
+    accepted: true,
+    alreadyRunning: false,
+    transaction: { ...transaction, workerPid: child.pid ?? null }
+  };
 }
 
 async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {

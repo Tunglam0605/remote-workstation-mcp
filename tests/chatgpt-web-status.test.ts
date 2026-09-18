@@ -14,6 +14,20 @@ function fakeContext(): AppContext {
     policy: {
       effectiveMode: () => 'workspace',
       status: () => ({ mode: 'workspace' })
+    },
+    dataPlane: {
+      status: () => ({
+        transport: 'tailscale-http',
+        maxTransferBytes: 536870912,
+        tailscaleIpv4Available: true,
+        activeOffers: [],
+        recentTransfers: []
+      })
+    },
+    processes: { list: () => [{ status: 'running' }] },
+    engineering: {
+      terminals: { list: () => [] },
+      resources: { list: () => [] }
     }
   } as unknown as AppContext;
 }
@@ -29,6 +43,9 @@ test('ChatGPT Web status does not claim an authenticated tunnel for local calls'
   assert.equal(status.chatgptWeb.directControlPathVerified, false);
   assert.equal(status.chatgptWeb.permissions.write, false);
   assert.deepEqual(status.workspaces, [{ id: 'projects', name: 'Projects', readOnly: false }]);
+  assert.equal(status.nodeHealth.state, 'reachable');
+  assert.equal(status.nodeHealth.dataPlane.tailscaleIpv4Available, true);
+  assert.equal(status.nodeHealth.activeSessions.processes, 1);
 });
 
 test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scopes', () => {
@@ -46,4 +63,6 @@ test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scop
   assert.equal(status.chatgptWeb.permissions.write, true);
   assert.equal(status.chatgptWeb.permissions.execute, true);
   assert.equal(status.chatgptWeb.permissions.fullControl, false);
+  assert.equal(status.nodeHealth.state, 'healthy');
+  assert.deepEqual(status.nodeHealth.warnings, []);
 });

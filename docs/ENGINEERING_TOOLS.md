@@ -1,6 +1,8 @@
 # Engineering Tools
 
-RWMCP v0.13 extends the typed engineering layer so recurring STM32, Keil MDK, ESP-IDF and ROS 2 work can be represented as persistent project profiles plus semantic workflows instead of repeated shell sequences.
+RWMCP keeps domain engineering tools typed and project-aware. Starting in v0.14.0, generic cross-node transfer is explicitly a **core platform capability**, not an engineering/firmware capability. The existing `engineering_workflow_*` MCP actions remain the stable workflow envelope for both `platform.*` and engineering workflow IDs until a future action-schema change is intentionally justified.
+
+For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push`; see [DATA_PLANE.md](DATA_PLANE.md). The `firmware.artifact_*` workflows below remain domain-specific compatibility APIs.
 
 ## Tool families
 
@@ -140,4 +142,4 @@ The stable semantic contract lets ChatGPT ask for intent such as “build, flash
 
 Starting with action schema v2, `engineering_workflow_plan` and `engineering_workflow_run` accept a bounded semantic workflow ID plus a server-validated `parameters` object. `engineering_profile_init` also accepts a versioned server-validated `profile` object. This keeps the ChatGPT action surface stable while providers/workflow IDs evolve; only an `actionSchemaVersion` bump requires the custom-app action catalog to be refreshed.
 
-v0.13 proves this contract: `actionSchemaVersion` remains `2`, while `engineeringApiVersion=3` adds `stm32.deploy_accept` and the new runtime-only `parameters.keepMonitorOpen` option without adding a new top-level ChatGPT action or changing the frozen legacy `overrides` schema.
+v0.13 proves this contract for engineering growth. v0.14.0 reuses the same generic workflow + `parameters` envelope for core `platform.transfer_*` workflow IDs, so `actionSchemaVersion` remains `2` and `engineeringApiVersion` remains `3` without adding a new top-level ChatGPT action.

@@ -12,6 +12,21 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.0**
+
+v0.14.0 begins the platform-first multi-node milestone defined by the project charter:
+
+- add a core `DataPlaneAdapter` outside the engineering domain for generic workspace files, not only firmware artifacts;
+- add `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` through the existing stable workflow envelope;
+- stream up to 512 MiB directly Direct-Node -> Direct-Node over the owner's encrypted Tailscale mesh instead of routing payload bytes through ChatGPT;
+- verify SHA-256 and size before sending, while receiving, and again during atomic promotion into `.rwmcp/transfers/verified/`;
+- expose non-secret data-plane availability, active offers, recent transfer results, runtime uptime, memory and active-session counts through `chatgpt_web_status.nodeHealth`;
+- keep the normal MCP runtime loopback-only, keep one-shot 256-bit transfer tickets out of plans/status, and preserve independent Direct Node security boundaries;
+- keep existing `firmware.artifact_*` workflows for compatibility while treating them as domain-extension APIs;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`; **no ChatGPT action refresh is required** for an app already on schema v2.
+
+See [`docs/DATA_PLANE.md`](docs/DATA_PLANE.md) and [`docs/MULTI_DEVICE.md`](docs/MULTI_DEVICE.md).
+
 **v0.13.6**
 
 v0.13.6 adds native Direct-Node firmware artifact transfer over the owner's encrypted Tailscale mesh while preserving the trusted artifact boundary:

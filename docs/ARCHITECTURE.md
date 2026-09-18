@@ -61,6 +61,29 @@ The core rule remains:
 
 Transport and agent delegation are replaceable edges. They must not bypass the policy engine or become prerequisites for direct workstation tools.
 
+## Control plane vs data plane
+
+The normal MCP connection is a **control plane**. Commands, plans, compact status and bounded results travel through it. Large cross-node payloads should not be relayed through the model when the owner has an approved direct path.
+
+v0.14.0 adds a generic core `DataPlaneAdapter`:
+
+```text
+AI client
+   |
+   | MCP control plane
+   v
+Direct Node A                    Direct Node B
+     |                                |
+     +====== Tailscale data plane ====+
+             file bytes only
+```
+
+The normal MCP runtime remains loopback-only. A receive offer creates a separate short-lived one-shot listener bound only to a local Tailscale IPv4 interface, exact SHA-256/size contract and ephemeral bearer ticket.
+
+The data plane belongs to the core platform. Firmware/STM32, ROS 2, vision and other extensions may consume it but must not own or redefine it.
+
+See [DATA_PLANE.md](DATA_PLANE.md).
+
 ## Capability layers
 
 ### 1. Safe workspace layer

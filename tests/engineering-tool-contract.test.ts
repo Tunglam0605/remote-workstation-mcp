@@ -30,11 +30,12 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.13 daily workflow growth keeps ChatGPT Action Schema v2 stable while advancing Engineering API v3', async () => {
+test('v0.14 platform workflow growth keeps ChatGPT Action Schema v2 stable while preserving Engineering API v3', async () => {
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 2;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 3;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.13\.6';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.14\.0';/);
+  assert.match(capabilities, /multi_device\.data_plane/);
 });
 
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {

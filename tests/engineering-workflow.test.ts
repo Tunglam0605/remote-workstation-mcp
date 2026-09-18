@@ -34,6 +34,9 @@ async function fixture(project: FirmwareProjectInfo) {
   const calls: string[] = [];
   let buildResult = okCommand();
   let verifyResult = okCommand();
+  let deployResult = okCommand();
+  let deploymentReady = true;
+  let deploymentBlockers: string[] = [];
   let artifacts: Array<{ path: string; kind: string; size: number }> = [];
   const firmware = {
     async inspect() { return project; },
@@ -65,6 +68,32 @@ async function fixture(project: FirmwareProjectInfo) {
         provider: 'openocd',
         result: verifyResult,
         diagnostic: { code: verifyResult.exitCode === 0 ? 'ok' : 'verify-failed', ok: verifyResult.exitCode === 0 }
+      };
+    },
+    async stm32DeploymentPreflight(options: Record<string, unknown>) {
+      calls.push(`preflight:${String(options.probeSerial ?? 'auto')}:${String(options.monitorPort ?? '-')}`);
+      return {
+        ready: deploymentReady,
+        provider: {
+          provider: 'openocd',
+          available: deploymentReady,
+          capabilities: ['swd', 'flash', 'verify', 'reset'],
+          intentionallyUnavailable: [],
+          diagnostic: { code: deploymentReady ? 'ok' : 'provider-unavailable', ok: deploymentReady, retryable: false, message: deploymentReady ? 'ready' : 'OpenOCD unavailable' }
+        },
+        selectedProbe: deploymentReady ? { id: 'debug-probe:test', name: 'ST-Link', serialNumber: String(options.probeSerial ?? 'STLINK-01'), provider: 'test' } : undefined,
+        selectedSerialPort: deploymentReady ? { id: 'serial:test', path: String(options.monitorPort ?? 'COM7'), name: 'UART', provider: 'test' } : undefined,
+        discovered: { probes: [], serialPorts: [] },
+        blockers: deploymentReady ? [] : (deploymentBlockers.length ? deploymentBlockers : ['OpenOCD unavailable'])
+      };
+    },
+    async deployVerifyReset(options: Record<string, unknown>) {
+      calls.push(`deploy:${String(options.artifact ?? 'none')}:${String(options.probeSerial ?? 'auto')}`);
+      return {
+        plan: { provider: 'openocd', resourceId: 'debug-probe:test', destructive: true },
+        result: deployResult,
+        diagnostic: { code: deployResult.exitCode === 0 ? 'ok' : 'deploy-failed', ok: deployResult.exitCode === 0 },
+        stages: ['flash', 'verify', 'reset'] as const
       };
     }
   };
@@ -101,6 +130,20 @@ async function fixture(project: FirmwareProjectInfo) {
           bytesRead: 10,
           bufferedBytes: 10
         }
+      };
+    },
+    async close(id: string) {
+      calls.push(`serial.close:${id}`);
+      return {
+        id,
+        resourceId: 'serial:test',
+        port: 'test',
+        baudRate: 115200,
+        status: 'closed',
+        startedAt: new Date(0).toISOString(),
+        endedAt: new Date(1).toISOString(),
+        bytesRead: 10,
+        bufferedBytes: 10
       };
     }
   };
@@ -156,7 +199,9 @@ async function fixture(project: FirmwareProjectInfo) {
     rosCalls,
     setArtifacts(value: Array<{ path: string; kind: string; size: number }>) { artifacts = value; },
     setBuildResult(result: EngineeringCommandResult) { buildResult = result; },
-    setVerifyResult(result: EngineeringCommandResult) { verifyResult = result; }
+    setVerifyResult(result: EngineeringCommandResult) { verifyResult = result; },
+    setDeployResult(result: EngineeringCommandResult) { deployResult = result; },
+    setDeploymentReady(ready: boolean, blockers: string[] = []) { deploymentReady = ready; deploymentBlockers = blockers; }
   };
 }
 
@@ -654,6 +699,170 @@ test('generic versioned profile payload is validated and persisted for frozen ac
     });
     assert.equal(written.profile.firmware?.defaultVariant, 'f407');
     assert.equal(written.profile.firmware?.variants?.f407?.keilTarget, 'Main');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('STM32 deploy-accept plan reports blockers and run stops before build when hardware is unavailable', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.axf',
+        probeSerial: 'STLINK-01',
+        targetConfig: 'target/stm32f4x.cfg',
+        monitor: { port: 'COM7', baudRate: 115200, expectText: 'APP_READY', expectTimeoutMs: 5000 }
+      }
+    });
+    f.setDeploymentReady(false, ['OpenOCD unavailable', 'No ST-Link/SWD debug probe is currently discovered.']);
+
+    const plan = await f.engine.plan('w', 'project', 'stm32.deploy_accept');
+    assert.equal(plan.preflight?.ready, false);
+    assert.deepEqual(plan.steps, [
+      'preflight.stm32_deploy',
+      'firmware.build',
+      'serial.open',
+      'firmware.flash_verify_reset',
+      'serial.wait_for_text',
+      'serial.close'
+    ]);
+    assert.match(plan.preflight?.blockers.join(' ') ?? '', /OpenOCD unavailable/);
+
+    f.calls.length = 0;
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept');
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(f.calls, ['preflight:STLINK-01:COM7']);
+    assert.equal(result.steps[0]?.status, 'blocked');
+    assert.equal(result.steps.some(step => step.id === 'firmware.build'), false);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deploy-accept opens serial before one atomic flash-verify-reset transaction and closes it after readiness', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.axf',
+        probeSerial: 'STLINK-01',
+        targetConfig: 'target/stm32f4x.cfg',
+        monitor: { port: 'COM7', baudRate: 115200, expectText: 'APP_READY', expectTimeoutMs: 5000 }
+      }
+    });
+
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept');
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, [
+      'preflight:STLINK-01:COM7',
+      'build:auto:build:-:-',
+      'serial:COM7:115200',
+      'deploy:build/main.axf:STLINK-01',
+      'expect:APP_READY:5000',
+      'serial.close:11111111-1111-4111-8111-111111111111'
+    ]);
+    assert.deepEqual((result as any).outputs.deployment.stages, ['flash', 'verify', 'reset']);
+    assert.equal((result as any).outputs.expectation.matched, true);
+    assert.equal((result as any).outputs.serialSession.status, 'closed');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deploy-accept closes serial when the OpenOCD transaction fails and does not wait for readiness', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.axf',
+        probeSerial: 'STLINK-01',
+        monitor: { port: 'COM7', expectText: 'APP_READY' }
+      }
+    });
+    f.setDeployResult({ ...okCommand(), exitCode: 1, stderr: 'OpenOCD verify failed' });
+
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept');
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(f.calls, [
+      'preflight:STLINK-01:COM7',
+      'build:auto:build:-:-',
+      'serial:COM7:115200',
+      'deploy:build/main.axf:STLINK-01',
+      'serial.close:11111111-1111-4111-8111-111111111111'
+    ]);
+    assert.equal(result.steps.some(step => step.id === 'serial.wait_for_text'), false);
+    assert.equal((result as any).outputs.serialSession.status, 'closed');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deploy-accept treats readiness timeout as failure and still releases serial by default', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.elf',
+        probeSerial: 'STLINK-H743',
+        targetConfig: 'target/stm32h7x.cfg',
+        monitor: { port: 'COM8', baudRate: 921600, expectText: 'NEVER', expectTimeoutMs: 1200 }
+      }
+    });
+
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept');
+    assert.equal(result.status, 'failed');
+    assert.deepEqual(f.calls, [
+      'preflight:STLINK-H743:COM8',
+      'build:auto:build:-:-',
+      'serial:COM8:921600',
+      'deploy:build/main.elf:STLINK-H743',
+      'expect:NEVER:1200',
+      'serial.close:11111111-1111-4111-8111-111111111111'
+    ]);
+    assert.equal((result as any).outputs.expectation.matched, false);
+    assert.equal((result as any).outputs.serialSession.status, 'closed');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deploy-accept may keep the serial session open only when explicitly requested through parameters', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.axf',
+        probeSerial: 'STLINK-01',
+        monitor: { port: 'COM7', expectText: 'APP_READY' }
+      }
+    });
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept', { keepMonitorOpen: true });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(f.calls.some(call => call.startsWith('serial.close:')), false);
+    assert.equal((result as any).outputs.serialSession.status, 'open');
+    assert.equal(result.plan.steps.includes('serial.close'), false);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

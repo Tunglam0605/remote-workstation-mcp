@@ -108,6 +108,7 @@ export interface FirmwareFlashPlan {
   port?: string;
   probeSerial?: string;
   adapterSpeedKhz?: number;
+  targetConfig?: string;
   program: string;
   args: string[];
   resourceId: string;

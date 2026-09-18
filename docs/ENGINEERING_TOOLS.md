@@ -1,6 +1,6 @@
 # Engineering Tools
 
-RWMCP v0.12 extends the typed engineering layer so recurring STM32, Keil MDK, ESP-IDF and ROS 2 work can be represented as persistent project profiles plus semantic workflows instead of repeated shell sequences.
+RWMCP v0.13 extends the typed engineering layer so recurring STM32, Keil MDK, ESP-IDF and ROS 2 work can be represented as persistent project profiles plus semantic workflows instead of repeated shell sequences.
 
 ## Tool families
 
@@ -21,8 +21,11 @@ RWMCP v0.12 extends the typed engineering layer so recurring STM32, Keil MDK, ES
 - `firmware.build_flash`
 - `firmware.build_flash_verify`
 - `stm32.debug_fault_snapshot`
+- `stm32.deploy_accept`
 
 `firmware.build_flash_verify` performs a normal constrained flash transaction and then a separate OpenOCD `verify_image` acceptance pass. `stm32.debug_fault_snapshot` requires an explicit/persisted ST-Link serial and one unambiguous ELF/AXF symbols artifact, opens a loopback-only OpenOCD/GDB-MI session, halts the core, captures Cortex-M fault state and stack frames, then closes the session and releases the probe.
+
+`stm32.deploy_accept` is the daily-driver deployment path: it performs a read-only OpenOCD/ST-Link/serial preflight, builds the selected variant, opens serial before reset, then executes flash + independent verify + reset inside one OpenOCD process while one ST-Link lease is held. It waits for the configured readiness marker and closes the serial session in `finally` by default. If OpenOCD, the selected ST-Link, or monitor port is unavailable, the workflow returns `blocked` before build/flash instead of falling back to shell.
 
 ### ESP-IDF
 
@@ -127,3 +130,5 @@ Project manifests are data-only. They cannot contain executable paths, shell com
 The stable semantic contract lets ChatGPT ask for intent such as “build, flash, verify” or “build ROS workspace and check graph health” instead of rebuilding a shell recipe in every conversation. Provider implementation can evolve internally without changing the project-level workflow contract.
 
 Starting with action schema v2, `engineering_workflow_plan` and `engineering_workflow_run` accept a bounded semantic workflow ID plus a server-validated `parameters` object. `engineering_profile_init` also accepts a versioned server-validated `profile` object. This keeps the ChatGPT action surface stable while providers/workflow IDs evolve; only an `actionSchemaVersion` bump requires the custom-app action catalog to be refreshed.
+
+v0.13 proves this contract: `actionSchemaVersion` remains `2`, while `engineeringApiVersion=3` adds `stm32.deploy_accept` and the new runtime-only `parameters.keepMonitorOpen` option without adding a new top-level ChatGPT action or changing the frozen legacy `overrides` schema.

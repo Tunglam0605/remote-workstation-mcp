@@ -22,6 +22,7 @@ export type EngineeringWorkflowId =
   | 'firmware.build_flash_monitor'
   | 'firmware.build_flash_monitor_expect'
   | 'stm32.debug_fault_snapshot'
+  | 'stm32.deploy_accept'
   | 'ros2.build'
   | 'ros2.health'
   | 'ros2.build_health';
@@ -53,6 +54,7 @@ export interface EngineeringWorkflowOverrides {
   variant?: string;
   keilProject?: string;
   keilTarget?: string;
+  keepMonitorOpen?: boolean;
 }
 
 interface ProjectState {
@@ -64,7 +66,7 @@ interface ProjectState {
 
 interface StepResult {
   id: string;
-  status: 'succeeded' | 'failed';
+  status: 'succeeded' | 'failed' | 'blocked';
   durationMs: number;
   result?: unknown;
   error?: string;
@@ -259,7 +261,7 @@ export class EngineeringWorkflowEngine {
     if (firmwareCapable) {
       ids.push('firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
-        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot');
+        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deploy_accept');
       }
       if (
         state.project.family === 'esp32' ||
@@ -284,7 +286,7 @@ export class EngineeringWorkflowEngine {
       profile: state.profile,
       workflows: this.workflowIds(state).map(id => ({
         id,
-        destructive: id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot',
+        destructive: id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot' || id === 'stm32.deploy_accept',
         description: {
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
@@ -292,6 +294,7 @@ export class EngineeringWorkflowEngine {
           'firmware.build_flash_monitor': 'Build, flash, then open the configured serial monitor session.',
           'firmware.build_flash_monitor_expect': 'Build, flash, open serial and wait for a configured boot/readiness marker.',
           'stm32.debug_fault_snapshot': 'Open a constrained STM32 debug session, halt the target, decode Cortex-M fault state, capture stack frames, then release the probe.',
+          'stm32.deploy_accept': 'Preflight hardware, build, open serial, atomically flash/verify/reset through one ST-Link lease, then require a readiness marker and release resources.',
           'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
           'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
           'ros2.build_health': 'Build the ROS 2 workspace, then inspect the configured runtime graph health.'
@@ -335,10 +338,26 @@ export class EngineeringWorkflowEngine {
     if (workflow === 'firmware.build_flash_monitor_expect' && !expectedText) {
       throw new Error('Monitor-expect workflow requires firmware.monitor.expectText or an expectText override.');
     }
+    if (workflow === 'stm32.deploy_accept') {
+      if (flashProvider === 'esp-idf') throw new Error('stm32.deploy_accept requires the constrained OpenOCD flash provider.');
+      if (!monitorPort) throw new Error('stm32.deploy_accept requires firmware.monitor.port, firmware.port, or parameters.monitorPort.');
+      if (!expectedText) throw new Error('stm32.deploy_accept requires firmware.monitor.expectText or parameters.expectText.');
+    }
+
+    const deploymentPreflight = workflow === 'stm32.deploy_accept'
+      ? await this.firmware.stm32DeploymentPreflight({
+          probeSerial: overrides.probeSerial ?? fw.probeSerial,
+          monitorPort
+        })
+      : undefined;
 
     const steps: string[] = [];
     if (workflow === 'stm32.debug_fault_snapshot') {
       steps.push('debug.session.start', 'debug.halt', 'debug.fault_snapshot', 'debug.stack', 'debug.session.stop');
+    }
+    if (workflow === 'stm32.deploy_accept') {
+      steps.push('preflight.stm32_deploy', 'firmware.build', 'serial.open', 'firmware.flash_verify_reset', 'serial.wait_for_text');
+      if (!overrides.keepMonitorOpen) steps.push('serial.close');
     }
     if (workflow.startsWith('firmware.')) {
       steps.push('firmware.build');
@@ -361,8 +380,9 @@ export class EngineeringWorkflowEngine {
       project: state.project,
       profile: state.profile,
       steps,
+      ...(deploymentPreflight ? { preflight: deploymentPreflight } : {}),
       resolved: {
-        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot') ? {
+        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deploy_accept') ? {
           variant: effective.variant,
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
@@ -378,7 +398,8 @@ export class EngineeringWorkflowEngine {
           monitorBaudRate: overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200,
           expectText: expectedText,
           expectTimeoutMs: overrides.expectTimeoutMs ?? fw.monitor?.expectTimeoutMs ?? 10_000,
-          debugMaxFrames: overrides.debugMaxFrames ?? 16
+          debugMaxFrames: overrides.debugMaxFrames ?? 16,
+          keepMonitorOpen: overrides.keepMonitorOpen ?? false
         } : undefined,
         ros2: workflow.startsWith('ros2.') ? {
           ...ros,
@@ -457,6 +478,123 @@ export class EngineeringWorkflowEngine {
       }
     };
 
+    if (workflow === 'stm32.deploy_accept') {
+      const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
+      const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? overrides.port ?? fw.port;
+      const expectedText = overrides.expectText ?? fw.monitor?.expectText;
+      if (!monitorPort || !expectedText) {
+        throw new Error('stm32.deploy_accept requires a configured serial monitor port and readiness marker.');
+      }
+
+      const preflight = plan.preflight;
+      if (!preflight) throw new Error('stm32.deploy_accept plan did not produce deployment preflight data.');
+      steps.push({
+        id: 'preflight.stm32_deploy',
+        status: preflight.ready ? 'succeeded' : 'blocked',
+        durationMs: 0,
+        result: preflight,
+        ...(!preflight.ready ? { error: preflight.blockers.join(' ') } : {})
+      });
+      if (!preflight.ready) {
+        return {
+          workflow,
+          status: 'blocked',
+          plan,
+          steps,
+          outputs: { preflight }
+        };
+      }
+      const build = await capture('firmware.build', () => this.firmware.build(
+        workspace,
+        projectPath,
+        fw.buildProvider ?? 'auto',
+        fw.buildDir ?? 'build',
+        fw.keilProject,
+        fw.keilTarget
+      ));
+      if (!build.ok) return { workflow, status: 'failed', plan, steps };
+      if (!successfulBuild(build.value.provider, build.value.result)) {
+        steps[steps.length - 1] = {
+          ...steps[steps.length - 1]!,
+          status: 'failed',
+          error: `Build exited with code ${build.value.result.exitCode ?? 'null'}${build.value.result.timedOut ? ' after timeout' : ''}.`
+        };
+        return { workflow, status: 'failed', plan, steps };
+      }
+
+      const artifact = await this.resolveVerifyArtifact(workspace, projectPath, overrides.artifact ?? fw.artifact);
+      const monitor = await capture('serial.open', () => this.serial.open(
+        monitorPort,
+        overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200
+      ));
+      if (!monitor.ok) return { workflow, status: 'failed', plan, steps };
+
+      let deployment: Awaited<ReturnType<FirmwareAdapter['deployVerifyReset']>> | undefined;
+      let expectation: Awaited<ReturnType<SerialSessionManager['waitForText']>> | undefined;
+      let finalSession = monitor.value;
+      let failed = false;
+      try {
+        const deployed = await capture('firmware.flash_verify_reset', () => this.firmware.deployVerifyReset({
+          workspace,
+          projectPath,
+          artifact,
+          probeSerial: overrides.probeSerial ?? fw.probeSerial,
+          targetConfig: overrides.targetConfig ?? fw.targetConfig,
+          adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz
+        }));
+        if (!deployed.ok) {
+          failed = true;
+        } else if (!successfulCommand(deployed.value.result)) {
+          steps[steps.length - 1] = {
+            ...steps[steps.length - 1]!,
+            status: 'failed',
+            error: `STM32 deploy transaction exited with code ${deployed.value.result.exitCode ?? 'null'}${deployed.value.result.timedOut ? ' after timeout' : ''}.`
+          };
+          failed = true;
+        } else {
+          deployment = deployed.value;
+          const waited = await capture('serial.wait_for_text', () => this.serial.waitForText(
+            monitor.value.id,
+            expectedText,
+            overrides.expectTimeoutMs ?? fw.monitor?.expectTimeoutMs ?? 10_000,
+            0
+          ));
+          if (!waited.ok) {
+            failed = true;
+          } else {
+            expectation = waited.value;
+            if (!waited.value.matched) {
+              steps[steps.length - 1] = {
+                ...steps[steps.length - 1]!,
+                status: 'failed',
+                error: `Serial output did not contain expected readiness marker within ${waited.value.elapsedMs} ms.`
+              };
+              failed = true;
+            }
+          }
+        }
+      } finally {
+        if (!(overrides.keepMonitorOpen ?? false)) {
+          const closed = await capture('serial.close', () => this.serial.close(monitor.value.id));
+          if (closed.ok) finalSession = closed.value;
+          else failed = true;
+        }
+      }
+
+      return {
+        workflow,
+        status: failed ? 'failed' : 'succeeded',
+        plan,
+        steps,
+        outputs: {
+          preflight,
+          artifact,
+          deployment,
+          expectation,
+          serialSession: finalSession
+        }
+      };
+    }
     if (workflow === 'stm32.debug_fault_snapshot') {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
       const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);

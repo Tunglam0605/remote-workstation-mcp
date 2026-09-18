@@ -378,6 +378,27 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
+## v0.13 — Daily engineering workflows
+
+### v0.13.0 - Transactional STM32 deploy acceptance
+
+- add `stm32.deploy_accept` as the first daily-driver hardware workflow: provider/hardware/serial preflight -> build -> serial open -> atomic flash/verify/reset -> readiness-marker acceptance;
+- keep flash, independent verify and reset inside one OpenOCD process and one exclusive ST-Link lease;
+- fail closed with `blocked` status before build when OpenOCD, ST-Link selection or the configured monitor port is unavailable;
+- open serial before target reset to capture early boot output, then close/release it in `finally` by default;
+- keep `actionSchemaVersion=2` and move new runtime-only workflow fields behind the generic `parameters` envelope; advance `engineeringApiVersion` to 3;
+- add regression coverage for preflight blocking, resource cleanup, serial readiness failure, explicit keep-open behavior and provider-level single-lease/single-process ordering.
+
+Hardware acceptance note for the development workstation: v0.13.0 can be fully regression-tested without mutating hardware, but real flash acceptance remains gated until `hardware_list` discovers an ST-Link and the OpenOCD provider is installed/configured. The workflow is designed to report this as a structured blocked state rather than silently falling back to shell.
+
+Next depth after v0.13.0:
+
+- add owner-local provider provisioning/status guidance so missing OpenOCD/ST-Link backends are one-time setup rather than repeated per-chat discovery;
+- add structured ARMCC/Keil compiler diagnostics and artifact summaries to workflow results;
+- extend ESP-IDF daily workflows to OTA/partition/coredump acceptance;
+- extend ROS 2 daily workflows to TF/QoS/topic-rate/Nav2/lifecycle diagnostics;
+- add FreeRTOS task/stack high-watermark/watchdog telemetry workflows.
+
 ## v0.12 — Stable Engineering action surface + Keil multi-target workflows
 
 ### v0.12.0 - Keil MDK / frozen-snapshot-safe workflow contract

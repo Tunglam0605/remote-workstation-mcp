@@ -380,6 +380,17 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.13.2 - STM32CubeIDE OpenOCD provider auto-discovery
+
+- discover bundled OpenOCD from owner-configured CubeIDE roots, `C:\ST\STM32CubeIDE_*` and common STMicroelectronics install locations when PATH does not expose `openocd`;
+- resolve CubeIDE's separate MCU debug-plugin `resources/openocd/st_scripts` root and require `interface/stlink.cfg` before treating the known install as usable;
+- propagate the script root through `-s` for flash, independent verify, reset, transactional deploy and OpenOCD-backed debug sessions;
+- preserve absolute owner overrides for both executable and scripts root, while keeping dangerous OpenOCD TCL surfaces unavailable;
+- report the resolved executable source and script search path through typed provider status;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`.
+
+Real workstation validation before release resolved STM32CubeIDE 2.2.0's STMicroelectronics OpenOCD 0.12.0+dev executable plus the matching `st_scripts` tree without PATH changes. After rollout, B300 deploy preflight should no longer block on provider availability; real flash acceptance remains gated only by an attached ST-Link/SWD probe (and the intended serial monitor port/readiness marker).
+
 ### v0.13.1 - Windows recovery-plane slot re-home hotfix
 
 - re-home the loopback Control Center and autonomous recovery worker to the new active slot after Boot auto-update, manual Update and Rollback;

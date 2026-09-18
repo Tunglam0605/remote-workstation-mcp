@@ -9,7 +9,7 @@ import { PathGuard } from '../../security/path-guard.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
 import { decodeCortexMFault } from './fault-decode.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
-import { openOcdAdapterSpeedArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
+import { openOcdAdapterSpeedArgs, openOcdSearchPathArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
@@ -249,7 +249,7 @@ export class DebugSessionManager {
     const resourceId = `debug-probe:${options.probeSerial ?? 'auto'}`;
     const lease = this.resources.acquire(resourceId, 'debugging');
     const port = await reservePort();
-    const args = ['-c', 'bindto 127.0.0.1', '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
+    const args = [...openOcdSearchPathArgs(openocd), '-c', 'bindto 127.0.0.1', '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(options.probeSerial ? ['-c', `adapter serial ${options.probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', `gdb port ${port}`, '-c', 'telnet port disabled', '-c', 'tcl port disabled', '-c', 'gdb flash_program disable', '-c', 'init'];

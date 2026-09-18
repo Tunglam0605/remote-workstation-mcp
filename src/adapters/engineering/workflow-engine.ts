@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
+import { ArtifactTransferAdapter } from './artifact-transfer.js';
 import { DebugSessionManager } from './debug-session.js';
 import { FirmwareAdapter } from './firmware.js';
 import { stm32OpenOcdTargetConfig } from './project-inspector.js';
@@ -24,6 +25,8 @@ export type EngineeringWorkflowId =
   | 'firmware.build_flash_monitor_expect'
   | 'firmware.artifact_prepare'
   | 'firmware.artifact_accept'
+  | 'firmware.artifact_receive_offer'
+  | 'firmware.artifact_push'
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deploy_accept'
   | 'ros2.build'
@@ -60,6 +63,10 @@ export interface EngineeringWorkflowOverrides {
   keepMonitorOpen?: boolean;
   expectedSha256?: string;
   expectedSize?: number;
+  artifactName?: string;
+  transferEndpoint?: string;
+  transferTicket?: string;
+  transferTimeoutMs?: number;
 }
 
 interface ProjectState {
@@ -111,6 +118,7 @@ export class EngineeringWorkflowEngine {
     private readonly policy: PolicyEngine,
     private readonly profiles: EngineeringProjectProfileStore,
     private readonly artifacts: ArtifactIntegrityAdapter,
+    private readonly artifactTransfer: ArtifactTransferAdapter,
     private readonly firmware: FirmwareAdapter,
     private readonly hardware: HardwareDiscoveryAdapter,
     private readonly serial: SerialSessionManager,
@@ -265,7 +273,7 @@ export class EngineeringWorkflowEngine {
     const ids: EngineeringWorkflowId[] = [];
     const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
     if (firmwareCapable) {
-      ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
+      ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.artifact_receive_offer', 'firmware.artifact_push', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
         ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deploy_accept');
       }
@@ -296,6 +304,8 @@ export class EngineeringWorkflowEngine {
         description: {
           'firmware.artifact_prepare': 'Hash a firmware artifact and emit a canonical SHA-256/size manifest without modifying the artifact.',
           'firmware.artifact_accept': 'Verify a staged firmware artifact against an expected SHA-256/size and atomically promote it into the project verified store.',
+          'firmware.artifact_receive_offer': 'Create one short-lived, one-shot Tailscale receive ticket for a known SHA-256/size and atomically accept only matching bytes.',
+          'firmware.artifact_push': 'Stream one verified local firmware artifact directly to a Tailscale peer receive ticket without routing payload bytes through ChatGPT.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
           'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
@@ -364,6 +374,100 @@ export class EngineeringWorkflowEngine {
             artifact,
             expectedSha256,
             expectedSize
+          }
+        }
+      };
+    }
+
+    if (workflow === 'firmware.artifact_receive_offer') {
+      const artifactName = overrides.artifactName?.trim();
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (!artifactName) throw new Error('firmware.artifact_receive_offer requires parameters.artifactName.');
+      if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+        throw new Error('firmware.artifact_receive_offer requires parameters.expectedSha256 as 64 hexadecimal characters.');
+      }
+      if (!Number.isSafeInteger(expectedSize) || (expectedSize ?? 0) <= 0 || (expectedSize ?? 0) > 128 * 1024 * 1024) {
+        throw new Error('firmware.artifact_receive_offer requires parameters.expectedSize between 1 and 134217728.');
+      }
+      const transferTimeoutMs = overrides.transferTimeoutMs ?? 120_000;
+      if (!Number.isSafeInteger(transferTimeoutMs) || transferTimeoutMs < 10_000 || transferTimeoutMs > 600_000) {
+        throw new Error('parameters.transferTimeoutMs must be between 10000 and 600000.');
+      }
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: ['artifact.peer.offer'],
+        preflight: undefined,
+        artifactIntegrity: undefined,
+        artifactTransfer: {
+          ready: true,
+          transport: 'tailscale-http',
+          artifactName,
+          expectedSha256,
+          expectedSize,
+          transferTimeoutMs,
+          blockers: []
+        },
+        resolved: {
+          artifactTransfer: {
+            artifactName,
+            expectedSha256,
+            expectedSize,
+            transferTimeoutMs
+          }
+        }
+      };
+    }
+
+    if (workflow === 'firmware.artifact_push') {
+      const artifact = overrides.artifact ?? state.profile.firmware?.artifact;
+      const endpoint = overrides.transferEndpoint?.trim();
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (!artifact) throw new Error('firmware.artifact_push requires parameters.artifact or firmware.artifact.');
+      if (!endpoint) throw new Error('firmware.artifact_push requires parameters.transferEndpoint.');
+      if (!overrides.transferTicket) throw new Error('firmware.artifact_push requires parameters.transferTicket.');
+      if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+        throw new Error('firmware.artifact_push requires parameters.expectedSha256 as 64 hexadecimal characters.');
+      }
+      if (!Number.isSafeInteger(expectedSize) || (expectedSize ?? 0) <= 0 || (expectedSize ?? 0) > 128 * 1024 * 1024) {
+        throw new Error('firmware.artifact_push requires parameters.expectedSize between 1 and 134217728.');
+      }
+      const source = await this.artifacts.prepare(workspace, projectPath, artifact);
+      const blockers = [
+        ...(source.sha256 !== expectedSha256 ? [`SHA-256 mismatch: expected ${expectedSha256}, got ${source.sha256}.`] : []),
+        ...(source.size !== expectedSize ? [`Size mismatch: expected ${expectedSize}, got ${source.size}.`] : [])
+      ];
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: ['artifact.source_preflight', 'artifact.peer.push', 'artifact.peer.receipt'],
+        preflight: undefined,
+        artifactIntegrity: undefined,
+        artifactTransfer: {
+          ready: blockers.length === 0,
+          transport: 'tailscale-http',
+          source,
+          endpoint,
+          expectedSha256,
+          expectedSize,
+          blockers
+        },
+        resolved: {
+          artifactTransfer: {
+            artifact,
+            endpoint,
+            expectedSha256,
+            expectedSize,
+            transferTimeoutMs: overrides.transferTimeoutMs ?? 120_000,
+            ticketPresent: true
           }
         }
       };
@@ -536,6 +640,73 @@ export class EngineeringWorkflowEngine {
         return { ok: false };
       }
     };
+
+    if (workflow === 'firmware.artifact_receive_offer') {
+      const artifactName = overrides.artifactName?.trim();
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (!artifactName || !expectedSha256 || expectedSize === undefined) {
+        throw new Error('firmware.artifact_receive_offer requires artifactName, expectedSha256 and expectedSize.');
+      }
+      const offered = await capture('artifact.peer.offer', () => this.artifactTransfer.createReceiveOffer({
+        workspace,
+        projectPath,
+        artifactName,
+        expectedSha256,
+        expectedSize,
+        ttlMs: overrides.transferTimeoutMs
+      }));
+      if (!offered.ok) return { workflow, status: 'failed', plan, steps };
+      return {
+        workflow,
+        status: 'succeeded',
+        plan,
+        steps,
+        outputs: { offer: offered.value }
+      };
+    }
+
+    if (workflow === 'firmware.artifact_push') {
+      const artifact = overrides.artifact ?? state.profile.firmware?.artifact;
+      const endpoint = overrides.transferEndpoint?.trim();
+      const ticket = overrides.transferTicket;
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (!artifact || !endpoint || !ticket || !expectedSha256 || expectedSize === undefined) {
+        throw new Error('firmware.artifact_push requires artifact, transferEndpoint, transferTicket, expectedSha256 and expectedSize.');
+      }
+      const transfer = plan.artifactTransfer;
+      if (!transfer) throw new Error('firmware.artifact_push plan did not produce transfer preflight data.');
+      steps.push({
+        id: 'artifact.source_preflight',
+        status: transfer.ready ? 'succeeded' : 'blocked',
+        durationMs: 0,
+        result: transfer,
+        ...(!transfer.ready ? { error: transfer.blockers.join(' ') } : {})
+      });
+      if (!transfer.ready) {
+        return { workflow, status: 'blocked', plan, steps, outputs: { transfer } };
+      }
+      const pushed = await capture('artifact.peer.push', () => this.artifactTransfer.push({
+        workspace,
+        projectPath,
+        artifact,
+        endpoint,
+        ticket,
+        expectedSha256,
+        expectedSize,
+        timeoutMs: overrides.transferTimeoutMs
+      }));
+      if (!pushed.ok) return { workflow, status: 'failed', plan, steps };
+      steps.push({ id: 'artifact.peer.receipt', status: 'succeeded', durationMs: 0, result: pushed.value.accepted });
+      return {
+        workflow,
+        status: 'succeeded',
+        plan,
+        steps,
+        outputs: { receipt: pushed.value }
+      };
+    }
 
     if (workflow === 'firmware.artifact_prepare') {
       const artifact = overrides.artifact ?? state.profile.firmware?.artifact;

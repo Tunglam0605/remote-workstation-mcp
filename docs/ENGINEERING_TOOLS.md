@@ -15,6 +15,13 @@ RWMCP v0.13 extends the typed engineering layer so recurring STM32, Keil MDK, ES
 
 ## High-level workflow catalog
 
+### Firmware artifact integrity
+
+- `firmware.artifact_prepare`
+- `firmware.artifact_accept`
+
+`firmware.artifact_prepare` resolves one project-relative ELF/AXF/HEX/BIN file, hashes it and returns a canonical SHA-256/size manifest without modifying the file. `firmware.artifact_accept` re-hashes staged bytes at the destination, blocks on SHA-256 or size mismatch, then stream-copies to a temporary file and atomically renames only verified content into `.rwmcp/artifacts/verified/<sha256>-<name>`. These workflows deliberately do not choose a transport and never build, flash, reset or open a debug session.
+
 ### STM32
 
 - `firmware.build`

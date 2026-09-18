@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
+import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
 import { DebugSessionManager } from './debug-session.js';
 import { FirmwareAdapter } from './firmware.js';
 import { stm32OpenOcdTargetConfig } from './project-inspector.js';
@@ -21,6 +22,8 @@ export type EngineeringWorkflowId =
   | 'firmware.build_flash_verify'
   | 'firmware.build_flash_monitor'
   | 'firmware.build_flash_monitor_expect'
+  | 'firmware.artifact_prepare'
+  | 'firmware.artifact_accept'
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deploy_accept'
   | 'ros2.build'
@@ -55,6 +58,8 @@ export interface EngineeringWorkflowOverrides {
   keilProject?: string;
   keilTarget?: string;
   keepMonitorOpen?: boolean;
+  expectedSha256?: string;
+  expectedSize?: number;
 }
 
 interface ProjectState {
@@ -105,6 +110,7 @@ export class EngineeringWorkflowEngine {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly profiles: EngineeringProjectProfileStore,
+    private readonly artifacts: ArtifactIntegrityAdapter,
     private readonly firmware: FirmwareAdapter,
     private readonly hardware: HardwareDiscoveryAdapter,
     private readonly serial: SerialSessionManager,
@@ -259,7 +265,7 @@ export class EngineeringWorkflowEngine {
     const ids: EngineeringWorkflowId[] = [];
     const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
     if (firmwareCapable) {
-      ids.push('firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
+      ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
         ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deploy_accept');
       }
@@ -288,6 +294,8 @@ export class EngineeringWorkflowEngine {
         id,
         destructive: id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot' || id === 'stm32.deploy_accept',
         description: {
+          'firmware.artifact_prepare': 'Hash a firmware artifact and emit a canonical SHA-256/size manifest without modifying the artifact.',
+          'firmware.artifact_accept': 'Verify a staged firmware artifact against an expected SHA-256/size and atomically promote it into the project verified store.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
           'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
@@ -311,6 +319,55 @@ export class EngineeringWorkflowEngine {
   ) {
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
+
+    if (workflow === 'firmware.artifact_prepare' || workflow === 'firmware.artifact_accept') {
+      const artifact = overrides.artifact ?? state.profile.firmware?.artifact;
+      if (!artifact) throw new Error(`${workflow} requires parameters.artifact or firmware.artifact in the project profile.`);
+      const actual = await this.artifacts.prepare(workspace, projectPath, artifact);
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (workflow === 'firmware.artifact_accept') {
+        if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+          throw new Error('firmware.artifact_accept requires parameters.expectedSha256 as 64 hexadecimal characters.');
+        }
+        if (expectedSize !== undefined && (!Number.isSafeInteger(expectedSize) || expectedSize <= 0)) {
+          throw new Error('parameters.expectedSize must be a positive safe integer when provided.');
+        }
+      }
+      const ready = workflow === 'firmware.artifact_prepare'
+        ? true
+        : actual.sha256 === expectedSha256 && (expectedSize === undefined || actual.size === expectedSize);
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: workflow === 'firmware.artifact_prepare'
+          ? ['artifact.hash', 'artifact.manifest']
+          : ['artifact.preflight', 'artifact.atomic_accept'],
+        preflight: undefined,
+        artifactIntegrity: {
+          ready,
+          actual,
+          ...(expectedSha256 ? { expectedSha256 } : {}),
+          ...(expectedSize !== undefined ? { expectedSize } : {}),
+          ...(ready ? { blockers: [] } : {
+            blockers: [
+              ...(actual.sha256 !== expectedSha256 ? [`SHA-256 mismatch: expected ${expectedSha256}, got ${actual.sha256}.`] : []),
+              ...(expectedSize !== undefined && actual.size !== expectedSize ? [`Size mismatch: expected ${expectedSize}, got ${actual.size}.`] : [])
+            ]
+          })
+        },
+        resolved: {
+          artifactIntegrity: {
+            artifact,
+            expectedSha256,
+            expectedSize
+          }
+        }
+      };
+    }
 
     const effective = this.effectiveFirmware(state.profile.firmware, overrides);
     const fw = effective.config;
@@ -381,7 +438,8 @@ export class EngineeringWorkflowEngine {
       project: state.project,
       profile: state.profile,
       steps,
-      ...(deploymentPreflight ? { preflight: deploymentPreflight } : {}),
+      preflight: deploymentPreflight,
+      artifactIntegrity: undefined,
       resolved: {
         firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deploy_accept') ? {
           variant: effective.variant,
@@ -478,6 +536,56 @@ export class EngineeringWorkflowEngine {
         return { ok: false };
       }
     };
+
+    if (workflow === 'firmware.artifact_prepare') {
+      const artifact = overrides.artifact ?? state.profile.firmware?.artifact;
+      if (!artifact) throw new Error('firmware.artifact_prepare requires parameters.artifact or firmware.artifact.');
+      const prepared = await capture('artifact.hash', () => this.artifacts.prepare(workspace, projectPath, artifact));
+      if (!prepared.ok) return { workflow, status: 'failed', plan, steps };
+      steps.push({ id: 'artifact.manifest', status: 'succeeded', durationMs: 0, result: prepared.value });
+      return {
+        workflow,
+        status: 'succeeded',
+        plan,
+        steps,
+        outputs: { manifest: prepared.value }
+      };
+    }
+
+    if (workflow === 'firmware.artifact_accept') {
+      const artifact = overrides.artifact ?? state.profile.firmware?.artifact;
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      if (!artifact || !expectedSha256) {
+        throw new Error('firmware.artifact_accept requires parameters.artifact and parameters.expectedSha256.');
+      }
+      const integrity = plan.artifactIntegrity;
+      if (!integrity) throw new Error('firmware.artifact_accept plan did not produce integrity preflight data.');
+      steps.push({
+        id: 'artifact.preflight',
+        status: integrity.ready ? 'succeeded' : 'blocked',
+        durationMs: 0,
+        result: integrity,
+        ...(!integrity.ready ? { error: integrity.blockers.join(' ') } : {})
+      });
+      if (!integrity.ready) {
+        return { workflow, status: 'blocked', plan, steps, outputs: { integrity } };
+      }
+      const accepted = await capture('artifact.atomic_accept', () => this.artifacts.accept({
+        workspace,
+        projectPath,
+        artifact,
+        expectedSha256,
+        expectedSize: overrides.expectedSize
+      }));
+      if (!accepted.ok) return { workflow, status: 'failed', plan, steps };
+      return {
+        workflow,
+        status: 'succeeded',
+        plan,
+        steps,
+        outputs: { integrity, accepted: accepted.value }
+      };
+    }
 
     if (workflow === 'stm32.deploy_accept') {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;

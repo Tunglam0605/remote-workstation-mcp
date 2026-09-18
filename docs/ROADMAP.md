@@ -380,6 +380,17 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.13.5 - Trusted firmware artifact integrity handoff
+
+- add `firmware.artifact_prepare` for read-only SHA-256/size manifest creation;
+- add `firmware.artifact_accept` for destination-side re-hash, optional size verification and atomic promotion into a content-addressed verified store;
+- keep byte transport pluggable instead of coupling firmware integrity to SSH, HTTP or one machine topology;
+- block before promotion on any integrity mismatch and never invoke build/flash from artifact workflows;
+- bound accepted artifact size to 128 MiB and allow only ELF/AXF/HEX/BIN firmware artifacts;
+- keep Action Schema v2 and Engineering API v3 through the existing workflow string + generic parameters contract.
+
+Real acceptance for the preceding F407 deployment proved the intended data flow: typed Keil build on Windows -> SHA-256 -> cross-node staging -> destination SHA-256 equality -> constrained OpenOCD flash/verify -> independent verify. v0.13.5 productizes the integrity-critical stages so later transports cannot bypass destination verification.
+
 ### v0.13.4 - Real xPack ST-Link busy diagnostics
 
 - enable OpenOCD debug level 3 only for the bounded adapter-only active preflight;

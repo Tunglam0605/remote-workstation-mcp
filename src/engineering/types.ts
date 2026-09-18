@@ -74,6 +74,7 @@ export type OpenOcdDiagnosticCode =
   | 'provider-unavailable'
   | 'backend-timeout'
   | 'probe-not-found'
+  | 'probe-busy'
   | 'probe-permission-denied'
   | 'target-power-invalid'
   | 'target-connect-failed'

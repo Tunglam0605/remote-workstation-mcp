@@ -227,6 +227,9 @@ export function classifyOpenOcdResult(result: EngineeringCommandResult): OpenOcd
   if (/libusb_error_access|access denied|permission denied/.test(text)) {
     return diagnostic('probe-permission-denied', 'The debug probe is present but cannot be opened with the current OS permissions.', false, 'Check udev/USB permissions or whether another privileged process owns the probe.');
   }
+  if (/claim interface failed|failed to claim interface|libusb_error_busy|device or resource busy|resource busy/.test(text)) {
+    return diagnostic('probe-busy', 'The debug probe is present but its USB interface is already owned by another process.', true, 'Stop the other OpenOCD/ST-Link server or release the probe before starting this workflow.');
+  }
   if (/unable to find.*(cmsis-dap|st-?link|debug adapter)|no device found|open failed.*st-?link|couldn.?t find.*st-?link/.test(text)) {
     return diagnostic('probe-not-found', 'OpenOCD could not find the requested debug probe.', true, 'Confirm the probe is connected and the selected serial number matches the intended ST-Link.');
   }

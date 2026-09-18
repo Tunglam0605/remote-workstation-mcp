@@ -380,6 +380,19 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.13.3 - Active ST-Link preflight and external-owner detection
+
+- actively prove that the selected ST-Link can be opened before `stm32.deploy_accept` starts a build;
+- run a bounded adapter-only OpenOCD SWD `init -> shutdown` check without loading a target config and without reset, halt or program commands;
+- hold and release one short probe lease around the preflight so failed access checks cannot leak ownership;
+- parse target voltage when available and apply the configured/overridden `adapterSpeedKhz`;
+- classify `LIBUSB_ERROR_BUSY`, failed interface claims and equivalent resource-busy errors as `probe-busy`;
+- keep permission-denied and probe-not-found diagnostics distinct, and fail closed before build;
+- use the stable discovered debug-probe ID as the resource ID when no usable ST-Link serial is present;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`.
+
+This release is intentionally non-mutating at preflight time. Real hardware acceptance must show that the ready path opens the probe and reports voltage without reset/halt/flash, and that an externally owned probe is blocked as `probe-busy` before build with no leaked lease.
+
 ### v0.13.2 - STM32CubeIDE OpenOCD provider auto-discovery
 
 - discover bundled OpenOCD from owner-configured CubeIDE roots, `C:\ST\STM32CubeIDE_*` and common STMicroelectronics install locations when PATH does not expose `openocd`;

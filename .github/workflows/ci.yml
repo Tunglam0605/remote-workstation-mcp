@@ -152,6 +152,10 @@ jobs:
       - name: Test Windows recovery convergence and lifecycle suppression
         shell: pwsh
         run: .\scripts\test-recovery-convergence-windows.ps1
+
+      - name: Test Windows runtime convergence helper
+        shell: powershell
+        run: .\scripts\test-runtime-convergence-helper-windows.ps1
       - name: Test Windows autonomous recovery desired state
         shell: pwsh
         run: .\scripts\test-autonomous-recovery-state-windows.ps1

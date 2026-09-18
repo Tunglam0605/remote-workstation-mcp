@@ -334,6 +334,14 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 
 
+### v0.9.11 - Windows update convergence acceptance fix
+
+- converge the complete managed runtime process tree across version-slot activation, including orphan MCP and OpenAI tunnel children;
+- serialize Control Center startup inside the same cross-process runtime-start transaction used by MCP/tunnel startup;
+- fail closed when the current runtime cannot be stopped safely before an update slot switch;
+- make durable update transaction ownership monotonic by writing `STARTING` before worker spawn and preventing parent overwrite after handoff;
+- gate release on the real-machine failure reproduced during the v0.9.10 Windows acceptance run.
+
 ### v0.9.10 - Stability hardening and self-convergence
 
 - persist lifecycle epochs and live-owner interlocks across Boot/Start/Restart/Update/Rollback;

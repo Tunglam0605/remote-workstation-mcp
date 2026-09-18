@@ -34,10 +34,24 @@ function Get-RecoveryRoot {
 
 function Start-RecoveryControlCenter([string]$Root = '') {
   if (-not $Root) { $Root = Get-RecoveryRoot }
+  $Root = [IO.Path]::GetFullPath($Root)
   $control = Join-Path $Root 'scripts\control-center-windows.ps1'
   if (-not (Test-Path $control)) { throw "Control Center recovery script is missing: $control" }
-  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $control -Action Start -Root $Root -Json | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Control Center recovery start failed with exit code $LASTEXITCODE." }
+
+  $output = @(& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $control -Action Start -Root $Root -Json)
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) { throw "Control Center recovery start failed with exit code $exitCode." }
+
+  $jsonLine = @($output | Where-Object { $_ -is [string] -and $_.TrimStart().StartsWith('{') } | Select-Object -Last 1)
+  if ($jsonLine.Count -ne 1) { throw 'Control Center recovery start did not return a status payload.' }
+  try { $status = [string]$jsonLine[0] | ConvertFrom-Json }
+  catch { throw "Control Center recovery status was invalid JSON: $($_.Exception.Message)" }
+
+  $actualRoot = if ($status.root) { [IO.Path]::GetFullPath([string]$status.root) } else { '' }
+  $sameRoot = $actualRoot -and [string]::Equals($actualRoot, $Root, [StringComparison]::OrdinalIgnoreCase)
+  if (-not [bool]$status.running -or -not [bool]$status.healthy -or -not [bool]$status.managedPortOwned -or -not $sameRoot) {
+    throw "Control Center recovery verification failed for root '$Root'."
+  }
 }
 
 $RecoveryStateRoot = Get-RecoveryRoot
@@ -133,14 +147,17 @@ function Invoke-SafeBoot {
     Write-Warning "Automatic update check failed; continuing with the installed version: $($_.Exception.Message)"
   }
   $candidate = Get-CurrentRoot
-  if ($explicitStop) {
-    Clear-RwmcpRecoveryMaintenance -Reason 'boot-owner-stop-preserved' | Out-Null
-    Cleanup-VersionSlots
-    $bootOutcome = 'SUCCEEDED'
-    $bootMessage = 'safe boot preserved owner stop'
-    return
-  }
   try {
+    # A slot switch is not complete until the local recovery plane is running
+    # from the same slot. This also applies when the owner keeps MCP stopped.
+    Start-RecoveryControlCenter $candidate
+    if ($explicitStop) {
+      Clear-RwmcpRecoveryMaintenance -Reason 'boot-owner-stop-preserved' | Out-Null
+      Cleanup-VersionSlots
+      $bootOutcome = 'SUCCEEDED'
+      $bootMessage = 'safe boot preserved owner stop'
+      return
+    }
     Invoke-Runtime 'Start' 'OpenAI' $candidate
     Cleanup-VersionSlots
   } catch {
@@ -149,10 +166,18 @@ function Invoke-SafeBoot {
       if ($failedVersion -and (Test-Path $Updater)) {
         try { & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Updater -Action MarkFailed -Version $failedVersion -Quiet | Out-Null } catch {}
       }
-      Write-Warning "Updated runtime failed health/readiness checks. Rolling back to the previous slot."
+      Write-Warning "Updated slot failed recovery/runtime activation. Rolling back to the previous slot."
       & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
       if ($LASTEXITCODE -ne 0) { throw 'Automatic rollback failed.' }
-      Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+      $rollbackRoot = Get-CurrentRoot
+      Start-RecoveryControlCenter $rollbackRoot
+      if ($explicitStop) {
+        Clear-RwmcpRecoveryMaintenance -Reason 'boot-rollback-owner-stop-preserved' | Out-Null
+      } else {
+        Invoke-Runtime 'Start' 'OpenAI' $rollbackRoot
+      }
+      $bootOutcome = 'SUCCEEDED'
+      $bootMessage = 'safe boot rolled back after candidate activation failure'
       return
     }
     throw
@@ -211,14 +236,17 @@ switch ($Action) {
     }
     Invoke-Updater 'Install'
     $candidate = Get-CurrentRoot
-    if (-not [bool]$desiredBefore.desiredRunning -and $desiredBefore.reason -ne 'not-configured') {
-      Clear-RwmcpRecoveryMaintenance -Reason 'update-complete-owner-stop-preserved' | Out-Null
-      Cleanup-VersionSlots
-      $updateOutcome = 'SUCCEEDED'
-      $updateMessage = 'update complete; owner stop preserved'
-      return
-    }
     try {
+      # Re-home the always-on recovery plane immediately after a slot switch.
+      # The old recovery worker intentionally exits when current.txt changes.
+      Start-RecoveryControlCenter $candidate
+      if (-not [bool]$desiredBefore.desiredRunning -and $desiredBefore.reason -ne 'not-configured') {
+        Clear-RwmcpRecoveryMaintenance -Reason 'update-complete-owner-stop-preserved' | Out-Null
+        Cleanup-VersionSlots
+        $updateOutcome = 'SUCCEEDED'
+        $updateMessage = 'update complete; owner stop preserved'
+        return
+      }
       Invoke-Runtime 'Start' 'OpenAI' $candidate
       Cleanup-VersionSlots
     } catch {
@@ -228,7 +256,15 @@ switch ($Action) {
       }
       if (Test-Path $PreviousFile) {
         & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
-        if ($LASTEXITCODE -eq 0) { Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot) }
+        if ($LASTEXITCODE -eq 0) {
+          $rollbackRoot = Get-CurrentRoot
+          Start-RecoveryControlCenter $rollbackRoot
+          if ([bool]$desiredBefore.desiredRunning -or $desiredBefore.reason -eq 'not-configured') {
+            Invoke-Runtime 'Start' 'OpenAI' $rollbackRoot
+          } else {
+            Clear-RwmcpRecoveryMaintenance -Reason 'update-rollback-owner-stop-preserved' | Out-Null
+          }
+        }
       }
       throw
     }
@@ -262,8 +298,10 @@ switch ($Action) {
     }
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $Installer -Rollback -NoSetup
     if ($LASTEXITCODE -ne 0) { throw 'Rollback failed.' }
+    $rollbackRoot = Get-CurrentRoot
+    Start-RecoveryControlCenter $rollbackRoot
     if ([bool]$desiredBefore.desiredRunning -or $desiredBefore.reason -eq 'not-configured') {
-      Invoke-Runtime 'Start' 'OpenAI' (Get-CurrentRoot)
+      Invoke-Runtime 'Start' 'OpenAI' $rollbackRoot
     } else {
       Clear-RwmcpRecoveryMaintenance -Reason 'rollback-complete-owner-stop-preserved' | Out-Null
     }

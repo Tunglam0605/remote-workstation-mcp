@@ -69,6 +69,33 @@ test('Windows Boot starts the recovery Control Center before updater or runtime 
   assert.ok(controlStart < runtimeStart, 'Control Center must start before OpenAI runtime activation.');
 });
 
+test('Windows slot switches re-home the recovery plane to the active slot before lifecycle success', async () => {
+  const launcher = await read('scripts/rwmcp-launcher-windows.ps1');
+
+  assert.match(launcher, /Control Center recovery verification failed for root/);
+  assert.match(launcher, /managedPortOwned/);
+  assert.match(launcher, /\$sameRoot/);
+
+  const bootStart = launcher.indexOf('function Invoke-SafeBoot');
+  const bootEnd = launcher.indexOf('$Root = if ($Action', bootStart);
+  const boot = launcher.slice(bootStart, bootEnd);
+  assert.ok(boot.indexOf('$candidate = Get-CurrentRoot') < boot.indexOf('Start-RecoveryControlCenter $candidate'));
+  assert.ok(boot.indexOf('Start-RecoveryControlCenter $candidate') < boot.indexOf("Invoke-Runtime 'Start' 'OpenAI' $candidate"));
+  assert.match(boot, /\$rollbackRoot = Get-CurrentRoot[\s\S]*Start-RecoveryControlCenter \$rollbackRoot[\s\S]*Invoke-Runtime 'Start' 'OpenAI' \$rollbackRoot/);
+
+  const updateStart = launcher.indexOf("  'Update' {");
+  const rollbackStart = launcher.indexOf("  'Rollback' {", updateStart);
+  const update = launcher.slice(updateStart, rollbackStart);
+  assert.ok(update.indexOf("Invoke-Updater 'Install'") < update.indexOf('$candidate = Get-CurrentRoot'));
+  assert.ok(update.indexOf('$candidate = Get-CurrentRoot') < update.indexOf('Start-RecoveryControlCenter $candidate'));
+  assert.ok(update.indexOf('Start-RecoveryControlCenter $candidate') < update.indexOf("Invoke-Runtime 'Start' 'OpenAI' $candidate"));
+  assert.match(update, /\$rollbackRoot = Get-CurrentRoot[\s\S]*Start-RecoveryControlCenter \$rollbackRoot/);
+
+  const rollback = launcher.slice(rollbackStart);
+  assert.match(rollback, /-Rollback -NoSetup[\s\S]*\$rollbackRoot = Get-CurrentRoot[\s\S]*Start-RecoveryControlCenter \$rollbackRoot/);
+  assert.ok(rollback.indexOf('Start-RecoveryControlCenter $rollbackRoot') < rollback.indexOf("Invoke-Runtime 'Start' 'OpenAI' $rollbackRoot"));
+});
+
 test('Windows Control Center host restarts its WebUI child with bounded watchdog backoff', async () => {
   const host = await read('scripts/control-center-host-windows.ps1');
   const ci = await read('.github/workflows/ci.yml');

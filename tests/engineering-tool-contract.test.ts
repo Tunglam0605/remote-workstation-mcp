@@ -34,7 +34,7 @@ test('v0.13 daily workflow growth keeps ChatGPT Action Schema v2 stable while ad
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 2;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 3;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.13\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.13\.1';/);
 });
 
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {

@@ -107,6 +107,7 @@ jobs:
             'scripts/runtime-host-windows.ps1',
             'scripts/control-center-host-windows.ps1',
             'scripts/test-control-center-watchdog-windows.ps1',
+            'scripts/test-control-center-rehome-windows.ps1',
             'scripts/control-center-windows.ps1',
             'scripts/admin-approval-windows.ps1',
             'scripts/privileged-helper-windows.ps1',
@@ -134,6 +135,9 @@ jobs:
       - name: Test Windows Control Center watchdog recovery
         shell: pwsh
         run: .\scripts\test-control-center-watchdog-windows.ps1
+      - name: Test Windows Control Center slot re-home
+        shell: pwsh
+        run: .\scripts\test-control-center-rehome-windows.ps1
       - name: Test Windows tunnel control-plane health parser
         shell: pwsh
         run: .\scripts\test-tunnel-health-windows.ps1

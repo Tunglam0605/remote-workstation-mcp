@@ -1,6 +1,6 @@
 # Engineering Tools
 
-RWMCP v0.11 extends the typed engineering layer so recurring STM32, ESP-IDF and ROS 2 work can be represented as persistent project profiles plus semantic workflows instead of repeated shell sequences.
+RWMCP v0.12 extends the typed engineering layer so recurring STM32, Keil MDK, ESP-IDF and ROS 2 work can be represented as persistent project profiles plus semantic workflows instead of repeated shell sequences.
 
 ## Tool families
 
@@ -43,13 +43,41 @@ ROS build configuration accepts only typed fields such as `symlinkInstall`, `mer
 
 ## Initial providers
 
-- STM32: OpenOCD/ST-Link and `arm-none-eabi-gdb`/GDB-MI.
+- STM32 build: CMake/Make plus Keil MDK µVision `.uvprojx` batch builds on Windows. Multi-target Keil projects are represented as explicit profile variants; RWMCP refuses to guess when more than one variant is available.
+- STM32 flash/debug: OpenOCD/ST-Link and `arm-none-eabi-gdb`/GDB-MI.
 - ESP32: ESP-IDF (`idf.py`) with deterministic environment activation.
 - Generic builds: CMake and Make.
 - ROS 2: `colcon` + `ros2cli` typed argv contracts.
 - Containers: Docker CLI typed argv contracts.
 
 ## Project profile examples
+
+Keil MDK multi-target STM32:
+
+```yaml
+version: 1
+id: b300-main-custom
+kind: stm32
+firmware:
+  buildProvider: keil
+  flashProvider: openocd
+  defaultVariant: main-v2-f407
+  variants:
+    main-v2-f407:
+      keilProject: Main_V2_F407.uvprojx
+      keilTarget: Main_V2_F407
+      buildDir: Objects/F407
+      artifact: Objects/F407/Main_V2_F407.axf
+      targetConfig: target/stm32f4x.cfg
+    main-v3-h743:
+      keilProject: Main_V3_H743.uvprojx
+      keilTarget: Main_V3_H743
+      buildDir: Objects/H743
+      artifact: Objects/H743/Main_V3_H743.axf
+      targetConfig: target/stm32h7x.cfg
+```
+
+The Keil provider generates the batch argv internally. Project profiles cannot contain `UV4.exe`, arbitrary command strings or arbitrary command-line arguments. The compatibility baseline uses `-j0 -b <project> -t<target> -o<log>`; this was accepted on the B300 workstation with µVision 5.31. The newer `-sg` option is deliberately not forced because that installed version returns a non-build exit code when it is present.
 
 ESP-IDF:
 
@@ -97,3 +125,5 @@ Project manifests are data-only. They cannot contain executable paths, shell com
 ## Why typed workflows
 
 The stable semantic contract lets ChatGPT ask for intent such as “build, flash, verify” or “build ROS workspace and check graph health” instead of rebuilding a shell recipe in every conversation. Provider implementation can evolve internally without changing the project-level workflow contract.
+
+Starting with action schema v2, `engineering_workflow_plan` and `engineering_workflow_run` accept a bounded semantic workflow ID plus a server-validated `parameters` object. `engineering_profile_init` also accepts a versioned server-validated `profile` object. This keeps the ChatGPT action surface stable while providers/workflow IDs evolve; only an `actionSchemaVersion` bump requires the custom-app action catalog to be refreshed.

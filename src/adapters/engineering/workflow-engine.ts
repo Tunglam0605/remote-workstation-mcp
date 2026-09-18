@@ -3,6 +3,7 @@ import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { DebugSessionManager } from './debug-session.js';
 import { FirmwareAdapter } from './firmware.js';
+import { stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import {
   EngineeringProjectProfileStore,
@@ -31,6 +32,7 @@ export interface EngineeringProfileInitOptions {
   kind?: EngineeringProjectKind;
   firmware?: Partial<EngineeringFirmwareProfile>;
   ros2?: Partial<EngineeringRos2Profile>;
+  profile?: unknown;
   overwrite?: boolean;
 }
 
@@ -48,6 +50,9 @@ export interface EngineeringWorkflowOverrides {
   rosSymlinkInstall?: boolean;
   rosMergeInstall?: boolean;
   debugMaxFrames?: number;
+  variant?: string;
+  keilProject?: string;
+  keilTarget?: string;
 }
 
 interface ProjectState {
@@ -89,6 +94,11 @@ function successfulCommand(result: { exitCode: number | null; timedOut: boolean 
   return result.exitCode === 0 && !result.timedOut;
 }
 
+function successfulBuild(provider: string, result: { exitCode: number | null; timedOut: boolean }): boolean {
+  if (result.timedOut || result.exitCode === null) return false;
+  return provider === 'keil' ? result.exitCode <= 1 : result.exitCode === 0;
+}
+
 export class EngineeringWorkflowEngine {
   constructor(
     private readonly policy: PolicyEngine,
@@ -110,11 +120,28 @@ export class EngineeringWorkflowEngine {
     };
 
     if (project.family === 'stm32') {
-      profile.firmware = {
-        buildProvider: 'auto',
-        buildDir: 'build',
-        flashProvider: 'openocd'
-      };
+      if (project.framework === 'keil-mdk' && project.targets?.length) {
+        const variants = Object.fromEntries(project.targets.map(item => [item.id, {
+          ...(item.outputDirectory ? { buildDir: item.outputDirectory } : {}),
+          ...(item.expectedArtifact ? { artifact: item.expectedArtifact } : {}),
+          keilProject: item.projectFile,
+          keilTarget: item.targetName,
+          ...(stm32OpenOcdTargetConfig(item.device) ? { targetConfig: stm32OpenOcdTargetConfig(item.device) } : {})
+        }]));
+        profile.firmware = {
+          buildProvider: 'keil',
+          buildDir: project.targets[0]?.outputDirectory ?? 'build',
+          flashProvider: 'openocd',
+          variants,
+          ...(project.targets.length === 1 ? { defaultVariant: project.targets[0]!.id } : {})
+        };
+      } else {
+        profile.firmware = {
+          buildProvider: 'auto',
+          buildDir: 'build',
+          flashProvider: 'openocd'
+        };
+      }
     } else if (project.family === 'esp32') {
       profile.firmware = {
         buildProvider: 'esp-idf',
@@ -137,6 +164,33 @@ export class EngineeringWorkflowEngine {
       };
     }
     return profile;
+  }
+
+  private effectiveFirmware(
+    profile: EngineeringFirmwareProfile | undefined,
+    overrides: EngineeringWorkflowOverrides = {}
+  ): { config: EngineeringFirmwareProfile; variant?: string } {
+    const base = profile ?? {};
+    const requestedVariant = overrides.variant ?? base.defaultVariant;
+    if (requestedVariant && !/^[A-Za-z0-9._-]{1,80}$/.test(requestedVariant)) {
+      throw new Error('variant must match /^[A-Za-z0-9._-]{1,80}$/.');
+    }
+    const selected = requestedVariant ? base.variants?.[requestedVariant] : undefined;
+    if (requestedVariant && !selected) {
+      throw new Error(`Firmware variant '${requestedVariant}' does not exist in the project profile.`);
+    }
+    if (base.buildProvider === 'keil' && base.variants && Object.keys(base.variants).length > 1 && !requestedVariant) {
+      throw new Error('This Keil project has multiple firmware variants; set firmware.defaultVariant or pass parameters.variant before build/flash/debug.');
+    }
+    return {
+      variant: requestedVariant,
+      config: {
+        ...base,
+        ...(selected ?? {}),
+        ...(overrides.keilProject ? { keilProject: overrides.keilProject } : {}),
+        ...(overrides.keilTarget ? { keilTarget: overrides.keilTarget } : {})
+      }
+    };
   }
 
   private async state(workspace: string, projectPath = '.'): Promise<ProjectState> {
@@ -167,7 +221,9 @@ export class EngineeringWorkflowEngine {
 
   async initProfile(workspace: string, projectPath: string, options: EngineeringProfileInitOptions = {}) {
     const state = await this.state(workspace, projectPath);
-    const base = state.profile;
+    const base = options.profile !== undefined
+      ? this.profiles.validate(options.profile)
+      : state.profile;
     const firmware = options.firmware
       ? {
           ...(base.firmware ?? {}),
@@ -253,7 +309,8 @@ export class EngineeringWorkflowEngine {
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
 
-    const fw = state.profile.firmware ?? {};
+    const effective = this.effectiveFirmware(state.profile.firmware, overrides);
+    const fw = effective.config;
     const flashProvider = fw.flashProvider ?? (state.project.family === 'esp32' ? 'esp-idf' : 'auto');
     const port = overrides.port ?? fw.port;
     const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? port;
@@ -306,8 +363,11 @@ export class EngineeringWorkflowEngine {
       steps,
       resolved: {
         firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot') ? {
+          variant: effective.variant,
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
+          keilProject: fw.keilProject,
+          keilTarget: fw.keilTarget,
           flashProvider,
           artifact: overrides.artifact ?? fw.artifact,
           port,
@@ -398,7 +458,7 @@ export class EngineeringWorkflowEngine {
     };
 
     if (workflow === 'stm32.debug_fault_snapshot') {
-      const fw = state.profile.firmware ?? {};
+      const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
       const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);
       const probeSerial = overrides.probeSerial ?? fw.probeSerial;
       if (!probeSerial) {
@@ -440,15 +500,17 @@ export class EngineeringWorkflowEngine {
     }
 
     if (workflow.startsWith('firmware.')) {
-      const fw = state.profile.firmware ?? {};
+      const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
       const build = await capture('firmware.build', () => this.firmware.build(
         workspace,
         projectPath,
         fw.buildProvider ?? 'auto',
-        fw.buildDir ?? 'build'
+        fw.buildDir ?? 'build',
+        fw.keilProject,
+        fw.keilTarget
       ));
       if (!build.ok) return { workflow, status: 'failed', plan, steps };
-      if (!successfulCommand(build.value.result)) {
+      if (!successfulBuild(build.value.provider, build.value.result)) {
         steps[steps.length - 1] = {
           ...steps[steps.length - 1]!,
           status: 'failed',

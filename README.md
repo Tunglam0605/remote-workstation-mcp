@@ -6,7 +6,16 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.11.0**
+**v0.12.0**
+
+v0.12.0 makes the Engineering Workflow Engine practical for real multi-target Keil/STM32 projects and stabilizes the ChatGPT action surface:
+
+- detect Keil MDK `.uvprojx` projects, target names, STM32 devices, output directories and expected AXF artifacts without executing project code;
+- add a constrained Windows Keil µVision batch-build provider with owner/PATH/known-install discovery and no arbitrary command-line surface;
+- add project-profile firmware variants so one repository can safely represent F407/H743/hardware-test targets without guessing the active board;
+- keep `engineering_workflow_plan/run` action schemas stable through a string workflow ID plus server-validated `parameters`, and allow a versioned generic `profile` payload for profile initialization;
+- expose `actionSchemaVersion=2` and `engineeringApiVersion=2` so operators can distinguish an app-catalog refresh from normal provider/workflow growth;
+- validate the Keil provider on the real B300 F407 target with µVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
 
 v0.11.0 deepens the Engineering Workflow Engine so repeated embedded/ROS work can collapse into one typed MCP call:
 
@@ -120,6 +129,35 @@ High-level tools:
 
 Built-in workflows now include `firmware.build`, `firmware.build_flash`, `firmware.build_flash_verify`, `firmware.build_flash_monitor`, `firmware.build_flash_monitor_expect`, `stm32.debug_fault_snapshot`, `ros2.build`, `ros2.health`, and `ros2.build_health`.
 
+Since v0.12, the high-level ChatGPT action contract is intentionally stable: `workflow` is a bounded semantic string and workflow-specific values travel inside a server-validated `parameters` object. New workflow IDs/providers can therefore be added without changing the top-level action schema. When `actionSchemaVersion` itself changes, refresh the custom-app actions once; ordinary runtime updates with the same schema version do not require a new app/tool catalog.
+
+Example Keil multi-target STM32 profile:
+
+```yaml
+version: 1
+id: b300-main-custom
+kind: stm32
+firmware:
+  buildProvider: keil
+  flashProvider: openocd
+  defaultVariant: main-v2-f407
+  variants:
+    main-v2-f407:
+      keilProject: Main_V2_F407.uvprojx
+      keilTarget: Main_V2_F407
+      buildDir: Objects/F407
+      artifact: Objects/F407/Main_V2_F407.axf
+      targetConfig: target/stm32f4x.cfg
+    main-v3-h743:
+      keilProject: Main_V3_H743.uvprojx
+      keilTarget: Main_V3_H743
+      buildDir: Objects/H743
+      artifact: Objects/H743/Main_V3_H743.axf
+      targetConfig: target/stm32h7x.cfg
+```
+
+For a multi-target Keil project without `defaultVariant`, planning/building fails closed until a variant is selected, for example `parameters.variant = "main-v3-h743"`.
+
 Example ESP-IDF profile:
 
 ```yaml
@@ -201,7 +239,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.11.0.tgz`
+- `remote-workstation-mcp-v0.12.0.tgz`
 - `SHA256SUMS.txt`
 
 

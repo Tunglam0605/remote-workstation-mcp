@@ -83,6 +83,53 @@ async function espIdfCommand(args: string[]): Promise<CommandSpec> {
   return { program: bash.path, args: [helperPath('esp-idf-run.sh'), root, ...args] };
 }
 
+async function discoverKeilUv4(): Promise<{ path: string; source: 'owner-override' | 'path' | 'known-install' } | undefined> {
+  if (os.platform() !== 'win32') return undefined;
+  const override = process.env.RWMCP_KEIL_UVISION_EXECUTABLE?.trim();
+  if (override) {
+    if (!path.isAbsolute(override)) throw new Error('RWMCP_KEIL_UVISION_EXECUTABLE must be an absolute path.');
+    const resolved = await resolveExecutable(override);
+    if (!resolved) throw new Error(`Configured Keil uVision executable was not found: ${override}`);
+    return { path: resolved, source: 'owner-override' };
+  }
+  const direct = await resolveFirstExecutable(['UV4.exe', 'UV4']);
+  if (direct) return { path: direct.path, source: 'path' };
+  const candidates = [
+    'C:\\Keil_v5\\UV4\\UV4.exe',
+    'C:\\Keil\\UV4\\UV4.exe',
+    'C:\\Program Files\\Keil_v5\\UV4\\UV4.exe',
+    'C:\\Program Files (x86)\\Keil_v5\\UV4\\UV4.exe'
+  ];
+  for (const candidate of candidates) {
+    if (await exists(candidate)) return { path: candidate, source: 'known-install' };
+  }
+  return undefined;
+}
+
+function validateKeilTargetName(value: string | undefined): string {
+  const target = value?.trim();
+  if (!target || target.length > 160 || /[\0\r\n]/.test(target)) {
+    throw new Error('Keil build requires a keilTarget of 1..160 characters without control characters.');
+  }
+  return target;
+}
+
+async function readBoundedText(file: string, maxBytes: number): Promise<string> {
+  try {
+    const handle = await fs.open(file, 'r');
+    try {
+      const stat = await handle.stat();
+      const length = Math.min(stat.size, maxBytes);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
+      return buffer.toString('utf8');
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return '';
+  }
+}
 export class FirmwareAdapter {
   readonly inspector: FirmwareProjectInspector;
   readonly artifacts: FirmwareArtifactFinder;
@@ -127,9 +174,35 @@ export class FirmwareAdapter {
     return this.artifacts.find(workspace, projectPath);
   }
 
-  async providerStatus(provider: 'openocd' = 'openocd'): Promise<FirmwareProviderStatus> {
+  async providerStatus(provider: 'openocd' | 'keil' = 'openocd'): Promise<FirmwareProviderStatus> {
     this.policy.assertEngineeringEnabled();
-    if (provider !== 'openocd') throw new Error(`Unsupported firmware provider '${provider}'.`);
+    if (provider === 'keil') {
+      const resolved = await discoverKeilUv4();
+      const base = {
+        provider: 'keil' as const,
+        capabilities: ['uvprojx', 'multi-target', 'batch-build', 'build-log'],
+        intentionallyUnavailable: ['arbitrary-command-line', 'interactive-ide-control', 'flash-download', 'debugger-automation']
+      };
+      if (!resolved) {
+        return {
+          ...base,
+          available: false,
+          diagnostic: {
+            code: 'provider-unavailable', ok: false, retryable: false,
+            message: 'Keil µVision (UV4.exe) is unavailable.',
+            hint: 'Install Keil MDK or set owner-controlled RWMCP_KEIL_UVISION_EXECUTABLE to an absolute UV4.exe path.'
+          }
+        };
+      }
+      return {
+        ...base,
+        available: true,
+        executable: resolved.path,
+        executableSource: resolved.source,
+        diagnostic: { code: 'ok', ok: true, retryable: false, message: 'Keil µVision batch build provider is available.' }
+      };
+    }
+
     const resolved = await resolveOpenOcdExecutable();
     const base = {
       provider: 'openocd' as const,
@@ -138,8 +211,7 @@ export class FirmwareAdapter {
     };
     if (!resolved) return { ...base, available: false, diagnostic: { code: 'provider-unavailable', ok: false, retryable: false, message: 'OpenOCD is not configured or available on PATH.', hint: 'Install OpenOCD or set owner-controlled RWMCP_OPENOCD_EXECUTABLE to an absolute executable path.' } };
     const result = await this.runner.run(resolved.path, ['--version'], process.cwd(), 5000);
-    const text = `${result.stdout}
-${result.stderr}`.trim();
+    const text = `${result.stdout}\n${result.stderr}`.trim();
     const match = /Open On-Chip Debugger\s+([^\s]+)/i.exec(text);
     return {
       ...base,
@@ -150,14 +222,48 @@ ${result.stderr}`.trim();
       diagnostic: classifyOpenOcdResult(result)
     };
   }
-
-  async build(workspace: string, projectPath = '.', provider: 'auto' | 'esp-idf' | 'cmake' | 'make' = 'auto', buildDir = 'build'): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult }> {
+  async build(
+    workspace: string,
+    projectPath = '.',
+    provider: 'auto' | 'esp-idf' | 'cmake' | 'make' | 'keil' = 'auto',
+    buildDir = 'build',
+    keilProject?: string,
+    keilTarget?: string
+  ): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult }> {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
     const cwd = await this.paths.resolveExisting(workspace, projectPath);
     const selected = provider === 'auto'
-      ? project.framework === 'esp-idf' ? 'esp-idf' : project.buildSystem === 'make' ? 'make' : 'cmake'
+      ? project.framework === 'esp-idf' ? 'esp-idf' : project.buildSystem === 'keil' ? 'keil' : project.buildSystem === 'make' ? 'make' : 'cmake'
       : provider;
+
+    if (selected === 'keil') {
+      if (os.platform() !== 'win32') throw new Error('Keil µVision batch build is supported on Windows only.');
+      const resolved = await discoverKeilUv4();
+      if (!resolved) throw new Error('Keil µVision (UV4.exe) is unavailable.');
+      const target = validateKeilTargetName(keilTarget);
+      const projectFile = keilProject?.trim();
+      if (!projectFile) throw new Error('Keil build requires keilProject in the project profile or workflow parameters.');
+      const declared = project.targets?.find(item =>
+        item.projectFile.toLowerCase() === projectFile.toLowerCase() && item.targetName === target
+      );
+      if (project.targets?.length && !declared) {
+        throw new Error(`Keil target '${target}' in '${projectFile}' was not found in inspected .uvprojx metadata.`);
+      }
+      const projectAbsolute = await resolveExistingProjectPath(this.paths, workspace, projectPath, projectFile, 'keilProject');
+      const logPath = path.join(os.tmpdir(), `rwmcp-keil-${process.pid}-${Date.now()}.log`);
+      let result: EngineeringCommandResult;
+      try {
+        // Compatibility baseline: µVision 5.31 accepts -j0/-b/-t/-o but returns a non-build exit code when the newer -sg flag is forced.
+        result = await this.runner.run(resolved.path, ['-j0', '-b', projectAbsolute, `-t${target}`, `-o${logPath}`], cwd);
+        const log = await readBoundedText(logPath, this.policy.config.process.maxOutputBytes);
+        if (log) result = { ...result, stdout: [result.stdout, log].filter(Boolean).join('\n').slice(-this.policy.config.process.maxOutputBytes) };
+      } finally {
+        await fs.rm(logPath, { force: true }).catch(() => undefined);
+      }
+      return { project, provider: selected, result };
+    }
+
     let command: CommandSpec;
     if (selected === 'esp-idf') {
       command = await espIdfCommand(['build']);
@@ -174,7 +280,6 @@ ${result.stderr}`.trim();
     const result = await this.runner.run(command.program, command.args, cwd);
     return { project, provider: selected, result };
   }
-
   async flashPlan(options: {
     workspace: string;
     projectPath?: string;

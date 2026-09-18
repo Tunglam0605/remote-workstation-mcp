@@ -2,7 +2,7 @@ import os from 'node:os';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
-import { CAPABILITIES, SERVER_VERSION } from '../capabilities.js';
+import { ACTION_SCHEMA_VERSION, CAPABILITIES, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { audited } from '../security/audit.js';
 
 const result = (value: unknown) => ({
@@ -17,6 +17,8 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'capabilities_list', undefined, async () => ({
     server: 'remote-workstation-mcp', version: SERVER_VERSION, protocol: 'MCP', vendorNeutral: true,
+    actionSchemaVersion: ACTION_SCHEMA_VERSION,
+    engineeringApiVersion: ENGINEERING_API_VERSION,
     actorTag: ctx.actor,
     identityNote: 'Authenticated HTTP principals are request-scoped. RWMCP client tags remain fallback observability metadata for local transports; local owner policy and leases remain the authority.',
     capabilities: CAPABILITIES

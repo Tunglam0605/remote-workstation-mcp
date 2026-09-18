@@ -6,6 +6,16 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
+**v0.13.5**
+
+v0.13.5 adds a transport-agnostic trusted artifact integrity layer to the existing Engineering Workflow Engine:
+
+- add `firmware.artifact_prepare` to hash an ELF/AXF/HEX/BIN artifact and return a canonical SHA-256/size manifest without building or mutating hardware;
+- add `firmware.artifact_accept` to fail closed on SHA-256/size mismatch, stream-copy the staged file while hashing, and atomically promote only verified bytes into `.rwmcp/artifacts/verified/`;
+- keep transport separate from trust: Direct Node orchestration, SSH/SFTP, HTTP object storage or a future provider may move bytes, while acceptance always re-hashes at the destination;
+- make acceptance idempotent for an already verified content-addressed artifact and persist a local verification manifest;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`; the workflows use the existing generic `parameters` envelope, so no ChatGPT custom-app action refresh is required.
+
 **v0.13.4**
 
 v0.13.4 closes the real-hardware ST-Link ownership-classification gap found during v0.13.3 acceptance:

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { ArtifactIntegrityAdapter } from '../src/adapters/engineering/artifact-integrity.js';
 import { EngineeringProjectProfileStore } from '../src/adapters/engineering/project-profile.js';
 import { EngineeringWorkflowEngine } from '../src/adapters/engineering/workflow-engine.js';
 import type { EngineeringCommandResult, FirmwareProjectInfo } from '../src/engineering/types.js';
@@ -31,6 +33,7 @@ async function fixture(project: FirmwareProjectInfo) {
   const policy = new PolicyEngine(config(root));
   const paths = new PathGuard(policy);
   const profiles = new EngineeringProjectProfileStore(policy, paths);
+  const artifactIntegrity = new ArtifactIntegrityAdapter(policy, paths);
   const calls: string[] = [];
   let buildResult = okCommand();
   let verifyResult = okCommand();
@@ -185,6 +188,7 @@ async function fixture(project: FirmwareProjectInfo) {
   const engine = new EngineeringWorkflowEngine(
     policy,
     profiles,
+    artifactIntegrity,
     firmware as never,
     hardware as never,
     serial as never,
@@ -863,6 +867,84 @@ test('STM32 deploy-accept may keep the serial session open only when explicitly 
     assert.equal(f.calls.some(call => call.startsWith('serial.close:')), false);
     assert.equal((result as any).outputs.serialSession.status, 'open');
     assert.equal(result.plan.steps.includes('serial.close'), false);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('firmware artifact prepare hashes without triggering a build or hardware mutation', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const body = ':020000040801F1\n:00000001FF\n';
+    await fs.mkdir(path.join(f.root, 'project', 'staging'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'staging', 'firmware.hex'), body, 'utf8');
+    const list = await f.engine.list('w', 'project');
+    assert.ok(list.workflows.some(item => item.id === 'firmware.artifact_prepare'));
+    assert.ok(list.workflows.some(item => item.id === 'firmware.artifact_accept'));
+
+    const result = await f.engine.run('w', 'project', 'firmware.artifact_prepare', {
+      artifact: 'staging/firmware.hex'
+    });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, []);
+    assert.equal((result as any).outputs.manifest.sha256, createHash('sha256').update(body).digest('hex'));
+    assert.equal((result as any).outputs.manifest.size, Buffer.byteLength(body));
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('firmware artifact accept blocks on integrity mismatch before any build or promotion', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    await fs.mkdir(path.join(f.root, 'project', 'staging'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'staging', 'firmware.hex'), ':00000001FF\n', 'utf8');
+    const result = await f.engine.run('w', 'project', 'firmware.artifact_accept', {
+      artifact: 'staging/firmware.hex',
+      expectedSha256: '0'.repeat(64)
+    });
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(f.calls, []);
+    assert.equal(result.steps[0]?.id, 'artifact.preflight');
+    assert.equal(result.steps[0]?.status, 'blocked');
+    await assert.rejects(
+      fs.access(path.join(f.root, 'project', '.rwmcp', 'artifacts', 'verified')),
+      /ENOENT/
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('firmware artifact accept promotes verified content without invoking build or flash', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const body = ':020000040801F1\n:00000001FF\n';
+    await fs.mkdir(path.join(f.root, 'project', 'staging'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'staging', 'firmware.hex'), body, 'utf8');
+    const expectedSha256 = createHash('sha256').update(body).digest('hex');
+    const result = await f.engine.run('w', 'project', 'firmware.artifact_accept', {
+      artifact: 'staging/firmware.hex',
+      expectedSha256,
+      expectedSize: Buffer.byteLength(body)
+    });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, []);
+    assert.equal((result as any).outputs.accepted.sha256, expectedSha256);
+    assert.match((result as any).outputs.accepted.verifiedPath, /^\.rwmcp\/artifacts\/verified\//);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

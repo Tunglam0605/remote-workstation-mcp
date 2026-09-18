@@ -12,13 +12,29 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /const workflowId = z\.string\(\)[\s\S]*regex\(\/\^\[a-z0-9\]/);
   assert.doesNotMatch(tools, /const workflowId = z\.enum\(/);
   assert.match(tools, /workflowParameters = z\.record\([\s\S]*z\.unknown\(\)/);
-  assert.match(tools, /engineering_workflow_plan[\s\S]*parameters: workflowParameters/);
-  assert.match(tools, /engineering_workflow_run[\s\S]*parameters: workflowParameters/);
+  assert.match(tools, /engineering_workflow_plan[\s\S]*parameters: workflowParameters[\s\S]*overrides: legacyWorkflowOverrides/);
+  assert.match(tools, /engineering_workflow_run[\s\S]*parameters: workflowParameters[\s\S]*overrides: legacyWorkflowOverrides/);
   assert.match(tools, /engineering_profile_init[\s\S]*profile: z\.record\(z\.string\(\), z\.unknown\(\)\)\.optional\(\)/);
 
-  // Backward-compatible typed fields may remain, but future workflow IDs and provider
-  // parameters must be accepted through the generic server-validated envelopes above.
-  assert.match(tools, /workflowOverrides\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
+  const legacyStart = tools.indexOf('const legacyWorkflowOverrides = z.object({');
+  const runtimeStart = tools.indexOf('const workflowRuntimeParameters = z.object({');
+  const genericStart = tools.indexOf('const workflowParameters = z.record', runtimeStart);
+  assert.ok(legacyStart >= 0 && runtimeStart > legacyStart && genericStart > runtimeStart);
+  const legacyBlock = tools.slice(legacyStart, runtimeStart);
+  const runtimeBlock = tools.slice(runtimeStart, genericStart);
+  assert.doesNotMatch(legacyBlock, /keepMonitorOpen/);
+  assert.match(runtimeBlock, /keepMonitorOpen: z\.boolean\(\)\.optional\(\)/);
+
+  // Action schema v2 keeps the legacy overrides shape frozen. New workflow parameters
+  // are accepted through the generic envelope and validated by the internal runtime schema.
+  assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
+});
+
+test('v0.13 daily workflow growth keeps ChatGPT Action Schema v2 stable while advancing Engineering API v3', async () => {
+  const capabilities = await read('src/capabilities.ts');
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 2;/);
+  assert.match(capabilities, /export const ENGINEERING_API_VERSION = 3;/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.13\.0';/);
 });
 
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {

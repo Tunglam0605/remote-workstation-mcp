@@ -1,6 +1,6 @@
-export const SERVER_VERSION = '0.12.0';
+export const SERVER_VERSION = '0.13.0';
 export const ACTION_SCHEMA_VERSION = 2;
-export const ENGINEERING_API_VERSION = 2;
+export const ENGINEERING_API_VERSION = 3;
 
 export type CapabilityStatus = 'available' | 'planned';
 
@@ -39,7 +39,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'full_control.host_filesystem', status: 'available', tools: ['host_fs_list', 'host_fs_read', 'host_fs_write'], note: 'Requires full-control scope, effective Full Access and the explicit local policy gate when HTTP authentication is enabled.' },
   { id: 'full_control.shell', status: 'available', tools: ['shell_exec'], note: 'Requires full-control scope, effective Full Access and the explicit raw-shell policy gate when HTTP authentication is enabled.' },
   { id: 'full_control.admin', status: 'available', tools: ['admin_request', 'admin_request_status'], note: 'Administrator execution is owner-approved only. The MCP tool can create a pending request, but execution requires local Control Center approval; elevation then uses Windows RunAs/UAC under the machine policy through a separate privileged helper.' },
-  { id: 'engineering.workflows', status: 'available', tools: ['engineering_project_inspect', 'engineering_profile_init', 'engineering_workflow_list', 'engineering_workflow_plan', 'engineering_workflow_run'], note: 'Project-local .rwmcp/project.yaml profiles collapse repeated build/flash/monitor/ROS 2 setup into typed high-level workflows without arbitrary shell recipes.' },
+  { id: 'engineering.workflows', status: 'available', tools: ['engineering_project_inspect', 'engineering_profile_init', 'engineering_workflow_list', 'engineering_workflow_plan', 'engineering_workflow_run'], note: 'Project-local .rwmcp/project.yaml profiles collapse repeated build/flash/monitor/ROS 2 setup into typed high-level workflows without arbitrary shell recipes; Engineering API v3 adds transactional STM32 deploy acceptance while keeping Action Schema v2 stable.' },
   { id: 'engineering.hardware', status: 'available', tools: ['hardware_list', 'hardware_inspect', 'hardware_session_status'], note: 'Cross-platform serial/debug-probe discovery plus exclusive resource leases prevent competing hardware operations.' },
   { id: 'engineering.serial', status: 'available', tools: ['serial_open', 'serial_read', 'serial_wait_for_text', 'serial_write', 'serial_close'], note: 'Caller-owned serial sessions use bounded buffers; readiness markers can be awaited without repeated chat polling; serial write is separately permission-gated.' },
   { id: 'engineering.firmware', status: 'available', tools: ['firmware_project_inspect', 'firmware_artifacts', 'firmware_provider_status', 'firmware_build', 'firmware_flash_plan', 'firmware_flash', 'firmware_verify', 'target_reset'], note: 'Typed firmware workflows auto-detect ESP-IDF/STM32/Keil MDK/CMake/Make and use constrained provider-generated argv.' },

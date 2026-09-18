@@ -335,12 +335,103 @@ export class FirmwareAdapter {
     ];
     return {
       provider: 'openocd', family: project.family, target: project.target, artifact: artifactAbsolute,
-      probeSerial, ...(adapterSpeedKhz !== undefined ? { adapterSpeedKhz } : {}), program: openocd.path, args,
+      probeSerial, targetConfig, ...(adapterSpeedKhz !== undefined ? { adapterSpeedKhz } : {}), program: openocd.path, args,
       resourceId: selectedProbe.resourceId, destructive: true,
       notes: ['OpenOCD is bound to an explicit ST-Link/SWD target transaction.', 'No mass erase, Option Byte, readout-protection, or arbitrary TCL surface is exposed.']
     };
   }
 
+  async stm32DeploymentPreflight(options: { probeSerial?: string; monitorPort?: string } = {}) {
+    this.policy.assertEngineeringEnabled();
+    validateProbeSerial(options.probeSerial);
+    const monitorPort = options.monitorPort ? validateSerialPortPath(options.monitorPort) : undefined;
+    const [provider, devices] = await Promise.all([
+      this.providerStatus('openocd'),
+      this.hardware.list()
+    ]);
+    const probes = devices.filter(item => item.kind === 'debug-probe' && item.capabilities.includes('swd'));
+    const serialPorts = devices.filter(item => item.kind === 'serial' && item.path);
+    const blockers: string[] = [];
+    let selectedProbe = undefined as (typeof probes)[number] | undefined;
+
+    if (!provider.available) blockers.push(provider.diagnostic?.message ?? 'OpenOCD provider is unavailable.');
+    if (options.probeSerial) {
+      selectedProbe = probes.find(item => item.serialNumber === options.probeSerial);
+      if (!selectedProbe) blockers.push(`Requested ST-Link '${options.probeSerial}' is not currently discovered.`);
+    } else if (probes.length === 0) {
+      blockers.push('No ST-Link/SWD debug probe is currently discovered.');
+    } else if (probes.length > 1) {
+      blockers.push(`Multiple ST-Link/SWD probes are present (${probes.length}); configure probeSerial or pass parameters.probeSerial.`);
+    } else {
+      selectedProbe = probes[0];
+    }
+
+    let selectedSerialPort = undefined as (typeof serialPorts)[number] | undefined;
+    if (monitorPort) {
+      const normalized = os.platform() === 'win32' ? monitorPort.toLowerCase() : monitorPort;
+      selectedSerialPort = serialPorts.find(item => {
+        const candidate = item.path ?? '';
+        return (os.platform() === 'win32' ? candidate.toLowerCase() : candidate) === normalized;
+      });
+      if (!selectedSerialPort) blockers.push(`Configured serial monitor port '${monitorPort}' is not currently discovered.`);
+    }
+
+    return {
+      ready: blockers.length === 0,
+      provider,
+      selectedProbe,
+      selectedSerialPort,
+      discovered: {
+        probes: probes.map(item => ({ id: item.id, name: item.name, serialNumber: item.serialNumber, provider: item.provider })),
+        serialPorts: serialPorts.map(item => ({ id: item.id, path: item.path, name: item.name, provider: item.provider }))
+      },
+      blockers
+    };
+  }
+
+  async deployVerifyReset(options: Omit<Parameters<FirmwareAdapter['flashPlan']>[0], 'provider' | 'port'>): Promise<{
+    plan: FirmwareFlashPlan;
+    result: EngineeringCommandResult;
+    diagnostic: ReturnType<typeof classifyOpenOcdResult>;
+    stages: readonly ['flash', 'verify', 'reset'];
+  }> {
+    this.policy.assertHardwareMutation();
+    const plan = await this.flashPlan({ ...options, provider: 'openocd' });
+    if (plan.provider !== 'openocd' || !plan.artifact || !plan.targetConfig) {
+      throw new Error('STM32 deploy transaction requires a resolved OpenOCD artifact and targetConfig.');
+    }
+    const args = [
+      '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', plan.targetConfig,
+      ...(plan.probeSerial ? ['-c', `adapter serial ${plan.probeSerial}`] : []),
+      ...openOcdAdapterSpeedArgs(plan.adapterSpeedKhz),
+      '-c', 'init',
+      '-c', 'reset halt',
+      '-c', `program {${normalizedOpenOcdPath(plan.artifact)}} verify`,
+      '-c', `verify_image {${normalizedOpenOcdPath(plan.artifact)}}`,
+      '-c', 'reset run',
+      '-c', 'shutdown'
+    ];
+    const transactionPlan: FirmwareFlashPlan = {
+      ...plan,
+      args,
+      notes: [
+        ...plan.notes,
+        'Flash, independent verify and reset execute inside one ST-Link lease and one OpenOCD process.'
+      ]
+    };
+    const cwd = await this.paths.resolveExisting(options.workspace, options.projectPath ?? '.');
+    const result = await this.resources.withLease(
+      transactionPlan.resourceId,
+      'flashing',
+      () => this.runner.run(transactionPlan.program, transactionPlan.args, cwd)
+    );
+    return {
+      plan: transactionPlan,
+      result,
+      diagnostic: classifyOpenOcdResult(result),
+      stages: ['flash', 'verify', 'reset'] as const
+    };
+  }
   async flash(options: Parameters<FirmwareAdapter['flashPlan']>[0]): Promise<{ plan: FirmwareFlashPlan; result: EngineeringCommandResult; diagnostic?: ReturnType<typeof classifyOpenOcdResult> }> {
     this.policy.assertHardwareMutation();
     const plan = await this.flashPlan(options);

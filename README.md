@@ -6,7 +6,17 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.12.0**
+**v0.13.0**
+
+v0.13.0 adds the first daily-driver STM32 deployment workflow while preserving the stable ChatGPT Action Schema v2:
+
+- add `stm32.deploy_accept`: read-only hardware/provider preflight -> build -> serial open -> atomic OpenOCD flash/independent verify/reset -> readiness-marker acceptance -> automatic serial cleanup;
+- keep flash/verify/reset inside one ST-Link lease and one OpenOCD process to avoid cross-step probe races;
+- fail closed with structured `blocked` status before build when OpenOCD, ST-Link, or the configured monitor port is unavailable;
+- open serial before target reset so early boot/readiness output is not missed;
+- close/release serial in `finally` by default on success, deployment failure, or readiness timeout; `parameters.keepMonitorOpen=true` is an explicit opt-in for follow-up diagnostics;
+- freeze the legacy `overrides` action schema and validate new workflow parameters only inside the generic `parameters` envelope, so `actionSchemaVersion` remains **2** while `engineeringApiVersion` advances to **3**;
+- add provider-level regression coverage proving exactly one OpenOCD invocation runs while exactly one ST-Link lease is held for the transaction.
 
 v0.12.0 makes the Engineering Workflow Engine practical for real multi-target Keil/STM32 projects and stabilizes the ChatGPT action surface:
 
@@ -127,7 +137,7 @@ High-level tools:
 - `engineering_workflow_plan` — resolve defaults/steps before execution;
 - `engineering_workflow_run` — execute the approved typed workflow and return per-step structured results.
 
-Built-in workflows now include `firmware.build`, `firmware.build_flash`, `firmware.build_flash_verify`, `firmware.build_flash_monitor`, `firmware.build_flash_monitor_expect`, `stm32.debug_fault_snapshot`, `ros2.build`, `ros2.health`, and `ros2.build_health`.
+Built-in workflows now include `firmware.build`, `firmware.build_flash`, `firmware.build_flash_verify`, `firmware.build_flash_monitor`, `firmware.build_flash_monitor_expect`, `stm32.debug_fault_snapshot`, `stm32.deploy_accept`, `ros2.build`, `ros2.health`, and `ros2.build_health`.
 
 Since v0.12, the high-level ChatGPT action contract is intentionally stable: `workflow` is a bounded semantic string and workflow-specific values travel inside a server-validated `parameters` object. New workflow IDs/providers can therefore be added without changing the top-level action schema. When `actionSchemaVersion` itself changes, refresh the custom-app actions once; ordinary runtime updates with the same schema version do not require a new app/tool catalog.
 
@@ -239,7 +249,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.12.0.tgz`
+- `remote-workstation-mcp-v0.13.0.tgz`
 - `SHA256SUMS.txt`
 
 

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { ArtifactIntegrityAdapter } from '../src/adapters/engineering/artifact-integrity.js';
+import { ArtifactTransferAdapter } from '../src/adapters/engineering/artifact-transfer.js';
 import { EngineeringProjectProfileStore } from '../src/adapters/engineering/project-profile.js';
 import { EngineeringWorkflowEngine } from '../src/adapters/engineering/workflow-engine.js';
 import type { EngineeringCommandResult, FirmwareProjectInfo } from '../src/engineering/types.js';
@@ -34,6 +35,10 @@ async function fixture(project: FirmwareProjectInfo) {
   const paths = new PathGuard(policy);
   const profiles = new EngineeringProjectProfileStore(policy, paths);
   const artifactIntegrity = new ArtifactIntegrityAdapter(policy, paths);
+  const artifactTransfer = new ArtifactTransferAdapter(policy, paths, artifactIntegrity, {
+    bindAddress: '127.0.0.1',
+    allowLoopbackForTests: true
+  });
   const calls: string[] = [];
   let buildResult = okCommand();
   let verifyResult = okCommand();
@@ -189,6 +194,7 @@ async function fixture(project: FirmwareProjectInfo) {
     policy,
     profiles,
     artifactIntegrity,
+    artifactTransfer,
     firmware as never,
     hardware as never,
     serial as never,
@@ -945,6 +951,38 @@ test('firmware artifact accept promotes verified content without invoking build 
     assert.deepEqual(f.calls, []);
     assert.equal((result as any).outputs.accepted.sha256, expectedSha256);
     assert.match((result as any).outputs.accepted.verifiedPath, /^\.rwmcp\/artifacts\/verified\//);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('native artifact workflows are exposed through the generic workflow contract without echoing transfer tickets in plans', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const body = ':020000040801F1\n:00000001FF\n';
+    await fs.writeFile(path.join(f.root, 'project', 'firmware.hex'), body, 'utf8');
+    const expectedSha256 = createHash('sha256').update(body).digest('hex');
+    const expectedSize = Buffer.byteLength(body);
+    const list = await f.engine.list('w', 'project');
+    assert.ok(list.workflows.some(item => item.id === 'firmware.artifact_receive_offer'));
+    assert.ok(list.workflows.some(item => item.id === 'firmware.artifact_push'));
+
+    const secret = 'S'.repeat(43);
+    const plan = await f.engine.plan('w', 'project', 'firmware.artifact_push', {
+      artifact: 'firmware.hex',
+      transferEndpoint: 'http://127.0.0.1:34567/artifact-transfer/test-transfer-1234',
+      transferTicket: secret,
+      expectedSha256,
+      expectedSize
+    });
+    assert.equal(plan.artifactTransfer?.ready, true);
+    assert.equal(plan.resolved.artifactTransfer?.ticketPresent, true);
+    assert.equal(JSON.stringify(plan).includes(secret), false);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

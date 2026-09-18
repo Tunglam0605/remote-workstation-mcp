@@ -2,6 +2,7 @@ import path from 'node:path';
 import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
 import { DeviceRegistryAdapter } from './adapters/devices.js';
 import { ArtifactIntegrityAdapter } from './adapters/engineering/artifact-integrity.js';
+import { ArtifactTransferAdapter } from './adapters/engineering/artifact-transfer.js';
 import { EngineeringCommandRunner } from './adapters/engineering/command-runner.js';
 import { DebugSessionManager } from './adapters/engineering/debug-session.js';
 import { DockerAdapter } from './adapters/engineering/docker.js';
@@ -59,12 +60,13 @@ export async function createContext() {
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
   const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);
   const engineeringArtifacts = new ArtifactIntegrityAdapter(policy, paths);
+  const engineeringArtifactTransfer = new ArtifactTransferAdapter(policy, paths, engineeringArtifacts);
   const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
   const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, engineeringArtifacts, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
   return {
     config,
     hostsConfig,
@@ -94,6 +96,7 @@ export async function createContext() {
       terminals: engineeringTerminals,
       firmware: engineeringFirmware,
       artifacts: engineeringArtifacts,
+      artifactTransfer: engineeringArtifactTransfer,
       profiles: engineeringProfiles,
       workflows: engineeringWorkflows,
       debug: engineeringDebug,

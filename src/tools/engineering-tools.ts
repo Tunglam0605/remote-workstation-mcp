@@ -51,7 +51,11 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     keilTarget: z.string().min(1).max(160).optional(),
     keepMonitorOpen: z.boolean().optional(),
     expectedSha256: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
-    expectedSize: z.number().int().positive().max(128 * 1024 * 1024).optional()
+    expectedSize: z.number().int().positive().max(128 * 1024 * 1024).optional(),
+    artifactName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    transferEndpoint: z.string().url().max(2048).optional(),
+    transferTicket: z.string().min(32).max(256).regex(/^[-_A-Za-z0-9]+$/).optional(),
+    transferTimeoutMs: z.number().int().min(5000).max(600000).optional()
   }).strict().default({});
   const workflowParameters = z.record(z.string().min(1).max(80), z.unknown()).default({});
   const profileProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });

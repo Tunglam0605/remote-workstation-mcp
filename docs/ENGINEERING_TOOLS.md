@@ -15,12 +15,14 @@ RWMCP v0.13 extends the typed engineering layer so recurring STM32, Keil MDK, ES
 
 ## High-level workflow catalog
 
-### Firmware artifact integrity
+### Firmware artifact integrity and native transfer
 
 - `firmware.artifact_prepare`
 - `firmware.artifact_accept`
+- `firmware.artifact_receive_offer`
+- `firmware.artifact_push`
 
-`firmware.artifact_prepare` resolves one project-relative ELF/AXF/HEX/BIN file, hashes it and returns a canonical SHA-256/size manifest without modifying the file. `firmware.artifact_accept` re-hashes staged bytes at the destination, blocks on SHA-256 or size mismatch, then stream-copies to a temporary file and atomically renames only verified content into `.rwmcp/artifacts/verified/<sha256>-<name>`. These workflows deliberately do not choose a transport and never build, flash, reset or open a debug session.
+`firmware.artifact_prepare` resolves one project-relative ELF/AXF/HEX/BIN file, hashes it and returns a canonical SHA-256/size manifest without modifying the file. `firmware.artifact_accept` re-hashes staged bytes at the destination, blocks on SHA-256 or size mismatch, then stream-copies to a temporary file and atomically renames only verified content into `.rwmcp/artifacts/verified/<sha256>-<name>`. The v0.13.5 integrity workflows deliberately do not choose a transport and never build, flash, reset or open a debug session. v0.13.6 adds a separate native Tailscale transport: `firmware.artifact_receive_offer` creates a one-shot destination listener/ticket for an exact name/SHA/size, and `firmware.artifact_push` streams the already-hashed source bytes directly node-to-node. The destination hashes again while receiving and only then promotes through the same atomic verified store. Normal MCP remains loopback-only.
 
 ### STM32
 

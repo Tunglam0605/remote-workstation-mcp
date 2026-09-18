@@ -6,6 +6,19 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
+**v0.13.6**
+
+v0.13.6 adds native Direct-Node firmware artifact transfer over the owner's encrypted Tailscale mesh while preserving the trusted artifact boundary:
+
+- add `firmware.artifact_receive_offer` to open a short-lived one-shot receiver bound only to a local Tailscale IPv4 address;
+- add `firmware.artifact_push` to stream ELF/AXF/HEX/BIN bytes directly from the source Direct Node to the destination Direct Node without routing payload bytes through ChatGPT;
+- authenticate each receive offer with a random 256-bit bearer ticket bound to one artifact name, exact SHA-256, exact size and bounded TTL;
+- verify Content-Length and declared digest before streaming, hash again while receiving, and reuse v0.13.5 atomic destination acceptance before returning success;
+- automatically remove incoming staging files and close the listener after success or expiry;
+- restrict production peer endpoints to Tailscale CGNAT IPv4 addresses (`100.64.0.0/10`); loopback is test-only;
+- never include the transfer ticket in workflow plans; it is returned only by the receive-offer run and must be treated as an ephemeral secret;
+- keep `actionSchemaVersion=2` and `engineeringApiVersion=3`; transfer fields stay inside the existing generic workflow `parameters` envelope.
+
 **v0.13.5**
 
 v0.13.5 adds a transport-agnostic trusted artifact integrity layer to the existing Engineering Workflow Engine:

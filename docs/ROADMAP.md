@@ -380,6 +380,18 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.13.6 - Native Direct-Node artifact transport
+
+- add a dedicated typed `ArtifactTransferAdapter` instead of ad-hoc HTTP servers, SSH copy or model-mediated payload streaming;
+- create one-shot receive offers bound only to a local Tailscale IPv4 interface, with random 256-bit bearer tickets and bounded TTL;
+- stream firmware directly source-node -> destination-node with exact Content-Length and SHA-256 contracts;
+- hash on the source before network I/O, hash again while receiving, then pass only matching staged bytes into the v0.13.5 atomic acceptance layer;
+- remove incoming staging files and close the ephemeral listener automatically after success or expiry;
+- reject non-Tailscale production endpoints and keep the normal MCP runtime loopback-only;
+- keep transfer tickets out of read-only workflow plans and preserve Action Schema v2 / Engineering API v3.
+
+The intended production path is Windows build node -> outbound Tailscale transfer -> Ubuntu Vision receive/accept. This avoids the Windows inbound-firewall problem found during v0.13.5 handoff acceptance and keeps ChatGPT on the control plane rather than the firmware data plane.
+
 ### v0.13.5 - Trusted firmware artifact integrity handoff
 
 - add `firmware.artifact_prepare` for read-only SHA-256/size manifest creation;

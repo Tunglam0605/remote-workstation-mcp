@@ -151,6 +151,7 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
     const policy = new PolicyEngine(cfg);
     const paths = new PathGuard(policy);
     const resources = new EngineeringResourceManager('owner');
+    const monitorPort = process.platform === 'win32' ? 'COM7' : '/dev/ttyUSB0';
     const calls: Array<{ program: string; args: string[]; cwd: string; activeLeases: number }> = [];
     const runner = {
       async run(program: string, args: string[], cwd: string) {
@@ -162,16 +163,16 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
       async list() {
         return [
           { id: 'debug-probe:test:SN1', kind: 'debug-probe', name: 'ST-Link', serialNumber: 'SN1', provider: 'test', capabilities: ['swd', 'openocd', 'gdb'] },
-          { id: 'serial:test:COM7', kind: 'serial', name: 'UART', path: 'COM7', provider: 'test', capabilities: ['serial-monitor'] }
+          { id: 'serial:test:monitor', kind: 'serial', name: 'UART', path: monitorPort, provider: 'test', capabilities: ['serial-monitor'] }
         ];
       }
     };
     const firmware = new FirmwareAdapter(policy, paths, runner as never, resources, hardware as never);
 
-    const preflight = await firmware.stm32DeploymentPreflight({ probeSerial: 'SN1', monitorPort: 'COM7' });
+    const preflight = await firmware.stm32DeploymentPreflight({ probeSerial: 'SN1', monitorPort });
     assert.equal(preflight.ready, true);
     assert.equal(preflight.selectedProbe?.serialNumber, 'SN1');
-    assert.equal(preflight.selectedSerialPort?.path, 'COM7');
+    assert.equal(preflight.selectedSerialPort?.path, monitorPort);
 
     calls.length = 0;
     const result = await firmware.deployVerifyReset({

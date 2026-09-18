@@ -7,8 +7,18 @@ import { PathGuard } from '../../security/path-guard.js';
 
 export type EngineeringProjectKind = 'stm32' | 'esp-idf' | 'ros2' | 'mixed' | 'generic';
 
+export interface EngineeringFirmwareVariant {
+  buildDir?: string;
+  artifact?: string;
+  probeSerial?: string;
+  targetConfig?: string;
+  adapterSpeedKhz?: number;
+  keilProject?: string;
+  keilTarget?: string;
+}
+
 export interface EngineeringFirmwareProfile {
-  buildProvider?: 'auto' | 'esp-idf' | 'cmake' | 'make';
+  buildProvider?: 'auto' | 'esp-idf' | 'cmake' | 'make' | 'keil';
   buildDir?: string;
   flashProvider?: 'auto' | 'openocd' | 'esp-idf';
   artifact?: string;
@@ -16,6 +26,10 @@ export interface EngineeringFirmwareProfile {
   probeSerial?: string;
   targetConfig?: string;
   adapterSpeedKhz?: number;
+  keilProject?: string;
+  keilTarget?: string;
+  defaultVariant?: string;
+  variants?: Record<string, EngineeringFirmwareVariant>;
   monitor?: {
     port?: string;
     baudRate?: number;
@@ -46,14 +60,24 @@ export interface EngineeringProjectProfile {
 }
 
 const relativePath = z.string().min(1).max(512);
+const profileId = z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/);
+const variantSchema = z.object({
+  buildDir: relativePath.optional(),
+  artifact: relativePath.optional(),
+  probeSerial: z.string().min(1).max(256).optional(),
+  targetConfig: z.string().min(1).max(256).optional(),
+  adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
+  keilProject: relativePath.optional(),
+  keilTarget: z.string().min(1).max(160).optional()
+}).strict();
 
 const profileSchema = z.object({
   version: z.literal(1),
-  id: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/),
+  id: profileId,
   name: z.string().min(1).max(160).optional(),
   kind: z.enum(['stm32', 'esp-idf', 'ros2', 'mixed', 'generic']).default('generic'),
   firmware: z.object({
-    buildProvider: z.enum(['auto', 'esp-idf', 'cmake', 'make']).default('auto'),
+    buildProvider: z.enum(['auto', 'esp-idf', 'cmake', 'make', 'keil']).default('auto'),
     buildDir: relativePath.default('build'),
     flashProvider: z.enum(['auto', 'openocd', 'esp-idf']).default('auto'),
     artifact: relativePath.optional(),
@@ -61,13 +85,19 @@ const profileSchema = z.object({
     probeSerial: z.string().min(1).max(256).optional(),
     targetConfig: z.string().min(1).max(256).optional(),
     adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
+    keilProject: relativePath.optional(),
+    keilTarget: z.string().min(1).max(160).optional(),
+    defaultVariant: profileId.optional(),
+    variants: z.record(profileId, variantSchema).refine(value => Object.keys(value).length <= 64, {
+      message: 'firmware.variants may contain at most 64 entries.'
+    }).optional(),
     monitor: z.object({
       port: z.string().min(1).max(256).optional(),
       baudRate: z.number().int().min(300).max(12_000_000).default(115200),
       expectText: z.string().min(1).max(512).optional(),
       expectTimeoutMs: z.number().int().min(100).max(120_000).default(10_000)
-    }).optional()
-  }).optional(),
+    }).strict().optional()
+  }).strict().optional(),
   ros2: z.object({
     distro: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/).optional(),
     cwd: relativePath.default('.'),
@@ -77,9 +107,9 @@ const profileSchema = z.object({
       symlinkInstall: z.boolean().default(true),
       mergeInstall: z.boolean().default(false),
       packagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).optional()
-    }).optional()
-  }).optional()
-});
+    }).strict().optional()
+  }).strict().optional()
+}).strict();
 
 function assertRelative(value: string | undefined, label: string): void {
   if (!value) return;
@@ -91,6 +121,16 @@ function assertRelative(value: string | undefined, label: string): void {
 function validatePaths(profile: EngineeringProjectProfile): void {
   assertRelative(profile.firmware?.buildDir, 'firmware.buildDir');
   assertRelative(profile.firmware?.artifact, 'firmware.artifact');
+  assertRelative(profile.firmware?.keilProject, 'firmware.keilProject');
+  for (const [variant, config] of Object.entries(profile.firmware?.variants ?? {})) {
+    assertRelative(config.buildDir, `firmware.variants.${variant}.buildDir`);
+    assertRelative(config.artifact, `firmware.variants.${variant}.artifact`);
+    assertRelative(config.keilProject, `firmware.variants.${variant}.keilProject`);
+  }
+  const defaultVariant = profile.firmware?.defaultVariant;
+  if (defaultVariant && !profile.firmware?.variants?.[defaultVariant]) {
+    throw new Error(`firmware.defaultVariant '${defaultVariant}' does not exist in firmware.variants.`);
+  }
   assertRelative(profile.ros2?.cwd, 'ros2.cwd');
   assertRelative(profile.ros2?.workspaceSetup, 'ros2.workspaceSetup');
 }
@@ -102,10 +142,14 @@ function manifestRelative(projectPath: string): string {
 export class EngineeringProjectProfileStore {
   constructor(private readonly policy: PolicyEngine, private readonly paths: PathGuard) {}
 
-  parse(raw: string): EngineeringProjectProfile {
-    const parsed = profileSchema.parse(YAML.parse(raw)) as EngineeringProjectProfile;
+  validate(input: unknown): EngineeringProjectProfile {
+    const parsed = profileSchema.parse(input) as EngineeringProjectProfile;
     validatePaths(parsed);
     return parsed;
+  }
+
+  parse(raw: string): EngineeringProjectProfile {
+    return this.validate(YAML.parse(raw));
   }
 
   async load(workspace: string, projectPath = '.'): Promise<{
@@ -132,8 +176,7 @@ export class EngineeringProjectProfileStore {
     profile: EngineeringProjectProfile;
   }> {
     this.policy.assertWrite(workspace);
-    const normalized = profileSchema.parse(profile) as EngineeringProjectProfile;
-    validatePaths(normalized);
+    const normalized = this.validate(profile);
     const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
     const metadataDir = path.join(projectRoot, '.rwmcp');
     await fs.mkdir(metadataDir, { recursive: true });

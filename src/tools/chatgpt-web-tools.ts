@@ -2,7 +2,7 @@ import os from 'node:os';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
-import { SERVER_VERSION } from '../capabilities.js';
+import { ACTION_SCHEMA_VERSION, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { recommendedChatGptAppName } from '../device-identity.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal } from '../security/request-principal.js';
@@ -41,6 +41,8 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
     ok: true,
     server: 'remote-workstation-mcp',
     serverVersion: SERVER_VERSION,
+    actionSchemaVersion: ACTION_SCHEMA_VERSION,
+    engineeringApiVersion: ENGINEERING_API_VERSION,
     device: {
       ...identity,
       recommendedAppName: recommendedChatGptAppName(identity),

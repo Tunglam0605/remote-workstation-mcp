@@ -1,7 +1,11 @@
-﻿import fs from 'node:fs/promises';
+import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { FirmwareFramework, FirmwareProjectInfo } from '../../engineering/types.js';
+import type { FirmwareFramework, FirmwareProjectInfo, FirmwareProjectTarget } from '../../engineering/types.js';
 import { PathGuard } from '../../security/path-guard.js';
+
+const MAX_KEIL_PROJECT_BYTES = 8 * 1024 * 1024;
+const MAX_KEIL_PROJECTS = 32;
+const MAX_KEIL_TARGETS = 128;
 
 async function exists(file: string): Promise<boolean> {
   try { await fs.access(file); return true; } catch { return false; }
@@ -24,6 +28,83 @@ function parseEspTarget(text: string): string | undefined {
   return text.match(/^CONFIG_IDF_TARGET="?([^"\r\n]+)"?/m)?.[1]?.trim();
 }
 
+function decodeXmlText(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+function xmlTag(block: string, tag: string): string | undefined {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return decodeXmlText(new RegExp(`<${escaped}>([\\s\\S]*?)</${escaped}>`, 'i').exec(block)?.[1]);
+}
+
+function safeProjectId(value: string): string {
+  return value.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'keil-target';
+}
+
+function normalizeKeilRelative(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/{2,}/g, '/').replace(/\/$/, '');
+  if (!normalized || path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) return undefined;
+  return normalized;
+}
+
+function parseKeilTargets(projectFile: string, text: string): FirmwareProjectTarget[] {
+  const targets: FirmwareProjectTarget[] = [];
+  const blocks = [...text.matchAll(/<Target>([\s\S]*?)<\/Target>/gi)];
+  for (const match of blocks.slice(0, MAX_KEIL_TARGETS)) {
+    const block = match[1] ?? '';
+    const targetName = xmlTag(block, 'TargetName');
+    if (!targetName) continue;
+    const device = xmlTag(block, 'Device');
+    const outputDirectory = normalizeKeilRelative(xmlTag(block, 'OutputDirectory'));
+    const outputName = xmlTag(block, 'OutputName');
+    const createHexFile = xmlTag(block, 'CreateHexFile') === '1';
+    const expectedArtifact = outputDirectory && outputName
+      ? path.posix.join(outputDirectory, `${outputName}.axf`)
+      : undefined;
+    targets.push({
+      id: safeProjectId(`${path.parse(projectFile).name}-${targetName}`),
+      projectFile,
+      targetName,
+      ...(device ? { device } : {}),
+      ...(outputDirectory ? { outputDirectory } : {}),
+      ...(outputName ? { outputName } : {}),
+      ...(expectedArtifact ? { expectedArtifact } : {}),
+      ...(createHexFile ? { createHexFile: true } : {})
+    });
+  }
+  return targets;
+}
+
+async function discoverKeilProjects(root: string): Promise<{ markers: string[]; targets: FirmwareProjectTarget[] }> {
+  const entries = (await fs.readdir(root, { withFileTypes: true }))
+    .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.uvprojx'))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, MAX_KEIL_PROJECTS);
+  const markers: string[] = [];
+  const targets: FirmwareProjectTarget[] = [];
+  for (const entry of entries) {
+    const file = path.join(root, entry.name);
+    try {
+      const stat = await fs.stat(file);
+      if (stat.size > MAX_KEIL_PROJECT_BYTES) continue;
+      const text = await fs.readFile(file, 'utf8');
+      markers.push(entry.name);
+      targets.push(...parseKeilTargets(entry.name, text));
+    } catch {
+      // Optional IDE metadata must not break generic project inspection.
+    }
+  }
+  return { markers, targets: targets.slice(0, MAX_KEIL_TARGETS) };
+}
+
 export class FirmwareProjectInspector {
   constructor(private readonly paths: PathGuard) {}
 
@@ -35,6 +116,7 @@ export class FirmwareProjectInspector {
     let target: string | undefined;
     let board: string | undefined;
     let buildSystem: string | undefined;
+    let targets: FirmwareProjectTarget[] | undefined;
 
     const cmake = path.join(root, 'CMakeLists.txt');
     const sdkconfig = path.join(root, 'sdkconfig');
@@ -90,12 +172,37 @@ export class FirmwareProjectInspector {
         framework = 'make';
       }
     }
+
+    const keil = await discoverKeilProjects(root);
+    if (keil.targets.length > 0) {
+      markers.push(...keil.markers.filter(item => !markers.includes(item)));
+      targets = keil.targets;
+      family = 'stm32';
+      framework = 'keil-mdk';
+      buildSystem = 'keil';
+      const devices = [...new Set(keil.targets.map(item => item.device).filter((item): item is string => Boolean(item)))];
+      if (devices.length === 1) target = devices[0];
+      else if (devices.length > 1) target = undefined;
+    }
+
     const ros2 = await exists(packageXml);
     if (ros2) markers.push('package.xml');
     const docker = await exists(dockerfile) || await exists(compose) || await exists(composeYaml);
     if (docker) markers.push('docker');
 
-    return { workspace, projectPath, family, framework, target, board, buildSystem, markers, ros2, docker };
+    return {
+      workspace,
+      projectPath,
+      family,
+      framework,
+      target,
+      board,
+      buildSystem,
+      ...(targets?.length ? { targets } : {}),
+      markers,
+      ros2,
+      docker
+    };
   }
 }
 

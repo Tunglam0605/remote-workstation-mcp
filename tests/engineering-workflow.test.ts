@@ -38,9 +38,19 @@ async function fixture(project: FirmwareProjectInfo) {
   const firmware = {
     async inspect() { return project; },
     async listArtifacts() { return artifacts; },
-    async build() {
-      calls.push('build');
-      return { project, provider: project.family === 'esp32' ? 'esp-idf' : 'cmake', result: buildResult };
+    async build(
+      _workspace: string,
+      _projectPath: string,
+      provider: string,
+      buildDir: string,
+      keilProject?: string,
+      keilTarget?: string
+    ) {
+      calls.push(`build:${provider}:${buildDir}:${keilProject ?? '-'}:${keilTarget ?? '-'}`);
+      const resolvedProvider = provider === 'auto'
+        ? project.framework === 'esp-idf' ? 'esp-idf' : project.framework === 'keil-mdk' ? 'keil' : project.buildSystem === 'make' ? 'make' : 'cmake'
+        : provider;
+      return { project, provider: resolvedProvider, result: buildResult };
     },
     async flash(options: Record<string, unknown>) {
       calls.push(`flash:${String(options.port ?? options.probeSerial ?? 'auto')}`);
@@ -191,7 +201,7 @@ test('build-flash-monitor workflow executes typed adapters in order and returns 
     });
     const result = await f.engine.run('w', 'project', 'firmware.build_flash_monitor');
     assert.equal(result.status, 'succeeded');
-    assert.deepEqual(f.calls, ['build', 'flash:/dev/ttyUSB0', 'serial:/dev/ttyUSB0:115200']);
+    assert.deepEqual(f.calls, ['build:esp-idf:build:-:-', 'flash:/dev/ttyUSB0', 'serial:/dev/ttyUSB0:115200']);
     assert.equal(result.outputs?.serialSession.port, '/dev/ttyUSB0');
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
@@ -209,7 +219,7 @@ test('compound workflow stops before flash when build fails', async () => {
     f.setBuildResult({ ...okCommand(), exitCode: 2, stderr: 'compile failed' });
     const result = await f.engine.run('w', 'project', 'firmware.build_flash');
     assert.equal(result.status, 'failed');
-    assert.deepEqual(f.calls, ['build']);
+    assert.deepEqual(f.calls, ['build:auto:build:-:-']);
     assert.equal(result.steps.at(-1)?.status, 'failed');
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
@@ -292,7 +302,7 @@ test('STM32 build-flash-verify resolves one artifact and verifies after flash', 
     await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-H743' } });
     const result = await f.engine.run('w', 'project', 'firmware.build_flash_verify');
     assert.equal(result.status, 'succeeded');
-    assert.deepEqual(f.calls, ['build', 'flash:STLINK-H743', 'verify:build/main.elf']);
+    assert.deepEqual(f.calls, ['build:auto:build:-:-', 'flash:STLINK-H743', 'verify:build/main.elf']);
     assert.equal((result as any).outputs.artifact, 'build/main.elf');
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
@@ -311,7 +321,7 @@ test('STM32 build-flash-verify fails closed when independent verify fails', asyn
     await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-F407' } });
     const result = await f.engine.run('w', 'project', 'firmware.build_flash_verify');
     assert.equal(result.status, 'failed');
-    assert.deepEqual(f.calls, ['build', 'flash:STLINK-F407', 'verify:build/app.hex']);
+    assert.deepEqual(f.calls, ['build:auto:build:-:-', 'flash:STLINK-F407', 'verify:build/app.hex']);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }
@@ -333,7 +343,7 @@ test('ESP monitor-expect collapses build flash monitor and readiness acceptance 
     const result = await f.engine.run('w', 'project', 'firmware.build_flash_monitor_expect');
     assert.equal(result.status, 'succeeded');
     assert.deepEqual(f.calls, [
-      'build',
+      'build:esp-idf:build:-:-',
       'flash:/dev/ttyUSB0',
       'serial:/dev/ttyUSB0:115200',
       'expect:APP_READY:5000'
@@ -484,6 +494,166 @@ test('STM32 debug fault workflow refuses to guess a probe or non-symbol artifact
       () => f.engine.run('w', 'project', 'stm32.debug_fault_snapshot'),
       /ELF\/AXF|ELF or AXF|probeSerial/i
     );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+
+
+test('Keil multi-target suggested profile creates variants and requires explicit selection', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'keil-mdk',
+    buildSystem: 'keil', markers: ['Main_V2_F407.uvprojx', 'Main_V3_H743.uvprojx'], ros2: false, docker: false,
+    targets: [
+      {
+        id: 'Main_V2_F407-Main_V2_F407',
+        projectFile: 'Main_V2_F407.uvprojx',
+        targetName: 'Main_V2_F407',
+        device: 'STM32F407ZETx',
+        outputDirectory: 'Objects/F407',
+        outputName: 'Main_V2_F407',
+        expectedArtifact: 'Objects/F407/Main_V2_F407.axf'
+      },
+      {
+        id: 'Main_V3_H743-Main_V3_H743',
+        projectFile: 'Main_V3_H743.uvprojx',
+        targetName: 'Main_V3_H743',
+        device: 'STM32H743ZITx',
+        outputDirectory: 'Objects/H743',
+        outputName: 'Main_V3_H743',
+        expectedArtifact: 'Objects/H743/Main_V3_H743.axf'
+      }
+    ]
+  };
+  const f = await fixture(project);
+  try {
+    const inspected = await f.engine.inspect('w', 'project');
+    assert.equal(inspected.profile.firmware?.buildProvider, 'keil');
+    assert.equal(inspected.profile.firmware?.defaultVariant, undefined);
+    assert.equal(Object.keys(inspected.profile.firmware?.variants ?? {}).length, 2);
+    assert.equal(
+      inspected.profile.firmware?.variants?.['Main_V2_F407-Main_V2_F407']?.targetConfig,
+      'target/stm32f4x.cfg'
+    );
+    assert.equal(
+      inspected.profile.firmware?.variants?.['Main_V3_H743-Main_V3_H743']?.targetConfig,
+      'target/stm32h7x.cfg'
+    );
+
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'firmware.build'),
+      /multiple firmware variants|defaultVariant|parameters\.variant/i
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('Keil variant flows through build parameters without shell command input', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'keil-mdk',
+    buildSystem: 'keil', markers: ['Main_V2_F407.uvprojx'], ros2: false, docker: false,
+    targets: [{
+      id: 'main-v2-f407',
+      projectFile: 'Main_V2_F407.uvprojx',
+      targetName: 'Main_V2_F407',
+      device: 'STM32F407ZETx',
+      outputDirectory: 'Objects/F407',
+      outputName: 'Main_V2_F407',
+      expectedArtifact: 'Objects/F407/Main_V2_F407.axf'
+    }]
+  };
+  const f = await fixture(project);
+  try {
+    const plan = await f.engine.plan('w', 'project', 'firmware.build', { variant: 'main-v2-f407' });
+    assert.equal(plan.resolved.firmware?.variant, 'main-v2-f407');
+    assert.equal(plan.resolved.firmware?.buildProvider, 'keil');
+    assert.equal(plan.resolved.firmware?.keilProject, 'Main_V2_F407.uvprojx');
+    assert.equal(plan.resolved.firmware?.keilTarget, 'Main_V2_F407');
+    assert.equal(plan.resolved.firmware?.artifact, 'Objects/F407/Main_V2_F407.axf');
+
+    const result = await f.engine.run('w', 'project', 'firmware.build', { variant: 'main-v2-f407' });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, [
+      'build:keil:Objects/F407:Main_V2_F407.uvprojx:Main_V2_F407'
+    ]);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('Keil warning exit code 1 succeeds while error exit code 2 fails', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'keil-mdk',
+    buildSystem: 'keil', markers: ['Main.uvprojx'], ros2: false, docker: false,
+    targets: [{
+      id: 'main',
+      projectFile: 'Main.uvprojx',
+      targetName: 'Main',
+      device: 'STM32F407ZETx',
+      outputDirectory: 'Objects',
+      outputName: 'Main',
+      expectedArtifact: 'Objects/Main.axf'
+    }]
+  };
+  const f = await fixture(project);
+  try {
+    f.setBuildResult({ ...okCommand(), exitCode: 1, stdout: '0 Error(s), 2 Warning(s)' });
+    const warning = await f.engine.run('w', 'project', 'firmware.build');
+    assert.equal(warning.status, 'succeeded');
+
+    f.calls.length = 0;
+    f.setBuildResult({ ...okCommand(), exitCode: 2, stderr: '1 Error(s)' });
+    const error = await f.engine.run('w', 'project', 'firmware.build');
+    assert.equal(error.status, 'failed');
+    assert.equal(error.steps.at(-1)?.status, 'failed');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('generic versioned profile payload is validated and persisted for frozen action schemas', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'keil-mdk',
+    buildSystem: 'keil', markers: ['Main.uvprojx'], ros2: false, docker: false,
+    targets: [{
+      id: 'f407',
+      projectFile: 'Main.uvprojx',
+      targetName: 'Main',
+      device: 'STM32F407ZETx',
+      outputDirectory: 'Objects',
+      outputName: 'Main',
+      expectedArtifact: 'Objects/Main.axf'
+    }]
+  };
+  const f = await fixture(project);
+  try {
+    const written = await f.engine.initProfile('w', 'project', {
+      profile: {
+        version: 1,
+        id: 'b300',
+        name: 'B300',
+        kind: 'stm32',
+        firmware: {
+          buildProvider: 'keil',
+          flashProvider: 'openocd',
+          defaultVariant: 'f407',
+          variants: {
+            f407: {
+              keilProject: 'Main.uvprojx',
+              keilTarget: 'Main',
+              buildDir: 'Objects',
+              artifact: 'Objects/Main.axf',
+              targetConfig: 'target/stm32f4x.cfg'
+            }
+          }
+        }
+      }
+    });
+    assert.equal(written.profile.firmware?.defaultVariant, 'f407');
+    assert.equal(written.profile.firmware?.variants?.f407?.keilTarget, 'Main');
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

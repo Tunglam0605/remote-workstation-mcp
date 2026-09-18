@@ -24,7 +24,18 @@ export interface HardwareDevice {
 }
 
 export type FirmwareFamily = 'stm32' | 'esp32' | 'generic-embedded' | 'unknown';
-export type FirmwareFramework = 'esp-idf' | 'stm32-cube' | 'cmake' | 'make' | 'unknown';
+export type FirmwareFramework = 'esp-idf' | 'stm32-cube' | 'keil-mdk' | 'cmake' | 'make' | 'unknown';
+
+export interface FirmwareProjectTarget {
+  id: string;
+  projectFile: string;
+  targetName: string;
+  device?: string;
+  outputDirectory?: string;
+  outputName?: string;
+  expectedArtifact?: string;
+  createHexFile?: boolean;
+}
 
 export interface FirmwareProjectInfo {
   workspace: string;
@@ -34,6 +45,7 @@ export interface FirmwareProjectInfo {
   target?: string;
   board?: string;
   buildSystem?: string;
+  targets?: FirmwareProjectTarget[];
   markers: string[];
   ros2: boolean;
   docker: boolean;
@@ -78,10 +90,10 @@ export interface OpenOcdDiagnostic {
 }
 
 export interface FirmwareProviderStatus {
-  provider: 'openocd';
+  provider: 'openocd' | 'keil';
   available: boolean;
   executable?: string;
-  executableSource?: 'owner-override' | 'path';
+  executableSource?: 'owner-override' | 'path' | 'known-install';
   version?: string;
   diagnostic?: OpenOcdDiagnostic;
   capabilities: string[];

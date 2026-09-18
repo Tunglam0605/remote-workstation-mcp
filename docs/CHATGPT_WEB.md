@@ -164,6 +164,14 @@ While the workstation tunnel is READY:
 
 If the tunnel is not visible, first confirm workspace scoping and the user/role's Tunnels Read + Use permission. A connector/app can look configured in ChatGPT while the workstation runtime is still unavailable, so always verify tunnel READY before troubleshooting ChatGPT discovery.
 
+### Refreshing actions after an RWMCP schema upgrade
+
+RWMCP reports `actionSchemaVersion` through `capabilities_list`. A custom app may keep the action catalog discovered when it was created/refreshed, so opening a new chat is not a substitute for refreshing the app when the action schema version changes.
+
+For v0.12.0, `actionSchemaVersion=2`. Refresh the custom-app actions once after upgrading from an older catalog so ChatGPT discovers `engineering_project_inspect`, `engineering_profile_init`, and `engineering_workflow_*` with the stable v2 envelopes. Future workflow/provider additions that stay on action schema v2 travel through `workflow` + server-validated `parameters` and do not require a new top-level tool definition.
+
+After refreshing, verify with `capabilities_list` and confirm both `actionSchemaVersion` and `engineeringApiVersion` before relying on the high-level Engineering Workflow Engine.
+
 ## Step 6 - First safe verification
 
 Start with a read-only verification prompt:

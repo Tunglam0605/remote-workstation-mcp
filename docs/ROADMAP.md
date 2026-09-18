@@ -378,6 +378,25 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
+## v0.12 — Stable Engineering action surface + Keil multi-target workflows
+
+### v0.12.0 - Keil MDK / frozen-snapshot-safe workflow contract
+
+- detect Keil MDK `.uvprojx` projects and extract project targets, STM32 device IDs, output directories/names and expected AXF artifacts without executing project code;
+- add a constrained Windows µVision build provider; RWMCP resolves `UV4.exe` from owner override/PATH/known install locations and generates batch argv internally;
+- add `firmware.variants` plus `defaultVariant` so F407/H743/hardware-test targets share one canonical `.rwmcp/project.yaml` without guessing the active board;
+- make the high-level ChatGPT Engineering API stable through string workflow IDs plus server-validated `parameters`, and accept a versioned generic profile envelope for profile initialization;
+- expose `actionSchemaVersion` separately from runtime release version so custom-app action refreshes happen only when the actual action contract changes;
+- validate the real B300 F407 target through the typed Keil provider on µVision 5.31; keep the H743 compile blocker (`Task_IPC.h` missing) classified as project diagnostics rather than provider failure;
+- preserve shell-free project profiles, workspace containment and constrained provider command generation.
+
+Next depth after v0.12.0:
+
+- add owner-local multi-workspace management to WebUI/TUI so additional engineering roots can be authorized without hand-editing policy YAML;
+- add structured ARMCC/Keil diagnostic parsing and warning/error summaries;
+- add Keil provider version/capability detection before enabling optional newer command-line flags;
+- continue STM32 ST-Link real-hardware flash/verify/debug acceptance, ESP-IDF OTA/coredump depth and ROS 2 Nav2/TF/topic-rate diagnostics.
+
 ## v0.11 — Reusable engineering workflows
 
 ### v0.11.0 - STM32 / ESP-IDF / ROS 2 workflow depth

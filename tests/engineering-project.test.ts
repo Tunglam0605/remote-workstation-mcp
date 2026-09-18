@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,4 +58,42 @@ test('artifact finder returns bounded firmware outputs', async () => {
     assert.deepEqual(new Set(artifacts.map(item => item.kind)), new Set(['elf', 'bin']));
     assert.ok(artifacts.every(item => !path.isAbsolute(item.path)));
   } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+
+test('project inspector detects Keil MDK multi-target STM32 projects without guessing across devices', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-eng-keil-'));
+  try {
+    await fs.writeFile(path.join(root, 'Main_V2_F407.uvprojx'), `<?xml version="1.0"?>
+<Project><Targets>
+<Target><TargetName>Main_V2_F407</TargetName><TargetOption><TargetCommonOption>
+<Device>STM32F407ZETx</Device><OutputDirectory>.\\Objects\\F407\\</OutputDirectory><OutputName>Main_V2_F407</OutputName><CreateHexFile>1</CreateHexFile>
+</TargetCommonOption></TargetOption></Target>
+<Target><TargetName>Main_V2_F407_HardwareTest</TargetName><TargetOption><TargetCommonOption>
+<Device>STM32F407ZETx</Device><OutputDirectory>.\\Objects\\HardwareTest\\</OutputDirectory><OutputName>Main</OutputName><CreateHexFile>1</CreateHexFile>
+</TargetCommonOption></TargetOption></Target>
+</Targets></Project>`);
+    await fs.writeFile(path.join(root, 'Main_V3_H743.uvprojx'), `<?xml version="1.0"?>
+<Project><Targets><Target><TargetName>Main_V3_H743</TargetName><TargetOption><TargetCommonOption>
+<Device>STM32H743ZITx</Device><OutputDirectory>.\\Objects\\H743\\</OutputDirectory><OutputName>Main_V3_H743</OutputName>
+</TargetCommonOption></TargetOption></Target></Targets></Project>`);
+
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(root))));
+    const info = await inspector.inspect('w', '.');
+    assert.equal(info.family, 'stm32');
+    assert.equal(info.framework, 'keil-mdk');
+    assert.equal(info.buildSystem, 'keil');
+    assert.equal(info.target, undefined, 'multi-device Keil projects must not guess one MCU target');
+    assert.equal(info.targets?.length, 3);
+    const f407 = info.targets?.find(item => item.targetName === 'Main_V2_F407');
+    assert.equal(f407?.projectFile, 'Main_V2_F407.uvprojx');
+    assert.equal(f407?.device, 'STM32F407ZETx');
+    assert.equal(f407?.outputDirectory, 'Objects/F407');
+    assert.equal(f407?.expectedArtifact, 'Objects/F407/Main_V2_F407.axf');
+    assert.equal(f407?.createHexFile, true);
+    const h743 = info.targets?.find(item => item.targetName === 'Main_V3_H743');
+    assert.equal(stm32OpenOcdTargetConfig(h743?.device), 'target/stm32h7x.cfg');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

@@ -11,6 +11,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = (Resolve-Path $Root).Path
 Set-Location $Root
+$convergenceHelper = Join-Path $Root 'scripts\windows-runtime-convergence.ps1'
+if (Test-Path -LiteralPath $convergenceHelper) {
+  . $convergenceHelper
+}
 $webRestartDelaysSeconds = @(1, 2, 5, 10, 30)
 $recoveryRestartDelaysSeconds = @(2, 4, 8, 15, 30, 60)
 $webRestartAttempt = 0
@@ -30,6 +34,12 @@ $recoveryStatePath = Join-Path $stateDir 'recovery-supervisor-state.json'
 
 function Append-HostLog([string]$Message) {
   "[$([DateTimeOffset]::UtcNow.ToString('o'))] $Message" | Add-Content -Path $hostLog -Encoding utf8
+}
+
+function Invoke-RecoveryPlaneConvergence {
+  if (Get-Command Invoke-RwmcpRecoveryPlaneConvergence -ErrorAction SilentlyContinue) {
+    [void](Invoke-RwmcpRecoveryPlaneConvergence -TargetRoot $Root -Logger { param($Message) Append-HostLog $Message })
+  }
 }
 
 function Start-WebChild {
@@ -112,7 +122,10 @@ function Observe-RecoveryChild {
     if ($recoveryRestartAttempt -lt ($recoveryRestartDelaysSeconds.Count - 1)) { $script:recoveryRestartAttempt += 1 }
   }
   if (-not $recoveryChild -and [DateTimeOffset]::UtcNow -ge $recoveryNextStartAt) {
-    try { Start-RecoveryChild }
+    try {
+      Invoke-RecoveryPlaneConvergence
+      Start-RecoveryChild
+    }
     catch {
       Append-HostLog "Autonomous recovery child failure: $($_.Exception.Message)"
       $script:recoveryNextStartAt = [DateTimeOffset]::UtcNow.AddSeconds($recoveryRestartDelaysSeconds[[Math]::Min($recoveryRestartAttempt, $recoveryRestartDelaysSeconds.Count - 1)])

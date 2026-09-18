@@ -77,6 +77,30 @@ function Stop-RwmcpManagedProcessTree {
   }
 }
 
+function Invoke-RwmcpRecoveryPlaneConvergence {
+  param(
+    [Parameter(Mandatory = $true)][string]$TargetRoot,
+    [int]$KeepProcessId = 0,
+    [scriptblock]$Logger = $null
+  )
+
+  $targetFull = [IO.Path]::GetFullPath($TargetRoot)
+  $entries = @(Get-RwmcpManagedProcessEntries 'autonomous-recovery-windows.ps1')
+  foreach ($entry in $entries) {
+    $entryPid = [int]$entry.ProcessId
+    if ($KeepProcessId -gt 0 -and $entryPid -eq $KeepProcessId) { continue }
+
+    $line = [string]$entry.CommandLine
+    $sameSlot = $line -and $line.IndexOf($targetFull, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    $reason = if ($sameSlot) { 'duplicate-current-slot' } else { 'stale-other-slot' }
+    Write-RwmcpConvergenceLog $Logger "Recovery convergence stopping pid=$entryPid reason=$reason target=$targetFull."
+    [void](Stop-RwmcpManagedProcessTree -ProcessId $entryPid -OwnershipNeedle 'autonomous-recovery-windows.ps1' -Logger $Logger)
+  }
+
+  return @(Get-RwmcpManagedProcessEntries 'autonomous-recovery-windows.ps1')
+}
+
+
 function Read-RwmcpRuntimeJson([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return $null }
   try { return Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json }

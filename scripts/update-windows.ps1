@@ -273,10 +273,11 @@ if ($LASTEXITCODE -ne 0) { throw "Windows release installer failed with exit cod
 
 $state = Read-State
 $state.lastInstalledVersion = [string]$latest.version
-if ([string]$state.failedVersion -eq [string]$latest.version) {
-  $state.failedVersion = $null
-  $state.failedAt = $null
-  $state.retryAfter = $null
-}
+# Any successful activation supersedes historical failed-release backoff metadata.
+# Keeping an older failedVersion after a later successful upgrade makes the Control
+# Center report stale failure state indefinitely and can confuse owner diagnostics.
+$state.failedVersion = $null
+$state.failedAt = $null
+$state.retryAfter = $null
 Write-State $state
 Emit (Get-StatusObject $state $latest)

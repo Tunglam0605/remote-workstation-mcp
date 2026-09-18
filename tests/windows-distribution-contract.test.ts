@@ -37,6 +37,10 @@ test('Windows updater defaults to stable automatic startup checks with failed-re
   assert.match(updater, /System\.Threading\.Mutex/);
   assert.match(updater, /releases\/latest/);
   assert.match(updater, /install-windows-release\.ps1/);
+  assert.match(updater, /lastInstalledVersion = \[string\]\$latest\.version/);
+  assert.match(updater, /\$state\.failedVersion = \$null/);
+  assert.match(updater, /\$state\.failedAt = \$null/);
+  assert.match(updater, /\$state\.retryAfter = \$null/);
 });
 
 test('automatic boot update and manual update are distinct operations', async () => {
@@ -223,6 +227,8 @@ test('Windows autonomous recovery persists desired state and maintenance outside
   assert.match(launcher, /Set-RwmcpRecoveryMaintenance/);
   assert.match(host, /autonomous-recovery-windows\.ps1/);
   assert.match(host, /recoveryRestartDelaysSeconds\s*=\s*@\(2, 4, 8, 15, 30, 60\)/);
+  assert.match(host, /windows-runtime-convergence\.ps1/);
+  assert.match(host, /Invoke-RwmcpRecoveryPlaneConvergence/);
   assert.match(recovery, /desiredRunning/);
   assert.match(recovery, /maintenanceUntil|Test-RwmcpRecoveryMaintenanceActive/);
   assert.match(recovery, /StartOpenAI/);
@@ -264,6 +270,9 @@ test('Windows autonomous recovery watchdog requires a fresh heartbeat and restar
   assert.match(recovery, /recovery-supervisor-state\.json/);
   assert.match(recovery, /updatedAt/);
   assert.match(recovery, /Write-RecoveryHeartbeat/);
+  assert.match(recovery, /current\.txt/);
+  assert.match(recovery, /Test-CurrentSlotOwnership/);
+  assert.match(recovery, /stale-slot-exit/);
 });
 
 
@@ -308,6 +317,9 @@ test('Windows autonomous recovery converges stale and duplicate managed processe
   assert.match(convergence, /tunnel-client\.exe/);
   assert.match(convergence, /Stop-RwmcpManagedProcessTree/);
   assert.match(convergence, /Stale supervisor state detected/);
+  assert.match(convergence, /Invoke-RwmcpRecoveryPlaneConvergence/);
+  assert.match(convergence, /autonomous-recovery-windows\.ps1/);
+  assert.match(convergence, /duplicate-current-slot|stale-other-slot/);
 });
 
 test('Windows recovery circuit breaker persists cooldowns and opens after repeated failed recovery attempts', async () => {

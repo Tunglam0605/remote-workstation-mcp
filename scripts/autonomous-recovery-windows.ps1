@@ -27,6 +27,25 @@ New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
 $McpUnhealthySince = $null
 $TunnelUnhealthySince = $null
 $ActionProcess = $null
+$CurrentPointerPath = Join-Path $ManagedBase 'current.txt'
+
+function Get-CurrentManagedRoot {
+  if (-not (Test-Path -LiteralPath $CurrentPointerPath)) { return $null }
+  try {
+    $value = (Get-Content -LiteralPath $CurrentPointerPath -Raw -ErrorAction Stop).Trim()
+    if (-not $value) { return $null }
+    return [IO.Path]::GetFullPath($value)
+  } catch {
+    return $null
+  }
+}
+
+function Test-CurrentSlotOwnership {
+  $currentRoot = Get-CurrentManagedRoot
+  if (-not $currentRoot) { return $true }
+  return [string]::Equals($currentRoot, $Root, [StringComparison]::OrdinalIgnoreCase)
+}
+
 
 function Append-RecoveryLog([string]$Message) {
   "[$([DateTimeOffset]::UtcNow.ToString('o'))] $Message" | Add-Content -Path $LogPath -Encoding utf8
@@ -104,7 +123,7 @@ function Start-RecoveryAction([string]$Action, [string]$Reason) {
   $script:ActionProcess = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -PassThru
   $circuit = Register-RwmcpRecoveryFailure -Reason $Reason
   Append-RecoveryLog "Recovery action=$Action reason=$Reason pid=$($ActionProcess.Id) failureCount=$($circuit.failureCount) cooldownUntil=$($circuit.cooldownUntil) openUntil=$($circuit.openUntil)."
-  if ($OneShot) {
+if ($OneShot) {
     try { [void]$ActionProcess.WaitForExit(10000) } catch {}
   }
   return $true
@@ -163,6 +182,13 @@ function Invoke-RecoveryEvaluation {
   return 'healthy'
 }
 
+if (-not (Test-CurrentSlotOwnership)) {
+  $currentRoot = Get-CurrentManagedRoot
+  Append-RecoveryLog "Autonomous recovery exiting because slot is no longer current root=$Root current=$currentRoot."
+  Write-Output 'stale-slot-exit'
+  exit 0
+}
+
 if ($OneShot) {
   try {
     $result = Invoke-RecoveryEvaluation
@@ -177,6 +203,11 @@ if ($OneShot) {
 
 Append-RecoveryLog "Autonomous recovery supervisor started root=$Root poll=${PollSeconds}s."
 while ($true) {
+  if (-not (Test-CurrentSlotOwnership)) {
+    $currentRoot = Get-CurrentManagedRoot
+    Append-RecoveryLog "Autonomous recovery self-terminating after slot switch root=$Root current=$currentRoot."
+    break
+  }
   try {
     $result = Invoke-RecoveryEvaluation
     Write-RecoveryHeartbeat $result

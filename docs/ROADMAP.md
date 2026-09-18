@@ -380,6 +380,13 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.10 — Engineering Workflow Engine
 
+### v0.10.2 - Recovery-plane convergence hardening
+
+- stale recovery workers self-terminate when managed `current.txt` points at another version slot;
+- Control Center recovery startup converges old-slot and duplicate managed recovery workers before spawning the current worker;
+- successful updater activation clears obsolete failed-release backoff metadata;
+- real-machine acceptance requires exactly one current-slot recovery worker after update.
+
 ### v0.10.1 - Windows WebUI update handoff acceptance hotfix
 
 - replace Node detached-spawn update handoff with a CIM/Win32_Process.Create starter so the durable worker is outside the managed runtime/Control Center process tree;

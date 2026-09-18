@@ -6,7 +6,15 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.10.1**
+**v0.10.2**
+
+v0.10.2 closes the recovery-plane convergence gap found during the next real-machine acceptance:
+
+- autonomous recovery now reads managed `current.txt` and self-terminates before heartbeat/evaluation when its slot is no longer current;
+- the Control Center converges managed recovery workers before every recovery spawn, removing stale other-slot and duplicate current-slot workers;
+- the shared Windows convergence helper now owns recovery-plane cleanup with the same managed-process ownership checks used for runtime cleanup;
+- successful updates clear historical `failedVersion`, `failedAt`, and `retryAfter` metadata so stale failure state cannot pollute later healthy releases;
+- regression tests cover old-slot self-exit, duplicate recovery convergence, and watchdog behavior.
 
 v0.10.1 closes the Windows Control Center update-handoff failure found during real-machine acceptance:
 
@@ -180,7 +188,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.10.1.tgz`
+- `remote-workstation-mcp-v0.10.2.tgz`
 - `SHA256SUMS.txt`
 
 

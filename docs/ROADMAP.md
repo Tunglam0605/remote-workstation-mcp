@@ -380,6 +380,17 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.13.4 - Real xPack ST-Link busy diagnostics
+
+- enable OpenOCD debug level 3 only for the bounded adapter-only active preflight;
+- surface xPack OpenOCD's otherwise-hidden `claim interface failed` line when another process owns the ST-Link USB interface;
+- reuse the existing `probe-busy` classifier and preserve fail-closed blocking before build;
+- keep the preflight target-free and non-mutating: no target config, reset, halt or program command;
+- add a regression test whose busy evidence is emitted only when `-d3` is present;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`.
+
+This hotfix was triggered by real Ubuntu Vision acceptance: v0.13.3 correctly detected that adapter access failed while the external B300 debug gateway owned the ST-Link, but xPack OpenOCD exited 1 with no useful message at its default/debug-2 verbosity. Debug level 3 exposed `claim interface failed`, allowing the existing classifier to return `probe-busy` deterministically.
+
 ### v0.13.3 - Active ST-Link preflight and external-owner detection
 
 - actively prove that the selected ST-Link can be opened before `stm32.deploy_accept` starts a build;

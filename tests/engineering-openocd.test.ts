@@ -261,6 +261,7 @@ test('STM32 deployment preflight actively opens an unambiguous probe without tar
     assert.equal(resources.list().length, 0, 'probe preflight lease must be released');
     const accessCall = calls.find(call => call.args.includes('init'));
     assert.ok(accessCall);
+    assert.equal(accessCall?.args.includes('-d3'), true, 'active probe preflight must enable debug output for ownership diagnostics');
     assert.equal(accessCall?.activeLeases, 1);
     assert.equal(accessCall?.args.includes('reset halt'), false);
     assert.equal(accessCall?.args.some(arg => arg.startsWith('program ')), false);
@@ -296,7 +297,9 @@ test('STM32 deployment preflight classifies an externally owned ST-Link as probe
         }
         return {
           program, args, cwd, exitCode: 1, stdout: '',
-          stderr: 'Debug: stlink_open\nError: claim interface failed\nLIBUSB_ERROR_BUSY\n',
+          stderr: args.includes('-d3')
+            ? 'Debug: stlink_open\nDebug: stlink_usb_usb_open(): claim interface failed\n'
+            : '',
           timedOut: false, durationMs: 2
         };
       }

@@ -6,6 +6,16 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
+**v0.13.4**
+
+v0.13.4 closes the real-hardware ST-Link ownership-classification gap found during v0.13.3 acceptance:
+
+- run only the adapter-only active preflight with OpenOCD debug level 3 so xPack OpenOCD emits the otherwise-hidden `claim interface failed` evidence when another process owns the ST-Link;
+- keep the preflight target-free: no target config, reset, halt, flash or program operation is added;
+- preserve the existing `probe-busy` classifier and stable hardware resource ID; the change only makes backend evidence observable;
+- add regression coverage that fails unless the active preflight actually requests `-d3`;
+- keep `actionSchemaVersion=2` and `engineeringApiVersion=3`; no ChatGPT custom-app action refresh is required.
+
 **v0.13.3**
 
 v0.13.3 hardens STM32 deployment preflight so a connected ST-Link is proven usable before any build or mutation starts:

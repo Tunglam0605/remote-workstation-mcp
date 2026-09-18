@@ -386,6 +386,7 @@ export class FirmwareAdapter {
         const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz) ?? 1000;
         const resourceId = selectedProbe.serialNumber ? `debug-probe:${selectedProbe.serialNumber}` : selectedProbe.id;
         const args = [
+          '-d3',
           ...openOcdSearchPathArgs(openocd),
           '-f', 'interface/stlink.cfg',
           '-c', 'transport select swd',

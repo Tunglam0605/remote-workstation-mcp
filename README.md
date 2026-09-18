@@ -6,7 +6,15 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.9.11**
+**v0.10.0**
+
+v0.10.0 introduces the Engineering Workflow Engine for recurring ChatGPT Web engineering work:
+
+- add project-local `.rwmcp/project.yaml` profiles for persistent firmware/ROS 2 defaults across chats;
+- add `engineering_project_inspect`, profile initialization and workflow list/plan/run tools;
+- add typed `firmware.build`, `firmware.build_flash`, and `firmware.build_flash_monitor` compound workflows with fail-fast behavior;
+- add profile-driven ROS 2 environment bootstrap and one-call `ros2.health`;
+- preserve typed providers, hardware leases, workspace containment, authenticated scopes and audit instead of accepting arbitrary shell recipes.
 
 v0.9.11 closes the Windows update/convergence failures found during real-machine acceptance:
 
@@ -73,6 +81,55 @@ Raw shell remains an explicitly elevated escape hatch. v0.9.0 intentionally does
 
 See `docs/ENGINEERING_TOOLS.md` for the tool families and safety model.
 
+## Engineering project profiles and workflows
+
+RWMCP's next layer is designed for recurring engineering work: project facts are discovered once, persisted as data, and reused by every ChatGPT Web conversation.
+
+A project may keep a versioned `.rwmcp/project.yaml` manifest. The manifest stores defaults such as build provider, build directory, probe/serial identity, monitor baud rate, ROS 2 distro/workspace setup and `ROS_DOMAIN_ID`. It does **not** contain arbitrary shell commands.
+
+High-level tools:
+
+- `engineering_project_inspect` — one read-only call for detected project type, artifacts, hardware, profile and available workflows;
+- `engineering_profile_init` — create the canonical `.rwmcp/project.yaml` from detection plus owner/project defaults;
+- `engineering_workflow_list` — discover supported semantic workflows for the selected project;
+- `engineering_workflow_plan` — resolve defaults/steps before execution;
+- `engineering_workflow_run` — execute the approved typed workflow and return per-step structured results.
+
+Initial built-in workflows are `firmware.build`, `firmware.build_flash`, `firmware.build_flash_monitor`, and `ros2.health`.
+
+Example ESP-IDF profile:
+
+```yaml
+version: 1
+id: callbox
+kind: esp-idf
+firmware:
+  buildProvider: esp-idf
+  buildDir: build
+  flashProvider: esp-idf
+  port: COM7
+  monitor:
+    port: COM7
+    baudRate: 115200
+```
+
+Example ROS 2 profile:
+
+```yaml
+version: 1
+id: robot-ws
+kind: ros2
+ros2:
+  distro: humble
+  cwd: .
+  workspaceSetup: install/setup.bash
+  domainId: 10
+```
+
+The ROS 2 workflow performs the distro/workspace environment bootstrap internally, so each new chat does not need to rediscover and repeat `source /opt/ros/.../setup.bash`, `source install/setup.bash`, and `export ROS_DOMAIN_ID=...` before normal graph inspection.
+
+See `docs/ENGINEERING_WORKFLOW_BENCHMARK.md` for the GitHub benchmark and architectural rationale.
+
 ## Recover an expired/revoked key or changed tunnel
 
 The local Control Center is intentionally independent from the OpenAI tunnel. Even when ChatGPT cannot reach the workstation, open locally:
@@ -116,7 +173,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.9.3.tgz`
+- `remote-workstation-mcp-v0.10.0.tgz`
 - `SHA256SUMS.txt`
 
 

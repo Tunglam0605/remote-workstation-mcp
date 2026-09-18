@@ -6,10 +6,12 @@ import { DebugSessionManager } from './adapters/engineering/debug-session.js';
 import { DockerAdapter } from './adapters/engineering/docker.js';
 import { FirmwareAdapter } from './adapters/engineering/firmware.js';
 import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
+import { EngineeringProjectProfileStore } from './adapters/engineering/project-profile.js';
 import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
 import { Ros2Adapter } from './adapters/engineering/ros2.js';
 import { SerialSessionManager } from './adapters/engineering/serial-session.js';
 import { TerminalManager } from './adapters/engineering/terminal-manager.js';
+import { EngineeringWorkflowEngine } from './adapters/engineering/workflow-engine.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
@@ -56,9 +58,11 @@ export async function createContext() {
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
   const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);
   const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
+  const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringRos2);
   return {
     config,
     hostsConfig,
@@ -87,6 +91,8 @@ export async function createContext() {
       serial: engineeringSerial,
       terminals: engineeringTerminals,
       firmware: engineeringFirmware,
+      profiles: engineeringProfiles,
+      workflows: engineeringWorkflows,
       debug: engineeringDebug,
       ros2: engineeringRos2,
       docker: engineeringDocker

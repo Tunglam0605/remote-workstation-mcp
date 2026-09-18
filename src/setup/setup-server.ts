@@ -639,8 +639,12 @@ async function readWindowsUpdateTransaction(): Promise<WindowsUpdateTransaction 
     const state = String(transaction.state ?? '');
     if (state === 'STARTING' || state === 'RUNNING') {
       const updatedAt = Date.parse(String(transaction.updatedAt ?? ''));
-      if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > 15 * 60 * 1000) {
-        return { ...transaction, stale: true };
+      const ageMs = Number.isFinite(updatedAt) ? Date.now() - updatedAt : Number.POSITIVE_INFINITY;
+      if (state === 'STARTING' && !Number.isInteger(transaction.workerPid) && ageMs > 30_000) {
+        return { ...transaction, stale: true, staleReason: 'starter-never-acknowledged' };
+      }
+      if (ageMs > 15 * 60 * 1000) {
+        return { ...transaction, stale: true, staleReason: 'transaction-timeout' };
       }
     }
     return transaction;
@@ -663,15 +667,18 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
 
   const base = windowsManagedBase();
   if (!base) throw new Error('LOCALAPPDATA is unavailable; durable Windows update handoff cannot be scheduled.');
-  const script = path.join(repoRoot, 'scripts', 'update-handoff-windows.ps1');
-  if (!(await pathExists(script))) throw new Error(`Windows update handoff helper is missing: ${script}`);
+  const worker = path.join(repoRoot, 'scripts', 'update-handoff-windows.ps1');
+  const starter = path.join(repoRoot, 'scripts', 'start-update-handoff-windows.ps1');
+  if (!(await pathExists(worker))) throw new Error(`Windows update handoff helper is missing: ${worker}`);
+  if (!(await pathExists(starter))) throw new Error(`Windows durable worker starter is missing: ${starter}`);
 
+  const normalizedExpectedVersion = expectedVersion.replace(/^v/, '');
   const transactionPath = windowsUpdateTransactionPath();
   const transaction = {
     version: 1,
     state: 'STARTING',
     workerPid: null,
-    expectedVersion: expectedVersion.replace(/^v/, '') || null,
+    expectedVersion: normalizedExpectedVersion || null,
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -681,40 +688,47 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
   }
 
   const args = [
-    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Base', base
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', starter,
+    '-RepoRoot', repoRoot,
+    '-Base', base,
+    '-ExpectedVersion', normalizedExpectedVersion,
+    '-AckTimeoutSeconds', '10'
   ];
-  if (expectedVersion) args.push('-ExpectedVersion', expectedVersion.replace(/^v/, ''));
-  let child;
-  try {
-    child = spawn('powershell.exe', args, {
-      cwd: repoRoot,
-      shell: false,
-      windowsHide: true,
-      detached: true,
-      stdio: 'ignore'
-    });
-    child.unref();
-  } catch (error) {
-    if (transactionPath) {
+
+  const started = await runProcess('powershell.exe', args, {
+    cwd: repoRoot,
+    maxBytes: 64 * 1024,
+    timeoutMs: 15_000
+  });
+
+  if (started.code !== 0) {
+    const current = await readWindowsUpdateTransaction();
+    if (transactionPath && (!current || current.state === 'STARTING')) {
       const failed = {
         ...transaction,
         state: 'FAILED',
         updatedAt: new Date().toISOString(),
-        message: error instanceof Error ? error.message : String(error)
+        message: started.output || `Durable Windows update starter failed with exit code ${started.code}.`
       };
       await fs.writeFile(transactionPath, `${JSON.stringify(failed, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
     }
-    throw error;
+    throw new Error(started.output || `Durable Windows update starter failed with exit code ${started.code}.`);
   }
 
-  // The worker owns RUNNING/SUCCEEDED/FAILED from this point forward. Do not
-  // rewrite the transaction file after spawn or a fast worker can be regressed
-  // from a terminal state back to STARTING.
+  const starterStatus = parseJsonOutput(started.output) as { workerPid?: number; acknowledged?: boolean; state?: string };
+  if (starterStatus.acknowledged !== true || !Number.isInteger(starterStatus.workerPid) || Number(starterStatus.workerPid) <= 0) {
+    throw new Error('Durable Windows update starter returned without a valid worker acknowledgement.');
+  }
+
+  const acknowledged = await readWindowsUpdateTransaction();
+  if (!acknowledged || !['RUNNING', 'SUCCEEDED'].includes(String(acknowledged.state))) {
+    throw new Error(`Durable Windows update worker did not reach RUNNING/SUCCEEDED; transaction state is '${String(acknowledged?.state ?? 'missing')}'.`);
+  }
+
   return {
     accepted: true,
     alreadyRunning: false,
-    transaction: { ...transaction, workerPid: child.pid ?? null }
+    transaction: acknowledged
   };
 }
 

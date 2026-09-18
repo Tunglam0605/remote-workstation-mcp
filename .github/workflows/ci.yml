@@ -165,6 +165,9 @@ jobs:
       - name: Test durable Windows update handoff success path
         shell: pwsh
         run: .\scripts\test-update-handoff-windows.ps1 -Mode Success
+      - name: Test CIM durable Windows update starter
+        shell: pwsh
+        run: .\scripts\test-update-starter-windows.ps1
       - name: Test durable Windows recovery worker exit
         shell: pwsh
         run: .\scripts\test-update-handoff-windows.ps1 -Mode FailureExit

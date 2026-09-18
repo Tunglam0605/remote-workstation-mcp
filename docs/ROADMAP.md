@@ -378,17 +378,30 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
-## v0.10 — Workstation automation + agent delegation + public hardening
+## v0.10 — Engineering Workflow Engine
 
-- browser/Chrome DevTools and Playwright adapters
-- Windows UI Automation fallback
-- generic agent provider interface and task broker
-- Codex/Claude/OpenHands/custom workers as optional providers
-- delegation progress/cancellation/result aggregation
-- harden privileged helper request envelopes and capability-specific contracts
-- optional container/namespace sandbox for untrusted build/test workloads
-- public Plugin Directory/App registration and review readiness
-- release artifact signing, provenance and SBOM
+The v0.10 priority is reducing repeated per-chat engineering setup and shell command sequences now that Direct Node control is stable.
+
+- add project-local .rwmcp/project.yaml as the canonical recurring engineering configuration;
+- add typed project inspection/profile initialization plus workflow list/plan/run tools;
+- add built-in firmware build -> flash/verify -> serial monitor compound workflows with fail-fast semantics;
+- add profile-driven ROS 2 distro/workspace/ROS_DOMAIN_ID bootstrap and a one-call graph health workflow;
+- keep manifests data-only: no arbitrary shell recipes, executable paths, OpenOCD TCL or GDB commands;
+- preserve workspace containment, authenticated scopes, hardware resource leases and audit records across compound workflows;
+- deepen STM32/ST-Link real-hardware acceptance, provider fallback and HardFault workflow;
+- deepen ESP-IDF monitor/expect/coredump/OTA workflows;
+- deepen ROS 2 build/launch/TF/QoS/topic-rate/Nav2/diagnostics/bag workflows;
+- add controlled project toolchain/provider provisioning so missing backends become an actionable setup state instead of repeated manual discovery.
+
+### After the workflow layer is stable
+
+- browser/Chrome DevTools and Playwright adapters;
+- Windows UI Automation fallback;
+- generic agent provider interface and task broker;
+- Codex/Claude/OpenHands/custom workers as optional providers;
+- delegation progress/cancellation/result aggregation;
+- harden privileged helper request envelopes and optional workload sandboxing;
+- public Plugin Directory/App review readiness, release signing, provenance and SBOM.
 
 ## v0.7.8 — Tung Lam Control Center refresh ✅
 

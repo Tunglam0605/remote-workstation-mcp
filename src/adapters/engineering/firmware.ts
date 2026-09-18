@@ -160,7 +160,7 @@ export class FirmwareAdapter {
     const probe = probes[0];
     return {
       probeSerial: probe?.serialNumber,
-      resourceId: `debug-probe:${probe?.serialNumber ?? probe?.id ?? 'auto'}`
+      resourceId: probe?.serialNumber ? `debug-probe:${probe.serialNumber}` : (probe?.id ?? 'debug-probe:auto')
     };
   }
 
@@ -344,7 +344,7 @@ export class FirmwareAdapter {
     };
   }
 
-  async stm32DeploymentPreflight(options: { probeSerial?: string; monitorPort?: string } = {}) {
+  async stm32DeploymentPreflight(options: { probeSerial?: string; monitorPort?: string; adapterSpeedKhz?: number } = {}) {
     this.policy.assertEngineeringEnabled();
     validateProbeSerial(options.probeSerial);
     const monitorPort = options.monitorPort ? validateSerialPortPath(options.monitorPort) : undefined;
@@ -369,6 +369,51 @@ export class FirmwareAdapter {
       selectedProbe = probes[0];
     }
 
+    let probeAccess = undefined as undefined | {
+      resourceId: string;
+      probeSerial?: string;
+      adapterSpeedKhz: number;
+      targetVoltage?: number;
+      diagnostic: ReturnType<typeof classifyOpenOcdResult>;
+      result: EngineeringCommandResult;
+    };
+
+    if (provider.available && selectedProbe && blockers.length === 0) {
+      const openocd = await resolveOpenOcdExecutable();
+      if (!openocd) {
+        blockers.push('OpenOCD became unavailable during probe preflight.');
+      } else {
+        const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz) ?? 1000;
+        const resourceId = selectedProbe.serialNumber ? `debug-probe:${selectedProbe.serialNumber}` : selectedProbe.id;
+        const args = [
+          ...openOcdSearchPathArgs(openocd),
+          '-f', 'interface/stlink.cfg',
+          '-c', 'transport select swd',
+          ...(selectedProbe.serialNumber ? ['-c', `adapter serial ${selectedProbe.serialNumber}`] : []),
+          ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
+          '-c', 'init',
+          '-c', 'shutdown'
+        ];
+        const result = await this.resources.withLease(
+          resourceId,
+          'reading',
+          () => this.runner.run(openocd.path, args, process.cwd(), 10_000)
+        );
+        const diagnostic = classifyOpenOcdResult(result);
+        const voltageMatch = /Target voltage:\s*([0-9]+(?:\.[0-9]+)?)/i.exec(`${result.stdout}\n${result.stderr}`);
+        const targetVoltage = voltageMatch?.[1] ? Number(voltageMatch[1]) : undefined;
+        probeAccess = {
+          resourceId,
+          ...(selectedProbe.serialNumber ? { probeSerial: selectedProbe.serialNumber } : {}),
+          adapterSpeedKhz,
+          ...(Number.isFinite(targetVoltage) ? { targetVoltage } : {}),
+          diagnostic,
+          result
+        };
+        if (!diagnostic.ok) blockers.push(diagnostic.message);
+      }
+    }
+
     let selectedSerialPort = undefined as (typeof serialPorts)[number] | undefined;
     if (monitorPort) {
       const normalized = os.platform() === 'win32' ? monitorPort.toLowerCase() : monitorPort;
@@ -384,6 +429,7 @@ export class FirmwareAdapter {
       provider,
       selectedProbe,
       selectedSerialPort,
+      probeAccess,
       discovered: {
         probes: probes.map(item => ({ id: item.id, name: item.name, serialNumber: item.serialNumber, provider: item.provider })),
         serialPorts: serialPorts.map(item => ({ id: item.id, path: item.path, name: item.name, provider: item.provider }))

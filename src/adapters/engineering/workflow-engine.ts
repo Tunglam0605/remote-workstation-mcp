@@ -347,7 +347,8 @@ export class EngineeringWorkflowEngine {
     const deploymentPreflight = workflow === 'stm32.deploy_accept'
       ? await this.firmware.stm32DeploymentPreflight({
           probeSerial: overrides.probeSerial ?? fw.probeSerial,
-          monitorPort
+          monitorPort,
+          adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz
         })
       : undefined;
 

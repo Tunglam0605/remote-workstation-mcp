@@ -131,6 +131,7 @@ test('OpenOCD adapter speed is bounded and accepts common 4 MHz SWD', () => {
 test('OpenOCD failures are classified into actionable diagnostics', () => {
   assert.equal(classifyOpenOcdResult(commandResult('Error: unable to find a matching CMSIS-DAP device')).code, 'probe-not-found');
   assert.equal(classifyOpenOcdResult(commandResult('LIBUSB_ERROR_ACCESS')).code, 'probe-permission-denied');
+  assert.equal(classifyOpenOcdResult(commandResult('Error: claim interface failed; LIBUSB_ERROR_BUSY')).code, 'probe-busy');
   assert.equal(classifyOpenOcdResult(commandResult('Error: target voltage may be too low')).code, 'target-power-invalid');
   assert.equal(classifyOpenOcdResult(commandResult('Error: target examination failed')).code, 'target-connect-failed');
   assert.equal(classifyOpenOcdResult(commandResult('Error: verify_image failed; contents mismatch')).code, 'verify-failed');
@@ -208,6 +209,117 @@ test('firmware provider preflight reports OpenOCD version and locked dangerous s
   }
 });
 
+
+test('STM32 deployment preflight actively opens an unambiguous probe without target mutation and reports voltage', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-openocd-preflight-ready-'));
+  const bin = path.join(root, 'bin');
+  await fs.mkdir(bin);
+  const openocd = path.join(bin, process.platform === 'win32' ? 'openocd.cmd' : 'openocd');
+  await fs.writeFile(openocd, process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+  if (process.platform !== 'win32') await fs.chmod(openocd, 0o755);
+  const cfg: PolicyConfig = {
+    version: 1, mode: 'workspace', workspaces: [{ id: 'w', root, readOnly: false }],
+    filesystem: { maxReadBytes: 1024, maxWriteBytes: 1024 },
+    process: { allowExecutables: [], inheritEnv: ['PATH'], maxOutputBytes: 65536, maxRuntimeMs: 60000 },
+    engineering: { enabled: true, maxCommandRuntimeMs: 60000, allowHardwareMutationInWorkspace: false, allowSerialWriteInWorkspace: false }
+  };
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  try {
+    const policy = new PolicyEngine(cfg);
+    const paths = new PathGuard(policy);
+    const resources = new EngineeringResourceManager('owner');
+    const calls: Array<{ args: string[]; activeLeases: number }> = [];
+    const runner = {
+      async run(program: string, args: string[], cwd: string) {
+        calls.push({ args: [...args], activeLeases: resources.list().length });
+        if (args.includes('--version')) {
+          return { program, args, cwd, exitCode: 0, stdout: 'Open On-Chip Debugger 0.12.0\n', stderr: '', timedOut: false, durationMs: 1 };
+        }
+        return { program, args, cwd, exitCode: 0, stdout: 'Info : STLINK V2J35S7\nInfo : Target voltage: 3.087468\n', stderr: '', timedOut: false, durationMs: 2 };
+      }
+    };
+    const monitorPort = process.platform === 'win32' ? 'COM7' : '/dev/ttyUSB0';
+    const probeId = 'debug-probe:test:0483:3748:1-10.1';
+    const hardware = {
+      async list() {
+        return [
+          { id: probeId, kind: 'debug-probe', name: 'ST-Link 3748', provider: 'test', capabilities: ['swd', 'openocd', 'gdb'] },
+          { id: 'serial:test:monitor', kind: 'serial', name: 'UART', path: monitorPort, provider: 'test', capabilities: ['serial-monitor'] }
+        ];
+      }
+    };
+    const firmware = new FirmwareAdapter(policy, paths, runner as never, resources, hardware as never);
+    const preflight = await firmware.stm32DeploymentPreflight({ monitorPort, adapterSpeedKhz: 2000 });
+
+    assert.equal(preflight.ready, true);
+    assert.equal(preflight.selectedProbe?.id, probeId);
+    assert.equal(preflight.probeAccess?.resourceId, probeId);
+    assert.equal(preflight.probeAccess?.adapterSpeedKhz, 2000);
+    assert.equal(preflight.probeAccess?.targetVoltage, 3.087468);
+    assert.equal(preflight.probeAccess?.diagnostic.code, 'ok');
+    assert.equal(resources.list().length, 0, 'probe preflight lease must be released');
+    const accessCall = calls.find(call => call.args.includes('init'));
+    assert.ok(accessCall);
+    assert.equal(accessCall?.activeLeases, 1);
+    assert.equal(accessCall?.args.includes('reset halt'), false);
+    assert.equal(accessCall?.args.some(arg => arg.startsWith('program ')), false);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deployment preflight classifies an externally owned ST-Link as probe-busy before build', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-openocd-preflight-busy-'));
+  const bin = path.join(root, 'bin');
+  await fs.mkdir(bin);
+  const openocd = path.join(bin, process.platform === 'win32' ? 'openocd.cmd' : 'openocd');
+  await fs.writeFile(openocd, process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n');
+  if (process.platform !== 'win32') await fs.chmod(openocd, 0o755);
+  const cfg: PolicyConfig = {
+    version: 1, mode: 'workspace', workspaces: [{ id: 'w', root, readOnly: false }],
+    filesystem: { maxReadBytes: 1024, maxWriteBytes: 1024 },
+    process: { allowExecutables: [], inheritEnv: ['PATH'], maxOutputBytes: 65536, maxRuntimeMs: 60000 },
+    engineering: { enabled: true, maxCommandRuntimeMs: 60000, allowHardwareMutationInWorkspace: false, allowSerialWriteInWorkspace: false }
+  };
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  try {
+    const policy = new PolicyEngine(cfg);
+    const paths = new PathGuard(policy);
+    const resources = new EngineeringResourceManager('owner');
+    const runner = {
+      async run(program: string, args: string[], cwd: string) {
+        if (args.includes('--version')) {
+          return { program, args, cwd, exitCode: 0, stdout: 'Open On-Chip Debugger 0.12.0\n', stderr: '', timedOut: false, durationMs: 1 };
+        }
+        return {
+          program, args, cwd, exitCode: 1, stdout: '',
+          stderr: 'Debug: stlink_open\nError: claim interface failed\nLIBUSB_ERROR_BUSY\n',
+          timedOut: false, durationMs: 2
+        };
+      }
+    };
+    const probeId = 'debug-probe:test:0483:3748:1-10.1';
+    const hardware = {
+      async list() {
+        return [{ id: probeId, kind: 'debug-probe', name: 'ST-Link 3748', provider: 'test', capabilities: ['swd', 'openocd', 'gdb'] }];
+      }
+    };
+    const firmware = new FirmwareAdapter(policy, paths, runner as never, resources, hardware as never);
+    const preflight = await firmware.stm32DeploymentPreflight();
+
+    assert.equal(preflight.ready, false);
+    assert.equal(preflight.probeAccess?.resourceId, probeId);
+    assert.equal(preflight.probeAccess?.diagnostic.code, 'probe-busy');
+    assert.match(preflight.blockers.join(' '), /already owned by another process/i);
+    assert.equal(resources.list().length, 0, 'failed probe preflight must release its lease');
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 test('STM32 deploy transaction keeps one ST-Link lease for flash verify and reset in one OpenOCD process', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-openocd-deploy-'));

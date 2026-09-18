@@ -36,6 +36,14 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
       principal.type.toLowerCase().includes('openai')
     )
   );
+  const dataPlane = ctx.dataPlane.status();
+  const managedProcesses = ctx.processes.list();
+  const terminalSessions = ctx.engineering.terminals.list();
+  const hardwareLeases = ctx.engineering.resources.list();
+  const healthWarnings = [
+    ...(!dataPlane.tailscaleIpv4Available ? ['native-data-plane-unavailable'] : []),
+    ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : [])
+  ];
 
   return {
     ok: true,
@@ -79,6 +87,22 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
       name: workspace.name ?? workspace.id,
       readOnly: workspace.readOnly ?? false
     })),
+    nodeHealth: {
+      state: authenticated && openAiTunnelPrincipal ? (healthWarnings.length ? 'degraded' : 'healthy') : 'reachable',
+      runtimeUptimeSeconds: Math.floor(process.uptime()),
+      osUptimeSeconds: Math.floor(os.uptime()),
+      memory: {
+        totalBytes: os.totalmem(),
+        freeBytes: os.freemem()
+      },
+      activeSessions: {
+        processes: managedProcesses.filter(item => item.status === 'running').length,
+        terminals: terminalSessions.filter(item => item.status === 'running').length,
+        hardwareLeases: hardwareLeases.length
+      },
+      dataPlane,
+      warnings: healthWarnings
+    },
     verification: {
       message: authenticated && openAiTunnelPrincipal
         ? 'Authenticated ChatGPT/OpenAI tunnel request reached this workstation MCP runtime.'
@@ -100,7 +124,7 @@ export function registerChatGptWebTools(server: McpServer, ctx: AppContext): voi
   }))));
 
   server.registerTool('chatgpt_web_status', {
-    description: 'Verify that ChatGPT Web reached this workstation through the authenticated MCP control path. Returns non-secret host identity, authenticated principal/scopes, effective permissions, policy mode and authorized workspace names. Use this as the first end-to-end verification tool after adding the custom app in ChatGPT Web.',
+    description: 'Verify that ChatGPT Web reached this workstation through the authenticated MCP control path. Returns non-secret identity, permissions, workspaces and nodeHealth including runtime/session/data-plane status. Use it for first-call verification and client-side multi-node health aggregation.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'chatgpt_web_status', undefined, async () => buildChatGptWebStatus(ctx))));

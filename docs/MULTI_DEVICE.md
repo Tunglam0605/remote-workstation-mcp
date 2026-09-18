@@ -1,6 +1,6 @@
 # Multi-device control
 
-Remote Workstation MCP v0.8.5 retains the **Direct Multi-Node** topology introduced in v0.8.3 and adds offline-first local recovery for each independent node.
+Remote Workstation MCP v0.14.0 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable, reports its own health, and may exchange large workspace payloads through the generic Direct-Node data plane without creating a permanent master PC.
 
 ## Preferred topology: every workstation connects directly
 
@@ -39,6 +39,34 @@ RWMCP persists a stable local `device-identity.json` and exposes it through:
 The identity is independent of DHCP/IP changes. `workstation_identity` also returns a recommended ChatGPT app name.
 
 When multiple Remote Workstation apps are selected for one ChatGPT message, the model should resolve the requested machine by stable device identity/name and call that app directly.
+
+## Multi-node health
+
+`chatgpt_web_status` returns a non-secret `nodeHealth` snapshot for the node that handled the request. It includes runtime/OS uptime, memory, caller-visible managed process/terminal counts, hardware lease count, data-plane availability, active receive offers, recent transfer results and warnings.
+
+ChatGPT can call `chatgpt_web_status` on several selected Direct Node apps and aggregate:
+
+```text
+Windows       healthy   v0.14.0   transfers=0
+Vision        healthy   v0.14.0   transfers=1
+Personal      healthy   v0.14.0   transfers=0
+```
+
+This aggregation happens at the AI/client control plane. No workstation becomes the permanent health master for the others.
+
+## Generic Direct-Node data plane
+
+v0.14.0 adds generic workspace-file transfer between nodes over Tailscale. The payload goes node-to-node; ChatGPT carries only the offer metadata, ephemeral ticket and final receipt.
+
+Use the stable workflow envelope with:
+
+- `platform.transfer_prepare`
+- `platform.transfer_receive_offer`
+- `platform.transfer_push`
+
+See [DATA_PLANE.md](DATA_PLANE.md) for the trust boundary, 512 MiB limit, content-addressed verified store and lifecycle.
+
+The older `firmware.artifact_*` transfer workflows remain compatible domain-extension APIs.
 
 ## Windows node
 

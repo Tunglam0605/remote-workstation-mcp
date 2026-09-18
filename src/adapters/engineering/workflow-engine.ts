@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { DataPlaneAdapter } from '../data-plane.js';
 import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
@@ -18,6 +19,9 @@ import { Ros2Adapter, type Ros2RuntimeContext } from './ros2.js';
 import { SerialSessionManager } from './serial-session.js';
 
 export type EngineeringWorkflowId =
+  | 'platform.transfer_prepare'
+  | 'platform.transfer_receive_offer'
+  | 'platform.transfer_push'
   | 'firmware.build'
   | 'firmware.build_flash'
   | 'firmware.build_flash_verify'
@@ -44,6 +48,8 @@ export interface EngineeringProfileInitOptions {
 }
 
 export interface EngineeringWorkflowOverrides {
+  file?: string;
+  fileName?: string;
   artifact?: string;
   port?: string;
   probeSerial?: string;
@@ -117,6 +123,7 @@ export class EngineeringWorkflowEngine {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly profiles: EngineeringProjectProfileStore,
+    private readonly dataPlane: DataPlaneAdapter,
     private readonly artifacts: ArtifactIntegrityAdapter,
     private readonly artifactTransfer: ArtifactTransferAdapter,
     private readonly firmware: FirmwareAdapter,
@@ -270,7 +277,11 @@ export class EngineeringWorkflowEngine {
   }
 
   private workflowIds(state: ProjectState): EngineeringWorkflowId[] {
-    const ids: EngineeringWorkflowId[] = [];
+    const ids: EngineeringWorkflowId[] = [
+      'platform.transfer_prepare',
+      'platform.transfer_receive_offer',
+      'platform.transfer_push'
+    ];
     const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
     if (firmwareCapable) {
       ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.artifact_receive_offer', 'firmware.artifact_push', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
@@ -300,8 +311,11 @@ export class EngineeringWorkflowEngine {
       profile: state.profile,
       workflows: this.workflowIds(state).map(id => ({
         id,
-        destructive: id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot' || id === 'stm32.deploy_accept',
+        destructive: id === 'platform.transfer_receive_offer' || id === 'platform.transfer_push' || id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot' || id === 'stm32.deploy_accept',
         description: {
+          'platform.transfer_prepare': 'Hash any regular workspace file and emit a generic SHA-256/size manifest without moving or modifying it.',
+          'platform.transfer_receive_offer': 'Create a short-lived one-shot Tailscale receive ticket for any verified workspace file and promote matching bytes into the generic transfer store.',
+          'platform.transfer_push': 'Stream one verified workspace file directly to a peer Direct Node over the native Tailscale data plane without routing payload bytes through ChatGPT.',
           'firmware.artifact_prepare': 'Hash a firmware artifact and emit a canonical SHA-256/size manifest without modifying the artifact.',
           'firmware.artifact_accept': 'Verify a staged firmware artifact against an expected SHA-256/size and atomically promote it into the project verified store.',
           'firmware.artifact_receive_offer': 'Create one short-lived, one-shot Tailscale receive ticket for a known SHA-256/size and atomically accept only matching bytes.',
@@ -327,6 +341,111 @@ export class EngineeringWorkflowEngine {
     workflow: EngineeringWorkflowId,
     overrides: EngineeringWorkflowOverrides = {}
   ) {
+    const platformWorkflow = workflow === 'platform.transfer_prepare' ||
+      workflow === 'platform.transfer_receive_offer' ||
+      workflow === 'platform.transfer_push';
+
+    if (platformWorkflow) {
+      const scope = { workspace, basePath: projectPath };
+
+      if (workflow === 'platform.transfer_prepare') {
+        const file = overrides.file?.trim();
+        if (!file) throw new Error('platform.transfer_prepare requires parameters.file.');
+        const manifest = await this.dataPlane.prepare(workspace, projectPath, file);
+        return {
+          workflow,
+          scope,
+          steps: ['transfer.hash', 'transfer.manifest'],
+          dataPlane: {
+            ready: true,
+            transport: 'tailscale-http',
+            source: manifest,
+            blockers: []
+          },
+          resolved: { dataPlane: { file } }
+        };
+      }
+
+      if (workflow === 'platform.transfer_receive_offer') {
+        const fileName = overrides.fileName?.trim();
+        const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+        const expectedSize = overrides.expectedSize;
+        const transferTimeoutMs = overrides.transferTimeoutMs ?? 120_000;
+        if (!fileName) throw new Error('platform.transfer_receive_offer requires parameters.fileName.');
+        if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+          throw new Error('platform.transfer_receive_offer requires parameters.expectedSha256 as 64 hexadecimal characters.');
+        }
+        if (!Number.isSafeInteger(expectedSize) || (expectedSize ?? 0) <= 0 || (expectedSize ?? 0) > 512 * 1024 * 1024) {
+          throw new Error('platform.transfer_receive_offer requires parameters.expectedSize between 1 and 536870912.');
+        }
+        if (!Number.isSafeInteger(transferTimeoutMs) || transferTimeoutMs < 10_000 || transferTimeoutMs > 600_000) {
+          throw new Error('parameters.transferTimeoutMs must be between 10000 and 600000.');
+        }
+        const status = this.dataPlane.status();
+        const blockers = status.tailscaleIpv4Available ? [] : ['No local Tailscale IPv4 interface is available for the native data plane.'];
+        return {
+          workflow,
+          scope,
+          steps: ['transfer.receive_offer'],
+          dataPlane: {
+            ready: blockers.length === 0,
+            transport: 'tailscale-http',
+            fileName,
+            expectedSha256,
+            expectedSize,
+            transferTimeoutMs,
+            blockers
+          },
+          resolved: {
+            dataPlane: { fileName, expectedSha256, expectedSize, transferTimeoutMs }
+          }
+        };
+      }
+
+      const file = overrides.file?.trim();
+      const endpoint = overrides.transferEndpoint?.trim();
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (!file) throw new Error('platform.transfer_push requires parameters.file.');
+      if (!endpoint) throw new Error('platform.transfer_push requires parameters.transferEndpoint.');
+      if (!overrides.transferTicket) throw new Error('platform.transfer_push requires parameters.transferTicket.');
+      if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+        throw new Error('platform.transfer_push requires parameters.expectedSha256 as 64 hexadecimal characters.');
+      }
+      if (!Number.isSafeInteger(expectedSize) || (expectedSize ?? 0) <= 0 || (expectedSize ?? 0) > 512 * 1024 * 1024) {
+        throw new Error('platform.transfer_push requires parameters.expectedSize between 1 and 536870912.');
+      }
+      const source = await this.dataPlane.prepare(workspace, projectPath, file);
+      const blockers = [
+        ...(source.sha256 !== expectedSha256 ? [`SHA-256 mismatch: expected ${expectedSha256}, got ${source.sha256}.`] : []),
+        ...(source.size !== expectedSize ? [`Size mismatch: expected ${expectedSize}, got ${source.size}.`] : [])
+      ];
+      return {
+        workflow,
+        scope,
+        steps: ['transfer.source_preflight', 'transfer.peer_push', 'transfer.peer_receipt'],
+        dataPlane: {
+          ready: blockers.length === 0,
+          transport: 'tailscale-http',
+          source,
+          endpoint,
+          expectedSha256,
+          expectedSize,
+          blockers
+        },
+        resolved: {
+          dataPlane: {
+            file,
+            endpoint,
+            expectedSha256,
+            expectedSize,
+            transferTimeoutMs: overrides.transferTimeoutMs ?? 120_000,
+            ticketPresent: true
+          }
+        }
+      };
+    }
+
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
 
@@ -616,9 +735,6 @@ export class EngineeringWorkflowEngine {
     workflow: EngineeringWorkflowId,
     overrides: EngineeringWorkflowOverrides = {}
   ) {
-    this.policy.assertEngineeringExecute();
-    const plan = await this.plan(workspace, projectPath, workflow, overrides);
-    const state = await this.state(workspace, projectPath);
     const steps: StepResult[] = [];
 
     const capture = async <T>(
@@ -640,6 +756,90 @@ export class EngineeringWorkflowEngine {
         return { ok: false };
       }
     };
+
+    const platformWorkflow = workflow === 'platform.transfer_prepare' ||
+      workflow === 'platform.transfer_receive_offer' ||
+      workflow === 'platform.transfer_push';
+
+    if (platformWorkflow) {
+      const plan = await this.plan(workspace, projectPath, workflow, overrides);
+
+      if (workflow === 'platform.transfer_prepare') {
+        const file = overrides.file?.trim();
+        if (!file) throw new Error('platform.transfer_prepare requires parameters.file.');
+        const prepared = await capture('transfer.hash', () => this.dataPlane.prepare(workspace, projectPath, file));
+        if (!prepared.ok) return { workflow, status: 'failed', plan, steps };
+        steps.push({ id: 'transfer.manifest', status: 'succeeded', durationMs: 0, result: prepared.value });
+        return { workflow, status: 'succeeded', plan, steps, outputs: { manifest: prepared.value } };
+      }
+
+      if (workflow === 'platform.transfer_receive_offer') {
+        const transfer = plan.dataPlane;
+        if (!transfer) throw new Error('platform.transfer_receive_offer plan did not produce data-plane preflight data.');
+        steps.push({
+          id: 'transfer.preflight',
+          status: transfer.ready ? 'succeeded' : 'blocked',
+          durationMs: 0,
+          result: transfer,
+          ...(!transfer.ready ? { error: transfer.blockers.join(' ') } : {})
+        });
+        if (!transfer.ready) return { workflow, status: 'blocked', plan, steps, outputs: { transfer } };
+
+        const fileName = overrides.fileName?.trim();
+        const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+        const expectedSize = overrides.expectedSize;
+        if (!fileName || !expectedSha256 || expectedSize === undefined) {
+          throw new Error('platform.transfer_receive_offer requires fileName, expectedSha256 and expectedSize.');
+        }
+        const offered = await capture('transfer.receive_offer', () => this.dataPlane.createReceiveOffer({
+          workspace,
+          basePath: projectPath,
+          fileName,
+          expectedSha256,
+          expectedSize,
+          ttlMs: overrides.transferTimeoutMs
+        }));
+        if (!offered.ok) return { workflow, status: 'failed', plan, steps };
+        return { workflow, status: 'succeeded', plan, steps, outputs: { offer: offered.value } };
+      }
+
+      const transfer = plan.dataPlane;
+      if (!transfer) throw new Error('platform.transfer_push plan did not produce data-plane preflight data.');
+      steps.push({
+        id: 'transfer.source_preflight',
+        status: transfer.ready ? 'succeeded' : 'blocked',
+        durationMs: 0,
+        result: transfer,
+        ...(!transfer.ready ? { error: transfer.blockers.join(' ') } : {})
+      });
+      if (!transfer.ready) return { workflow, status: 'blocked', plan, steps, outputs: { transfer } };
+
+      const file = overrides.file?.trim();
+      const endpoint = overrides.transferEndpoint?.trim();
+      const ticket = overrides.transferTicket;
+      const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+      const expectedSize = overrides.expectedSize;
+      if (!file || !endpoint || !ticket || !expectedSha256 || expectedSize === undefined) {
+        throw new Error('platform.transfer_push requires file, transferEndpoint, transferTicket, expectedSha256 and expectedSize.');
+      }
+      const pushed = await capture('transfer.peer_push', () => this.dataPlane.push({
+        workspace,
+        basePath: projectPath,
+        file,
+        endpoint,
+        ticket,
+        expectedSha256,
+        expectedSize,
+        timeoutMs: overrides.transferTimeoutMs
+      }));
+      if (!pushed.ok) return { workflow, status: 'failed', plan, steps };
+      steps.push({ id: 'transfer.peer_receipt', status: 'succeeded', durationMs: 0, result: pushed.value.accepted });
+      return { workflow, status: 'succeeded', plan, steps, outputs: { receipt: pushed.value } };
+    }
+
+    this.policy.assertEngineeringExecute();
+    const plan = await this.plan(workspace, projectPath, workflow, overrides);
+    const state = await this.state(workspace, projectPath);
 
     if (workflow === 'firmware.artifact_receive_offer') {
       const artifactName = overrides.artifactName?.trim();

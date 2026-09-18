@@ -382,6 +382,34 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.0 - Platform-first multi-node foundation
+
+- move generic cross-node file transfer into a core `DataPlaneAdapter` outside the engineering/firmware domain;
+- add `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` through the existing stable workflow envelope;
+- support any regular workspace file up to 512 MiB, with source SHA-256/size preflight, receive-time hashing and atomic content-addressed promotion;
+- keep the normal MCP server loopback-only; bind ephemeral one-shot receivers only to local Tailscale IPv4 interfaces;
+- expose data-plane availability, active offers, bounded recent transfer history, runtime/OS uptime, memory and active-session counts through `chatgpt_web_status.nodeHealth`;
+- preserve independent Direct Node authority: destination workspace policy/write permission remains local and no permanent master workstation is introduced;
+- retain v0.13.6 firmware transfer workflows as compatibility/domain-extension APIs;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`; no custom-app action refresh is required for existing schema-v2 users.
+
+Acceptance criteria:
+
+- generic non-firmware file transfer works with engineering tools disabled;
+- transfer tickets never appear in plans, node health or history;
+- source mismatch blocks before network I/O;
+- destination re-hashes received bytes and atomically promotes only exact content;
+- generic platform workflows are available on a project with no firmware capability;
+- Windows/Linux CI and packed release smoke remain green;
+- real multi-node acceptance transfers a non-firmware fixture between independent Direct Nodes and confirms cleanup/health.
+
+Next platform depth after v0.14.0:
+
+- systematic Direct Node recovery matrix for runtime/tunnel/network/reboot/update failures;
+- first-run UX reduction and Control Center/TUI node-health/data-plane surfaces;
+- generic transfer lifecycle controls/cancellation and configurable owner policy limits;
+- multi-node client-side aggregation UX without introducing a master PC.
+
 ### v0.13.6 - Native Direct-Node artifact transport
 
 - add a dedicated typed `ArtifactTransferAdapter` instead of ad-hoc HTTP servers, SSH copy or model-mediated payload streaming;

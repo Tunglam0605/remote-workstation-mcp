@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
+import { DataPlaneAdapter } from './adapters/data-plane.js';
 import { DeviceRegistryAdapter } from './adapters/devices.js';
 import { ArtifactIntegrityAdapter } from './adapters/engineering/artifact-integrity.js';
 import { ArtifactTransferAdapter } from './adapters/engineering/artifact-transfer.js';
@@ -54,6 +55,7 @@ export async function createContext() {
   const processes = new ProcessManager(policy, paths, currentClientId);
   const ssh = new SshAdapter(policy, hostsConfig);
   const pairing = new PairingStore();
+  const dataPlane = new DataPlaneAdapter(policy, paths);
   const engineeringResources = new EngineeringResourceManager(currentClientId);
   const engineeringRunner = new EngineeringCommandRunner(policy);
   const engineeringHardware = new HardwareDiscoveryAdapter();
@@ -66,7 +68,7 @@ export async function createContext() {
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
   return {
     config,
     hostsConfig,
@@ -88,6 +90,7 @@ export async function createContext() {
     ssh,
     pairing,
     devices: new DeviceRegistryAdapter(ssh, pairing, identity),
+    dataPlane,
     engineering: {
       resources: engineeringResources,
       runner: engineeringRunner,

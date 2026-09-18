@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { DataPlaneAdapter } from '../src/adapters/data-plane.js';
 import { ArtifactIntegrityAdapter } from '../src/adapters/engineering/artifact-integrity.js';
 import { ArtifactTransferAdapter } from '../src/adapters/engineering/artifact-transfer.js';
 import { EngineeringProjectProfileStore } from '../src/adapters/engineering/project-profile.js';
@@ -34,6 +35,10 @@ async function fixture(project: FirmwareProjectInfo) {
   const policy = new PolicyEngine(config(root));
   const paths = new PathGuard(policy);
   const profiles = new EngineeringProjectProfileStore(policy, paths);
+  const dataPlane = new DataPlaneAdapter(policy, paths, {
+    bindAddress: '127.0.0.1',
+    allowLoopbackForTests: true
+  });
   const artifactIntegrity = new ArtifactIntegrityAdapter(policy, paths);
   const artifactTransfer = new ArtifactTransferAdapter(policy, paths, artifactIntegrity, {
     bindAddress: '127.0.0.1',
@@ -193,6 +198,7 @@ async function fixture(project: FirmwareProjectInfo) {
   const engine = new EngineeringWorkflowEngine(
     policy,
     profiles,
+    dataPlane,
     artifactIntegrity,
     artifactTransfer,
     firmware as never,
@@ -205,6 +211,7 @@ async function fixture(project: FirmwareProjectInfo) {
     root,
     profiles,
     engine,
+    dataPlane,
     calls,
     rosCalls,
     setArtifacts(value: Array<{ path: string; kind: string; size: number }>) { artifacts = value; },
@@ -984,6 +991,53 @@ test('native artifact workflows are exposed through the generic workflow contrac
     assert.equal(plan.resolved.artifactTransfer?.ticketPresent, true);
     assert.equal(JSON.stringify(plan).includes(secret), false);
   } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('generic platform transfer workflows remain available without firmware capability and never expose the transfer ticket in plans', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w',
+    projectPath: 'project',
+    family: 'unknown',
+    framework: 'unknown',
+    buildSystem: undefined,
+    markers: [],
+    ros2: false,
+    docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const body = JSON.stringify({ kind: 'report', ok: true }) + '\n';
+    await fs.writeFile(path.join(f.root, 'project', 'report.json'), body, 'utf8');
+    const expectedSha256 = createHash('sha256').update(body).digest('hex');
+    const expectedSize = Buffer.byteLength(body);
+
+    const list = await f.engine.list('w', 'project');
+    assert.ok(list.workflows.some(item => item.id === 'platform.transfer_prepare'));
+    assert.ok(list.workflows.some(item => item.id === 'platform.transfer_receive_offer'));
+    assert.ok(list.workflows.some(item => item.id === 'platform.transfer_push'));
+    assert.equal(list.workflows.some(item => item.id === 'firmware.build'), false);
+
+    const prepared = await f.engine.run('w', 'project', 'platform.transfer_prepare', { file: 'report.json' });
+    assert.equal(prepared.status, 'succeeded');
+    assert.equal((prepared as any).outputs.manifest.sha256, expectedSha256);
+    assert.deepEqual(f.calls, []);
+
+    const secret = 'S'.repeat(43);
+    const pushPlan = await f.engine.plan('w', 'project', 'platform.transfer_push', {
+      file: 'report.json',
+      transferEndpoint: 'http://127.0.0.1:34567/rwmcp-data/test-transfer-1234',
+      transferTicket: secret,
+      expectedSha256,
+      expectedSize
+    });
+    assert.equal(pushPlan.dataPlane?.ready, true);
+    assert.equal(pushPlan.resolved.dataPlane?.ticketPresent, true);
+    assert.equal(JSON.stringify(pushPlan).includes(secret), false);
+  } finally {
+    await f.dataPlane.closeAllForTests();
     await fs.rm(f.root, { recursive: true, force: true });
   }
 });

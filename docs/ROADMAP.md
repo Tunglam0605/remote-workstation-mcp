@@ -1,5 +1,7 @@
 # Roadmap
 
+> All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
+
 ## v0.1 — Local foundation ✅
 
 - MCP server using the official TypeScript SDK v2

@@ -4,6 +4,12 @@
 
 Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux engineering workstations. Each machine can run as an independent Direct Node with its own outbound OpenAI Secure MCP Tunnel. The local owner decides what ChatGPT may read, modify, or execute, while the workstation MCP itself stays bound to loopback instead of being exposed directly to the Internet.
 
+## Project direction
+
+The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs/PROJECT_CHARTER.md). It defines the mission, North Star, platform/extension boundary, architectural invariants and feature decision gate.
+
+**Release notes describe implementation history; they do not redefine the product mission.** Domain-specific workloads such as STM32, ESP32 and ROS 2 are extensions and acceptance workloads on top of the generic workstation platform.
+
 ## Current release
 
 **v0.13.6**

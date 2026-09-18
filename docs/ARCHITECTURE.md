@@ -1,5 +1,7 @@
 # Architecture
 
+> Product direction is defined by [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). This document explains **how** that charter is implemented. If an architectural shortcut conflicts with the charter, the charter takes precedence until it is deliberately amended.
+
 Remote Workstation MCP is an **AI-vendor-neutral engineering control plane**. ChatGPT Web, ChatGPT desktop, Codex, Claude Code, Cursor, VS Code integrations and custom MCP clients are peers of the same workstation interface; none is trusted merely because of vendor or model identity.
 
 The primary architectural rule for v0.7+ is:

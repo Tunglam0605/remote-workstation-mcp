@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.13.0';
+export const SERVER_VERSION = '0.13.1';
 export const ACTION_SCHEMA_VERSION = 2;
 export const ENGINEERING_API_VERSION = 3;
 

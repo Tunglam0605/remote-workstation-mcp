@@ -6,7 +6,15 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.13.0**
+**v0.13.1**
+
+v0.13.1 hardens the Windows recovery plane after real production acceptance of the v0.13.0 minor upgrade:
+
+- after every managed slot switch, Boot auto-update, manual Update and Rollback now re-home the Control Center and autonomous recovery worker to the active `current` slot before the lifecycle is considered successful;
+- `Start-RecoveryControlCenter` now verifies `running`, `healthy`, managed ownership of the Control Center port, and exact root equality instead of trusting only a child exit code;
+- candidate activation failure re-homes the recovery plane again after rollback, including owner-stop-preserved paths;
+- add a Windows integration test that starts a fake Control Center in slot A, re-homes it to slot B, verifies the old host exits, HTTP stays healthy and the recovery worker reports the slot-B root;
+- keep `actionSchemaVersion=2` and `engineeringApiVersion=3`; no ChatGPT custom-app action refresh is required from v0.13.0.
 
 v0.13.0 adds the first daily-driver STM32 deployment workflow while preserving the stable ChatGPT Action Schema v2:
 
@@ -249,7 +257,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.13.0.tgz`
+- `remote-workstation-mcp-v0.13.1.tgz`
 - `SHA256SUMS.txt`
 
 

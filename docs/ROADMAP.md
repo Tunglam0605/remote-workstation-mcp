@@ -380,6 +380,16 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.13.1 - Windows recovery-plane slot re-home hotfix
+
+- re-home the loopback Control Center and autonomous recovery worker to the new active slot after Boot auto-update, manual Update and Rollback;
+- verify the recovery plane is running, HTTP-healthy, owns its managed port and reports the exact requested runtime root;
+- re-home again after rollback when a candidate slot fails recovery/runtime activation, while preserving explicit owner-stop state;
+- add an executable Windows two-slot integration test proving the old host exits, the replacement host stays healthy and the recovery worker converges to the new slot;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`.
+
+This hotfix was triggered by real v0.12.0 -> v0.13.0 production acceptance: the MCP/tunnel successfully moved to v0.13.0, while the old-slot recovery worker correctly self-terminated and left port 8684 unavailable because the manual-update path did not re-home the recovery plane.
+
 ### v0.13.0 - Transactional STM32 deploy acceptance
 
 - add `stm32.deploy_accept` as the first daily-driver hardware workflow: provider/hardware/serial preflight -> build -> serial open -> atomic flash/verify/reset -> readiness-marker acceptance;

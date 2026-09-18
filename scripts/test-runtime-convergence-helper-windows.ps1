@@ -8,6 +8,7 @@ $runtime = Join-Path $base 'runtime'
 $oldRoot = Join-Path $base 'versions\vold'
 $newRoot = Join-Path $base 'versions\vnew'
 $oldScripts = Join-Path $oldRoot 'scripts'
+$newScripts = Join-Path $newRoot 'scripts'
 $oldDist = Join-Path $oldRoot 'dist'
 $statePath = Join-Path $runtime 'supervisor.json'
 $connectionPath = Join-Path $runtime 'connection-state.json'
@@ -16,9 +17,12 @@ $host1 = $null
 $host2 = $null
 $orphanTunnel = $null
 $orphanMcp = $null
+$oldRecovery = $null
+$newRecovery = $null
+$duplicateNewRecovery = $null
 
 try {
-  New-Item -ItemType Directory -Force -Path $runtime, $oldScripts, $oldDist, $newRoot | Out-Null
+  New-Item -ItemType Directory -Force -Path $runtime, $oldScripts, $newScripts, $oldDist | Out-Null
   $env:LOCALAPPDATA = $tempLocal
   . (Join-Path $repoRoot 'scripts\windows-settings.ps1')
   . (Join-Path $repoRoot 'scripts\windows-runtime-convergence.ps1')
@@ -65,9 +69,34 @@ try {
   if (-not $orphanTunnel.HasExited) { throw 'Convergence failed to stop orphan openai-tunnel-cli.js.' }
   if (-not $orphanMcp.HasExited) { throw 'Convergence failed to stop orphan dist\cli.js.' }
 
-  Write-Host 'Runtime convergence helper test passed.' -ForegroundColor Green
+  $fakeOldRecovery = Join-Path $oldScripts 'autonomous-recovery-windows.ps1'
+  $fakeNewRecovery = Join-Path $newScripts 'autonomous-recovery-windows.ps1'
+  [IO.File]::WriteAllText($fakeOldRecovery, "Start-Sleep -Seconds 120" + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText($fakeNewRecovery, "Start-Sleep -Seconds 120" + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+
+  $oldRecovery = Start-Process -FilePath $powershell -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$fakeOldRecovery) -WindowStyle Hidden -PassThru
+  $newRecovery = Start-Process -FilePath $powershell -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$fakeNewRecovery) -WindowStyle Hidden -PassThru
+  $duplicateNewRecovery = Start-Process -FilePath $powershell -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$fakeNewRecovery) -WindowStyle Hidden -PassThru
+  Start-Sleep -Milliseconds 300
+
+  $remainingRecovery = @(Invoke-RwmcpRecoveryPlaneConvergence -TargetRoot $newRoot -KeepProcessId $newRecovery.Id)
+  Start-Sleep -Milliseconds 300
+  $oldRecovery.Refresh(); $newRecovery.Refresh(); $duplicateNewRecovery.Refresh()
+  if (-not $oldRecovery.HasExited) { throw 'Recovery convergence failed to remove the old-slot recovery worker.' }
+  if ($newRecovery.HasExited) { throw 'Recovery convergence killed the selected current-slot recovery worker.' }
+  if (-not $duplicateNewRecovery.HasExited) { throw 'Recovery convergence failed to remove a duplicate current-slot recovery worker.' }
+  if (@($remainingRecovery).Count -ne 1 -or [int]$remainingRecovery[0].ProcessId -ne [int]$newRecovery.Id) {
+    throw 'Recovery convergence did not leave exactly the selected current-slot recovery worker.'
+  }
+
+  [void](Invoke-RwmcpRecoveryPlaneConvergence -TargetRoot $newRoot)
+  Start-Sleep -Milliseconds 300
+  $newRecovery.Refresh()
+  if (-not $newRecovery.HasExited) { throw 'Recovery convergence without a keeper failed to clear pre-existing recovery workers before Control Center spawn.' }
+
+  Write-Host 'Runtime and recovery-plane convergence helper test passed.' -ForegroundColor Green
 } finally {
-  foreach ($process in @($host1,$host2,$orphanTunnel,$orphanMcp)) {
+  foreach ($process in @($host1,$host2,$orphanTunnel,$orphanMcp,$oldRecovery,$newRecovery,$duplicateNewRecovery)) {
     if ($process) {
       try { $process.Refresh(); if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } } catch {}
       try { $process.Dispose() } catch {}

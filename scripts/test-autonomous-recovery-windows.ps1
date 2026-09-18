@@ -33,7 +33,22 @@ exit 0
   if (-not (Test-Path $marker)) { throw 'Missing runtime did not trigger autonomous StartOpenAI.' }
   $action = (Get-Content -LiteralPath $marker -Raw).Trim()
   if ($action -ne 'StartOpenAI') { throw "Expected StartOpenAI, got '$action'." }
-  Write-Host 'Autonomous recovery decision test passed.' -ForegroundColor Green
+  Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+  $recoveryHeartbeat = Join-Path $runtime 'recovery-supervisor-state.json'
+  Remove-Item -LiteralPath $recoveryHeartbeat -Force -ErrorAction SilentlyContinue
+  $otherRoot = Join-Path $base 'versions\vnext'
+  New-Item -ItemType Directory -Force -Path $otherRoot | Out-Null
+  [IO.File]::WriteAllText((Join-Path $base 'current.txt'), $otherRoot + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+
+  $staleOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $worker -Root $repoRoot -OneShot
+  $staleText = ($staleOutput -join [Environment]::NewLine)
+  if ($staleText -notmatch 'stale-slot-exit') {
+    throw "Old-slot autonomous recovery did not self-terminate after current.txt switched roots. Output=$staleText"
+  }
+  if (Test-Path -LiteralPath $marker) { throw 'Stale-slot recovery must not invoke the stable launcher.' }
+  if (Test-Path -LiteralPath $recoveryHeartbeat) { throw 'Stale-slot recovery must not overwrite the shared recovery heartbeat.' }
+
+  Write-Host 'Autonomous recovery decision and stale-slot self-termination tests passed.' -ForegroundColor Green
 } finally {
   $env:LOCALAPPDATA = $savedLocal
   Remove-Item -LiteralPath $tempLocal -Recurse -Force -ErrorAction SilentlyContinue

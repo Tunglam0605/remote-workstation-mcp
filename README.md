@@ -6,7 +6,16 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 ## Current release
 
-**v0.13.1**
+**v0.13.2**
+
+v0.13.2 removes the remaining per-chat OpenOCD setup on Windows STM32 workstations:
+
+- auto-discover STM32CubeIDE bundled OpenOCD from owner-configured roots, `C:\ST\STM32CubeIDE_*` and common STMicroelectronics install locations when `openocd` is not on PATH;
+- resolve STM32CubeIDE's separate `st_scripts` debug-plugin directory and pass it through `-s <path>` for flash, verify, reset, transactional deploy and debug sessions;
+- keep explicit owner overrides first-class through absolute `RWMCP_OPENOCD_EXECUTABLE` and optional `RWMCP_OPENOCD_SCRIPTS` paths;
+- expose the resolved script search path in typed provider status/flash plans so diagnostics are deterministic instead of relying on process cwd;
+- regression-test CubeIDE discovery, absolute scripts overrides and script-path propagation through the single-lease/single-process STM32 deploy transaction;
+- keep `actionSchemaVersion=2` and `engineeringApiVersion=3`; no ChatGPT custom-app action refresh is required.
 
 v0.13.1 hardens the Windows recovery plane after real production acceptance of the v0.13.0 minor upgrade:
 

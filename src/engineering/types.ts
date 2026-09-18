@@ -94,6 +94,7 @@ export interface FirmwareProviderStatus {
   available: boolean;
   executable?: string;
   executableSource?: 'owner-override' | 'path' | 'known-install';
+  scriptSearchPath?: string;
   version?: string;
   diagnostic?: OpenOcdDiagnostic;
   capabilities: string[];
@@ -110,6 +111,7 @@ export interface FirmwareFlashPlan {
   adapterSpeedKhz?: number;
   targetConfig?: string;
   program: string;
+  scriptSearchPath?: string;
   args: string[];
   resourceId: string;
   destructive: true;

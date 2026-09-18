@@ -10,7 +10,7 @@ import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
-import { classifyOpenOcdResult, openOcdAdapterSpeedArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
+import { classifyOpenOcdResult, openOcdAdapterSpeedArgs, openOcdSearchPathArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
@@ -209,7 +209,7 @@ export class FirmwareAdapter {
       capabilities: ['swd', 'st-link', 'flash', 'verify', 'reset', 'gdb-server'],
       intentionallyUnavailable: ['arbitrary-tcl', 'mass-erase', 'option-bytes', 'readout-protection-change', 'memory-write']
     };
-    if (!resolved) return { ...base, available: false, diagnostic: { code: 'provider-unavailable', ok: false, retryable: false, message: 'OpenOCD is not configured or available on PATH.', hint: 'Install OpenOCD or set owner-controlled RWMCP_OPENOCD_EXECUTABLE to an absolute executable path.' } };
+    if (!resolved) return { ...base, available: false, diagnostic: { code: 'provider-unavailable', ok: false, retryable: false, message: 'OpenOCD is not configured, available on PATH, or discoverable from STM32CubeIDE.', hint: 'Install STM32CubeIDE/OpenOCD or set owner-controlled RWMCP_OPENOCD_EXECUTABLE (and optionally RWMCP_OPENOCD_SCRIPTS) to absolute paths.' } };
     const result = await this.runner.run(resolved.path, ['--version'], process.cwd(), 5000);
     const text = `${result.stdout}\n${result.stderr}`.trim();
     const match = /Open On-Chip Debugger\s+([^\s]+)/i.exec(text);
@@ -218,6 +218,7 @@ export class FirmwareAdapter {
       available: result.exitCode === 0 && !result.timedOut,
       executable: resolved.path,
       executableSource: resolved.source,
+      ...(resolved.scriptsPath ? { scriptSearchPath: resolved.scriptsPath } : {}),
       ...(match?.[1] ? { version: match[1] } : {}),
       diagnostic: classifyOpenOcdResult(result)
     };
@@ -328,6 +329,7 @@ export class FirmwareAdapter {
     const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
     const tclArtifact = normalizedOpenOcdPath(artifactAbsolute);
     const args = [
+      ...openOcdSearchPathArgs(openocd),
       '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(probeSerial ? ['-c', `adapter serial ${probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
@@ -335,7 +337,8 @@ export class FirmwareAdapter {
     ];
     return {
       provider: 'openocd', family: project.family, target: project.target, artifact: artifactAbsolute,
-      probeSerial, targetConfig, ...(adapterSpeedKhz !== undefined ? { adapterSpeedKhz } : {}), program: openocd.path, args,
+      probeSerial, targetConfig, ...(adapterSpeedKhz !== undefined ? { adapterSpeedKhz } : {}), program: openocd.path,
+      ...(openocd.scriptsPath ? { scriptSearchPath: openocd.scriptsPath } : {}), args,
       resourceId: selectedProbe.resourceId, destructive: true,
       notes: ['OpenOCD is bound to an explicit ST-Link/SWD target transaction.', 'No mass erase, Option Byte, readout-protection, or arbitrary TCL surface is exposed.']
     };
@@ -401,6 +404,7 @@ export class FirmwareAdapter {
       throw new Error('STM32 deploy transaction requires a resolved OpenOCD artifact and targetConfig.');
     }
     const args = [
+      ...(plan.scriptSearchPath ? ['-s', plan.scriptSearchPath] : []),
       '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', plan.targetConfig,
       ...(plan.probeSerial ? ['-c', `adapter serial ${plan.probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(plan.adapterSpeedKhz),
@@ -454,7 +458,7 @@ export class FirmwareAdapter {
     const selectedProbe = await this.selectProbe(options.probeSerial);
     const resourceId = selectedProbe.resourceId;
     const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
-    const args = ['-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
+    const args = [...openOcdSearchPathArgs(openocd), '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(selectedProbe.probeSerial ? ['-c', `adapter serial ${selectedProbe.probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', 'init', '-c', 'reset halt', '-c', `verify_image {${normalizedOpenOcdPath(artifactAbsolute)}}`, '-c', 'reset run', '-c', 'shutdown'];
@@ -474,7 +478,7 @@ export class FirmwareAdapter {
     if (!openocd) throw new Error('OpenOCD is unavailable.');
     const selectedProbe = await this.selectProbe(options.probeSerial);
     const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
-    const args = ['-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
+    const args = [...openOcdSearchPathArgs(openocd), '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(selectedProbe.probeSerial ? ['-c', `adapter serial ${selectedProbe.probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
       '-c', 'init', '-c', 'reset run', '-c', 'shutdown'];

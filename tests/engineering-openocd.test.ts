@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { classifyOpenOcdResult, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from '../src/adapters/engineering/openocd-provider.js';
+import { classifyOpenOcdResult, openOcdSearchPathArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from '../src/adapters/engineering/openocd-provider.js';
 import { FirmwareAdapter } from '../src/adapters/engineering/firmware.js';
 import { EngineeringResourceManager } from '../src/adapters/engineering/resource-manager.js';
 import type { EngineeringCommandResult } from '../src/engineering/types.js';
@@ -34,6 +34,89 @@ test('OpenOCD resolver honors only an absolute owner-controlled override', async
   } finally {
     if (previous === undefined) delete process.env.RWMCP_OPENOCD_EXECUTABLE;
     else process.env.RWMCP_OPENOCD_EXECUTABLE = previous;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('OpenOCD resolver discovers STM32CubeIDE bundled executable and ST scripts without PATH setup', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-cubeide-openocd-'));
+  const ide = path.join(root, 'STM32CubeIDE');
+  const external = path.join(
+    ide,
+    'plugins',
+    'com.st.stm32cube.ide.mcu.externaltools.openocd.win32_2.4.500.202604080855',
+    'tools',
+    'bin'
+  );
+  const scripts = path.join(
+    ide,
+    'plugins',
+    'com.st.stm32cube.ide.mcu.debug.openocd_2.3.400.202606220929',
+    'resources',
+    'openocd',
+    'st_scripts'
+  );
+  await fs.mkdir(external, { recursive: true });
+  await fs.mkdir(path.join(scripts, 'interface'), { recursive: true });
+  await fs.mkdir(path.join(scripts, 'target'), { recursive: true });
+  const executable = path.join(external, 'openocd.exe');
+  await fs.writeFile(executable, '');
+  await fs.writeFile(path.join(scripts, 'interface', 'stlink.cfg'), '# fake stlink\n');
+  await fs.writeFile(path.join(scripts, 'target', 'stm32f4x.cfg'), '# fake target\n');
+
+  const previous = {
+    cube: process.env.RWMCP_STM32CUBEIDE_HOME,
+    executable: process.env.RWMCP_OPENOCD_EXECUTABLE,
+    scripts: process.env.RWMCP_OPENOCD_SCRIPTS,
+    path: process.env.PATH
+  };
+  try {
+    process.env.RWMCP_STM32CUBEIDE_HOME = ide;
+    delete process.env.RWMCP_OPENOCD_EXECUTABLE;
+    delete process.env.RWMCP_OPENOCD_SCRIPTS;
+    process.env.PATH = '';
+
+    const resolved = await resolveOpenOcdExecutable();
+    assert.equal(resolved?.path, executable);
+    assert.equal(resolved?.source, 'known-install');
+    assert.equal(resolved?.scriptsPath, scripts);
+    assert.deepEqual(resolved ? openOcdSearchPathArgs(resolved) : [], ['-s', scripts]);
+  } finally {
+    if (previous.cube === undefined) delete process.env.RWMCP_STM32CUBEIDE_HOME;
+    else process.env.RWMCP_STM32CUBEIDE_HOME = previous.cube;
+    if (previous.executable === undefined) delete process.env.RWMCP_OPENOCD_EXECUTABLE;
+    else process.env.RWMCP_OPENOCD_EXECUTABLE = previous.executable;
+    if (previous.scripts === undefined) delete process.env.RWMCP_OPENOCD_SCRIPTS;
+    else process.env.RWMCP_OPENOCD_SCRIPTS = previous.scripts;
+    process.env.PATH = previous.path;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('OpenOCD scripts override is absolute and must contain interface/stlink.cfg', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-openocd-scripts-'));
+  const executable = path.join(root, process.platform === 'win32' ? 'openocd.exe' : 'openocd');
+  await fs.writeFile(executable, process.platform === 'win32' ? '' : '#!/bin/sh\nexit 0\n');
+  if (process.platform !== 'win32') await fs.chmod(executable, 0o755);
+  const scripts = path.join(root, 'scripts');
+  await fs.mkdir(path.join(scripts, 'interface'), { recursive: true });
+  await fs.writeFile(path.join(scripts, 'interface', 'stlink.cfg'), '# fake\n');
+
+  const previousExecutable = process.env.RWMCP_OPENOCD_EXECUTABLE;
+  const previousScripts = process.env.RWMCP_OPENOCD_SCRIPTS;
+  try {
+    process.env.RWMCP_OPENOCD_EXECUTABLE = executable;
+    process.env.RWMCP_OPENOCD_SCRIPTS = scripts;
+    const resolved = await resolveOpenOcdExecutable();
+    assert.equal(resolved?.scriptsPath, scripts);
+
+    process.env.RWMCP_OPENOCD_SCRIPTS = 'relative/scripts';
+    await assert.rejects(resolveOpenOcdExecutable(), /scripts.*absolute path/i);
+  } finally {
+    if (previousExecutable === undefined) delete process.env.RWMCP_OPENOCD_EXECUTABLE;
+    else process.env.RWMCP_OPENOCD_EXECUTABLE = previousExecutable;
+    if (previousScripts === undefined) delete process.env.RWMCP_OPENOCD_SCRIPTS;
+    else process.env.RWMCP_OPENOCD_SCRIPTS = previousScripts;
     await fs.rm(root, { recursive: true, force: true });
   }
 });
@@ -130,8 +213,11 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-openocd-deploy-'));
   const bin = path.join(root, 'bin');
   const project = path.join(root, 'project');
+  const scripts = path.join(root, 'openocd-scripts');
   await fs.mkdir(bin);
   await fs.mkdir(path.join(project, 'build'), { recursive: true });
+  await fs.mkdir(path.join(scripts, 'interface'), { recursive: true });
+  await fs.writeFile(path.join(scripts, 'interface', 'stlink.cfg'), '# test stlink\n');
   await fs.writeFile(path.join(project, 'Main.ioc'), 'Mcu.Name=STM32F407ZET6\n');
   await fs.writeFile(path.join(project, 'CMakeLists.txt'), 'cmake_minimum_required(VERSION 3.22)\n');
   await fs.writeFile(path.join(project, 'build', 'app.elf'), 'ELF');
@@ -146,7 +232,9 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
     engineering: { enabled: true, maxCommandRuntimeMs: 60000, allowHardwareMutationInWorkspace: true, allowSerialWriteInWorkspace: false }
   };
   const oldPath = process.env.PATH;
+  const oldScripts = process.env.RWMCP_OPENOCD_SCRIPTS;
   process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  process.env.RWMCP_OPENOCD_SCRIPTS = scripts;
   try {
     const policy = new PolicyEngine(cfg);
     const paths = new PathGuard(policy);
@@ -190,6 +278,8 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
     assert.deepEqual(result.stages, ['flash', 'verify', 'reset']);
     assert.equal(result.result.exitCode, 0);
     assert.equal(result.plan.targetConfig, 'target/stm32f4x.cfg');
+    assert.equal(result.plan.scriptSearchPath, scripts);
+    assert.deepEqual(calls[0]?.args.slice(0, 2), ['-s', scripts]);
     assert.ok(result.plan.args.includes('adapter serial SN1'));
     assert.ok(result.plan.args.includes('adapter speed 4000'));
 
@@ -203,6 +293,8 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
     assert.ok(shutdownIndex > resetIndex);
   } finally {
     process.env.PATH = oldPath;
+    if (oldScripts === undefined) delete process.env.RWMCP_OPENOCD_SCRIPTS;
+    else process.env.RWMCP_OPENOCD_SCRIPTS = oldScripts;
     await fs.rm(root, { recursive: true, force: true });
   }
 });

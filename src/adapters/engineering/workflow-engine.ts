@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
+import { DebugSessionManager } from './debug-session.js';
 import { FirmwareAdapter } from './firmware.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import {
@@ -14,11 +15,15 @@ import { Ros2Adapter, type Ros2RuntimeContext } from './ros2.js';
 import { SerialSessionManager } from './serial-session.js';
 
 export type EngineeringWorkflowId =
-  | 'project.inspect'
   | 'firmware.build'
   | 'firmware.build_flash'
+  | 'firmware.build_flash_verify'
   | 'firmware.build_flash_monitor'
-  | 'ros2.health';
+  | 'firmware.build_flash_monitor_expect'
+  | 'stm32.debug_fault_snapshot'
+  | 'ros2.build'
+  | 'ros2.health'
+  | 'ros2.build_health';
 
 export interface EngineeringProfileInitOptions {
   id?: string;
@@ -37,6 +42,12 @@ export interface EngineeringWorkflowOverrides {
   adapterSpeedKhz?: number;
   monitorPort?: string;
   monitorBaudRate?: number;
+  expectText?: string;
+  expectTimeoutMs?: number;
+  rosPackagesSelect?: string[];
+  rosSymlinkInstall?: boolean;
+  rosMergeInstall?: boolean;
+  debugMaxFrames?: number;
 }
 
 interface ProjectState {
@@ -85,6 +96,7 @@ export class EngineeringWorkflowEngine {
     private readonly firmware: FirmwareAdapter,
     private readonly hardware: HardwareDiscoveryAdapter,
     private readonly serial: SerialSessionManager,
+    private readonly debug: DebugSessionManager,
     private readonly ros2: Ros2Adapter
   ) {}
 
@@ -108,7 +120,7 @@ export class EngineeringWorkflowEngine {
         buildProvider: 'esp-idf',
         buildDir: 'build',
         flashProvider: 'esp-idf',
-        monitor: { baudRate: 115200 }
+        monitor: { baudRate: 115200, expectTimeoutMs: 10_000 }
       };
     } else if (project.framework === 'cmake' || project.framework === 'make') {
       profile.firmware = {
@@ -119,7 +131,10 @@ export class EngineeringWorkflowEngine {
     }
 
     if (project.ros2) {
-      profile.ros2 = { cwd: '.' };
+      profile.ros2 = {
+        cwd: '.',
+        build: { symlinkInstall: true, mergeInstall: false }
+      };
     }
     return profile;
   }
@@ -154,9 +169,23 @@ export class EngineeringWorkflowEngine {
     const state = await this.state(workspace, projectPath);
     const base = state.profile;
     const firmware = options.firmware
-      ? { ...(base.firmware ?? {}), ...options.firmware, monitor: options.firmware.monitor ? { ...(base.firmware?.monitor ?? {}), ...options.firmware.monitor } : base.firmware?.monitor }
+      ? {
+          ...(base.firmware ?? {}),
+          ...options.firmware,
+          monitor: options.firmware.monitor
+            ? { ...(base.firmware?.monitor ?? {}), ...options.firmware.monitor }
+            : base.firmware?.monitor
+        }
       : base.firmware;
-    const ros2 = options.ros2 ? { ...(base.ros2 ?? {}), ...options.ros2 } : base.ros2;
+    const ros2 = options.ros2
+      ? {
+          ...(base.ros2 ?? {}),
+          ...options.ros2,
+          build: options.ros2.build
+            ? { ...(base.ros2?.build ?? {}), ...options.ros2.build }
+            : base.ros2?.build
+        }
+      : base.ros2;
     const profile: EngineeringProjectProfile = {
       ...base,
       ...(options.id ? { id: safeId(options.id) } : {}),
@@ -173,8 +202,20 @@ export class EngineeringWorkflowEngine {
     const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
     if (firmwareCapable) {
       ids.push('firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
+      if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
+        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot');
+      }
+      if (
+        state.project.family === 'esp32' ||
+        state.profile.kind === 'esp-idf' ||
+        Boolean(state.profile.firmware?.monitor?.expectText)
+      ) {
+        ids.push('firmware.build_flash_monitor_expect');
+      }
     }
-    if (state.project.ros2 || state.profile.ros2) ids.push('ros2.health');
+    if (state.project.ros2 || state.profile.ros2) {
+      ids.push('ros2.build', 'ros2.health', 'ros2.build_health');
+    }
     return ids;
   }
 
@@ -187,42 +228,72 @@ export class EngineeringWorkflowEngine {
       profile: state.profile,
       workflows: this.workflowIds(state).map(id => ({
         id,
-        destructive: id === 'firmware.build_flash' || id === 'firmware.build_flash_monitor',
+        destructive: id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot',
         description: {
-          'project.inspect': 'Inspect project markers, artifacts, configured profile and attached engineering hardware.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
-          'firmware.build_flash': 'Build and then flash/verify the selected target using a hardware lease.',
-          'firmware.build_flash_monitor': 'Build, flash/verify, then open the configured serial monitor session.',
-          'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.'
+          'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
+          'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
+          'firmware.build_flash_monitor': 'Build, flash, then open the configured serial monitor session.',
+          'firmware.build_flash_monitor_expect': 'Build, flash, open serial and wait for a configured boot/readiness marker.',
+          'stm32.debug_fault_snapshot': 'Open a constrained STM32 debug session, halt the target, decode Cortex-M fault state, capture stack frames, then release the probe.',
+          'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
+          'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
+          'ros2.build_health': 'Build the ROS 2 workspace, then inspect the configured runtime graph health.'
         }[id]
       }))
     };
   }
 
-  async plan(workspace: string, projectPath: string, workflow: EngineeringWorkflowId, overrides: EngineeringWorkflowOverrides = {}) {
+  async plan(
+    workspace: string,
+    projectPath: string,
+    workflow: EngineeringWorkflowId,
+    overrides: EngineeringWorkflowOverrides = {}
+  ) {
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
+
     const fw = state.profile.firmware ?? {};
     const flashProvider = fw.flashProvider ?? (state.project.family === 'esp32' ? 'esp-idf' : 'auto');
     const port = overrides.port ?? fw.port;
     const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? port;
+    const expectedText = overrides.expectText ?? fw.monitor?.expectText;
     const ros = state.profile.ros2;
+    const rosBuild = ros?.build ?? {};
+    const rosSymlinkInstall = overrides.rosSymlinkInstall ?? rosBuild.symlinkInstall ?? true;
+    const rosMergeInstall = overrides.rosMergeInstall ?? rosBuild.mergeInstall ?? false;
+    if (workflow.startsWith('ros2.') && rosSymlinkInstall && rosMergeInstall) {
+      throw new Error('ROS 2 build cannot combine symlinkInstall=true with mergeInstall=true.');
+    }
 
-    if ((workflow === 'firmware.build_flash' || workflow === 'firmware.build_flash_monitor') && flashProvider === 'esp-idf' && !port) {
+    if (workflow.startsWith('firmware.build_flash') && flashProvider === 'esp-idf' && !port) {
       throw new Error('ESP-IDF flash workflow requires firmware.port in .rwmcp/project.yaml or an explicit port override.');
     }
-    if (workflow === 'firmware.build_flash_monitor' && !monitorPort) {
+    if (
+      (workflow === 'firmware.build_flash_monitor' || workflow === 'firmware.build_flash_monitor_expect') &&
+      !monitorPort
+    ) {
       throw new Error('Serial monitor workflow requires firmware.monitor.port, firmware.port, or monitorPort override.');
+    }
+    if (workflow === 'firmware.build_flash_monitor_expect' && !expectedText) {
+      throw new Error('Monitor-expect workflow requires firmware.monitor.expectText or an expectText override.');
     }
 
     const steps: string[] = [];
-    if (workflow === 'project.inspect') steps.push('project.inspect', 'firmware.artifacts', 'hardware.list');
+    if (workflow === 'stm32.debug_fault_snapshot') {
+      steps.push('debug.session.start', 'debug.halt', 'debug.fault_snapshot', 'debug.stack', 'debug.session.stop');
+    }
     if (workflow.startsWith('firmware.')) {
       steps.push('firmware.build');
       if (workflow !== 'firmware.build') steps.push('firmware.flash');
-      if (workflow === 'firmware.build_flash_monitor') steps.push('serial.open');
+      if (workflow === 'firmware.build_flash_verify') steps.push('firmware.verify');
+      if (workflow === 'firmware.build_flash_monitor' || workflow === 'firmware.build_flash_monitor_expect') {
+        steps.push('serial.open');
+      }
+      if (workflow === 'firmware.build_flash_monitor_expect') steps.push('serial.wait_for_text');
     }
-    if (workflow === 'ros2.health') {
+    if (workflow === 'ros2.build' || workflow === 'ros2.build_health') steps.push('ros2.colcon.build');
+    if (workflow === 'ros2.health' || workflow === 'ros2.build_health') {
       steps.push('ros2.environment.bootstrap', 'ros2.node.list', 'ros2.topic.list', 'ros2.service.list', 'ros2.action.list');
     }
 
@@ -234,7 +305,7 @@ export class EngineeringWorkflowEngine {
       profile: state.profile,
       steps,
       resolved: {
-        firmware: workflow.startsWith('firmware.') ? {
+        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot') ? {
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
           flashProvider,
@@ -244,31 +315,129 @@ export class EngineeringWorkflowEngine {
           targetConfig: overrides.targetConfig ?? fw.targetConfig,
           adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz,
           monitorPort,
-          monitorBaudRate: overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200
+          monitorBaudRate: overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200,
+          expectText: expectedText,
+          expectTimeoutMs: overrides.expectTimeoutMs ?? fw.monitor?.expectTimeoutMs ?? 10_000,
+          debugMaxFrames: overrides.debugMaxFrames ?? 16
         } : undefined,
-        ros2: workflow === 'ros2.health' ? ros : undefined
+        ros2: workflow.startsWith('ros2.') ? {
+          ...ros,
+          build: {
+            symlinkInstall: overrides.rosSymlinkInstall ?? rosBuild.symlinkInstall ?? true,
+            mergeInstall: overrides.rosMergeInstall ?? rosBuild.mergeInstall ?? false,
+            packagesSelect: overrides.rosPackagesSelect ?? rosBuild.packagesSelect ?? []
+          }
+        } : undefined
       }
     };
   }
 
-  async run(workspace: string, projectPath: string, workflow: EngineeringWorkflowId, overrides: EngineeringWorkflowOverrides = {}) {
+  private async resolveVerifyArtifact(
+    workspace: string,
+    projectPath: string,
+    explicit: string | undefined
+  ): Promise<string> {
+    if (explicit) return explicit;
+    const candidates = (await this.firmware.listArtifacts(workspace, projectPath))
+      .filter(item => ['elf', 'axf', 'hex'].includes(item.kind));
+    if (candidates.length !== 1) {
+      throw new Error(`STM32 verify workflow requires one unambiguous ELF/AXF/HEX artifact; discovery found ${candidates.length}.`);
+    }
+    return candidates[0]!.path;
+  }
+
+  private async resolveDebugSymbols(
+    workspace: string,
+    projectPath: string,
+    explicit: string | undefined
+  ): Promise<string> {
+    if (explicit) {
+      const ext = path.extname(explicit).toLowerCase();
+      if (!['.elf', '.axf'].includes(ext)) {
+        throw new Error('STM32 debug fault workflow requires an ELF or AXF symbols artifact.');
+      }
+      return explicit;
+    }
+    const candidates = (await this.firmware.listArtifacts(workspace, projectPath))
+      .filter(item => ['elf', 'axf'].includes(item.kind));
+    if (candidates.length !== 1) {
+      throw new Error(`STM32 debug fault workflow requires one unambiguous ELF/AXF artifact; discovery found ${candidates.length}.`);
+    }
+    return candidates[0]!.path;
+  }
+
+  async run(
+    workspace: string,
+    projectPath: string,
+    workflow: EngineeringWorkflowId,
+    overrides: EngineeringWorkflowOverrides = {}
+  ) {
     this.policy.assertEngineeringExecute();
     const plan = await this.plan(workspace, projectPath, workflow, overrides);
     const state = await this.state(workspace, projectPath);
     const steps: StepResult[] = [];
 
-    const capture = async <T>(id: string, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> => {
+    const capture = async <T>(
+      id: string,
+      fn: () => Promise<T>
+    ): Promise<{ ok: true; value: T } | { ok: false }> => {
       const started = Date.now();
       try {
         const value = await fn();
         steps.push({ id, status: 'succeeded', durationMs: Date.now() - started, result: value });
         return { ok: true, value };
       } catch (error) {
-        steps.push({ id, status: 'failed', durationMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) });
+        steps.push({
+          id,
+          status: 'failed',
+          durationMs: Date.now() - started,
+          error: error instanceof Error ? error.message : String(error)
+        });
         return { ok: false };
       }
     };
 
+    if (workflow === 'stm32.debug_fault_snapshot') {
+      const fw = state.profile.firmware ?? {};
+      const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);
+      const probeSerial = overrides.probeSerial ?? fw.probeSerial;
+      if (!probeSerial) {
+        throw new Error('STM32 debug fault workflow requires firmware.probeSerial or a probeSerial override.');
+      }
+
+      const started = await capture('debug.session.start', () => this.debug.start({
+        workspace,
+        projectPath,
+        symbols,
+        probeSerial,
+        targetConfig: overrides.targetConfig ?? fw.targetConfig,
+        adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz
+      }));
+      if (!started.ok) return { workflow, status: 'failed', plan, steps };
+
+      let fault: unknown;
+      let stack: unknown;
+      let failed = false;
+      try {
+        const halted = await capture('debug.halt', () => this.debug.halt(started.value.id));
+        if (!halted.ok) failed = true;
+        if (!failed) {
+          const snapshot = await capture('debug.fault_snapshot', () => this.debug.faultSnapshot(started.value.id));
+          if (snapshot.ok) fault = snapshot.value;
+          else failed = true;
+        }
+        if (!failed) {
+          const stackResult = await capture('debug.stack', () => this.debug.stack(started.value.id, overrides.debugMaxFrames ?? 16));
+          if (stackResult.ok) stack = stackResult.value;
+          else failed = true;
+        }
+      } finally {
+        const stopped = await capture('debug.session.stop', () => this.debug.stop(started.value.id));
+        if (!stopped.ok) failed = true;
+      }
+
+      return { workflow, status: failed ? 'failed' : 'succeeded', plan, steps, outputs: { symbols, fault, stack } };
+    }
 
     if (workflow.startsWith('firmware.')) {
       const fw = state.profile.firmware ?? {};
@@ -308,7 +477,30 @@ export class EngineeringWorkflowEngine {
         };
         return { workflow, status: 'failed', plan, steps };
       }
-      if (workflow === 'firmware.build_flash') return { workflow, status: 'succeeded', plan, steps };
+
+      if (workflow === 'firmware.build_flash') {
+        return { workflow, status: 'succeeded', plan, steps };
+      }
+
+      if (workflow === 'firmware.build_flash_verify') {
+        const artifact = await this.resolveVerifyArtifact(workspace, projectPath, overrides.artifact ?? fw.artifact);
+        const verify = await capture('firmware.verify', () => this.firmware.verify({
+          workspace,
+          projectPath,
+          artifact,
+          probeSerial: overrides.probeSerial ?? fw.probeSerial,
+          targetConfig: overrides.targetConfig ?? fw.targetConfig,
+          adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz
+        }));
+        if (!verify.ok) return { workflow, status: 'failed', plan, steps };
+        return {
+          workflow,
+          status: successfulCommand(verify.value.result) ? 'succeeded' : 'failed',
+          plan,
+          steps,
+          outputs: { artifact, verify: verify.value }
+        };
+      }
 
       const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? overrides.port ?? fw.port;
       if (!monitorPort) throw new Error('Serial monitor port was not resolved.');
@@ -316,12 +508,51 @@ export class EngineeringWorkflowEngine {
         monitorPort,
         overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200
       ));
+      if (!monitor.ok) return { workflow, status: 'failed', plan, steps };
+
+      if (workflow === 'firmware.build_flash_monitor') {
+        return {
+          workflow,
+          status: 'succeeded',
+          plan,
+          steps,
+          outputs: { serialSession: monitor.value }
+        };
+      }
+
+      const expectedText = overrides.expectText ?? fw.monitor?.expectText;
+      if (!expectedText) throw new Error('Serial readiness marker was not resolved.');
+      const expectation = await capture('serial.wait_for_text', () => this.serial.waitForText(
+        monitor.value.id,
+        expectedText,
+        overrides.expectTimeoutMs ?? fw.monitor?.expectTimeoutMs ?? 10_000,
+        0
+      ));
+      if (!expectation.ok) {
+        return {
+          workflow,
+          status: 'failed',
+          plan,
+          steps,
+          outputs: { serialSession: monitor.value }
+        };
+      }
+      if (!expectation.value.matched) {
+        steps[steps.length - 1] = {
+          ...steps[steps.length - 1]!,
+          status: 'failed',
+          error: `Serial output did not contain expected readiness marker within ${expectation.value.elapsedMs} ms.`
+        };
+      }
       return {
         workflow,
-        status: monitor.ok ? 'succeeded' : 'failed',
+        status: expectation.value.matched ? 'succeeded' : 'failed',
         plan,
         steps,
-        ...(monitor.ok ? { outputs: { serialSession: monitor.value } } : {})
+        outputs: {
+          serialSession: monitor.value,
+          expectation: expectation.value
+        }
       };
     }
 
@@ -331,6 +562,26 @@ export class EngineeringWorkflowEngine {
     const runtime: Ros2RuntimeContext | undefined = (ros.distro || workspaceSetup || ros.domainId !== undefined)
       ? { distro: ros.distro, workspaceSetup, domainId: ros.domainId }
       : undefined;
+    const rosBuild = ros.build ?? {};
+
+    if (workflow === 'ros2.build' || workflow === 'ros2.build_health') {
+      const build = await capture('ros2.colcon.build', () => this.ros2.build(workspace, cwd, runtime, {
+        symlinkInstall: overrides.rosSymlinkInstall ?? rosBuild.symlinkInstall ?? true,
+        mergeInstall: overrides.rosMergeInstall ?? rosBuild.mergeInstall ?? false,
+        packagesSelect: overrides.rosPackagesSelect ?? rosBuild.packagesSelect ?? []
+      }));
+      if (!build.ok) return { workflow, status: 'failed', plan, steps };
+      if (workflow === 'ros2.build') {
+        return {
+          workflow,
+          status: 'succeeded',
+          plan,
+          steps,
+          outputs: { build: build.value }
+        };
+      }
+    }
+
     const health = await capture('ros2.health', () => this.ros2.health(workspace, cwd, runtime));
     return {
       workflow,

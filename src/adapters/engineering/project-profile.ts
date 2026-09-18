@@ -19,6 +19,8 @@ export interface EngineeringFirmwareProfile {
   monitor?: {
     port?: string;
     baudRate?: number;
+    expectText?: string;
+    expectTimeoutMs?: number;
   };
 }
 
@@ -27,6 +29,11 @@ export interface EngineeringRos2Profile {
   cwd?: string;
   workspaceSetup?: string;
   domainId?: number;
+  build?: {
+    symlinkInstall?: boolean;
+    mergeInstall?: boolean;
+    packagesSelect?: string[];
+  };
 }
 
 export interface EngineeringProjectProfile {
@@ -56,14 +63,21 @@ const profileSchema = z.object({
     adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
     monitor: z.object({
       port: z.string().min(1).max(256).optional(),
-      baudRate: z.number().int().min(300).max(12_000_000).default(115200)
+      baudRate: z.number().int().min(300).max(12_000_000).default(115200),
+      expectText: z.string().min(1).max(512).optional(),
+      expectTimeoutMs: z.number().int().min(100).max(120_000).default(10_000)
     }).optional()
   }).optional(),
   ros2: z.object({
     distro: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/).optional(),
     cwd: relativePath.default('.'),
     workspaceSetup: relativePath.optional(),
-    domainId: z.number().int().min(0).max(232).optional()
+    domainId: z.number().int().min(0).max(232).optional(),
+    build: z.object({
+      symlinkInstall: z.boolean().default(true),
+      mergeInstall: z.boolean().default(false),
+      packagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).optional()
+    }).optional()
   }).optional()
 });
 

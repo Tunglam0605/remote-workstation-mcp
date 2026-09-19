@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EngineeringCommandResult, FirmwareArtifact, FirmwareFlashPlan, FirmwareProjectInfo, FirmwareProviderStatus } from '../../engineering/types.js';
+import type { EngineeringCommandResult, FirmwareArtifact, FirmwareFlashPlan, FirmwareProjectInfo, FirmwareProjectTarget, FirmwareProviderStatus, KeilBuildSummary } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
+import { parseBuildDiagnostics } from '../build-diagnostics.js';
 import { PathGuard } from '../../security/path-guard.js';
 import { FirmwareArtifactFinder } from './artifact-finder.js';
 import { EngineeringCommandRunner } from './command-runner.js';
@@ -130,6 +131,117 @@ async function readBoundedText(file: string, maxBytes: number): Promise<string> 
     return '';
   }
 }
+
+function keilToolchain(text: string): KeilBuildSummary['toolchain'] {
+  const compiler = /Using Compiler\s+['"]?([^'"\r\n,]+)['"]?[^\r\n]*/i.exec(text);
+  const version = compiler?.[1]?.match(/V?([0-9]+(?:\.[0-9]+){1,3})/i)?.[1];
+  const lower = text.toLowerCase();
+  const family = lower.includes('armclang')
+    ? 'armclang'
+    : lower.includes('armcc') || /using compiler[^\r\n]*v5\./i.test(text)
+      ? 'armcc'
+      : 'unknown';
+  return {
+    family,
+    ...(version ? { version } : {})
+  };
+}
+
+function keilLicense(text: string): KeilBuildSummary['license'] {
+  const lines = text.split(/\r?\n/).filter(line => /licen[sc]e|flexnet|checkout/i.test(line));
+  const failure = lines.find(line => /fail|error|denied|expired|unlicensed|not available|cannot|could not/i.test(line));
+  if (failure) {
+    return {
+      status: 'error',
+      message: failure.trim().slice(0, 512)
+    };
+  }
+  const success = lines.find(line => /checkout.*success|license.*valid|licensed/i.test(line));
+  if (success) {
+    return {
+      status: 'ok',
+      message: success.trim().slice(0, 512)
+    };
+  }
+  return { status: 'unknown' };
+}
+
+async function keilArtifactSummary(
+  cwd: string,
+  target: FirmwareProjectTarget
+): Promise<KeilBuildSummary['artifact']> {
+  const expectedPath = target.expectedArtifact;
+  const expectedHexPath = target.createHexFile && target.outputDirectory && target.outputName
+    ? path.posix.join(target.outputDirectory, `${target.outputName}.hex`)
+    : undefined;
+  if (!expectedPath) {
+    return {
+      ...(expectedHexPath ? { expectedHexPath } : {}),
+      exists: false
+    };
+  }
+  const absolute = path.resolve(cwd, expectedPath.replaceAll('/', path.sep));
+  try {
+    const stat = await fs.stat(absolute);
+    return {
+      expectedPath,
+      ...(expectedHexPath ? { expectedHexPath } : {}),
+      exists: stat.isFile(),
+      ...(stat.isFile() ? { size: stat.size, mtime: stat.mtime.toISOString() } : {})
+    };
+  } catch {
+    return {
+      expectedPath,
+      ...(expectedHexPath ? { expectedHexPath } : {}),
+      exists: false
+    };
+  }
+}
+
+async function summarizeKeilBuild(
+  text: string,
+  resolved: { path: string; source: 'owner-override' | 'path' | 'known-install' },
+  target: FirmwareProjectTarget,
+  cwd: string
+): Promise<KeilBuildSummary> {
+  const parsed = parseBuildDiagnostics(text, 80);
+  const summary = /([0-9]+)\s+Error\(s\)\s*,\s*([0-9]+)\s+Warning\(s\)/i.exec(text);
+  const diagnosticErrors = parsed.diagnostics.filter(item => item.severity === 'fatal' || item.severity === 'error').length;
+  const diagnosticWarnings = parsed.diagnostics.filter(item => item.severity === 'warning').length;
+  const diagnosticNotes = parsed.diagnostics.filter(item => item.severity === 'note').length;
+  return {
+    target: {
+      projectFile: target.projectFile,
+      targetName: target.targetName,
+      ...(target.device ? { device: target.device } : {}),
+      ...(target.outputDirectory ? { outputDirectory: target.outputDirectory } : {}),
+      ...(target.outputName ? { outputName: target.outputName } : {}),
+      ...(target.expectedArtifact ? { expectedArtifact: target.expectedArtifact } : {}),
+      ...(target.createHexFile ? { createHexFile: true } : {})
+    },
+    toolchain: keilToolchain(text),
+    provider: {
+      executable: resolved.path,
+      executableSource: resolved.source
+    },
+    license: keilLicense(text),
+    counts: {
+      errors: summary?.[1] ? Number(summary[1]) : diagnosticErrors,
+      warnings: summary?.[2] ? Number(summary[2]) : diagnosticWarnings,
+      notes: diagnosticNotes
+    },
+    diagnostics: parsed.diagnostics.map(item => ({
+      ...(item.file ? { file: item.file } : {}),
+      ...(item.line !== undefined ? { line: item.line } : {}),
+      ...(item.column !== undefined ? { column: item.column } : {}),
+      severity: item.severity,
+      ...(item.code ? { code: item.code } : {}),
+      message: item.message
+    })),
+    diagnosticsTruncated: parsed.truncated,
+    artifact: await keilArtifactSummary(cwd, target)
+  };
+}
 export class FirmwareAdapter {
   readonly inspector: FirmwareProjectInspector;
   readonly artifacts: FirmwareArtifactFinder;
@@ -199,6 +311,8 @@ export class FirmwareAdapter {
         available: true,
         executable: resolved.path,
         executableSource: resolved.source,
+        licenseStatus: 'unknown',
+        licenseMessage: 'Keil license validity is established from bounded build output, not inferred from executable presence.',
         diagnostic: { code: 'ok', ok: true, retryable: false, message: 'Keil µVision batch build provider is available.' }
       };
     }
@@ -230,7 +344,7 @@ export class FirmwareAdapter {
     buildDir = 'build',
     keilProject?: string,
     keilTarget?: string
-  ): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult }> {
+  ): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult; keil?: KeilBuildSummary }> {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
     const cwd = await this.paths.resolveExisting(workspace, projectPath);
@@ -262,7 +376,13 @@ export class FirmwareAdapter {
       } finally {
         await fs.rm(logPath, { force: true }).catch(() => undefined);
       }
-      return { project, provider: selected, result };
+      const targetMetadata: FirmwareProjectTarget = declared ?? {
+        id: 'keil-target',
+        projectFile,
+        targetName: target
+      };
+      const keil = await summarizeKeilBuild(`${result.stdout}\n${result.stderr}`, resolved, targetMetadata, cwd);
+      return { project, provider: selected, result, keil };
     }
 
     let command: CommandSpec;

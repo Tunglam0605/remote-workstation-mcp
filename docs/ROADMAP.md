@@ -382,6 +382,26 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening
+
+This patch closes the remaining Phase-0 engineering-tool hardening items required before Multi-Session Execution.
+
+- separate Docker/container authority from firmware `hardwareMutation` policy;
+- keep read-only container inspection/log access distinct from lifecycle, exec and image-build mutation;
+- classify privileged mode, host PID/network namespaces, Docker socket exposure, host-root/sensitive binds, device passthrough and remote daemon/context as high risk;
+- require both runtime `full_control` and explicit local `containers.allowHighRisk=true` for high-risk container mutation;
+- keep container shell/interpreter exec blocked;
+- add stable serial selectors to project profiles using device ID, USB serial number, or VID/PID plus optional narrowing fields;
+- resolve stable serial identity to the current COM/tty path on every relevant workflow plan/run;
+- fail closed on zero or ambiguous serial matches instead of guessing;
+- preserve legacy static `port:` profiles for backward compatibility and keep low-level `serial_open` path-based;
+- parse ARMCC/ArmClang/Keil/linker diagnostics locally into bounded structured results;
+- include deterministic Keil target/output metadata, error/warning/note counts, toolchain family/version, bounded license evidence and expected artifact status;
+- treat Keil executable presence as provider availability only; license validity remains `unknown` until build output provides evidence;
+- preserve constrained provider-generated argv, Action Schema v2, Engineering API v3 and all v0.14.3 cross-node security invariants.
+
+Acceptance requires dedicated Docker policy negative tests, high-risk fail-closed behavior, serial re-enumeration and ambiguity tests, Keil parser/provider tests on Windows, full Linux/Windows regression, safe real-node inspection, and no production Vision disruption.
+
 ### v0.14.5 - PTY executable-resolution production hotfix
 
 Real post-deploy acceptance on Windows found that the v0.14.4 isolated PTY worker could fail to start an executable referenced by an allowlisted basename such as `node`: policy validation succeeded, but ConPTY inside the worker required a concrete executable path.

@@ -87,6 +87,12 @@ export interface PolicyConfig {
     allowHardwareMutationInWorkspace: boolean;
     allowSerialWriteInWorkspace: boolean;
   };
+  containers?: {
+    allowLifecycleInWorkspace: boolean;
+    allowExecInWorkspace: boolean;
+    allowImageBuildInWorkspace: boolean;
+    allowHighRisk: boolean;
+  };
   multiNode?: {
     enabled: boolean;
     controllerPrincipalId: string;

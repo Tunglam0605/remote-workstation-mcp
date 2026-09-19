@@ -57,6 +57,34 @@ export function parseBuildDiagnostics(text: string, maxDiagnostics = 50): { diag
     }
 
     if (!diagnostic) {
+      const keil = line.match(/^(.*?)\((\d+)(?:,(\d+))?\):\s*(fatal error|error|warning|note)\s*:\s*(?:#([0-9]+(?:-[A-Za-z])?)\s*:?\s*)?(.*)$/i);
+      if (keil) {
+        diagnostic = {
+          file: keil[1],
+          line: Number(keil[2]),
+          column: keil[3] ? Number(keil[3]) : undefined,
+          severity: severityOf(keil[4]),
+          code: keil[5] ? `#${keil[5]}` : undefined,
+          message: keil[6],
+          raw: line
+        };
+      }
+    }
+
+    if (!diagnostic) {
+      const keilLinker = line.match(/^(?:(.*?):\s*)?(fatal error|error|warning):\s*([A-Z]\d+[A-Z]?):\s*(.*)$/i);
+      if (keilLinker) {
+        diagnostic = {
+          file: keilLinker[1] || undefined,
+          severity: severityOf(keilLinker[2]),
+          code: keilLinker[3],
+          message: keilLinker[4],
+          raw: line
+        };
+      }
+    }
+
+    if (!diagnostic) {
       const msvc = line.match(/^(.*?)\((\d+)(?:,(\d+))?\):\s*(fatal error|error|warning)\s*([A-Za-z]+\d+)?\s*:?\s*(.*)$/i);
       if (msvc) {
         diagnostic = {

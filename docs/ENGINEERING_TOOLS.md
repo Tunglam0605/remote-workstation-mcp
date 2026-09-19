@@ -7,13 +7,13 @@ For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platfor
 ## Tool families
 
 - `engineering_*`: inspect a project, create/load `.rwmcp/project.yaml`, list/plan/run approved high-level workflows.
-- `hardware_*`: discover serial ports/debug probes and inspect exclusive resource leases.
-- `serial_*`: caller-owned bounded serial monitoring, readiness-marker waiting and policy-gated writes.
+- `hardware_*`: discover serial ports/debug probes and inspect exclusive resource leases. Stable serial selectors may bind project profiles to device ID, USB serial number, or VID/PID plus optional manufacturer/name filters instead of a transient COM/tty path.
+- `serial_*`: caller-owned bounded serial monitoring, readiness-marker waiting and policy-gated writes. Low-level `serial_open` still accepts an explicit current OS path; high-level workflows resolve stable project selectors on every run and fail closed on missing/ambiguous matches.
 - `terminal_*`: true PTY/ConPTY sessions with bounded I/O. v0.14.4 isolates native `node-pty` in a per-session worker subprocess so a native ConPTY leak/crash cannot take down the MCP host.
 - `firmware_*` / `target_reset`: inspect, build, plan, flash, independently verify and reset firmware through constrained providers.
 - `debug_*` / `fault_decode`: OpenOCD + GDB/MI debugging, Cortex-M register/memory/fault inspection.
 - `ros2_*`: typed colcon build plus bounded node/topic/QoS/service/action/parameter/bag operations.
-- `container_*` / `image_build`: typed Docker lifecycle, logs, exec and build operations.
+- `container_*` / `image_build`: typed Docker lifecycle, logs, exec and build operations with a dedicated container policy. Inspection classifies privileged/host namespaces, Docker socket, host-root/sensitive mounts, device passthrough, root user and daemon/context risk before mutation.
 
 ## High-level workflow catalog
 
@@ -45,7 +45,7 @@ The older firmware-specific peer-transfer workflow IDs are intentionally not adv
 - `firmware.build_flash_monitor`
 - `firmware.build_flash_monitor_expect`
 
-The monitor-expect workflow persists serial port/baud/readiness marker in `.rwmcp/project.yaml` and uses `serial_wait_for_text` internally, eliminating repeated chat polling while keeping output and timeout bounded.
+The monitor-expect workflow persists stable serial identity/baud/readiness marker in `.rwmcp/project.yaml` and uses `serial_wait_for_text` internally, eliminating repeated chat polling while keeping output and timeout bounded. Legacy static `port:` remains supported, but new profiles should prefer `portSelector` / `monitor.selector` when the adapter exposes a stable USB identity.
 
 ### ROS 2
 
@@ -91,7 +91,7 @@ firmware:
       targetConfig: target/stm32h7x.cfg
 ```
 
-The Keil provider generates the batch argv internally. Project profiles cannot contain `UV4.exe`, arbitrary command strings or arbitrary command-line arguments. The compatibility baseline uses `-j0 -b <project> -t<target> -o<log>`; this was accepted on the B300 workstation with µVision 5.31. The newer `-sg` option is deliberately not forced because that installed version returns a non-build exit code when it is present.
+The Keil provider generates the batch argv internally. Project profiles cannot contain `UV4.exe`, arbitrary command strings or arbitrary command-line arguments. The compatibility baseline uses `-j0 -b <project> -t<target> -o<log>`. Build output is parsed locally into bounded ARMCC/ArmClang/Keil diagnostics, error/warning counts, toolchain family/version, license evidence, deterministic target/output metadata and expected artifact status. Provider discovery reports license state as `unknown` until bounded build output supplies evidence; executable presence alone is never treated as proof of a valid license.
 
 ESP-IDF:
 

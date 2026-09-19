@@ -189,11 +189,13 @@ Concurrent file edits inside one worktree still use SHA-256 preconditions. Large
 
 ## Process/session model
 
-Processes started by the agent receive UUID session IDs. Output is bounded in memory. `process_read_since` provides monotonic cursors so AI clients can poll only new stdout/stderr instead of repeatedly transferring the entire buffer.
+Processes started by the controller receive UUID session IDs. Output is bounded in memory. `process_read_since` provides monotonic cursors so AI clients can poll only new stdout/stderr instead of repeatedly transferring the entire buffer.
+
+v0.14.4 centralizes descendant cleanup through `ProcessTreeSupervisor`. POSIX managed processes run in a dedicated process group and terminate with TERM -> bounded grace -> KILL. Windows uses tree-aware termination and a forced fallback. Explicit stop and timeout share the same cleanup path so provider adapters do not implement ad-hoc kill logic.
 
 `build_diagnostics` parses managed process buffers into bounded structured diagnostics instead of forcing the model to ingest full compiler output.
 
-Persistent PTY sessions are a separate planned abstraction because interactive terminals have different lifecycle, input, resize and security semantics from one-shot managed processes.
+Interactive PTY/ConPTY sessions remain a separate lifecycle abstraction. Native `node-pty` is isolated in a per-terminal worker subprocess. The MCP host communicates with that worker through bounded typed IPC; PTY output is still bounded in the parent. A native ConPTY crash/leak therefore terminates the worker rather than the control plane, and worker exit gives the OS a hard cleanup boundary for native handles.
 
 ## Transport model
 

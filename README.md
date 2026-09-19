@@ -12,6 +12,22 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.4**
+
+v0.14.4 is the first Phase-0 engineering-runtime hardening patch before Multi-Session Execution.
+
+- add a reusable `ProcessTreeSupervisor` so managed-process explicit stop and timeout share one descendant-cleanup path;
+- POSIX uses a dedicated process group with TERM -> bounded grace -> KILL; Windows uses tree-aware termination with a forced fallback;
+- add child + grandchild acceptance tests for both provider timeout and managed-process explicit stop;
+- isolate native `node-pty` / ConPTY inside one worker subprocess per terminal session while keeping the public `terminal_*` contract unchanged;
+- keep PTY parent/worker IPC bounded and enforce terminal max-runtime cleanup;
+- Windows real-machine soak: 200 create/write/resize/stop/natural-exit lifecycles with active-handle delta `0` and no RSS growth;
+- CI runs PTY lifecycle soak on both Windows and Linux;
+- CI/release dependency installation now uses lockfile-deterministic `npm ci`;
+- CI audits production dependencies for high-or-higher vulnerabilities;
+- CI/release generate CycloneDX SBOM; release SBOM is covered by `SHA256SUMS.txt`;
+- preserve v0.14.3 multi-node default-deny authorization and keep `actionSchemaVersion=2`, `engineeringApiVersion=3`.
+
 **v0.14.3**
 
 v0.14.3 hardens Direct Multi-Node around a strict security invariant: **ChatGPT controls nodes; nodes do not control one another.**

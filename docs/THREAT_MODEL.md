@@ -80,15 +80,18 @@ SHA-256 verifies that a downloaded package matches the published checksum but do
 
 Mitigation: future signed artifacts, provenance/SBOM and stronger release verification.
 
-## Out of scope for v0.7.7
+## Current residual boundaries and future hardening
 
-- hardened multi-user isolation
-- OS/container sandbox enforcement
-- unrestricted privileged shell or persistent Administrator mode
-- generic Linux sudo/root brokering (the v0.7.7 approval helper is Windows-only)
-- GUI desktop automation
-- public directory approval/entitlement control inside ChatGPT
-- release artifact signing/provenance
-- DAP/GDB/probe/serial/ROS2 engineering-debug adapters (planned for v0.8)
+The current control plane intentionally does **not** claim:
 
-The available Administrator capability is deliberately narrow: one locally approved direct Windows `.exe`/`.com` request at a time, with UAC. Broader privileged contracts remain future hardening work.
+- OS/container sandbox enforcement for arbitrary owner-approved child processes;
+- unrestricted privileged shell or persistent Administrator/root mode;
+- generic Linux sudo/root brokering;
+- GUI desktop automation as a default control primitive;
+- public directory approval/entitlement control inside ChatGPT;
+- independent release publisher signing/provenance;
+- durable multi-user / Multi-Session isolation until the v0.15 Work Session ownership model is implemented.
+
+Typed debug/probe/serial/ROS2 engineering adapters are now in scope and remain constrained by local policy, leases and provider-specific validation.
+
+The available Administrator capability remains deliberately narrow: one locally approved direct Windows `.exe`/`.com` request at a time, with UAC. Broader privileged contracts remain future hardening work.

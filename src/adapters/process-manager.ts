@@ -5,6 +5,7 @@ import type { OutputChunk, ProcessInputResult, ProcessReadSince, ProcessSnapshot
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
+import { ProcessTreeSupervisor, type ProcessTreeTerminationResult } from './process-tree-supervisor.js';
 
 type OwnerIdSource = string | (() => string);
 
@@ -14,10 +15,12 @@ type Managed = ProcessSnapshot & {
   stdoutBase: number;
   stderrBase: number;
   ownerId: string;
+  termination?: Promise<ProcessTreeTerminationResult>;
 };
 
 export class ProcessManager {
   private readonly processes = new Map<string, Managed>();
+  private readonly treeSupervisor = new ProcessTreeSupervisor();
 
   constructor(
     private readonly policy: PolicyEngine,
@@ -68,6 +71,7 @@ export class ProcessManager {
       cwd,
       shell: false,
       windowsHide: true,
+      detached: this.treeSupervisor.spawnDetached(),
       env: buildSafeEnvironment(this.policy.config.process.inheritEnv)
     });
     const id = randomUUID();
@@ -121,9 +125,7 @@ export class ProcessManager {
     });
     managed.timer = setTimeout(() => {
       if (managed.status === 'running') {
-        managed.status = 'stopped';
-        managed.stdinOpen = false;
-        child.kill('SIGTERM');
+        void this.terminateManaged(managed);
       }
     }, this.policy.config.process.maxRuntimeMs);
     return this.snapshot(managed);
@@ -187,16 +189,34 @@ export class ProcessManager {
       .map(item => this.snapshot(item));
   }
 
-  stop(id: string): ProcessSnapshot {
+  async stop(id: string): Promise<ProcessSnapshot> {
     const managed = this.owned(id);
     if (managed.status === 'running') {
-      managed.status = 'stopped';
-      managed.stdinOpen = false;
-      managed.child.kill('SIGTERM');
-      managed.endedAt = new Date().toISOString();
-      if (managed.timer) clearTimeout(managed.timer);
+      await this.terminateManaged(managed);
     }
     return this.snapshot(managed);
+  }
+
+  private async terminateManaged(managed: Managed): Promise<void> {
+    if (managed.termination) {
+      await managed.termination;
+      return;
+    }
+    managed.status = 'stopped';
+    managed.stdinOpen = false;
+    if (managed.timer) clearTimeout(managed.timer);
+    managed.termination = this.treeSupervisor.terminate(managed.child);
+    const result = await managed.termination;
+    managed.endedAt = new Date().toISOString();
+    if (!result.treeExited) {
+      const next = this.append(
+        managed.stderr,
+        managed.stderrBase,
+        Buffer.from(`\nProcess tree cleanup incomplete for pid ${managed.pid ?? 'unknown'}.`)
+      );
+      managed.stderr = next.text;
+      managed.stderrBase = next.base;
+    }
   }
 
   private snapshot(managed: Managed): ProcessSnapshot {
@@ -206,6 +226,7 @@ export class ProcessManager {
       stdoutBase: _stdoutBase,
       stderrBase: _stderrBase,
       ownerId: _ownerId,
+      termination: _termination,
       ...snapshot
     } = managed;
     return { ...snapshot, args: [...snapshot.args] };

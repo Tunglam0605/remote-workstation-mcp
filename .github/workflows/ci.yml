@@ -17,10 +17,22 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: package.json
-      - run: npm install --no-audit --no-fund
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx > rwmcp-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rwmcp-sbom
+          path: rwmcp-sbom.cdx.json
       - run: npm run typecheck
       - run: npm test
+      - name: PTY lifecycle soak
+        run: npm run test:pty-soak
+        env:
+          RWMCP_PTY_SOAK_ITERATIONS: 120
       - run: npm run build
       - name: Validate plugin package
         run: npm run plugin:validate
@@ -73,10 +85,14 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: package.json
-      - run: npm install --no-audit --no-fund
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
+      - name: PTY/ConPTY lifecycle soak
+        run: npm run test:pty-soak
+        env:
+          RWMCP_PTY_SOAK_ITERATIONS: 200
       - run: npm run build
       - name: Validate plugin package
         run: npm run plugin:validate

@@ -86,6 +86,7 @@ Scope meanings are deliberately coarse and compositional:
 - `workstation.execute` — owner-approved tasks/processes and approved SSH execution.
 - `workstation.admin_request` — may create/check an Administrator request, but cannot approve or elevate it.
 - `workstation.full_control` — authorizes user-level host filesystem/raw-shell tools when the owner-selected policy/gates also allow them.
+- `workstation.cross_node_transfer` — dedicated cross-node data authority. It is exact and separate from Full Control; matching local owner grants on source and destination are still required.
 
 `workstation.full_control` is the transport authorization layer. `host_fs_*` and `shell_exec` additionally require effective policy mode `full_control` and their explicit local gates. Effective full control can come from the owner selecting **Full access** or from a still-supported matching legacy lease. Neither path grants Administrator rights.
 
@@ -126,7 +127,7 @@ v0.7.9 adds automatic stable-channel checks at Windows sign-in. Auto-update is o
 
 Owner policy, hosts, settings, update preference, audit state and DPAPI secrets live outside version slots and are not replaced during upgrade/rollback.
 
-Published SHA-256 protects against accidental/corrupted asset substitution relative to the release manifest, but it is not independent publisher signing. Release artifact signing/provenance remains a later hardening milestone. Auto-update never grants Administrator privilege or changes the selected access mode/full-control policy.
+Published SHA-256 protects against accidental/corrupted asset substitution relative to the release manifest, but it is not independent publisher signing. v0.14.4 CI performs a production-dependency audit and emits a CycloneDX SBOM; releases publish the SBOM and include it in `SHA256SUMS.txt`. Independent publisher signing/provenance remains a later hardening milestone. Auto-update never grants Administrator privilege or changes the selected access mode/full-control policy.
 
 ### Linux managed release
 
@@ -134,7 +135,7 @@ The Linux managed updater retains its version-slot, release checksum, health-che
 
 ### Supply-chain limitation
 
-Published checksums protect against accidental/corrupt downloads and mismatches against the release metadata. They are not a complete independent software-supply-chain trust system if the GitHub release channel itself is compromised. Artifact signing, provenance and SBOM remain roadmap hardening work.
+Published checksums protect against accidental/corrupt downloads and mismatches against the release metadata. The release SBOM improves dependency transparency but does not authenticate the publisher. GitHub/build provenance and independent artifact signing remain roadmap hardening work if the release channel itself is compromised.
 
 ## Never commit
 

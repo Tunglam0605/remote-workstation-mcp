@@ -2,14 +2,14 @@
 
 RWMCP keeps domain engineering tools typed and project-aware. Starting in v0.14, generic cross-node transfer is explicitly a **core platform capability**, not an engineering/firmware capability. v0.14.1 adds bounded multi-endpoint direct fallback; v0.14.2 adds a bounded control-plane relay fallback for independently reachable nodes with no mutual route. Neither change moves transport back into a firmware-specific layer. The existing `engineering_workflow_*` MCP actions remain the stable workflow envelope for both `platform.*` and engineering workflow IDs until a future action-schema change is intentionally justified.
 
-For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` first. When direct peer routing is unavailable, use the `platform.relay_*` workflows as the bounded fallback; see [DATA_PLANE.md](DATA_PLANE.md). The `firmware.artifact_*` workflows below remain domain-specific compatibility APIs.
+For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` first. When direct peer routing is unavailable, use the `platform.relay_*` workflows as the bounded fallback; see [DATA_PLANE.md](DATA_PLANE.md). Firmware keeps local artifact integrity prepare/accept workflows, but peer byte movement uses only the secured generic platform data plane.
 
 ## Tool families
 
 - `engineering_*`: inspect a project, create/load `.rwmcp/project.yaml`, list/plan/run approved high-level workflows.
 - `hardware_*`: discover serial ports/debug probes and inspect exclusive resource leases.
 - `serial_*`: caller-owned bounded serial monitoring, readiness-marker waiting and policy-gated writes.
-- `terminal_*`: true PTY/ConPTY sessions with bounded I/O.
+- `terminal_*`: true PTY/ConPTY sessions with bounded I/O. v0.14.4 isolates native `node-pty` in a per-session worker subprocess so a native ConPTY leak/crash cannot take down the MCP host.
 - `firmware_*` / `target_reset`: inspect, build, plan, flash, independently verify and reset firmware through constrained providers.
 - `debug_*` / `fault_decode`: OpenOCD + GDB/MI debugging, Cortex-M register/memory/fault inspection.
 - `ros2_*`: typed colcon build plus bounded node/topic/QoS/service/action/parameter/bag operations.
@@ -17,14 +17,14 @@ For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platfor
 
 ## High-level workflow catalog
 
-### Firmware artifact integrity and native transfer
+### Firmware artifact integrity
 
 - `firmware.artifact_prepare`
 - `firmware.artifact_accept`
-- `firmware.artifact_receive_offer`
-- `firmware.artifact_push`
 
-`firmware.artifact_prepare` resolves one project-relative ELF/AXF/HEX/BIN file, hashes it and returns a canonical SHA-256/size manifest without modifying the file. `firmware.artifact_accept` re-hashes staged bytes at the destination, blocks on SHA-256 or size mismatch, then stream-copies to a temporary file and atomically renames only verified content into `.rwmcp/artifacts/verified/<sha256>-<name>`. The v0.13.5 integrity workflows deliberately do not choose a transport and never build, flash, reset or open a debug session. v0.13.6 adds a separate native Tailscale transport: `firmware.artifact_receive_offer` creates a one-shot destination listener/ticket for an exact name/SHA/size, and `firmware.artifact_push` streams the already-hashed source bytes directly node-to-node. The destination hashes again while receiving and only then promotes through the same atomic verified store. Normal MCP remains loopback-only.
+`firmware.artifact_prepare` resolves one project-relative ELF/AXF/HEX/BIN file, hashes it and returns a canonical SHA-256/size manifest without modifying the file. `firmware.artifact_accept` re-hashes staged bytes at the destination, blocks on SHA-256 or size mismatch, then stream-copies to a temporary file and atomically renames only verified content into `.rwmcp/artifacts/verified/<sha256>-<name>`.
+
+The older firmware-specific peer-transfer workflow IDs are intentionally not advertised from v0.14.3 onward. Keeping a second transport path would bypass the single generic cross-node authorization boundary. Cross-node firmware bytes therefore use `platform.transfer_*` or `platform.relay_*`, while firmware integrity remains a separate domain concern.
 
 ### STM32
 

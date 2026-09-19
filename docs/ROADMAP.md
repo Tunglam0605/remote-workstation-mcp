@@ -382,6 +382,25 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.4 - Process-tree, PTY isolation and deterministic supply-chain hardening
+
+This patch is the first Phase-0 engineering-hardening increment before Multi-Session Execution.
+
+- centralize managed descendant cleanup in a reusable `ProcessTreeSupervisor`;
+- use POSIX process groups with TERM -> bounded grace -> KILL and Windows tree-aware termination;
+- make explicit managed-process stop and timeout share the same process-tree cleanup path;
+- isolate native `node-pty` / ConPTY inside a per-terminal worker subprocess so native crashes/leaks cannot terminate or accumulate inside the MCP host;
+- use bounded typed IPC between the MCP host and PTY worker while preserving the existing `terminal_*` contract;
+- enforce terminal max runtime and worker cleanup/reconciliation;
+- stress Windows with 200 PTY/ConPTY create/write/resize/stop/natural-exit lifecycles and require zero active-handle growth;
+- run a Linux PTY lifecycle soak in CI;
+- switch CI/release dependency installation from `npm install` to lockfile-deterministic `npm ci`;
+- audit production dependencies at high severity or above;
+- emit a CycloneDX SBOM in CI and publish it as a release asset covered by `SHA256SUMS.txt`;
+- correct stale documentation around firmware peer-transfer compatibility and current engineering-adapter scope.
+
+Acceptance requires child + grandchild cleanup for timeout and explicit stop, no orphan process tree, no Windows ConPTY host crash, bounded memory/handle behavior, green Linux/Windows CI and unchanged v0.14.3 security invariants.
+
 ### v0.14.3 - Multi-node security and authorization hardening
 
 v0.14.3 closes the trust-boundary gap exposed after the data plane became operational: independently authorized Direct Nodes must be able to exchange owner-approved data without becoming mutually trusted controllers.

@@ -88,7 +88,7 @@ test('natural ConPTY exit releases native handles without an explicit stop call'
   const child = spawnSync(process.execPath, ['--import', 'tsx', path.join('tests', 'fixtures', 'pty-natural-exit.ts')], {
     cwd: process.cwd(),
     encoding: 'utf8',
-    timeout: 5000,
+    timeout: 12000,
     windowsHide: true
   });
   if (process.platform === 'win32') {

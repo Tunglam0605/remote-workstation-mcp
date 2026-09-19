@@ -17,8 +17,15 @@ const config: PolicyConfig = {
 const policy = new PolicyEngine(config);
 const terminals = new TerminalManager(policy, new PathGuard(policy), 'owner');
 const session = await terminals.start('w', process.execPath, ['-e', "console.log('PTY_NATURAL_EXIT')"], '.');
-const deadline = Date.now() + 5000;
+const deadline = Date.now() + 8000;
 while (Date.now() < deadline && terminals.read(session.id).session.status === 'running') {
   await new Promise(resolve => setTimeout(resolve, 20));
+}
+const final = terminals.read(session.id).session;
+if (final.status !== 'exited') {
+  throw new Error(`Natural PTY exit did not converge before deadline (status=${final.status}).`);
+}
+if (final.exitCode !== 0) {
+  throw new Error(`Natural PTY exit returned exitCode=${String(final.exitCode)}.`);
 }
 await fs.rm(root, { recursive: true, force: true }).catch(() => undefined);

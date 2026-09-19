@@ -55,6 +55,13 @@ export class EngineeringResourceManager {
     return [...this.leases.values()].map(item => this.snapshot(item, owner.key, owner.principalId));
   }
 
+  listOwned(): EngineeringResourceLease[] {
+    const owner = resolveResourceOwner(this.ownerSource);
+    return [...this.leases.values()]
+      .filter(item => item.ownerKey === owner.key)
+      .map(item => this.snapshot(item, owner.key, owner.principalId));
+  }
+
   activeCount(): number {
     return this.leases.size;
   }

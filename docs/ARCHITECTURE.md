@@ -75,11 +75,13 @@ authenticated principal
 
 A browser tab, MCP connection or reconnect is not a Work Session. `workSessionId` is also not a bearer credential. Every session-aware operation first remains subject to authenticated principal scopes and local owner policy, then uses the Work Session only to constrain ownership and concurrency.
 
-`WorkSessionStore` persists compact Context Capsules outside repositories. Capsules contain bounded project identity, objective, validated facts, selected provider/toolchain/variant, last successful acceptance, blockers, engineering decisions and pending actions. They intentionally exclude secrets, full transcripts, large raw logs and duplicated source.
+`WorkSessionStore` persists compact Context Capsules outside repositories. Capsules contain bounded project identity, objective, role, validated facts, provider/toolchain/variant, completed/current task context, last successful build/deploy/acceptance, blockers, engineering decisions, bounded resource state, pending actions and a next recommended engineering action. They intentionally exclude secrets, full transcripts, large raw logs and duplicated source.
 
-Resource ownership is composite for process, PTY, serial, debug, engineering leases and durable workflow runs. Two requests from the same `openai-tunnel` principal but different Work Sessions cannot read, write, stop or release one another's private resources.
+Phase 3H makes lifecycle state explicit: `CREATED -> ACTIVE/IDLE/BLOCKED -> CLOSING -> CLOSED`, with `EXPIRED` for policy expiry and `RECOVERING` for restart/interrupted-close reconciliation. Read-only resume/inspection never touches persistence; execution uses an internal activation/touch path. Idle/expiry transitions are enforced before mutation and during restart reconciliation, while read APIs may project timeout state without writing the store. Terminal-record garbage collection is bounded and retains any record that still references a worktree.
 
-Writable Git sessions use an isolated branch/worktree/build-directory boundary. A dirty worktree is never force-removed by session cleanup. If the authorized workspace root is too narrow to contain a safe sibling worktree, creation fails closed instead of widening local filesystem authority.
+Resource ownership is composite for process, PTY, serial, debug, engineering leases and durable workflow runs. Two requests from the same `openai-tunnel` principal but different Work Sessions cannot read, write, stop or release one another's private resources. Engineering lease lifecycle checks use an owned-only view rather than the redacted global observability view.
+
+Writable Git sessions use an isolated branch/worktree/build-directory boundary. `work_session_close` performs only fail-closed preflight and lifecycle transition: it never stops processes, releases leases or removes a worktree. A dirty worktree returns `NEEDS_OWNER_OR_EXPLICIT_ACTION`; a clean worktree remains until explicit cleanup, including after `CLOSED` or `EXPIRED`. If the authorized workspace root is too narrow to contain a safe sibling worktree, creation fails closed instead of widening local filesystem authority.
 
 Concurrency is classified rather than globally serialized:
 

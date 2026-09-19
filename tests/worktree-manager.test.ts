@@ -73,9 +73,49 @@ test('two writable Work Sessions on the same repo receive isolated sibling workt
   assert.match(blocked.reason ?? '', /NEEDS_OWNER_OR_EXPLICIT_ACTION/);
   assert.equal(await fs.stat(path.join(root, a.worktreePath!)).then(() => true, () => false), true);
 
+  await store.beginClose(sessionB.id);
+  assert.equal((await store.completeClose(sessionB.id)).status, 'closed');
   const cleaned = await manager.cleanup(sessionB.id);
   assert.equal(cleaned.cleanupState, 'removed');
   assert.equal(await fs.stat(path.join(root, b.worktreePath!)).then(() => true, () => false), false);
+});
+
+test('explicit cleanup removes a clean worktree after Work Session expiry', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-worktree-expired-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+
+  const repo = path.join(root, 'repo');
+  await fs.mkdir(repo);
+  await git(repo, ['init']);
+  await git(repo, ['config', 'user.email', 'test@example.com']);
+  await git(repo, ['config', 'user.name', 'Remote Workstation Test']);
+  await fs.writeFile(path.join(repo, 'README.md'), 'base\n', 'utf8');
+  await git(repo, ['add', 'README.md']);
+  await git(repo, ['commit', '-m', 'initial']);
+
+  let now = new Date('2026-09-19T13:00:00.000Z');
+  const policy = new PolicyEngine(config(root));
+  const store = new WorkSessionStore('openai-tunnel', {
+    file: path.join(root, 'sessions.json'),
+    now: () => now
+  });
+  const manager = new WorktreeManager(new GitAdapter(policy, new PathGuard(policy)), store);
+  const session = await store.create({
+    workspace: 'demo',
+    projectPath: 'repo',
+    expireAfterMinutes: 1
+  });
+  const prepared = await manager.prepare(session.id, { workspace: 'demo' });
+  assert.equal(prepared.dirty, false);
+
+  now = new Date('2026-09-19T13:02:00.000Z');
+  await store.reconcileLifecycle();
+  assert.equal((await store.resume(session.id)).status, 'expired');
+
+  const cleaned = await manager.cleanup(session.id);
+  assert.equal(cleaned.cleanupState, 'removed');
+  assert.equal(await fs.stat(path.join(root, prepared.worktreePath!)).then(() => true, () => false), false);
+  assert.equal((await store.resume(session.id)).status, 'expired');
 });
 
 test('worktree manager fails closed when the authorized workspace root is the repository root', async t => {

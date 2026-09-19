@@ -1,26 +1,29 @@
 import type { ConcurrencyClass } from './work-session.js';
 
-export type ConcurrencyOperation =
-  | 'filesystem.read'
-  | 'git.read'
-  | 'project.inspect'
-  | 'provider.status'
-  | 'source.edit'
-  | 'git.worktree'
-  | 'build.isolated'
-  | 'hardware.serial'
-  | 'hardware.debug-probe'
-  | 'hardware.can-adapter'
-  | 'camera.config'
-  | 'build.keil-shared-output'
-  | 'generated.shared-files'
-  | 'node.update'
-  | 'node.restart'
-  | 'node.reboot'
-  | 'system.major-config'
-  | 'owner.policy'
-  | 'owner.permissions'
-  | 'owner.security-grants';
+export const CONCURRENCY_OPERATIONS = [
+  'filesystem.read',
+  'git.read',
+  'project.inspect',
+  'provider.status',
+  'source.edit',
+  'git.worktree',
+  'build.isolated',
+  'hardware.serial',
+  'hardware.debug-probe',
+  'hardware.can-adapter',
+  'camera.config',
+  'build.keil-shared-output',
+  'generated.shared-files',
+  'node.update',
+  'node.restart',
+  'node.reboot',
+  'system.major-config',
+  'owner.policy',
+  'owner.permissions',
+  'owner.security-grants'
+] as const;
+
+export type ConcurrencyOperation = typeof CONCURRENCY_OPERATIONS[number];
 
 export interface ConcurrencyDecision {
   operation: ConcurrencyOperation;

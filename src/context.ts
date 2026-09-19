@@ -43,6 +43,8 @@ import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
 import { currentPrincipal } from './security/request-principal.js';
 import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
+import { TaskExecutionCoordinator } from './task-executor.js';
+import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
 import { WorkflowRunStore } from './workflow-run-store.js';
 import { WorktreeManager } from './worktree-manager.js';
 
@@ -77,6 +79,8 @@ export async function createContext() {
   const reconciledWorkflowRuns = interruptedWorkflowRuns.length;
   const nodeInterlocks = new NodeInterlockStore(currentClientId);
   const reconciledNodeInterlocks = await nodeInterlocks.reconcileStale();
+  const taskGraphs = new TaskGraphStore(currentClientId);
+  const reconciledWorkTasks = (await taskGraphs.reconcileInterrupted()).length;
   const runInWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> => {
     if (workSessionId?.trim()) await workSessions.resume(workSessionId);
     return await runWithWorkSession(workSessionId, operation);
@@ -86,6 +90,7 @@ export async function createContext() {
   const git = new GitAdapter(policy, paths);
   const worktreeManager = new WorktreeManager(git, workSessions);
   const concurrencyPolicy = new ConcurrencyPolicy();
+  const taskScheduler = new DeterministicTaskScheduler(taskGraphs, concurrencyPolicy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const audit = new AuditLogger(auditPath, actor);
   const multiNodeAuthorization = new MultiNodeAuthorization(policy, identity, audit);
@@ -95,6 +100,7 @@ export async function createContext() {
   const dataPlane = new DataPlaneAdapter(policy, paths);
   const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane);
   const engineeringResources = new EngineeringResourceManager(currentClientId);
+  const taskExecutor = new TaskExecutionCoordinator(taskGraphs, taskScheduler, engineeringResources, nodeInterlocks);
   const engineeringRunner = new EngineeringCommandRunner(policy);
   const engineeringHardware = new HardwareDiscoveryAdapter();
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
@@ -123,6 +129,10 @@ export async function createContext() {
     qualityObservationReconciliationFailures,
     nodeInterlocks,
     reconciledNodeInterlocks,
+    taskGraphs,
+    taskScheduler,
+    taskExecutor,
+    reconciledWorkTasks,
     runInWorkSession,
     worktreeManager,
     concurrencyPolicy,

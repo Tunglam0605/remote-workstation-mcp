@@ -135,12 +135,14 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   const taskWorkflowExecution = await read('src/task-workflow-execution.ts');
   const taskAttempts = await read('src/task-attempt-store.ts');
   const schedulerAwareness = await read('src/scheduler-awareness.ts');
+  const objectiveProgress = await read('src/objective-progress.ts');
   const context = await read('src/context.ts');
 
   assert.match(capabilities, /work_objective\.task_graph/);
   assert.match(capabilities, /work_objective_create/);
   assert.match(capabilities, /work_objective_inspect/);
   assert.match(capabilities, /work_objective_mutate/);
+  assert.match(capabilities, /work_objective_summary/);
   assert.match(capabilities, /work_objective_schedule/);
   assert.match(capabilities, /work_objective_attempts/);
   assert.match(capabilities, /work_objective_execute_task/);
@@ -150,6 +152,7 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(coreTools, /work_objective_create/);
   assert.match(coreTools, /work_objective_inspect/);
   assert.match(coreTools, /work_objective_mutate/);
+  assert.match(coreTools, /work_objective_summary/);
   assert.match(coreTools, /work_objective_schedule/);
   assert.match(coreTools, /work_objective_attempts/);
   assert.match(coreTools, /work_objective_execute_task/);
@@ -177,6 +180,7 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(scopes, /work_objective_create: 'workstation\.write'/);
   assert.match(scopes, /work_objective_inspect: 'workstation\.read'/);
   assert.match(scopes, /work_objective_mutate: 'workstation\.write'/);
+  assert.match(scopes, /work_objective_summary: 'workstation\.read'/);
   assert.match(scopes, /work_objective_schedule: 'workstation\.read'/);
   assert.match(scopes, /work_objective_attempts: 'workstation\.read'/);
   assert.match(scopes, /work_objective_execute_task: 'workstation\.execute'/);
@@ -200,12 +204,20 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(schedulerAwareness, /NODE_INTERLOCK_ACTIVE/);
   assert.match(schedulerAwareness, /resourceLeases/);
   assert.doesNotMatch(schedulerAwareness, /acquire\(|withLease\(|grant|permission|crossNode/);
+  assert.match(coreTools, /ctx\.objectiveProgress\.summary\(objectiveId/);
+  assert.match(objectiveProgress, /class ObjectiveProgressService/);
+  assert.match(objectiveProgress, /mechanicallyDerived: true/);
+  assert.match(objectiveProgress, /recommendation: false/);
+  assert.match(objectiveProgress, /authority: 'read-only-summary'/);
+  assert.match(objectiveProgress, /Math\.min\(options\.taskLimit \?\? 64, 128\)/);
+  assert.doesNotMatch(objectiveProgress, /shell_exec|process_start|stdout|stderr|transcript|chain-of-thought/);
   assert.match(context, /new TaskAttemptStore/);
   assert.match(context, /reconciledTaskAttempts/);
   assert.match(context, /new TaskGraphStore/);
   assert.match(context, /reconcileInterrupted/);
   assert.match(context, /new DeterministicTaskScheduler/);
   assert.match(context, /new SchedulerAwarenessService/);
+  assert.match(context, /new ObjectiveProgressService/);
   assert.match(context, /new EngineeringWorkflowExecutionService/);
   assert.match(context, /new TaskWorkflowExecutionService/);
 });

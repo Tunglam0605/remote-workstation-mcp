@@ -219,6 +219,10 @@ Awareness intentionally uses exact canonical identifiers. Resource/project-varia
 
 `TaskExecutionCoordinator` consults Scheduler Awareness immediately before dispatch, then still acquires the real lease/interlock through the existing resource managers. This closes the observability gap without creating a global scheduler lock: an ST-Link busy in one session can make another matching task `WAITING_RESOURCE`, while an unrelated task remains `READY`.
 
+Phase 3G adds `ObjectiveProgressService` as a compact read-only projection over the durable orchestration state. It computes full-objective status counts while bounding detailed task, blocker, actionable-task, resource and interlock lists. It reports the latest failed/blocked/interrupted Task Attempt, mechanically READY tasks, current Work Session/worktree identity and current contention without returning raw workflow logs, transcripts or model reasoning.
+
+`work_objective_summary` is intentionally descriptive rather than prescriptive. `nextActionable` means only that the DAG and current Scheduler Awareness make a task mechanically dispatchable; it is not an engineering recommendation. The summary cannot create tasks, mutate state, acquire a lease or widen authority.
+
 Development identity is distinct from production identity. During Phase 3 development the source reports `serverVersion=0.17.0-dev.0`, `channel=development`, optional `gitCommit`, Action Schema 4 and Engineering API 4. Stable production remains v0.16.0 / Action Schema 3 until the v0.17 RC/release gates and production rollout complete.
 
 No autonomous agent provider is part of this foundation. Future optional workers must enter through the same scheduler/executor boundary and cannot bypass Work Session ownership, resource leases, node interlocks, workspace policy or cross-node authorization.

@@ -272,6 +272,22 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     })
   )));
 
+  server.registerTool('work_objective_summary', {
+    description: 'Return a compact read-only Objective progress summary derived from Task Graph, Task Attempts and Scheduler Awareness. It reports state/progress/blockers/resources/latest failure/next mechanically actionable tasks without raw logs or engineering strategy.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      taskLimit: z.number().int().min(1).max(128).default(64),
+      blockerLimit: z.number().int().min(1).max(32).default(16),
+      actionableLimit: z.number().int().min(1).max(32).default(16)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskLimit, blockerLimit, actionableLimit }) => result(await audited(ctx.audit, 'work_objective_summary', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.objectiveProgress.summary(objectiveId, { taskLimit, blockerLimit, actionableLimit })
+    )
+  )));
+
   server.registerTool('work_objective_schedule', {
     description: 'Return a deterministic read-only plan enriched with live Work Session/resource/node awareness. Awareness can classify READY work as waiting, but it never grants authority or acquires leases/interlocks.',
     inputSchema: z.object({

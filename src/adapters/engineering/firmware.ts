@@ -366,23 +366,26 @@ export class FirmwareAdapter {
         throw new Error(`Keil target '${target}' in '${projectFile}' was not found in inspected .uvprojx metadata.`);
       }
       const projectAbsolute = await resolveExistingProjectPath(this.paths, workspace, projectPath, projectFile, 'keilProject');
-      const logPath = path.join(os.tmpdir(), `rwmcp-keil-${process.pid}-${Date.now()}.log`);
-      let result: EngineeringCommandResult;
-      try {
-        // Compatibility baseline: µVision 5.31 accepts -j0/-b/-t/-o but returns a non-build exit code when the newer -sg flag is forced.
-        result = await this.runner.run(resolved.path, ['-j0', '-b', projectAbsolute, `-t${target}`, `-o${logPath}`], cwd);
-        const log = await readBoundedText(logPath, this.policy.config.process.maxOutputBytes);
-        if (log) result = { ...result, stdout: [result.stdout, log].filter(Boolean).join('\n').slice(-this.policy.config.process.maxOutputBytes) };
-      } finally {
-        await fs.rm(logPath, { force: true }).catch(() => undefined);
-      }
-      const targetMetadata: FirmwareProjectTarget = declared ?? {
-        id: 'keil-target',
-        projectFile,
-        targetName: target
-      };
-      const keil = await summarizeKeilBuild(`${result.stdout}\n${result.stderr}`, resolved, targetMetadata, cwd);
-      return { project, provider: selected, result, keil };
+      const buildResourceId = `project-variant:keil:${workspace}:${projectPath}:${projectFile}:${target}`;
+      return this.resources.withLease(buildResourceId, 'building', async () => {
+        const logPath = path.join(os.tmpdir(), `rwmcp-keil-${process.pid}-${Date.now()}.log`);
+        let result: EngineeringCommandResult;
+        try {
+          // Compatibility baseline: µVision 5.31 accepts -j0/-b/-t/-o but returns a non-build exit code when the newer -sg flag is forced.
+          result = await this.runner.run(resolved.path, ['-j0', '-b', projectAbsolute, `-t${target}`, `-o${logPath}`], cwd);
+          const log = await readBoundedText(logPath, this.policy.config.process.maxOutputBytes);
+          if (log) result = { ...result, stdout: [result.stdout, log].filter(Boolean).join('\n').slice(-this.policy.config.process.maxOutputBytes) };
+        } finally {
+          await fs.rm(logPath, { force: true }).catch(() => undefined);
+        }
+        const targetMetadata: FirmwareProjectTarget = declared ?? {
+          id: 'keil-target',
+          projectFile,
+          targetName: target
+        };
+        const keil = await summarizeKeilBuild(`${result.stdout}\n${result.stderr}`, resolved, targetMetadata, cwd);
+        return { project, provider: selected, result, keil };
+      });
     }
 
     let command: CommandSpec;

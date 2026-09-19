@@ -92,6 +92,24 @@ Scope meanings are deliberately coarse and compositional:
 
 The bearer token is compared in constant time, is never returned by MCP tools, and must not be logged or committed. Use a high-entropy secret and rotate it if exposed.
 
+## Work Session authorization boundary
+
+Work Sessions add isolation; they do not add authority.
+
+```text
+effective Work Session permission
+    ⊆ authenticated principal scopes
+    ⊆ local owner policy / explicit owner grants
+```
+
+A `workSessionId` must never be accepted as proof of authentication or authorization. Creating/resuming a Work Session cannot add scopes, enable Full access, turn on raw shell/host filesystem gates, approve Administrator/root execution, modify local policy or establish cross-node trust.
+
+Managed process, PTY, serial, debug and engineering resource ownership is evaluated as `principalId + workSessionId`. A sibling Work Session receives the same non-disclosing "unknown resource" behavior used for another principal where applicable. Hardware resources remain globally exclusive by physical/stable resource ID, so a sibling session sees `RESOURCE_BUSY` rather than acquiring the same probe/port.
+
+Durable Work Session/Context Capsule/workflow-run files live in owner-local RWMCP configuration state, not project repositories. They store bounded non-secret metadata only. Runtime restart reconciles incomplete workflow-run records to failed; in-memory hardware leases are not reconstructed after reboot.
+
+Cross-node authorization remains independent of Work Session identity. `workstation.full_control` plus a session ID still does not imply `workstation.cross_node_transfer`; the exact dedicated scope and bilateral local grants remain mandatory.
+
 ## Full-control boundary
 
 `host_fs_*` and `shell_exec` are intentionally disabled until all applicable conditions are true:

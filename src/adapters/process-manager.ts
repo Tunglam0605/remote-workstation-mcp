@@ -4,10 +4,9 @@ import path from 'node:path';
 import type { OutputChunk, ProcessInputResult, ProcessReadSince, ProcessSnapshot } from '../model.js';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
+import { resolveResourceOwner, type ResourceOwnerSource } from '../security/execution-context.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
 import { ProcessTreeSupervisor, type ProcessTreeTerminationResult } from './process-tree-supervisor.js';
-
-type OwnerIdSource = string | (() => string);
 
 type Managed = ProcessSnapshot & {
   child: ChildProcessWithoutNullStreams;
@@ -25,18 +24,17 @@ export class ProcessManager {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly paths: PathGuard,
-    private readonly ownerIdSource: OwnerIdSource = 'unknown'
+    private readonly ownerIdSource: ResourceOwnerSource = 'unknown'
   ) {}
 
   private ownerId(): string {
-    const value = typeof this.ownerIdSource === 'function' ? this.ownerIdSource() : this.ownerIdSource;
-    return value || 'unknown';
+    return resolveResourceOwner(this.ownerIdSource).key;
   }
 
   private owned(id: string): Managed {
     const managed = this.processes.get(id);
     if (!managed || managed.ownerId !== this.ownerId()) {
-      // Deliberately do not reveal whether a process exists for another principal.
+      // Deliberately do not reveal whether a process exists for another principal or Work Session.
       throw new Error(`Unknown process id '${id}'.`);
     }
     return managed;
@@ -187,6 +185,10 @@ export class ProcessManager {
     return [...this.processes.values()]
       .filter(item => item.ownerId === ownerId)
       .map(item => this.snapshot(item));
+  }
+
+  activeCount(): number {
+    return [...this.processes.values()].filter(item => item.status === 'running').length;
   }
 
   async stop(id: string): Promise<ProcessSnapshot> {

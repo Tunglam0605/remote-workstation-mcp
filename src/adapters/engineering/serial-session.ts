@@ -2,10 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { SerialPort } from 'serialport';
 import type { SerialReadResult, SerialSessionSnapshot } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
+import { resolveResourceOwner, type ResourceOwnerSource } from '../../security/execution-context.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 import { validateSerialPortPath } from './serial-port-policy.js';
-
-type OwnerIdSource = string | (() => string);
 
 type ManagedSerial = SerialSessionSnapshot & {
   ownerId: string;
@@ -21,12 +20,11 @@ export class SerialSessionManager {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly resources: EngineeringResourceManager,
-    private readonly ownerIdSource: OwnerIdSource = 'unknown'
+    private readonly ownerIdSource: ResourceOwnerSource = 'unknown'
   ) {}
 
   private ownerId(): string {
-    const value = typeof this.ownerIdSource === 'function' ? this.ownerIdSource() : this.ownerIdSource;
-    return value || 'unknown';
+    return resolveResourceOwner(this.ownerIdSource).key;
   }
 
   private owned(id: string): ManagedSerial {

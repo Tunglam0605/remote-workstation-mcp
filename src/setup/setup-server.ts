@@ -8,6 +8,7 @@ import path from 'node:path';
 import { setupHtml } from './ui.js';
 import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
 import { loadHosts } from '../hosts.js';
+import { NodeInterlockStore } from '../node-interlock.js';
 import { PairingStore } from '../pairing/pairing-store.js';
 import { PairingBootstrapAdapter } from '../pairing/pairing-bootstrap.js';
 import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
@@ -378,8 +379,21 @@ async function linuxRuntimeStatus(repoRoot: string): Promise<Record<string, unkn
   };
 }
 
+async function assertNoActiveWorkSessionInterlocks(operation: string): Promise<void> {
+  const store = new NodeInterlockStore('owner-local-lifecycle');
+  await store.reconcileStale();
+  const active = await store.listActive();
+  if (active.length === 0) return;
+  const labels = active.slice(0, 5).map(item => item.label).join(', ');
+  throw new Error(
+    `NODE_BUSY: ${active.length} active Work Session workflow interlock(s) prevent ${operation}. ` +
+    `Active: ${labels || 'workflow'}. Finish/cancel the typed workflow first; lifecycle operations do not implicitly override critical work.`
+  );
+}
+
 async function linuxRuntimeControl(repoRoot: string, action: RuntimeAction | 'Status', mode: RuntimeMode = 'OpenAI'): Promise<unknown> {
   if (action === 'Status') return await linuxRuntimeStatus(repoRoot);
+  if (action === 'Restart') await assertNoActiveWorkSessionInterlocks('runtime restart');
   const env = linuxSystemdEnv();
   const unit = mode === 'OpenAI' ? 'remote-workstation-mcp-openai.service' : 'remote-workstation-mcp.service';
   const argsByAction: Record<RuntimeAction, string[]> = {
@@ -733,6 +747,7 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
 }
 
 async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
+  if (action === 'Install') await assertNoActiveWorkSessionInterlocks('runtime update');
   if (process.platform !== 'win32') {
     return { supported: false, enabled: false, message: 'Windows update control is available on Windows only.' };
   }
@@ -762,6 +777,7 @@ async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Pro
 }
 
 async function linuxUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
+  if (action === 'Install') await assertNoActiveWorkSessionInterlocks('runtime update');
   if (process.platform === 'win32') {
     return { supported: false, enabled: false, message: 'Linux update control is available on Linux only.' };
   }

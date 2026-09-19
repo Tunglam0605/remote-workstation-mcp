@@ -55,10 +55,10 @@ function fakeContext(): AppContext {
         requiredScope: 'workstation.cross_node_transfer'
       })
     },
-    processes: { list: () => [{ status: 'running' }] },
+    processes: { list: () => [{ status: 'running' }], activeCount: () => 3 },
     engineering: {
-      terminals: { list: () => [] },
-      resources: { list: () => [] }
+      terminals: { list: () => [], activeCount: () => 2 },
+      resources: { list: () => [], activeCount: () => 1 }
     }
   } as unknown as AppContext;
 }
@@ -78,7 +78,9 @@ test('ChatGPT Web status does not claim an authenticated tunnel for local calls'
   assert.equal(status.nodeHealth.dataPlane.tailscaleIpv4Available, true);
   assert.equal(status.nodeHealth.dataPlane.controlPlaneRelay.supported, true);
   assert.equal(status.nodeHealth.dataPlane.controlPlaneRelay.maxChunkBytes, 65536);
-  assert.equal(status.nodeHealth.activeSessions.processes, 1);
+  assert.equal(status.nodeHealth.activeSessions.processes, 3);
+  assert.equal(status.nodeHealth.activeSessions.terminals, 2);
+  assert.equal(status.nodeHealth.activeSessions.hardwareLeases, 1);
   assert.equal(status.nodeHealth.security.multiNode.defaultDeny, true);
   assert.equal(status.nodeHealth.security.legacyRemoteControlEnabled, false);
   assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, false);

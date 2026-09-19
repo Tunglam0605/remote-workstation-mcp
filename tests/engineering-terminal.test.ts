@@ -37,6 +37,7 @@ import { TerminalManager } from '../src/adapters/engineering/terminal-manager.js
 import type { PolicyConfig } from '../src/model.js';
 import { PolicyEngine } from '../src/policy.js';
 import { PathGuard } from '../src/security/path-guard.js';
+import { runWithWorkSession } from '../src/security/execution-context.js';
 
 async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -94,5 +95,51 @@ test('natural ConPTY exit releases native handles without an explicit stop call'
     assert.notEqual(child.error?.name, 'ETIMEDOUT', `child timed out: ${child.stderr}`);
     assert.equal(child.status, 0, `stderr: ${child.stderr}`);
     assert.doesNotMatch(child.stderr, /AttachConsole failed/);
+  }
+});
+
+
+test('same principal Work Sessions cannot read write resize or stop each other PTY sessions', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-pty-work-session-'));
+  try {
+    const config: PolicyConfig = {
+      version: 1,
+      mode: 'workspace',
+      workspaces: [{ id: 'w', root, readOnly: false }],
+      filesystem: { maxReadBytes: 1024 * 1024, maxWriteBytes: 1024 * 1024 },
+      process: {
+        allowExecutables: [process.execPath],
+        inheritEnv: ['PATH', 'HOME', 'TEMP', 'TMP'],
+        maxOutputBytes: 65536,
+        maxRuntimeMs: 60000,
+        maxInputBytes: 65536
+      }
+    };
+    const policy = new PolicyEngine(config);
+    const terminal = new TerminalManager(policy, new PathGuard(policy), 'openai-tunnel');
+    const sessionA = '11111111-1111-4111-8111-111111111111';
+    const sessionB = '22222222-2222-4222-8222-222222222222';
+
+    const started = await runWithWorkSession(sessionA, () =>
+      terminal.start('w', process.execPath, ['-e', "console.log('SESSION_A_PTY');setInterval(()=>{}, 1000)"], '.')
+    );
+    await runWithWorkSession(sessionA, () =>
+      waitFor(() => terminal.read(started.id).text.includes('SESSION_A_PTY'))
+    );
+
+    runWithWorkSession(sessionB, () => {
+      assert.deepEqual(terminal.list(), []);
+      assert.throws(() => terminal.read(started.id), /Unknown terminal session/);
+      assert.throws(() => terminal.write(started.id, 'x'), /Unknown terminal session/);
+      assert.throws(() => terminal.resize(started.id, 100, 30), /Unknown terminal session/);
+    });
+    await assert.rejects(
+      runWithWorkSession(sessionB, () => terminal.stop(started.id)),
+      /Unknown terminal session/
+    );
+
+    await runWithWorkSession(sessionA, () => terminal.stop(started.id));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });

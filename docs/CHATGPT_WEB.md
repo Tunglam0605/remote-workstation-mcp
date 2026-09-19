@@ -174,6 +174,8 @@ v0.13.x keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`, so an app a
 
 v0.14.x **also keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`**. v0.14.0 adds the generic direct data plane and `nodeHealth`; v0.14.1 adds multi-endpoint direct fallback; v0.14.2 adds bounded `platform.relay_*`; v0.14.3 adds bilateral multi-node authorization inside the same generic workflow `parameters` envelope. The public top-level action catalog is unchanged, so an app already refreshed for schema v2 does **not** need another action refresh.
 
+v0.15.0 intentionally bumps to `actionSchemaVersion=3` and `engineeringApiVersion=4` because Work Session lifecycle introduces new top-level `work_session_*` actions. **Refresh the custom app actions after upgrading to v0.15.0.** Existing workflow/provider growth still prefers the generic `engineering_workflow_*` envelope; the schema bump is specifically for the new durable session surface.
+
 On v0.14.3, inspect both `chatgpt_web_status.nodeHealth.dataPlane` and `nodeHealth.security.multiNode`. Cross-node transfer is default-deny and must have matching local owner grants on source and destination. `chatgptWeb.permissions.crossNodeTransfer` becomes true only for the configured OpenAI Secure MCP Tunnel principal with the dedicated cross-node scope; Full Access alone does not satisfy it. Prefer direct transfer when authorized and reachable, then use bounded relay fallback.
 
 ## Step 6 - First safe verification

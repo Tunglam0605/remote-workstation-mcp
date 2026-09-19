@@ -12,16 +12,23 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**v0.14.6**
+**v0.15.0**
 
-v0.14.6 completes the planned Phase-0 hardening for the current Docker/serial/Keil engineering primitives before Multi-Session Execution.
+v0.15.0 opens **Multi-Session Execution** after the accepted v0.14.6 Phase-0 hardening baseline.
 
-- split container lifecycle/exec/image-build authority from firmware hardware-mutation policy;
-- classify Docker host-level risk before mutation and require `full_control + containers.allowHighRisk=true` for high-risk containers;
-- add stable serial selectors to project profiles and resolve them to the current COM/tty path on every relevant workflow run;
-- fail closed on missing or ambiguous serial identity while preserving legacy static `port:` profiles;
-- add bounded ARMCC/ArmClang/Keil/linker diagnostics, target/output metadata, toolchain version, license evidence and artifact summaries;
-- preserve typed provider argv, v0.14.3 cross-node security, `actionSchemaVersion=2` and `engineeringApiVersion=3`.
+- add durable application-level Work Sessions independent of browser tabs or MCP connection lifetime;
+- migrate managed process, PTY, serial, debug and engineering resource ownership from principal-only to `principal + workSessionId`;
+- keep omitted Work Session IDs backward compatible through an implicit session without weakening authenticated principal scopes or local owner policy;
+- add bounded Context Capsules for project identity, objective, validated facts, provider/toolchain/variant, last acceptance, blockers, decisions and pending actions;
+- make `work_session_resume` return the capsule plus current session-owned process/PT​Y/serial/debug/lease/worktree/workflow-run state so a new chat can resume in one call;
+- add durable workflow-run attribution and reconcile interrupted `running` records as failed after RWMCP restart;
+- add session-owned Git branches/worktrees plus isolated build directories; dirty worktree cleanup fails closed with `NEEDS_OWNER_OR_EXPLICIT_ACTION`;
+- classify concurrency into shared, session-isolated, resource-exclusive, project/variant-exclusive, node-exclusive and owner-local-only categories instead of using a global lock;
+- serialize Keil shared-output builds per workspace/project/project-file/target resource key;
+- preserve cross-node default deny: Work Session identity never creates scopes, grants, Full Control, raw shell, host-filesystem authority or federation trust;
+- bump `actionSchemaVersion=3` because the top-level Work Session action catalog changed, and `engineeringApiVersion=4` for Work Session attribution/concurrency semantics.
+
+Phase-0 acceptance evidence before this branch: all three production Direct Nodes on v0.14.6, Direct Control Path healthy, no pending update or stale managed sessions, Windows PTY/process-tree acceptance PASS, release checksum/SBOM assets valid, and the Ubuntu Vision production camera service remained on the same PID/start timestamp throughout acceptance.
 
 **v0.14.5**
 

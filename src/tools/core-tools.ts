@@ -55,6 +55,115 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'workspace_list', undefined, async () => ctx.config.workspaces.map(ws => ({ id: ws.id, name: ws.name ?? ws.id, root: ws.root, readOnly: ws.readOnly ?? false })))));
 
+  server.registerTool('work_session_create', {
+    description: 'Create a durable Work Session owned by the current authenticated principal. A Work Session can restrict/isolate resources but never grants permissions beyond principal scopes and local owner policy.',
+    inputSchema: z.object({
+      name: z.string().min(1).max(128).optional(),
+      workspace: z.string().min(1).max(128).optional(),
+      projectPath: z.string().min(1).max(1024).optional(),
+      objective: z.string().min(1).max(2048).optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ name, workspace, projectPath, objective }) => result(await audited(ctx.audit, 'work_session_create', workspace, async () => {
+    if (workspace) {
+      ctx.policy.workspace(workspace);
+      if (projectPath) await ctx.paths.resolveExisting(workspace, projectPath);
+    } else if (projectPath) {
+      throw new Error('projectPath requires workspace.');
+    }
+    return {
+      session: await ctx.workSessions.create({ name, workspace, projectPath, objective }),
+      permissionModel: 'session permissions are always a subset of authenticated principal scopes and local owner policy'
+    };
+  })));
+
+  server.registerTool('work_session_resume', {
+    description: 'Resume one durable caller-owned Work Session and return its compact Context Capsule plus current session-owned runtime resources. The session id identifies state; it is not an authorization credential.',
+    inputSchema: z.object({ sessionId: z.string().uuid() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ sessionId }) => result(await audited(ctx.audit, 'work_session_resume', undefined, async () => {
+    const session = await ctx.workSessions.resume(sessionId);
+    const runtime = await ctx.runInWorkSession(sessionId, async () => ({
+      processes: ctx.processes.list(),
+      terminals: ctx.engineering.terminals.list(),
+      serial: ctx.engineering.serial.list(),
+      debug: ctx.engineering.debug.list(),
+      hardwareLeases: ctx.engineering.resources.list(),
+      workflowRuns: await ctx.workflowRuns.list(20),
+      nodeInterlocks: await ctx.nodeInterlocks.listOwned(),
+      worktree: await ctx.worktreeManager.status(sessionId)
+    }));
+    return {
+      session,
+      runtime,
+      usage: 'Pass workSessionId on session-aware operations. Omit it only for the backward-compatible implicit session.'
+    };
+  })));
+
+  server.registerTool('work_session_list', {
+    description: 'List durable Work Sessions owned by the current principal. Other principals are never disclosed.',
+    inputSchema: z.object({ includeClosed: z.boolean().default(false) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ includeClosed }) => result(await audited(ctx.audit, 'work_session_list', undefined, async () => ({
+    sessions: await ctx.workSessions.list(includeClosed)
+  }))));
+
+  server.registerTool('work_session_checkpoint', {
+    description: 'Persist a compact bounded Context Capsule checkpoint for a caller-owned Work Session. Do not store secrets, raw logs, transcripts or duplicated source.',
+    inputSchema: z.object({
+      sessionId: z.string().uuid(),
+      currentObjective: z.string().min(1).max(2048).optional(),
+      validatedFacts: z.array(z.string().min(1).max(512)).max(32).optional(),
+      selectedProvider: z.string().min(1).max(256).optional(),
+      selectedToolchain: z.string().min(1).max(256).optional(),
+      selectedVariant: z.string().min(1).max(256).optional(),
+      lastSuccessfulBuild: z.string().min(1).max(1024).optional(),
+      lastSuccessfulDeploy: z.string().min(1).max(1024).optional(),
+      lastAcceptance: z.string().min(1).max(1024).optional(),
+      blockers: z.array(z.string().min(1).max(512)).max(32).optional(),
+      decisions: z.array(z.string().min(1).max(512)).max(32).optional(),
+      pendingActions: z.array(z.string().min(1).max(512)).max(32).optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ sessionId, ...checkpoint }) => result(await audited(ctx.audit, 'work_session_checkpoint', undefined, async () => ({
+    session: await ctx.workSessions.checkpoint(sessionId, checkpoint)
+  }))));
+
+  server.registerTool('work_session_worktree_prepare', {
+    description: 'Create or reuse the caller-owned isolated Git worktree for a writable Work Session. RWMCP never widens workspace scope automatically.',
+    inputSchema: z.object({
+      sessionId: z.string().uuid(),
+      workspace: z.string().min(1),
+      repoPath: z.string().min(1).max(1024).optional(),
+      startPoint: z.string().min(1).max(256).default('HEAD')
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ sessionId, workspace, repoPath, startPoint }) => result(
+    await audited(ctx.audit, 'work_session_worktree_prepare', workspace, () =>
+      ctx.worktreeManager.prepare(sessionId, { workspace, repoPath, startPoint })
+    )
+  ));
+
+  server.registerTool('work_session_worktree_status', {
+    description: 'Inspect the caller-owned Work Session worktree and report whether it is dirty.',
+    inputSchema: z.object({ sessionId: z.string().uuid() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ sessionId }) => result(
+    await audited(ctx.audit, 'work_session_worktree_status', undefined, () =>
+      ctx.worktreeManager.status(sessionId)
+    )
+  ));
+
+  server.registerTool('work_session_worktree_cleanup', {
+    description: 'Safely remove a clean caller-owned Work Session worktree. Dirty worktrees are never force-removed and return NEEDS_OWNER_OR_EXPLICIT_ACTION.',
+    inputSchema: z.object({ sessionId: z.string().uuid() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ sessionId }) => result(
+    await audited(ctx.audit, 'work_session_worktree_cleanup', undefined, () =>
+      ctx.worktreeManager.cleanup(sessionId)
+    )
+  ));
+
   server.registerTool('fs_list', {
     description: 'List a directory inside an authorized workspace. Paths are workspace-relative.',
     inputSchema: z.object({ workspace: z.string(), path: z.string().default('.') }),
@@ -168,43 +277,53 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
 
   server.registerTool('task_run', {
     description: 'Run an owner-defined task profile in an authorized workspace. Program execution remains subject to current permission policy.',
-    inputSchema: z.object({ workspace: z.string(), task: z.string().min(1), extraArgs: z.array(z.string()).max(100).default([]) }),
+    inputSchema: z.object({ workspace: z.string(), task: z.string().min(1), extraArgs: z.array(z.string()).max(100).default([]), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, task, extraArgs }) => result(await audited(ctx.audit, 'task_run', workspace, () => ctx.tasks.run(workspace, task, extraArgs))));
+  }, async ({ workspace, task, extraArgs, workSessionId }) => result(await audited(ctx.audit, 'task_run', workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.tasks.run(workspace, task, extraArgs)))));
 
   server.registerTool('build_diagnostics', {
     description: 'Parse bounded GCC/Clang/MSVC/CMake diagnostics from a managed build/test process into compact structured errors and warnings.',
-    inputSchema: z.object({ id: z.string().uuid(), maxDiagnostics: z.number().int().positive().max(200).default(50) }),
+    inputSchema: z.object({ id: z.string().uuid(), maxDiagnostics: z.number().int().positive().max(200).default(50), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, maxDiagnostics }) => result(await audited(ctx.audit, 'build_diagnostics', undefined, async () => ctx.buildDiagnostics.report(id, maxDiagnostics))));
+  }, async ({ id, maxDiagnostics, workSessionId }) => result(await audited(ctx.audit, 'build_diagnostics', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.buildDiagnostics.report(id, maxDiagnostics)))));
 
   server.registerTool('process_start', {
     description: 'Start an executable without a shell. Normal modes require the executable allowlist; full-control owner lease may lift that allowlist.',
-    inputSchema: z.object({ workspace: z.string(), program: z.string().min(1), args: z.array(z.string()).max(500).default([]), cwd: z.string().default('.') }),
+    inputSchema: z.object({ workspace: z.string(), program: z.string().min(1), args: z.array(z.string()).max(500).default([]), cwd: z.string().default('.'), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, program, args, cwd }) => result(await audited(ctx.audit, 'process_start', workspace, () => ctx.processes.start(workspace, program, args, cwd))));
+  }, async ({ workspace, program, args, cwd, workSessionId }) => result(await audited(ctx.audit, 'process_start', workspace, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.processes.start(workspace, program, args, cwd))
+  )));
 
   server.registerTool('process_read', {
     description: 'Read current state and current bounded stdout/stderr buffers of a managed process.',
-    inputSchema: z.object({ id: z.string().uuid() }),
+    inputSchema: z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(await audited(ctx.audit, 'process_read', undefined, async () => ctx.processes.read(id))));
+  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'process_read', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.processes.read(id))
+  )));
 
   server.registerTool('process_read_since', {
     description: 'Read only process output produced since caller-provided cursors. Returns next cursors and whether older output was truncated.',
-    inputSchema: z.object({ id: z.string().uuid(), stdoutCursor: z.number().int().nonnegative().default(0), stderrCursor: z.number().int().nonnegative().default(0) }),
+    inputSchema: z.object({ id: z.string().uuid(), stdoutCursor: z.number().int().nonnegative().default(0), stderrCursor: z.number().int().nonnegative().default(0), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, stdoutCursor, stderrCursor }) => result(await audited(ctx.audit, 'process_read_since', undefined, async () => ctx.processes.readSince(id, stdoutCursor, stderrCursor))));
+  }, async ({ id, stdoutCursor, stderrCursor, workSessionId }) => result(await audited(ctx.audit, 'process_read_since', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.processes.readSince(id, stdoutCursor, stderrCursor))
+  )));
 
   server.registerTool('process_list', {
     description: 'List processes started through this MCP agent.',
-    inputSchema: z.object({}),
+    inputSchema: z.object({ workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result({ processes: await audited(ctx.audit, 'process_list', undefined, async () => ctx.processes.list()) }));
+  }, async ({ workSessionId }) => result({ processes: await audited(ctx.audit, 'process_list', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.processes.list())
+  ) }));
 
   server.registerTool('process_stop', {
     description: 'Stop a managed process with SIGTERM.',
-    inputSchema: z.object({ id: z.string().uuid() }),
+    inputSchema: z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(await audited(ctx.audit, 'process_stop', undefined, async () => ctx.processes.stop(id))));
+  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'process_stop', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.processes.stop(id))
+  )));
 }

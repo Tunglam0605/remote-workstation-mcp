@@ -1,17 +1,20 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { EngineeringResourceLease, EngineeringResourceMode } from '../../engineering/types.js';
+import {
+  resolveResourceOwner,
+  type ResourceOwnerSource
+} from '../../security/execution-context.js';
 
-type OwnerIdSource = string | (() => string);
+type ManagedLease = EngineeringResourceLease & {
+  ownerKey: string;
+  ownerPrincipalId: string;
+  workSessionId: string;
+};
 
 export class EngineeringResourceManager {
-  private readonly leases = new Map<string, EngineeringResourceLease>();
+  private readonly leases = new Map<string, ManagedLease>();
 
-  constructor(private readonly ownerIdSource: OwnerIdSource = 'unknown') {}
-
-  private ownerId(): string {
-    const value = typeof this.ownerIdSource === 'function' ? this.ownerIdSource() : this.ownerIdSource;
-    return value || 'unknown';
-  }
+  constructor(private readonly ownerSource: ResourceOwnerSource = 'unknown') {}
 
   acquire(resourceId: string, mode: EngineeringResourceMode): EngineeringResourceLease {
     const normalized = resourceId.trim();
@@ -20,20 +23,26 @@ export class EngineeringResourceManager {
     if (active) {
       throw new Error(`RESOURCE_BUSY: '${normalized}' is already owned in ${active.mode} mode.`);
     }
-    const lease: EngineeringResourceLease = {
+
+    const owner = resolveResourceOwner(this.ownerSource);
+    const lease: ManagedLease = {
       id: randomUUID(),
       resourceId: normalized,
       mode,
-      ownerId: this.ownerId(),
+      ownerId: owner.principalId,
+      ownerKey: owner.key,
+      ownerPrincipalId: owner.principalId,
+      workSessionId: owner.workSessionId,
       acquiredAt: new Date().toISOString()
     };
     this.leases.set(lease.id, lease);
-    return { ...lease };
+    return this.snapshot(lease, owner.key, owner.principalId);
   }
 
   release(id: string): void {
     const active = this.leases.get(id);
-    if (!active || active.ownerId !== this.ownerId()) throw new Error(`Unknown engineering lease '${id}'.`);
+    const owner = resolveResourceOwner(this.ownerSource);
+    if (!active || active.ownerKey !== owner.key) throw new Error(`Unknown engineering lease '${id}'.`);
     this.leases.delete(id);
   }
 
@@ -42,7 +51,12 @@ export class EngineeringResourceManager {
   }
 
   list(): EngineeringResourceLease[] {
-    return [...this.leases.values()].map(item => ({ ...item, ownerId: item.ownerId === this.ownerId() ? item.ownerId : 'other-principal' }));
+    const owner = resolveResourceOwner(this.ownerSource);
+    return [...this.leases.values()].map(item => this.snapshot(item, owner.key, owner.principalId));
+  }
+
+  activeCount(): number {
+    return this.leases.size;
   }
 
   async withLease<T>(resourceId: string, mode: EngineeringResourceMode, operation: () => Promise<T>): Promise<T> {
@@ -52,5 +66,22 @@ export class EngineeringResourceManager {
     } finally {
       this.releaseInternal(lease.id);
     }
+  }
+
+  private snapshot(item: ManagedLease, ownerKey: string, principalId: string): EngineeringResourceLease {
+    const {
+      ownerKey: itemOwnerKey,
+      ownerPrincipalId,
+      workSessionId: _workSessionId,
+      ...lease
+    } = item;
+    return {
+      ...lease,
+      ownerId: itemOwnerKey === ownerKey
+        ? principalId
+        : ownerPrincipalId === principalId
+          ? 'other-session'
+          : 'other-principal'
+    };
   }
 }

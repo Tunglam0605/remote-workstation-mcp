@@ -61,6 +61,37 @@ The core rule remains:
 
 Transport and agent delegation are replaceable edges. They must not bypass the policy engine or become prerequisites for direct workstation tools.
 
+## Work Session execution plane
+
+v0.15 adds a durable application-level identity above transport connections:
+
+```text
+authenticated principal
+        |
+        +-- Work Session A -> ExecutionContext -> ResourceOwner(principal, session)
+        +-- Work Session B -> ExecutionContext -> ResourceOwner(principal, session)
+        +-- implicit session -> backward-compatible callers that omit workSessionId
+```
+
+A browser tab, MCP connection or reconnect is not a Work Session. `workSessionId` is also not a bearer credential. Every session-aware operation first remains subject to authenticated principal scopes and local owner policy, then uses the Work Session only to constrain ownership and concurrency.
+
+`WorkSessionStore` persists compact Context Capsules outside repositories. Capsules contain bounded project identity, objective, validated facts, selected provider/toolchain/variant, last successful acceptance, blockers, engineering decisions and pending actions. They intentionally exclude secrets, full transcripts, large raw logs and duplicated source.
+
+Resource ownership is composite for process, PTY, serial, debug, engineering leases and durable workflow runs. Two requests from the same `openai-tunnel` principal but different Work Sessions cannot read, write, stop or release one another's private resources.
+
+Writable Git sessions use an isolated branch/worktree/build-directory boundary. A dirty worktree is never force-removed by session cleanup. If the authorized workspace root is too narrow to contain a safe sibling worktree, creation fails closed instead of widening local filesystem authority.
+
+Concurrency is classified rather than globally serialized:
+
+- shared: filesystem/Git/project/provider reads;
+- session-isolated: source edits, worktrees and isolated build directories;
+- resource-exclusive: serial, probes, CAN adapters and mutable camera configuration;
+- project/variant-exclusive: shared-output builds such as Keil;
+- node-exclusive: runtime update/restart/reboot and major node configuration;
+- owner-local-only: policy, permission and security-grant mutation.
+
+Workflow-run metadata is durably attributed to principal + Work Session. On runtime restart, any record left `running` is reconciled to a bounded failed state rather than resurrected as fake live work.
+
 ## Control plane vs data plane
 
 The normal MCP connection is a **control plane**. Commands, plans, compact status and bounded results travel through it. Large cross-node payloads should not be relayed through the model when the owner has an approved direct path.

@@ -576,7 +576,7 @@ Phase 3I - Acceptance Gate Consolidation / RC Readiness:
 - prove execution callback failure transitively blocks descendants through the real TaskExecutionCoordinator path;
 - preserve existing resource contention, node interlock, restart reconciliation, typed-binding and authority-boundary tests as the canonical acceptance evidence;
 - require full local regression, build, plugin validation, dependency audit, PR Linux/Windows CI and post-merge main CI before declaring Phase 3 orchestration core closed;
-- keep production Direct Nodes on v0.16.0 until the separate v0.17 RC / three-node acceptance / soak decision.
+- RC decision completed on source commit `caab56b5884c53ad2dbf86cbb7d64725e83847fd`: full local/PR/main Linux+Windows gates passed, then packed v0.17 sidecar smoke passed on Windows Laptop, Ubuntu Personal PC and Ubuntu Vision PC without replacing production v0.16.0; Vision `tunglam-apriltag.service` retained the same PID/state. Stable release publication and managed per-node rollout may proceed with existing checksum/health/readiness/rollback gates.
 
 Post-Phase-3 v0.17 foundation - Project Session Group + Worker Provider Registry:
 
@@ -586,7 +586,7 @@ Post-Phase-3 v0.17 foundation - Project Session Group + Worker Provider Registry
 - add a bounded read-only Worker Provider Registry for future Codex/Claude/OpenHands/custom adapters;
 - deliberately provide no worker dispatch/execute MCP surface in this slice; direct MCP control remains independent of provider availability;
 - require future worker execution to enter through the existing TaskExecutionCoordinator, typed workflow binding, Scheduler Awareness, resource leases, node interlocks and local policy boundaries;
-- retain Action Schema 4 / Engineering API 4 during v0.17 development and keep production on v0.16.0.
+- retain Action Schema 4 / Engineering API 4 for v0.17 stable; production nodes upgrade independently through the managed release path and remain rollback-capable until post-deploy acceptance completes.
 
 Foundation acceptance gates:
 

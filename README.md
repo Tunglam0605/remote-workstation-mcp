@@ -12,13 +12,11 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable production: v0.16.0**
+**Stable release: v0.17.0 · channel=stable · Action Schema 4 · Engineering API 4**
 
-**Development main: v0.17.0-dev.0 · channel=development · Action Schema 4 · Engineering API 4**
+The v0.17 orchestration core, post-Phase-3 coordination foundation, full Linux/Windows CI and three-node packed sidecar RC smoke have passed. Managed production rollout remains guarded by each node's existing checksum, health, readiness and rollback path.
 
-Production Direct Nodes remain on v0.16.0 until the v0.17 orchestration core passes RC, three-node acceptance and soak gates.
-
-**v0.17.0-dev.0 - Phase 3 orchestration core + post-Phase-3 coordination foundation**
+**v0.17.0 - Phase 3 orchestration core + post-Phase-3 coordination foundation**
 
 Phase 3I closes the Work Objective / Task Graph / Scheduler acceptance gates. The next v0.17 foundation adds Project Session Group coordination and a read-only Worker Provider Registry without introducing autonomous dispatch authority.
 
@@ -31,7 +29,7 @@ Phase 3I closes the Work Objective / Task Graph / Scheduler acceptance gates. Th
 - `project_session_group_*` groups only caller-owned Work Sessions already bound to the same project; group lifecycle is coordination metadata only and grants no execution authority;
 - `worker_provider_list` is a bounded read-only registry/status surface; there is no worker dispatch/execute MCP action in this foundation;
 - future delegation must reuse the existing deterministic scheduler, TaskExecutionCoordinator, typed workflow binding, local policy, resource leases and node interlocks;
-- production remains v0.16.0 until v0.17 RC/three-node acceptance/soak gates pass.
+- v0.17 RC/three-node sidecar acceptance gates passed before stable release publication; managed rollout still verifies every production Direct Node independently.
 
 **v0.16.0**
 

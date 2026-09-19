@@ -257,6 +257,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'DPAPI secret read failed.' }
           if ($roundTrip.Trim() -ne $testSecret) { throw 'DPAPI secret round-trip mismatch.' }
           Remove-Item -Path $configDir -Recurse -Force
+      - name: Test Windows runtime supervisor process identity
+        shell: pwsh
+        run: .\scripts\test-runtime-process-identity-windows.ps1
       - name: Smoke-test Windows runtime supervisor
         timeout-minutes: 2
         shell: pwsh

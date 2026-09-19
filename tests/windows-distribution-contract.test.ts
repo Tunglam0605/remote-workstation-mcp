@@ -144,6 +144,26 @@ test('Windows restart is handed off outside the managed runtime tree and OpenAI 
   assert.match(runtime, /'RECONNECTING'/);
   assert.match(runtime, /'ONLINE'/);
 });
+test('Windows runtime supervisor identity resists fast PowerShell PID reuse', async () => {
+  const runtime = await read('scripts/runtime-control-windows.ps1');
+  const regression = await read('scripts/test-runtime-process-identity-windows.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(runtime, /Get-CimInstance Win32_Process -Filter "ProcessId=\$\(\[int\]\$state\.pid\)"/);
+  assert.match(runtime, /state\.entrypoint/);
+  assert.match(runtime, /expectedEntrypoint/);
+  assert.match(runtime, /commandLine\.IndexOf\(\$expectedEntrypoint/);
+  assert.match(runtime, /commandLine\.IndexOf\(\$expectedRoot/);
+
+  assert.match(regression, /rwmcp-runtime-identity-/);
+  assert.match(regression, /pid = \$PID/);
+  assert.match(regression, /entrypoint = \$runtimeHost/);
+  assert.match(regression, /-Action Stop/);
+  assert.match(regression, /Synthetic stale supervisor state was not removed/);
+  assert.match(ci, /Test Windows runtime supervisor process identity/);
+  assert.match(ci, /test-runtime-process-identity-windows\.ps1/);
+});
+
 test('Windows tunnel readiness requires fresh control-plane polling, not only local readyz', async () => {
   const runtime = await read('scripts/runtime-control-windows.ps1');
   const host = await read('scripts/runtime-host-windows.ps1');

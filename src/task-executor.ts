@@ -12,6 +12,10 @@ export interface TaskExecutionResult<T> {
   result: T;
 }
 
+export interface TaskExecutionHooks {
+  onStarted?: (task: WorkTask) => void | Promise<void>;
+}
+
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).trim().slice(0, 1024) || 'task-execution-failed';
 }
@@ -36,7 +40,8 @@ export class TaskExecutionCoordinator {
   async execute<T>(
     objectiveId: string,
     taskId: string,
-    operation: () => Promise<T>
+    operation: () => Promise<T>,
+    hooks: TaskExecutionHooks = {}
   ): Promise<TaskExecutionResult<T>> {
     const plan = await this.scheduler.plan(objectiveId, 128);
     const item = plan.find(candidate => candidate.task.id === taskId);
@@ -60,8 +65,9 @@ export class TaskExecutionCoordinator {
       }
 
       try {
-        await this.store.startTask(objectiveId, taskId);
+        const started = await this.store.startTask(objectiveId, taskId);
         try {
+          await hooks.onStarted?.(started);
           const result = await operation();
           const task = await this.store.finishTask(objectiveId, taskId, 'succeeded');
           return { task, result };

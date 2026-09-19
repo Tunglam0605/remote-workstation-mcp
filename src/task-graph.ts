@@ -7,7 +7,7 @@ import { resolveResourceOwner, type ResourceOwnerSource } from './security/execu
 import { setupConfigDir } from './setup/settings.js';
 
 export type WorkObjectiveStatus = 'active' | 'succeeded' | 'failed' | 'blocked';
-export type WorkTaskStatus = 'pending' | 'ready' | 'running' | 'succeeded' | 'failed' | 'blocked';
+export type WorkTaskStatus = 'pending' | 'ready' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'cancelled';
 
 export interface WorkTaskConcurrency {
   operation?: ConcurrencyOperation;
@@ -27,6 +27,7 @@ export interface WorkTask {
   id: string;
   objectiveId: string;
   sequence: number;
+  generation: number;
   title: string;
   description?: string;
   priority: number;
@@ -148,9 +149,10 @@ function validateTask(value: unknown): WorkTask {
     typeof task.id !== 'string' ||
     typeof task.objectiveId !== 'string' ||
     !Number.isSafeInteger(task.sequence) ||
+    (task.generation !== undefined && (!Number.isSafeInteger(task.generation) || task.generation < 1)) ||
     typeof task.title !== 'string' ||
     !Number.isSafeInteger(task.priority) ||
-    !['pending', 'ready', 'running', 'succeeded', 'failed', 'blocked'].includes(task.status ?? '') ||
+    !['pending', 'ready', 'running', 'succeeded', 'failed', 'blocked', 'cancelled'].includes(task.status ?? '') ||
     !Array.isArray(task.dependencies) ||
     !task.dependencies.every(item => typeof item === 'string') ||
     !task.concurrency ||
@@ -162,6 +164,7 @@ function validateTask(value: unknown): WorkTask {
   }
   return {
     ...(task as WorkTask),
+    generation: task.generation ?? 1,
     ...(task.execution !== undefined
       ? { execution: normalizeExecution(task.execution as WorkTaskExecutionBinding) }
       : {})
@@ -224,9 +227,9 @@ function normalizeGraph(objective: WorkObjective, timestamp: string): void {
   while (changed) {
     changed = false;
     for (const task of objective.tasks) {
-      if (['running', 'succeeded', 'failed'].includes(task.status)) continue;
+      if (['running', 'succeeded', 'failed', 'cancelled'].includes(task.status)) continue;
       const deps = task.dependencies.map(id => byId.get(id)!);
-      const shouldBlock = deps.some(dep => dep.status === 'failed' || dep.status === 'blocked');
+      const shouldBlock = deps.some(dep => dep.status === 'failed' || dep.status === 'blocked' || dep.status === 'cancelled');
       const shouldReady = !shouldBlock && deps.every(dep => dep.status === 'succeeded');
       const nextStatus: WorkTaskStatus = shouldBlock ? 'blocked' : shouldReady ? 'ready' : 'pending';
       if (task.status !== nextStatus) {
@@ -248,8 +251,8 @@ function normalizeGraph(objective: WorkObjective, timestamp: string): void {
   } else if (objective.tasks.some(task => task.status === 'failed')) {
     objective.status = 'failed';
   } else if (
-    objective.tasks.every(task => ['succeeded', 'blocked'].includes(task.status)) &&
-    objective.tasks.some(task => task.status === 'blocked')
+    objective.tasks.every(task => ['succeeded', 'blocked', 'cancelled'].includes(task.status)) &&
+    objective.tasks.some(task => task.status === 'blocked' || task.status === 'cancelled')
   ) {
     objective.status = 'blocked';
   } else {
@@ -377,6 +380,7 @@ export class TaskGraphStore {
         id: randomUUID(),
         objectiveId: objective.id,
         sequence: objective.tasks.length + 1,
+        generation: 1,
         title: bounded(input.title, 'title', 256),
         ...(boundedOptional(input.description, 'description', 2048) ? { description: boundedOptional(input.description, 'description', 2048) } : {}),
         priority: boundedPriority(input.priority),
@@ -403,7 +407,7 @@ export class TaskGraphStore {
       const objective = this.ownedObjective(state, objectiveId);
       const task = objective.tasks.find(item => item.id === bounded(taskId, 'taskId', 64));
       if (!task) throw new Error(`Unknown Work Task '${taskId}'.`);
-      if (['running', 'succeeded', 'failed'].includes(task.status)) {
+      if (['running', 'succeeded', 'failed', 'cancelled'].includes(task.status)) {
         throw new Error(`Cannot change dependencies while task '${task.id}' is ${task.status}.`);
       }
       const previous = task.dependencies;
@@ -459,6 +463,61 @@ export class TaskGraphStore {
       const normalizedError = boundedOptional(error, 'error', 1024);
       if (status === 'failed') task.error = normalizedError ?? 'task-failed';
       else delete task.error;
+      normalizeGraph(objective, timestamp);
+      await this.save(state);
+      return structuredClone(task);
+    });
+  }
+
+  async cancelTask(
+    objectiveId: string,
+    taskId: string,
+    reason = 'cancelled-by-request'
+  ): Promise<WorkTask> {
+    return this.mutate(async () => {
+      const state = await this.load();
+      const objective = this.ownedObjective(state, objectiveId);
+      const task = objective.tasks.find(item => item.id === bounded(taskId, 'taskId', 64));
+      if (!task) throw new Error(`Unknown Work Task '${taskId}'.`);
+      if (task.status === 'running') {
+        throw new Error(`TASK_RUNNING: Work Task '${task.id}' is already running and cannot be synchronously preempted by the generic task graph.`);
+      }
+      if (['succeeded', 'failed', 'cancelled'].includes(task.status)) {
+        return structuredClone(task);
+      }
+      if (task.status === 'blocked') {
+        throw new Error(`TASK_BLOCKED: Work Task '${task.id}' is blocked by dependency state.`);
+      }
+      const timestamp = this.now().toISOString();
+      task.status = 'cancelled';
+      task.updatedAt = timestamp;
+      task.endedAt = timestamp;
+      task.error = bounded(reason, 'reason', 1024);
+      normalizeGraph(objective, timestamp);
+      await this.save(state);
+      return structuredClone(task);
+    });
+  }
+
+  async retryTask(objectiveId: string, taskId: string): Promise<WorkTask> {
+    return this.mutate(async () => {
+      const state = await this.load();
+      const objective = this.ownedObjective(state, objectiveId);
+      const task = objective.tasks.find(item => item.id === bounded(taskId, 'taskId', 64));
+      if (!task) throw new Error(`Unknown Work Task '${taskId}'.`);
+      if (!['failed', 'cancelled'].includes(task.status)) {
+        throw new Error(`TASK_NOT_RETRYABLE: Work Task '${task.id}' is ${task.status}; only failed or cancelled tasks may start a new generation.`);
+      }
+      if (!Number.isSafeInteger(task.generation) || task.generation < 1 || task.generation >= 1_000_000) {
+        throw new Error(`TASK_GENERATION_INVALID: Work Task '${task.id}' cannot advance generation.`);
+      }
+      const timestamp = this.now().toISOString();
+      task.generation += 1;
+      task.status = 'pending';
+      task.updatedAt = timestamp;
+      delete task.startedAt;
+      delete task.endedAt;
+      delete task.error;
       normalizeGraph(objective, timestamp);
       await this.save(state);
       return structuredClone(task);

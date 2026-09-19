@@ -226,3 +226,49 @@ test('Task Graph rejects transient workflow secrets and payload bytes before per
   assert.doesNotMatch(raw, /transferTicket/);
   assert.doesNotMatch(raw, /abcdefghijklmnopqrstuvwxyzABCDEFGH12345678/);
 });
+
+
+test('cancellation blocks dependents and explicit retry advances generation without mutating history', async t => {
+  const { store } = await fixture(t);
+  await runWithWorkSession(SESSION_A, async () => {
+    const objective = await store.create({
+      name: 'Generation',
+      objective: 'Cancel then retry explicitly'
+    });
+    const parent = await store.addTask(objective.id, {
+      title: 'parent',
+      concurrency: { operation: 'project.inspect' },
+      execution: EXECUTION
+    });
+    const child = await store.addTask(objective.id, {
+      title: 'child',
+      dependencies: [parent.id],
+      concurrency: { operation: 'project.inspect' },
+      execution: EXECUTION
+    });
+
+    const cancelled = await store.cancelTask(objective.id, parent.id);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.generation, 1);
+
+    let state = await store.get(objective.id);
+    assert.equal(state.tasks.find(item => item.id === child.id)?.status, 'blocked');
+    assert.equal(state.status, 'blocked');
+
+    const retried = await store.retryTask(objective.id, parent.id);
+    assert.equal(retried.generation, 2);
+    assert.equal(retried.status, 'ready');
+    assert.equal(retried.startedAt, undefined);
+    assert.equal(retried.endedAt, undefined);
+    assert.equal(retried.error, undefined);
+
+    state = await store.get(objective.id);
+    assert.equal(state.tasks.find(item => item.id === child.id)?.status, 'pending');
+    assert.equal(state.status, 'active');
+
+    await assert.rejects(
+      store.retryTask(objective.id, parent.id),
+      /TASK_NOT_RETRYABLE/
+    );
+  });
+});

@@ -516,9 +516,18 @@ Typed workflow binding slice:
 - require both declared concurrency classification and typed execution binding before scheduler dispatch;
 - treat workflow `blocked`/`failed` outcomes as task failure rather than fake task success.
 
-Next slices:
+Durable Task Attempt / cancellation / idempotent resume slice:
 
-- add durable task assignment/attempt records, cancellation and idempotent resume semantics;
+- keep execution history in a separate owner-scoped `TaskAttemptStore` instead of growing mutable Work Task records;
+- assign every Work Task an execution `generation`; one generation can have at most one durable attempt;
+- replay an existing generation result/status instead of executing the typed workflow again after response loss or duplicate calls;
+- require explicit `retry` to advance generation; previous attempts remain immutable history;
+- reconcile runtime-interrupted attempts to `interrupted` and running Task state to failed, never resurrecting fake work;
+- cancel pending/READY work before dispatch and propagate dependency blocking;
+- for already RUNNING work, persist cancellation intent but do not claim generic provider preemption that the typed workflow contract does not support;
+- expose bounded attempt inspection through Work Session scope only.
+
+Next slices:
 - add scheduler awareness of active Work Sessions/worktrees and resource availability without treating planning output as authority;
 - add objective-level progress/result aggregation and compact Context Capsule handoff;
 - only after those gates pass, add optional worker-provider delegation (Codex/Claude/OpenHands/custom) behind the same scheduler and local policy boundaries.

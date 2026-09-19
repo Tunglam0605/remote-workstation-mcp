@@ -506,10 +506,18 @@ Foundation slice implemented on the Phase-3 branch:
 - node-exclusive tasks take the canonical orchestration node lease plus lifecycle interlock for the callback lifetime;
 - no autonomous agent spawning exists in this slice.
 
+Typed workflow binding slice:
+
+- persist only validated `engineering-workflow` bindings on tasks; arbitrary shell/program/argv recipes are not representable;
+- use one shared `EngineeringWorkflowExecutionService` for both direct `engineering_workflow_run` and scheduled execution;
+- keep WorkflowRun attribution, lifecycle interlock ownership and Quality Learning evidence identical across both paths;
+- remove transient `transferTicket` and relay payload bytes from the persisted task-binding schema;
+- expose one `work_objective_execute_task` tool requiring `workstation.execute`; it accepts identifiers only, not alternate commands;
+- require both declared concurrency classification and typed execution binding before scheduler dispatch;
+- treat workflow `blocked`/`failed` outcomes as task failure rather than fake task success.
+
 Next slices:
 
-- bind executable tasks only to existing typed RWMCP workflows/services; do not store arbitrary shell recipes;
-- refactor shared engineering-workflow execution so direct MCP calls and scheduled tasks use the same WorkflowRun, Quality Learning and lifecycle-interlock path;
 - add durable task assignment/attempt records, cancellation and idempotent resume semantics;
 - add scheduler awareness of active Work Sessions/worktrees and resource availability without treating planning output as authority;
 - add objective-level progress/result aggregation and compact Context Capsule handoff;

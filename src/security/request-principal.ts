@@ -39,6 +39,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   work_objective_inspect: 'workstation.read',
   work_objective_mutate: 'workstation.write',
   work_objective_schedule: 'workstation.read',
+  work_objective_execute_task: 'workstation.execute',
   fs_list: 'workstation.read',
   fs_find: 'workstation.read',
   fs_search_text: 'workstation.read',

@@ -10,6 +10,13 @@ import { TaskExecutionCoordinator } from '../src/task-executor.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from '../src/task-graph.js';
 
 const SESSION = '33333333-3333-4333-8333-333333333333';
+const EXECUTION = {
+  kind: 'engineering-workflow' as const,
+  workspace: 'projects',
+  projectPath: 'demo',
+  workflow: 'firmware.build',
+  parameters: {}
+};
 
 async function fixture(t: test.TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-executor-'));
@@ -36,12 +43,14 @@ test('executor marks success only after callback completion and unlocks dependen
     const objective = await store.create({ name: 'execute', objective: 'Run verified callbacks' });
     const first = await store.addTask(objective.id, {
       title: 'first',
-      concurrency: { operation: 'project.inspect' }
+      concurrency: { operation: 'project.inspect' },
+      execution: EXECUTION
     });
     const second = await store.addTask(objective.id, {
       title: 'second',
       dependencies: [first.id],
-      concurrency: { operation: 'project.inspect' }
+      concurrency: { operation: 'project.inspect' },
+      execution: EXECUTION
     });
 
     const result = await executor.execute(objective.id, first.id, async () => 42);
@@ -69,7 +78,7 @@ test('executor refuses unclassified READY work without changing its state', asyn
   const { store, executor } = await fixture(t);
   await runWithWorkSession(SESSION, async () => {
     const objective = await store.create({ name: 'unclassified', objective: 'Fail closed' });
-    const task = await store.addTask(objective.id, { title: 'needs classification' });
+    const task = await store.addTask(objective.id, { title: 'needs classification', execution: EXECUTION });
 
     await assert.rejects(
       executor.execute(objective.id, task.id, async () => 'should-not-run'),
@@ -87,11 +96,13 @@ test('executor keeps same exclusive resource key single-owner and leaves rejecte
     const objective = await store.create({ name: 'stlink', objective: 'Serialize one debug probe' });
     const first = await store.addTask(objective.id, {
       title: 'flash A',
-      concurrency: { operation: 'hardware.debug-probe', key: 'stlink:serial:ABC' }
+      concurrency: { operation: 'hardware.debug-probe', key: 'stlink:serial:ABC' },
+      execution: EXECUTION
     });
     const second = await store.addTask(objective.id, {
       title: 'flash B',
-      concurrency: { operation: 'hardware.debug-probe', key: 'stlink:serial:ABC' }
+      concurrency: { operation: 'hardware.debug-probe', key: 'stlink:serial:ABC' },
+      execution: EXECUTION
     });
 
     let release!: () => void;
@@ -130,7 +141,8 @@ test('node-exclusive execution owns a lifecycle interlock only for the callback 
     const objective = await store.create({ name: 'node', objective: 'Protect node lifecycle' });
     const task = await store.addTask(objective.id, {
       title: 'node-wide maintenance',
-      concurrency: { operation: 'node.restart', key: 'node' }
+      concurrency: { operation: 'node.restart', key: 'node' },
+      execution: EXECUTION
     });
 
     await executor.execute(objective.id, task.id, async () => {

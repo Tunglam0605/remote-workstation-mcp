@@ -6,8 +6,10 @@ const read = (path: string) => fs.readFile(path, 'utf8');
 
 test('workflow execution owns a node lifecycle interlock for its complete run', async () => {
   const tools = await read('src/tools/engineering-tools.ts');
-  assert.match(tools, /nodeInterlocks\.acquireWorkflow/);
-  assert.match(tools, /finally\s*\{[\s\S]*nodeInterlocks\.release\(interlock\.id\)/);
+  const execution = await read('src/engineering-workflow-execution.ts');
+  assert.match(tools, /ctx\.engineering\.execution\.run/);
+  assert.match(execution, /this\.nodeInterlocks\.acquireWorkflow/);
+  assert.match(execution, /finally\s*\{[\s\S]*this\.nodeInterlocks\.release\(interlock\.id\)/);
 });
 
 test('Windows restart update and rollback fail closed on active Work Session interlocks', async () => {

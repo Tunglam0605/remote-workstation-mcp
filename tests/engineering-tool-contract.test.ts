@@ -8,25 +8,27 @@ const read = (relative: string) => fs.readFile(path.join(root, relative), 'utf8'
 
 test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action contract', async () => {
   const tools = await read('src/tools/engineering-tools.ts');
+  const contract = await read('src/engineering-workflow-contract.ts');
 
-  assert.match(tools, /const workflowId = z\.string\(\)[\s\S]*regex\(\/\^\[a-z0-9\]/);
-  assert.doesNotMatch(tools, /const workflowId = z\.enum\(/);
-  assert.match(tools, /workflowParameters = z\.record\([\s\S]*z\.unknown\(\)/);
+  assert.match(tools, /engineeringWorkflowIdSchema/);
+  assert.match(tools, /workflowParametersSchema/);
+  assert.match(tools, /workflowRuntimeParametersSchema/);
   assert.match(tools, /engineering_workflow_plan[\s\S]*parameters: workflowParameters[\s\S]*overrides: legacyWorkflowOverrides/);
   assert.match(tools, /engineering_workflow_run[\s\S]*parameters: workflowParameters[\s\S]*overrides: legacyWorkflowOverrides/);
   assert.match(tools, /engineering_profile_init[\s\S]*profile: z\.record\(z\.string\(\), z\.unknown\(\)\)\.optional\(\)/);
 
-  const legacyStart = tools.indexOf('const legacyWorkflowOverrides = z.object({');
-  const runtimeStart = tools.indexOf('const workflowRuntimeParameters = z.object({');
-  const genericStart = tools.indexOf('const workflowParameters = z.record', runtimeStart);
-  assert.ok(legacyStart >= 0 && runtimeStart > legacyStart && genericStart > runtimeStart);
-  const legacyBlock = tools.slice(legacyStart, runtimeStart);
-  const runtimeBlock = tools.slice(runtimeStart, genericStart);
+  assert.match(contract, /engineeringWorkflowIdSchema = z\.string\(\)[\s\S]*regex\(\/\^\[a-z0-9\]/);
+  assert.doesNotMatch(contract, /engineeringWorkflowIdSchema = z\.enum\(/);
+  const legacyStart = contract.indexOf('legacyWorkflowOverridesSchema = z.object({');
+  const runtimeStart = contract.indexOf('workflowRuntimeParametersSchema = z.object({');
+  const persistedStart = contract.indexOf('persistedWorkflowParametersSchema', runtimeStart);
+  assert.ok(legacyStart >= 0 && runtimeStart > legacyStart && persistedStart > runtimeStart);
+  const legacyBlock = contract.slice(legacyStart, runtimeStart);
+  const runtimeBlock = contract.slice(runtimeStart, persistedStart);
   assert.doesNotMatch(legacyBlock, /keepMonitorOpen/);
   assert.match(runtimeBlock, /keepMonitorOpen: z\.boolean\(\)\.optional\(\)/);
+  assert.match(contract, /persistedWorkflowParametersSchema[\s\S]*transferTicket: true[\s\S]*relayDataBase64: true/);
 
-  // Action Schema v4 retains the legacy v2 workflow override shape while Work Session parameters
-  // continue to flow through the generic envelope and internal runtime validation.
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
@@ -57,17 +59,21 @@ test('Phase 3 retains Work Session routing under Action Schema v4 and Keil share
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const contract = await read('src/engineering-workflow-contract.ts');
+  const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 4;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_worktree_prepare/);
-  assert.match(engineeringTools, /workSessionId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
+  assert.match(contract, /workSessionId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
   assert.match(engineeringTools, /const \{ workSessionId, \.\.\.runtimeParameters \} = parsed/);
   assert.match(engineeringTools, /ctx\.runInWorkSession\(workSessionId/);
-  assert.match(engineeringTools, /ctx\.workflowRuns\.begin\(workspace, projectPath, workflow\)/);
-  assert.match(engineeringTools, /ctx\.workflowRuns\.finish\(run\.id/);
+  assert.match(engineeringTools, /ctx\.engineering\.execution\.run\(workspace, projectPath, workflow, runtimeParameters\)/);
+  assert.match(workflowExecution, /this\.workflowRuns\.begin\(workspace, projectPath, workflow\)/);
+  assert.match(workflowExecution, /this\.workflowRuns\.finish\(run\.id/);
+  assert.match(workflowExecution, /this\.nodeInterlocks\.acquireWorkflow/);
 
   assert.match(firmware, /project-variant:keil:\$\{workspace\}:\$\{projectPath\}:\$\{projectFile\}:\$\{target\}/);
   assert.match(firmware, /this\.resources\.withLease\(buildResourceId, 'building'/);
@@ -83,12 +89,13 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
   const qualityReview = await read('src/quality-review.ts');
   const setupServer = await read('src/setup/setup-server.ts');
   const context = await read('src/context.ts');
+  const workflowExecution = await read('src/engineering-workflow-execution.ts');
 
   assert.match(capabilities, /quality_learning\.telemetry/);
   assert.match(capabilities, /quality_learning\.knowledge/);
   assert.match(context, /qualityObservationReconciliationFailures/);
   assert.match(context, /Quality telemetry is advisory[\s\S]*qualityObservationReconciliationFailures \+= 1/);
-  assert.match(engineeringTools, /ctx\.qualityObservations\.observe\(finished/);
+  assert.match(workflowExecution, /this\.qualityObservations\.observe\(finished/);
   assert.match(coreTools, /qualityObservations: await ctx\.qualityObservations\.list\(20\)\.catch/);
   assert.match(quality, /pending-owner-review/);
   assert.match(quality, /ambiguous-outcome-evidence/);
@@ -116,11 +123,14 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
 });
 
 
-test('Phase 3 Task Graph surface is bounded planning-only state, not an execution authority', async () => {
+test('Phase 3 Task Graph exposes one bounded typed executor without becoming an authority source', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const scopes = await read('src/security/request-principal.ts');
   const taskGraph = await read('src/task-graph.ts');
+  const workflowContract = await read('src/engineering-workflow-contract.ts');
+  const workflowExecution = await read('src/engineering-workflow-execution.ts');
+  const taskWorkflowExecution = await read('src/task-workflow-execution.ts');
   const context = await read('src/context.ts');
 
   assert.match(capabilities, /work_objective\.task_graph/);
@@ -128,29 +138,45 @@ test('Phase 3 Task Graph surface is bounded planning-only state, not an executio
   assert.match(capabilities, /work_objective_inspect/);
   assert.match(capabilities, /work_objective_mutate/);
   assert.match(capabilities, /work_objective_schedule/);
+  assert.match(capabilities, /work_objective_execute_task/);
 
   assert.match(coreTools, /work_objective_create/);
   assert.match(coreTools, /work_objective_inspect/);
   assert.match(coreTools, /work_objective_mutate/);
   assert.match(coreTools, /work_objective_schedule/);
+  assert.match(coreTools, /work_objective_execute_task/);
   assert.match(coreTools, /planning-only/);
   assert.match(coreTools, /executionActive: false/);
+  assert.match(coreTools, /ctx\.taskWorkflowExecution\.execute\(objectiveId, taskId\)/);
+  assert.match(taskWorkflowExecution, /this\.taskExecutor\.execute/);
+  assert.match(taskWorkflowExecution, /this\.workflowExecution\.run/);
+  assert.match(taskWorkflowExecution, /TASK_WORKFLOW_NOT_SUCCEEDED/);
   assert.match(coreTools, /action: z\.literal\('add_task'\)/);
   assert.match(coreTools, /action: z\.literal\('replace_dependencies'\)/);
 
-  assert.doesNotMatch(coreTools, /work_objective_(complete|succeed|activate|execute|dispatch)/);
+  const executeStart = coreTools.indexOf("server.registerTool('work_objective_execute_task'");
+  const executeEnd = coreTools.indexOf("server.registerTool('fs_list'", executeStart);
+  assert.ok(executeStart >= 0 && executeEnd > executeStart);
+  const executeBlock = coreTools.slice(executeStart, executeEnd);
+  assert.doesNotMatch(executeBlock, /shell_exec|program:|args:|host_fs|permission_|cross_node_transfer/);
   assert.doesNotMatch(coreTools, /action: z\.literal\('(start_task|finish_task|mark_running|mark_succeeded)'\)/);
 
   assert.match(scopes, /work_objective_create: 'workstation\.write'/);
   assert.match(scopes, /work_objective_inspect: 'workstation\.read'/);
   assert.match(scopes, /work_objective_mutate: 'workstation\.write'/);
   assert.match(scopes, /work_objective_schedule: 'workstation\.read'/);
+  assert.match(scopes, /work_objective_execute_task: 'workstation\.execute'/);
 
   assert.match(taskGraph, /Task dependency cycle detected/);
   assert.match(taskGraph, /runtime-restarted-before-task-completion/);
   assert.match(taskGraph, /CONCURRENCY_KEY_REQUIRED/);
+  assert.match(taskGraph, /EXECUTION_BINDING_REQUIRED/);
   assert.match(taskGraph, /OWNER_LOCAL_ONLY/);
+  assert.match(workflowContract, /persistedWorkflowParametersSchema[\s\S]*transferTicket: true[\s\S]*relayDataBase64: true/);
+  assert.match(workflowExecution, /this\.qualityObservations\.observe/);
   assert.match(context, /new TaskGraphStore/);
   assert.match(context, /reconcileInterrupted/);
   assert.match(context, /new DeterministicTaskScheduler/);
+  assert.match(context, /new EngineeringWorkflowExecutionService/);
+  assert.match(context, /new TaskWorkflowExecutionService/);
 });

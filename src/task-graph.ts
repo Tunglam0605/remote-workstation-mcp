@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ConcurrencyPolicy, type ConcurrencyDecision, type ConcurrencyOperation } from './concurrency-policy.js';
+import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema, type PersistedWorkflowParameters } from './engineering-workflow-contract.js';
 import { resolveResourceOwner, type ResourceOwnerSource } from './security/execution-context.js';
 import { setupConfigDir } from './setup/settings.js';
 
@@ -11,6 +12,14 @@ export type WorkTaskStatus = 'pending' | 'ready' | 'running' | 'succeeded' | 'fa
 export interface WorkTaskConcurrency {
   operation?: ConcurrencyOperation;
   key?: string;
+}
+
+export interface WorkTaskExecutionBinding {
+  kind: 'engineering-workflow';
+  workspace: string;
+  projectPath: string;
+  workflow: string;
+  parameters: PersistedWorkflowParameters;
 }
 
 export interface WorkTask {
@@ -24,6 +33,7 @@ export interface WorkTask {
   status: WorkTaskStatus;
   dependencies: string[];
   concurrency: WorkTaskConcurrency;
+  execution?: WorkTaskExecutionBinding;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -60,6 +70,7 @@ export interface WorkTaskCreateInput {
   priority?: number;
   dependencies?: string[];
   concurrency?: WorkTaskConcurrency;
+  execution?: WorkTaskExecutionBinding;
 }
 
 export interface TaskGraphStoreOptions {
@@ -73,7 +84,7 @@ export interface ScheduledTask {
   task: WorkTask;
   concurrencyDecision?: ConcurrencyDecision;
   dispatchable: boolean;
-  blocker?: 'OWNER_LOCAL_ONLY' | 'CONCURRENCY_KEY_REQUIRED' | 'CONCURRENCY_OPERATION_REQUIRED';
+  blocker?: 'OWNER_LOCAL_ONLY' | 'CONCURRENCY_KEY_REQUIRED' | 'CONCURRENCY_OPERATION_REQUIRED' | 'EXECUTION_BINDING_REQUIRED';
   requiresLeaseCheck: boolean;
 }
 
@@ -113,6 +124,22 @@ function uniqueDependencies(values: string[] | undefined): string[] {
   return normalized;
 }
 
+function normalizeExecution(
+  value: WorkTaskExecutionBinding | undefined
+): WorkTaskExecutionBinding | undefined {
+  if (!value) return undefined;
+  if (value.kind !== 'engineering-workflow') {
+    throw new Error('Unsupported Work Task execution binding.');
+  }
+  return {
+    kind: 'engineering-workflow',
+    workspace: bounded(value.workspace, 'execution.workspace', 128),
+    projectPath: bounded(value.projectPath || '.', 'execution.projectPath', 1024),
+    workflow: engineeringWorkflowIdSchema.parse(value.workflow),
+    parameters: persistedWorkflowParametersSchema.parse(value.parameters ?? {})
+  };
+}
+
 function validateTask(value: unknown): WorkTask {
   if (!value || typeof value !== 'object') throw new Error('Invalid Work Task record.');
   const task = value as Partial<WorkTask>;
@@ -133,7 +160,12 @@ function validateTask(value: unknown): WorkTask {
   ) {
     throw new Error('Invalid Work Task record.');
   }
-  return task as WorkTask;
+  return {
+    ...(task as WorkTask),
+    ...(task.execution !== undefined
+      ? { execution: normalizeExecution(task.execution as WorkTaskExecutionBinding) }
+      : {})
+  };
 }
 
 function validateObjective(value: unknown): WorkObjective {
@@ -339,6 +371,7 @@ export class TaskGraphStore {
         throw new Error(`Work Objective accepts at most ${this.maxTasksPerObjective} tasks.`);
       }
       const timestamp = this.now().toISOString();
+      const execution = normalizeExecution(input.execution);
       const task: WorkTask = {
         version: 1,
         id: randomUUID(),
@@ -353,6 +386,7 @@ export class TaskGraphStore {
           ...(input.concurrency?.operation ? { operation: input.concurrency.operation } : {}),
           ...(boundedOptional(input.concurrency?.key, 'concurrency.key', 512) ? { key: boundedOptional(input.concurrency?.key, 'concurrency.key', 512) } : {})
         },
+        ...(execution ? { execution } : {}),
         createdAt: timestamp,
         updatedAt: timestamp
       };
@@ -491,6 +525,14 @@ export class DeterministicTaskScheduler {
           task,
           dispatchable: false,
           blocker: 'CONCURRENCY_OPERATION_REQUIRED' as const,
+          requiresLeaseCheck: false
+        };
+      }
+      if (!task.execution) {
+        return {
+          task,
+          dispatchable: false,
+          blocker: 'EXECUTION_BINDING_REQUIRED' as const,
           requiresLeaseCheck: false
         };
       }

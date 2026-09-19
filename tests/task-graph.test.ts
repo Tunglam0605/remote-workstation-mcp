@@ -8,6 +8,13 @@ import { DeterministicTaskScheduler, TaskGraphStore } from '../src/task-graph.js
 
 const SESSION_A = '11111111-1111-4111-8111-111111111111';
 const SESSION_B = '22222222-2222-4222-8222-222222222222';
+const EXECUTION = {
+  kind: 'engineering-workflow' as const,
+  workspace: 'projects',
+  projectPath: 'demo',
+  workflow: 'firmware.build',
+  parameters: {}
+};
 
 async function fixture(t: test.TestContext) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-graph-'));
@@ -141,21 +148,25 @@ test('deterministic scheduler classifies concurrency without granting or acquiri
   const shared = await runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
     title: 'inspect',
     priority: 20,
-    concurrency: { operation: 'project.inspect' }
+    concurrency: { operation: 'project.inspect' },
+    execution: EXECUTION
   }));
   const missingKey = await runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
     title: 'probe missing key',
     priority: 10,
-    concurrency: { operation: 'hardware.debug-probe' }
+    concurrency: { operation: 'hardware.debug-probe' },
+    execution: EXECUTION
   }));
   const keyed = await runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
     title: 'probe keyed',
     priority: 5,
-    concurrency: { operation: 'hardware.debug-probe', key: 'stlink:serial:123' }
+    concurrency: { operation: 'hardware.debug-probe', key: 'stlink:serial:123' },
+    execution: EXECUTION
   }));
   const ownerOnly = await runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
     title: 'policy',
-    concurrency: { operation: 'owner.policy' }
+    concurrency: { operation: 'owner.policy' },
+    execution: EXECUTION
   }));
 
   const scheduler = new DeterministicTaskScheduler(store);
@@ -170,4 +181,48 @@ test('deterministic scheduler classifies concurrency without granting or acquiri
   assert.equal(plan[2]?.requiresLeaseCheck, true);
   assert.equal(plan[3]?.dispatchable, false);
   assert.equal(plan[3]?.blocker, 'OWNER_LOCAL_ONLY');
+});
+
+
+test('scheduler refuses READY work without a persisted typed execution binding', async t => {
+  const { store } = await fixture(t);
+  const objective = await runWithWorkSession(SESSION_A, () =>
+    store.create({ name: 'Binding', objective: 'Require typed execution binding' })
+  );
+  const task = await runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
+    title: 'unbound',
+    concurrency: { operation: 'project.inspect' }
+  }));
+  const scheduler = new DeterministicTaskScheduler(store);
+  const plan = await runWithWorkSession(SESSION_A, () => scheduler.plan(objective.id));
+  assert.equal(plan[0]?.task.id, task.id);
+  assert.equal(plan[0]?.dispatchable, false);
+  assert.equal(plan[0]?.blocker, 'EXECUTION_BINDING_REQUIRED');
+});
+
+test('Task Graph rejects transient workflow secrets and payload bytes before persistence', async t => {
+  const { root, store } = await fixture(t);
+  const objective = await runWithWorkSession(SESSION_A, () =>
+    store.create({ name: 'Secrets', objective: 'Do not persist transient credentials' })
+  );
+
+  await assert.rejects(
+    runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
+      title: 'secret binding',
+      concurrency: { operation: 'project.inspect' },
+      execution: {
+        kind: 'engineering-workflow',
+        workspace: 'projects',
+        projectPath: 'demo',
+        workflow: 'firmware.build',
+        parameters: {
+          transferTicket: 'abcdefghijklmnopqrstuvwxyzABCDEFGH12345678'
+        }
+      } as never
+    }))
+  );
+
+  const raw = await fs.readFile(path.join(root, 'work-objectives.json'), 'utf8');
+  assert.doesNotMatch(raw, /transferTicket/);
+  assert.doesNotMatch(raw, /abcdefghijklmnopqrstuvwxyzABCDEFGH12345678/);
 });

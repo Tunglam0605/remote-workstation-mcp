@@ -18,6 +18,18 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 Production Direct Nodes remain on v0.16.0 until the v0.17 orchestration core passes RC, three-node acceptance and soak gates.
 
+**v0.17.0-dev.0 - Phase 3 orchestration core**
+
+Phase 3H completes Context Capsule handoff and Work Session lifecycle semantics on top of the Phase 3 task-graph/scheduler slices.
+
+- `work_session_resume` remains read-only and returns bounded Context Capsule plus session-owned runtime state without activating the session;
+- execution paths activate/touch `CREATED`, `IDLE` or `RECOVERING` sessions internally;
+- lifecycle states are explicit: `CREATED`, `ACTIVE`, `IDLE`, `BLOCKED`, `CLOSING`, `CLOSED`, `EXPIRED`, `RECOVERING`;
+- `work_session_close` fails closed on owned runtime resources or dirty worktrees and never stops processes, releases leases or deletes worktrees implicitly;
+- idle/expiry policies, restart reconciliation and bounded terminal-record GC are durable;
+- clean worktrees may still be explicitly removed after `CLOSED` or `EXPIRED`;
+- production remains v0.16.0 until v0.17 RC/acceptance gates pass.
+
 **v0.16.0**
 
 v0.16.0 completes **Selective Quality Learning** on top of the accepted v0.15 Multi-Session execution baseline.

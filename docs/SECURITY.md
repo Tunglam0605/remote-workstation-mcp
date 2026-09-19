@@ -106,7 +106,9 @@ A `workSessionId` must never be accepted as proof of authentication or authoriza
 
 Managed process, PTY, serial, debug and engineering resource ownership is evaluated as `principalId + workSessionId`. A sibling Work Session receives the same non-disclosing "unknown resource" behavior used for another principal where applicable. Hardware resources remain globally exclusive by physical/stable resource ID, so a sibling session sees `RESOURCE_BUSY` rather than acquiring the same probe/port.
 
-Durable Work Session/Context Capsule/workflow-run files live in owner-local RWMCP configuration state, not project repositories. They store bounded non-secret metadata only. Runtime restart reconciles incomplete workflow-run records to failed; in-memory hardware leases are not reconstructed after reboot.
+Durable Work Session/Context Capsule/workflow-run files live in owner-local RWMCP configuration state, not project repositories. They store bounded non-secret metadata only. Runtime restart reconciles incomplete workflow-run records to failed; in-memory hardware leases are not reconstructed after reboot. Work Session restart reconciliation moves interrupted active/closing lifecycle state through `RECOVERING`, and bounded garbage collection never removes a terminal record that still references a worktree.
+
+`work_session_resume` is a read-only handoff surface: it does not update activity timestamps or reactivate `IDLE/RECOVERING` state. Execution/mutation paths activate the session internally. `work_session_close` never stops managed resources, releases hardware leases, cleans source or force-removes a worktree; any owned runtime resource or dirty worktree returns `NEEDS_OWNER_OR_EXPLICIT_ACTION`. Clean worktree deletion remains a separate explicit action and is permitted after `CLOSED`/`EXPIRED`.
 
 Cross-node authorization remains independent of Work Session identity. `workstation.full_control` plus a session ID still does not imply `workstation.cross_node_transfer`; the exact dedicated scope and bilateral local grants remain mandatory.
 

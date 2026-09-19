@@ -43,6 +43,7 @@ import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
 import { currentPrincipal } from './security/request-principal.js';
 import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
+import { WorkSessionLifecycleService } from './work-session-lifecycle.js';
 import { EngineeringWorkflowExecutionService } from './engineering-workflow-execution.js';
 import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
@@ -66,6 +67,8 @@ export async function createContext() {
   ]);
   const currentClientId = () => currentPrincipal()?.id ?? actor.clientId;
   const workSessions = new WorkSessionStore(currentClientId);
+  const reconciledWorkSessions = await workSessions.reconcileLifecycle();
+  const garbageCollectedWorkSessions = await workSessions.garbageCollect();
   const workflowRuns = new WorkflowRunStore(currentClientId);
   const qualityObservations = new QualityObservationStore(currentClientId);
   const interruptedWorkflowRuns = await workflowRuns.reconcileInterruptedRecords();
@@ -88,9 +91,11 @@ export async function createContext() {
   const reconciledTaskAttempts = (await taskAttempts.reconcileInterrupted()).length;
   const taskGraphs = new TaskGraphStore(currentClientId);
   const reconciledWorkTasks = (await taskGraphs.reconcileInterrupted()).length;
+  const scopeWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> =>
+    await runWithWorkSession(workSessionId, operation);
   const runInWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> => {
-    if (workSessionId?.trim()) await workSessions.resume(workSessionId);
-    return await runWithWorkSession(workSessionId, operation);
+    if (workSessionId?.trim()) await workSessions.touch(workSessionId);
+    return await scopeWorkSession(workSessionId, operation);
   };
   const policy = new PolicyEngine(config, lease, currentClientId);
   const paths = new PathGuard(policy);
@@ -116,6 +121,18 @@ export async function createContext() {
   const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
   const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
+  const workSessionLifecycle = new WorkSessionLifecycleService(
+    workSessions,
+    worktreeManager,
+    async (sessionId) => runWithWorkSession(sessionId, async () => ({
+      processes: processes.list().length,
+      terminals: engineeringTerminals.list().length,
+      serialSessions: engineeringSerial.list().length,
+      debugSessions: engineeringDebug.list().length,
+      hardwareLeases: engineeringResources.listOwned().length,
+      nodeInterlocks: (await nodeInterlocks.listOwned()).length
+    }))
+  );
   const schedulerAwareness = new SchedulerAwarenessService(
     taskScheduler,
     taskGraphs,
@@ -155,6 +172,9 @@ export async function createContext() {
     audit,
     multiNodeAuthorization,
     workSessions,
+    workSessionLifecycle,
+    reconciledWorkSessions,
+    garbageCollectedWorkSessions,
     workflowRuns,
     qualityObservations,
     reconciledWorkflowRuns,
@@ -170,6 +190,7 @@ export async function createContext() {
     taskExecutor,
     taskWorkflowExecution,
     reconciledWorkTasks,
+    scopeWorkSession,
     runInWorkSession,
     worktreeManager,
     concurrencyPolicy,

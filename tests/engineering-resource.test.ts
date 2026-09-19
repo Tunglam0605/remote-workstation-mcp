@@ -49,6 +49,31 @@ test('same principal Work Sessions compete for exclusive resources but cannot re
 });
 
 
+test('listOwned returns only leases owned by the current Work Session', () => {
+  const manager = new EngineeringResourceManager('openai-tunnel');
+  const sessionA = '11111111-1111-4111-8111-111111111111';
+  const sessionB = '22222222-2222-4222-8222-222222222222';
+
+  const leaseA = runWithWorkSession(sessionA, () =>
+    manager.acquire('debug-probe:STLINK-A', 'debugging')
+  );
+  const leaseB = runWithWorkSession(sessionB, () =>
+    manager.acquire('serial:COM9', 'monitoring')
+  );
+
+  runWithWorkSession(sessionA, () => {
+    assert.deepEqual(manager.listOwned().map(item => item.resourceId), ['debug-probe:STLINK-A']);
+    assert.equal(manager.list().length, 2);
+  });
+  runWithWorkSession(sessionB, () => {
+    assert.deepEqual(manager.listOwned().map(item => item.resourceId), ['serial:COM9']);
+    assert.equal(manager.list().length, 2);
+  });
+
+  runWithWorkSession(sessionA, () => manager.release(leaseA.id));
+  runWithWorkSession(sessionB, () => manager.release(leaseB.id));
+});
+
 test('serial/debug resources conflict globally across Work Sessions and leases do not resurrect after manager restart', () => {
   const sessionA = '11111111-1111-4111-8111-111111111111';
   const sessionB = '22222222-2222-4222-8222-222222222222';

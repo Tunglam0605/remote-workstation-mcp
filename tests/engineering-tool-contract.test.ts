@@ -68,7 +68,17 @@ test('Phase 3 retains Work Session routing under Action Schema v4 and Keil share
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 4;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
+  assert.match(coreTools, /work_session_close/);
   assert.match(coreTools, /work_session_worktree_prepare/);
+
+  const resumeStart = coreTools.indexOf("server.registerTool('work_session_resume'");
+  const resumeEnd = coreTools.indexOf("server.registerTool('work_session_list'", resumeStart);
+  assert.ok(resumeStart >= 0 && resumeEnd > resumeStart);
+  const resumeBlock = coreTools.slice(resumeStart, resumeEnd);
+  assert.match(resumeBlock, /readOnlyHint: true/);
+  assert.match(resumeBlock, /ctx\.workSessions\.inspect\(sessionId, true\)/);
+  assert.match(resumeBlock, /ctx\.scopeWorkSession\(sessionId/);
+  assert.doesNotMatch(resumeBlock, /ctx\.runInWorkSession\(sessionId/);
   assert.match(contract, /workSessionId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
   assert.match(engineeringTools, /const \{ workSessionId, \.\.\.runtimeParameters \} = parsed/);
   assert.match(engineeringTools, /ctx\.runInWorkSession\(workSessionId/);

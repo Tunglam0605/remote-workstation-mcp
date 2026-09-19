@@ -28,7 +28,7 @@ test('WorkSessionStore persists compact owner-scoped context and never discloses
   });
 
   assert.equal(session.principalId, 'openai-tunnel');
-  assert.equal(session.status, 'active');
+  assert.equal(session.status, 'created');
   assert.equal(session.capsule.project?.workspace, 'stm32');
   assert.equal(session.capsule.project?.projectPath, 'B300-Main-Custom');
   assert.equal(session.capsule.currentObjective, 'Inspect and harden build workflow');
@@ -42,7 +42,7 @@ test('WorkSessionStore persists compact owner-scoped context and never discloses
 
   principal = 'different-principal';
   assert.deepEqual(await store.list(), []);
-  await assert.rejects(store.resume(session.id), /Unknown active Work Session/);
+  await assert.rejects(store.resume(session.id), /Unknown Work Session/);
 
   principal = 'openai-tunnel';
   const [second, third] = await Promise.all([

@@ -1,6 +1,6 @@
 # Multi-device control
 
-Remote Workstation MCP v0.14.1 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable, reports its own health, and may exchange large workspace payloads through the generic Direct-Node data plane without creating a permanent master PC.
+Remote Workstation MCP v0.14.2 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable and reports its own health. Cross-node payloads prefer a direct peer path; when no workstation-to-workstation route exists, a bounded control-plane relay can use the two already-authenticated Direct Node tunnels without creating a permanent master PC.
 
 ## Preferred topology: every workstation connects directly
 
@@ -47,22 +47,30 @@ When multiple Remote Workstation apps are selected for one ChatGPT message, the 
 ChatGPT can call `chatgpt_web_status` on several selected Direct Node apps and aggregate:
 
 ```text
-Windows       healthy   v0.14.1   transfers=0
-Vision        healthy   v0.14.1   transfers=1
-Personal      healthy   v0.14.1   transfers=0
+Windows       healthy   v0.14.2   transfers=0
+Vision        healthy   v0.14.2   transfers=1
+Personal      healthy   v0.14.2   transfers=0
 ```
 
 This aggregation happens at the AI/client control plane. No workstation becomes the permanent health master for the others.
 
 ## Generic Direct-Node data plane
 
-v0.14.1 provides generic workspace-file transfer over a bounded list of approved direct endpoints. Tailscale is preferred when the nodes are peers; RFC1918 private-LAN endpoints provide a direct fallback when they share a LAN. The payload goes node-to-node; ChatGPT carries only offer metadata, the ephemeral ticket and final receipt.
+v0.14.2 keeps generic direct transfer as the preferred path. Tailscale is preferred when the nodes are peers; RFC1918 private-LAN endpoints provide a direct fallback when they share a reachable LAN.
+
+Real acceptance also proved a third topology: each node can be independently reachable from ChatGPT while **no mutual workstation-to-workstation route exists**. In that case RWMCP can use the bounded control-plane relay fallback over the already-authenticated Direct Node MCP tunnels. Relay is limited to 32 MiB, uses 64 KiB resumable chunks with per-chunk SHA-256, and still requires final full-file SHA-256/size before atomic acceptance.
 
 Use the stable workflow envelope with:
 
 - `platform.transfer_prepare`
 - `platform.transfer_receive_offer`
 - `platform.transfer_push`
+- `platform.relay_read_chunk`
+- `platform.relay_begin`
+- `platform.relay_status`
+- `platform.relay_write_chunk`
+- `platform.relay_finalize`
+- `platform.relay_abort`
 
 See [DATA_PLANE.md](DATA_PLANE.md) for the trust boundary, 512 MiB limit, content-addressed verified store and lifecycle.
 

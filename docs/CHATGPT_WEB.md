@@ -172,9 +172,9 @@ For v0.12.0, `actionSchemaVersion=2`. Refresh the custom-app actions once after 
 
 v0.13.x keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`, so an app already refreshed for v0.12 does **not** need another action refresh. The high-level workflows are discovered through the existing `engineering_workflow_*` actions. v0.13.1 changes only Windows recovery-plane lifecycle behavior; v0.13.2 changes only OpenOCD provider discovery/script resolution; v0.13.3 adds active ST-Link access preflight and `probe-busy` diagnostics; v0.13.4 makes real xPack ownership failures observable; v0.13.5 adds artifact integrity workflows; v0.13.6 adds native firmware transfer workflows.
 
-v0.14.x **also keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`**. v0.14.0 adds `platform.transfer_prepare`, `platform.transfer_receive_offer`, `platform.transfer_push` and `chatgpt_web_status.nodeHealth`. v0.14.1 adds runtime-only `parameters.transferEndpoints[]` plus multi-endpoint direct fallback; the public top-level action catalog is unchanged. An app already refreshed for schema v2 does **not** need another action refresh.
+v0.14.x **also keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`**. v0.14.0 adds the generic direct data plane and `nodeHealth`; v0.14.1 adds runtime-only multi-endpoint direct fallback; v0.14.2 adds runtime-only `platform.relay_*` workflows and relay parameters inside the same generic workflow envelope. The public top-level action catalog is unchanged, so an app already refreshed for schema v2 does **not** need another action refresh.
 
-After refreshing, verify with `capabilities_list` and confirm both `actionSchemaVersion` and `engineeringApiVersion`. On v0.14.1, inspect `chatgpt_web_status.nodeHealth.dataPlane` for aggregate direct-path, Tailscale and private-LAN availability before a cross-node transfer.
+Before a cross-node transfer, inspect `chatgpt_web_status.nodeHealth.dataPlane`. Prefer direct transfer when a peer route works. If direct endpoints are unreachable but both Direct Nodes remain reachable through authenticated MCP tunnels, use the bounded relay workflows. Recommended orchestration should pipe the source chunk result directly into the destination write call without rendering `dataBase64` into the chat response.
 
 ## Step 6 - First safe verification
 

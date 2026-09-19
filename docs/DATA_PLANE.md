@@ -1,8 +1,8 @@
 # Generic Direct-Node Data Plane
 
-Remote Workstation MCP v0.14 moves cross-node payload transfer into the **core platform** instead of treating it as a firmware-only capability. v0.14.1 adds multi-endpoint direct transport after real acceptance proved that two healthy Direct Nodes can have Tailscale addresses without belonging to the same Tailscale peer graph.
+Remote Workstation MCP v0.14 moves cross-node payload transfer into the **core platform** instead of treating it as a firmware-only capability. v0.14.1 adds multi-endpoint direct transport after real acceptance proved that two healthy Direct Nodes can have Tailscale addresses without belonging to the same Tailscale peer graph. v0.14.2 adds a bounded control-plane relay after acceptance further proved that independently reachable Direct Nodes may have no mutual route at all.
 
-The control plane remains ChatGPT/MCP. Large file bytes move directly between owner-controlled Direct Nodes.
+The control plane remains ChatGPT/MCP. Large file bytes move directly between owner-controlled Direct Nodes whenever a peer path exists; the authenticated control path is only a bounded fallback.
 
 ```text
 ChatGPT / MCP control plane
@@ -37,6 +37,12 @@ v0.14.0 exposes the first platform workflows through the existing generic `engin
 - `platform.transfer_prepare`
 - `platform.transfer_receive_offer`
 - `platform.transfer_push`
+- `platform.relay_read_chunk`
+- `platform.relay_begin`
+- `platform.relay_status`
+- `platform.relay_write_chunk`
+- `platform.relay_finalize`
+- `platform.relay_abort`
 
 The historical tool name `engineering_workflow_*` is retained for action-schema compatibility. The `platform.*` workflow IDs are core-platform workflows and do not require firmware capability.
 
@@ -107,6 +113,54 @@ Required parameters:
 
 The source re-hashes the local file before network I/O. A mismatch blocks before any payload is sent. It then tries the bounded direct endpoint list in order. Network-unreachable candidates may fall through to the next endpoint; an HTTP receiver rejection such as invalid ticket, expiry or integrity failure is authoritative and fails closed. `transferEndpoint` remains accepted for compatibility.
 
+## Bounded control-plane relay fallback
+
+Direct transfer remains preferred. v0.14.2 adds a fallback for a different topology: both workstations are independently reachable through authenticated Direct Node MCP tunnels, but the workstations cannot open a peer route to one another.
+
+The relay uses the existing stable workflow envelope:
+
+- `platform.relay_read_chunk` on the source;
+- `platform.relay_begin` on the destination;
+- `platform.relay_status` to recover the next required offset;
+- `platform.relay_write_chunk` on the destination;
+- `platform.relay_finalize` after all bytes arrive;
+- `platform.relay_abort` for explicit cleanup.
+
+Recommended orchestration is:
+
+```text
+source Direct Node                         destination Direct Node
+------------------                         -----------------------
+transfer_prepare
+                                              relay_begin
+relay_read_chunk(offset=0)
+      | bounded base64 result
+      +-------------------------------------> relay_write_chunk(offset=0)
+relay_read_chunk(offset=65536)
+      +-------------------------------------> relay_write_chunk(offset=65536)
+...
+                                              relay_finalize
+                                              full SHA-256 + size
+                                              atomic verified promotion
+```
+
+The orchestration layer should pass the source chunk result directly into the destination write tool call and should not render `dataBase64` into the chat response.
+
+Relay properties:
+
+- maximum file size: **32 MiB**;
+- maximum chunk size: **64 KiB**;
+- binary-safe base64 transport;
+- exact sequential offset;
+- SHA-256 for every chunk;
+- persistent session state with default 30-minute and maximum 60-minute TTL;
+- restart/resume through `platform.relay_status`;
+- final full-file SHA-256 and size verification through the same atomic verified store used by direct transfer;
+- destination write permission is enforced locally;
+- no relay depends on a permanent master workstation.
+
+This fallback traverses the already-authenticated MCP control paths and is therefore intentionally bounded. It is not a replacement for the direct data plane for large datasets, ROS bags or bulk artifacts.
+
 ## Destination acceptance
 
 On receipt the destination:
@@ -132,7 +186,9 @@ Existing matching verified content is reused idempotently. Existing different co
 
 ## Limits
 
-- maximum file size: **512 MiB**;
+- direct-transfer maximum file size: **512 MiB**;
+- control-plane relay maximum file size: **32 MiB**;
+- control-plane relay maximum chunk size: **64 KiB**;
 - workspace-relative regular files only;
 - production receiver bind: approved Tailscale or RFC1918 private IPv4 only;
 - common Docker/bridge/tunnel interfaces are excluded from automatic private-LAN discovery;
@@ -168,6 +224,12 @@ nodeHealth
     availableTransports
     activeOffers
     recentTransfers
+    controlPlaneRelay
+      supported
+      maxRelayBytes
+      maxChunkBytes
+      resumable
+      persistentSessionState
   warnings
 ```
 
@@ -181,6 +243,8 @@ New generic work should prefer `platform.transfer_*` unless a firmware-specific 
 
 ## Security model
 
-The normal MCP server stays bound to loopback. Temporary data-plane listeners are separate one-shot surfaces bound only to approved direct interfaces. Tailscale remains preferred when the peer path exists; RFC1918 private-LAN fallback is available when nodes share a trusted local network. This does not make MCP itself LAN-accessible.
+The normal MCP server stays bound to loopback. Temporary direct data-plane listeners are separate one-shot surfaces bound only to approved direct interfaces. Tailscale remains preferred when the peer path exists; RFC1918 private-LAN fallback is available when nodes share a trusted reachable local network. This does not make MCP itself LAN-accessible.
+
+If neither direct path works, the control-plane relay uses each node's existing authenticated MCP tunnel rather than opening a new public listener. Relay chunks are bounded and individually hashed, while final acceptance still depends on the destination's local workspace write policy and full-file integrity contract.
 
 The data plane does not grant access to another node. Each destination still enforces its own local workspace policy and write permission.

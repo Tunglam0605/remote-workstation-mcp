@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { ControlPlaneRelayAdapter } from '../control-plane-relay.js';
 import { DataPlaneAdapter } from '../data-plane.js';
 import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
@@ -22,6 +23,12 @@ export type EngineeringWorkflowId =
   | 'platform.transfer_prepare'
   | 'platform.transfer_receive_offer'
   | 'platform.transfer_push'
+  | 'platform.relay_read_chunk'
+  | 'platform.relay_begin'
+  | 'platform.relay_status'
+  | 'platform.relay_write_chunk'
+  | 'platform.relay_finalize'
+  | 'platform.relay_abort'
   | 'firmware.build'
   | 'firmware.build_flash'
   | 'firmware.build_flash_verify'
@@ -74,6 +81,12 @@ export interface EngineeringWorkflowOverrides {
   transferEndpoints?: string[];
   transferTicket?: string;
   transferTimeoutMs?: number;
+  relaySessionId?: string;
+  relayOffset?: number;
+  relayChunkBytes?: number;
+  relayDataBase64?: string;
+  relayChunkSha256?: string;
+  relayTtlMs?: number;
 }
 
 interface ProjectState {
@@ -125,6 +138,7 @@ export class EngineeringWorkflowEngine {
     private readonly policy: PolicyEngine,
     private readonly profiles: EngineeringProjectProfileStore,
     private readonly dataPlane: DataPlaneAdapter,
+    private readonly controlPlaneRelay: ControlPlaneRelayAdapter,
     private readonly artifacts: ArtifactIntegrityAdapter,
     private readonly artifactTransfer: ArtifactTransferAdapter,
     private readonly firmware: FirmwareAdapter,
@@ -281,7 +295,13 @@ export class EngineeringWorkflowEngine {
     const ids: EngineeringWorkflowId[] = [
       'platform.transfer_prepare',
       'platform.transfer_receive_offer',
-      'platform.transfer_push'
+      'platform.transfer_push',
+      'platform.relay_read_chunk',
+      'platform.relay_begin',
+      'platform.relay_status',
+      'platform.relay_write_chunk',
+      'platform.relay_finalize',
+      'platform.relay_abort'
     ];
     const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
     if (firmwareCapable) {
@@ -312,11 +332,25 @@ export class EngineeringWorkflowEngine {
       profile: state.profile,
       workflows: this.workflowIds(state).map(id => ({
         id,
-        destructive: id === 'platform.transfer_receive_offer' || id === 'platform.transfer_push' || id.startsWith('firmware.build_flash') || id === 'stm32.debug_fault_snapshot' || id === 'stm32.deploy_accept',
+        destructive: id === 'platform.transfer_receive_offer' ||
+          id === 'platform.transfer_push' ||
+          id === 'platform.relay_begin' ||
+          id === 'platform.relay_write_chunk' ||
+          id === 'platform.relay_finalize' ||
+          id === 'platform.relay_abort' ||
+          id.startsWith('firmware.build_flash') ||
+          id === 'stm32.debug_fault_snapshot' ||
+          id === 'stm32.deploy_accept',
         description: {
           'platform.transfer_prepare': 'Hash any regular workspace file and emit a generic SHA-256/size manifest without moving or modifying it.',
-          'platform.transfer_receive_offer': 'Create a short-lived one-shot Tailscale receive ticket for any verified workspace file and promote matching bytes into the generic transfer store.',
-          'platform.transfer_push': 'Stream one verified workspace file directly to a peer Direct Node over the native Tailscale data plane without routing payload bytes through ChatGPT.',
+          'platform.transfer_receive_offer': 'Create one short-lived receive offer on approved direct IPv4 interfaces and atomically accept only matching bytes.',
+          'platform.transfer_push': 'Stream one verified workspace file directly to a peer Direct Node over approved direct endpoints with integrity verification.',
+          'platform.relay_read_chunk': 'Read one bounded source-file chunk for control-plane relay. Intended for orchestration that pipes the result directly into the destination write workflow without printing payload data.',
+          'platform.relay_begin': 'Create a persistent bounded destination relay session for an exact file name, SHA-256 and size.',
+          'platform.relay_status': 'Read resumable destination relay session state and the next required byte offset.',
+          'platform.relay_write_chunk': 'Append one integrity-checked bounded binary chunk at the exact next relay offset.',
+          'platform.relay_finalize': 'Verify the completed relay payload against full-file SHA-256/size and atomically promote it into the generic verified transfer store.',
+          'platform.relay_abort': 'Delete one incomplete control-plane relay session and its staging payload.',
           'firmware.artifact_prepare': 'Hash a firmware artifact and emit a canonical SHA-256/size manifest without modifying the artifact.',
           'firmware.artifact_accept': 'Verify a staged firmware artifact against an expected SHA-256/size and atomically promote it into the project verified store.',
           'firmware.artifact_receive_offer': 'Create one short-lived, one-shot Tailscale receive ticket for a known SHA-256/size and atomically accept only matching bytes.',
@@ -344,7 +378,13 @@ export class EngineeringWorkflowEngine {
   ) {
     const platformWorkflow = workflow === 'platform.transfer_prepare' ||
       workflow === 'platform.transfer_receive_offer' ||
-      workflow === 'platform.transfer_push';
+      workflow === 'platform.transfer_push' ||
+      workflow === 'platform.relay_read_chunk' ||
+      workflow === 'platform.relay_begin' ||
+      workflow === 'platform.relay_status' ||
+      workflow === 'platform.relay_write_chunk' ||
+      workflow === 'platform.relay_finalize' ||
+      workflow === 'platform.relay_abort';
 
     if (platformWorkflow) {
       const scope = { workspace, basePath: projectPath };
@@ -364,6 +404,145 @@ export class EngineeringWorkflowEngine {
             blockers: []
           },
           resolved: { dataPlane: { file } }
+        };
+      }
+
+      if (workflow === 'platform.relay_read_chunk') {
+        const file = overrides.file?.trim();
+        const offset = overrides.relayOffset ?? 0;
+        const chunkBytes = overrides.relayChunkBytes ?? 64 * 1024;
+        if (!file) throw new Error('platform.relay_read_chunk requires parameters.file.');
+        if (!Number.isSafeInteger(offset) || offset < 0) {
+          throw new Error('parameters.relayOffset must be a non-negative safe integer.');
+        }
+        if (!Number.isSafeInteger(chunkBytes) || chunkBytes <= 0 || chunkBytes > 64 * 1024) {
+          throw new Error('parameters.relayChunkBytes must be between 1 and 65536.');
+        }
+        return {
+          workflow,
+          scope,
+          steps: ['relay.read_chunk'],
+          relay: {
+            ready: true,
+            transport: 'control-plane-relay',
+            file,
+            offset,
+            chunkBytes,
+            blockers: []
+          },
+          resolved: { relay: { file, offset, chunkBytes } }
+        };
+      }
+
+      if (workflow === 'platform.relay_begin') {
+        const fileName = overrides.fileName?.trim();
+        const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+        const expectedSize = overrides.expectedSize;
+        const relayTtlMs = overrides.relayTtlMs ?? 30 * 60 * 1000;
+        if (!fileName) throw new Error('platform.relay_begin requires parameters.fileName.');
+        if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+          throw new Error('platform.relay_begin requires parameters.expectedSha256 as 64 hexadecimal characters.');
+        }
+        if (!Number.isSafeInteger(expectedSize) || (expectedSize ?? 0) <= 0 || (expectedSize ?? 0) > 32 * 1024 * 1024) {
+          throw new Error('platform.relay_begin requires parameters.expectedSize between 1 and 33554432.');
+        }
+        if (!Number.isSafeInteger(relayTtlMs) || relayTtlMs < 60_000 || relayTtlMs > 60 * 60 * 1000) {
+          throw new Error('parameters.relayTtlMs must be between 60000 and 3600000.');
+        }
+        return {
+          workflow,
+          scope,
+          steps: ['relay.begin'],
+          relay: {
+            ready: true,
+            transport: 'control-plane-relay',
+            fileName,
+            expectedSha256,
+            expectedSize,
+            relayTtlMs,
+            blockers: []
+          },
+          resolved: { relay: { fileName, expectedSha256, expectedSize, relayTtlMs } }
+        };
+      }
+
+      if (
+        workflow === 'platform.relay_status' ||
+        workflow === 'platform.relay_write_chunk' ||
+        workflow === 'platform.relay_finalize' ||
+        workflow === 'platform.relay_abort'
+      ) {
+        const relaySessionId = overrides.relaySessionId?.trim();
+        if (!relaySessionId || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(relaySessionId)) {
+          throw new Error(`${workflow} requires parameters.relaySessionId as a UUID.`);
+        }
+        const state = await this.controlPlaneRelay.sessionStatus({
+          workspace,
+          basePath: projectPath,
+          sessionId: relaySessionId
+        });
+
+        if (workflow === 'platform.relay_status') {
+          return {
+            workflow,
+            scope,
+            steps: ['relay.status'],
+            relay: { ready: true, transport: 'control-plane-relay', state, blockers: [] },
+            resolved: { relay: { relaySessionId } }
+          };
+        }
+
+        if (workflow === 'platform.relay_write_chunk') {
+          const offset = overrides.relayOffset;
+          const chunkSha256 = overrides.relayChunkSha256?.trim().toLowerCase();
+          if (!Number.isSafeInteger(offset) || (offset ?? -1) < 0) {
+            throw new Error('platform.relay_write_chunk requires parameters.relayOffset as a non-negative safe integer.');
+          }
+          if (!chunkSha256 || !/^[a-f0-9]{64}$/.test(chunkSha256)) {
+            throw new Error('platform.relay_write_chunk requires parameters.relayChunkSha256 as 64 hexadecimal characters.');
+          }
+          if (!overrides.relayDataBase64) {
+            throw new Error('platform.relay_write_chunk requires parameters.relayDataBase64.');
+          }
+          const blockers = offset === state.nextOffset
+            ? []
+            : [`Offset mismatch: destination expects ${state.nextOffset}, got ${offset}.`];
+          return {
+            workflow,
+            scope,
+            steps: ['relay.chunk_preflight', 'relay.write_chunk'],
+            relay: {
+              ready: blockers.length === 0,
+              transport: 'control-plane-relay',
+              state,
+              offset,
+              chunkSha256,
+              dataPresent: true,
+              blockers
+            },
+            resolved: { relay: { relaySessionId, offset, chunkSha256, dataPresent: true } }
+          };
+        }
+
+        if (workflow === 'platform.relay_finalize') {
+          const blockers = state.nextOffset === state.expectedSize
+            ? []
+            : [`Relay session incomplete: ${state.nextOffset}/${state.expectedSize} bytes.`];
+          return {
+            workflow,
+            scope,
+            steps: ['relay.final_preflight', 'relay.verify_accept'],
+            relay: { ready: blockers.length === 0, transport: 'control-plane-relay', state, blockers },
+            resolved: { relay: { relaySessionId } }
+          };
+        }
+
+        return {
+          workflow,
+          scope,
+          steps: ['relay.abort'],
+          relay: { ready: true, transport: 'control-plane-relay', state, blockers: [] },
+          resolved: { relay: { relaySessionId } }
         };
       }
 
@@ -764,7 +943,13 @@ export class EngineeringWorkflowEngine {
 
     const platformWorkflow = workflow === 'platform.transfer_prepare' ||
       workflow === 'platform.transfer_receive_offer' ||
-      workflow === 'platform.transfer_push';
+      workflow === 'platform.transfer_push' ||
+      workflow === 'platform.relay_read_chunk' ||
+      workflow === 'platform.relay_begin' ||
+      workflow === 'platform.relay_status' ||
+      workflow === 'platform.relay_write_chunk' ||
+      workflow === 'platform.relay_finalize' ||
+      workflow === 'platform.relay_abort';
 
     if (platformWorkflow) {
       const plan = await this.plan(workspace, projectPath, workflow, overrides);
@@ -776,6 +961,145 @@ export class EngineeringWorkflowEngine {
         if (!prepared.ok) return { workflow, status: 'failed', plan, steps };
         steps.push({ id: 'transfer.manifest', status: 'succeeded', durationMs: 0, result: prepared.value });
         return { workflow, status: 'succeeded', plan, steps, outputs: { manifest: prepared.value } };
+      }
+
+      if (workflow === 'platform.relay_read_chunk') {
+        const file = overrides.file?.trim();
+        const offset = overrides.relayOffset ?? 0;
+        const chunkBytes = overrides.relayChunkBytes ?? 64 * 1024;
+        if (!file) throw new Error('platform.relay_read_chunk requires parameters.file.');
+        const started = Date.now();
+        try {
+          const chunk = await this.controlPlaneRelay.readChunk({
+            workspace,
+            basePath: projectPath,
+            file,
+            offset,
+            chunkBytes
+          });
+          steps.push({
+            id: 'relay.read_chunk',
+            status: 'succeeded',
+            durationMs: Date.now() - started,
+            result: {
+              transport: chunk.transport,
+              file: chunk.file,
+              offset: chunk.offset,
+              length: chunk.length,
+              nextOffset: chunk.nextOffset,
+              totalSize: chunk.totalSize,
+              eof: chunk.eof,
+              sha256: chunk.sha256,
+              dataPresent: chunk.dataBase64.length > 0
+            }
+          });
+          return { workflow, status: 'succeeded', plan, steps, outputs: { chunk } };
+        } catch (error) {
+          steps.push({
+            id: 'relay.read_chunk',
+            status: 'failed',
+            durationMs: Date.now() - started,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return { workflow, status: 'failed', plan, steps };
+        }
+      }
+
+      if (workflow === 'platform.relay_begin') {
+        const fileName = overrides.fileName?.trim();
+        const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
+        const expectedSize = overrides.expectedSize;
+        if (!fileName || !expectedSha256 || expectedSize === undefined) {
+          throw new Error('platform.relay_begin requires fileName, expectedSha256 and expectedSize.');
+        }
+        const begun = await capture('relay.begin', () => this.controlPlaneRelay.begin({
+          workspace,
+          basePath: projectPath,
+          fileName,
+          expectedSha256,
+          expectedSize,
+          ttlMs: overrides.relayTtlMs
+        }));
+        if (!begun.ok) return { workflow, status: 'failed', plan, steps };
+        return { workflow, status: 'succeeded', plan, steps, outputs: { session: begun.value } };
+      }
+
+      if (workflow === 'platform.relay_status') {
+        const relaySessionId = overrides.relaySessionId?.trim();
+        if (!relaySessionId) throw new Error('platform.relay_status requires parameters.relaySessionId.');
+        const status = await capture('relay.status', () => this.controlPlaneRelay.sessionStatus({
+          workspace,
+          basePath: projectPath,
+          sessionId: relaySessionId
+        }));
+        if (!status.ok) return { workflow, status: 'failed', plan, steps };
+        return { workflow, status: 'succeeded', plan, steps, outputs: { session: status.value } };
+      }
+
+      if (workflow === 'platform.relay_write_chunk') {
+        const relay = plan.relay;
+        if (!relay) throw new Error('platform.relay_write_chunk plan did not produce relay preflight data.');
+        steps.push({
+          id: 'relay.chunk_preflight',
+          status: relay.ready ? 'succeeded' : 'blocked',
+          durationMs: 0,
+          result: relay,
+          ...(!relay.ready ? { error: relay.blockers.join(' ') } : {})
+        });
+        if (!relay.ready) return { workflow, status: 'blocked', plan, steps, outputs: { relay } };
+
+        const relaySessionId = overrides.relaySessionId?.trim();
+        const offset = overrides.relayOffset;
+        const dataBase64 = overrides.relayDataBase64;
+        const chunkSha256 = overrides.relayChunkSha256?.trim().toLowerCase();
+        if (!relaySessionId || offset === undefined || !dataBase64 || !chunkSha256) {
+          throw new Error('platform.relay_write_chunk requires relaySessionId, relayOffset, relayDataBase64 and relayChunkSha256.');
+        }
+        const written = await capture('relay.write_chunk', () => this.controlPlaneRelay.writeChunk({
+          workspace,
+          basePath: projectPath,
+          sessionId: relaySessionId,
+          offset,
+          dataBase64,
+          chunkSha256
+        }));
+        if (!written.ok) return { workflow, status: 'failed', plan, steps };
+        return { workflow, status: 'succeeded', plan, steps, outputs: { relay: written.value } };
+      }
+
+      if (workflow === 'platform.relay_finalize') {
+        const relay = plan.relay;
+        if (!relay) throw new Error('platform.relay_finalize plan did not produce relay preflight data.');
+        steps.push({
+          id: 'relay.final_preflight',
+          status: relay.ready ? 'succeeded' : 'blocked',
+          durationMs: 0,
+          result: relay,
+          ...(!relay.ready ? { error: relay.blockers.join(' ') } : {})
+        });
+        if (!relay.ready) return { workflow, status: 'blocked', plan, steps, outputs: { relay } };
+
+        const relaySessionId = overrides.relaySessionId?.trim();
+        if (!relaySessionId) throw new Error('platform.relay_finalize requires parameters.relaySessionId.');
+        const finalized = await capture('relay.verify_accept', () => this.controlPlaneRelay.finalize({
+          workspace,
+          basePath: projectPath,
+          sessionId: relaySessionId
+        }));
+        if (!finalized.ok) return { workflow, status: 'failed', plan, steps };
+        return { workflow, status: 'succeeded', plan, steps, outputs: { receipt: finalized.value } };
+      }
+
+      if (workflow === 'platform.relay_abort') {
+        const relaySessionId = overrides.relaySessionId?.trim();
+        if (!relaySessionId) throw new Error('platform.relay_abort requires parameters.relaySessionId.');
+        const aborted = await capture('relay.abort', () => this.controlPlaneRelay.abort({
+          workspace,
+          basePath: projectPath,
+          sessionId: relaySessionId
+        }));
+        if (!aborted.ok) return { workflow, status: 'failed', plan, steps };
+        return { workflow, status: 'succeeded', plan, steps, outputs: { relay: aborted.value } };
       }
 
       if (workflow === 'platform.transfer_receive_offer') {

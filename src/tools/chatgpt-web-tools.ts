@@ -37,11 +37,12 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
     )
   );
   const dataPlane = ctx.dataPlane.status();
+  const controlPlaneRelay = ctx.controlPlaneRelay.status();
   const managedProcesses = ctx.processes.list();
   const terminalSessions = ctx.engineering.terminals.list();
   const hardwareLeases = ctx.engineering.resources.list();
   const healthWarnings = [
-    ...(!dataPlane.directIpv4Available ? ['native-data-plane-unavailable'] : []),
+    ...(!dataPlane.directIpv4Available && !controlPlaneRelay.supported ? ['data-plane-unavailable'] : []),
     ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : [])
   ];
 
@@ -100,7 +101,10 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
         terminals: terminalSessions.filter(item => item.status === 'running').length,
         hardwareLeases: hardwareLeases.length
       },
-      dataPlane,
+      dataPlane: {
+        ...dataPlane,
+        controlPlaneRelay
+      },
       warnings: healthWarnings
     },
     verification: {

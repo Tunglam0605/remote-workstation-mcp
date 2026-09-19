@@ -12,6 +12,12 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**Stable production: v0.16.0**
+
+**Development main: v0.17.0-dev.0 · channel=development · Action Schema 4 · Engineering API 4**
+
+Production Direct Nodes remain on v0.16.0 until the v0.17 orchestration core passes RC, three-node acceptance and soak gates.
+
 **v0.16.0**
 
 v0.16.0 completes **Selective Quality Learning** on top of the accepted v0.15 Multi-Session execution baseline.

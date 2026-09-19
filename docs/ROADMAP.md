@@ -498,7 +498,7 @@ Foundation slice implemented on the Phase-3 branch:
 - bounded task/dependency count, cycle detection, unknown-dependency rejection and deterministic priority/sequence ordering;
 - derived `pending -> ready -> running -> succeeded/failed/blocked` lifecycle with transitive dependency blocking;
 - runtime restart reconciles stale `running` tasks to failed state rather than resurrecting fake work;
-- Action Schema v4 adds only four graph-control tools: create, inspect, structural mutate and planning-only schedule;
+- Action Schema v4 starts with bounded graph-control tools and later adds typed execution/attempt lifecycle surfaces without exposing arbitrary commands or authority mutation;
 - MCP structural mutation cannot mark work running/succeeded/failed and cannot acquire permissions, leases or interlocks;
 - scheduler classifies existing ConcurrencyPolicy operations and fails closed for missing operation, missing required key and owner-local-only work;
 - `TaskExecutionCoordinator` reuses `EngineeringResourceManager` and `NodeInterlockStore` instead of creating a parallel lock/authority system;
@@ -537,7 +537,7 @@ Phase-3 acceptance gates:
 - cycle/unknown-dependency/duplicate-dependency cases fail closed;
 - same principal but different Work Sessions cannot observe or mutate sibling objectives;
 - deterministic ready ordering is stable across reload/restart;
-- resource contention returns `RESOURCE_BUSY` before task state becomes `running`;
+- resource contention is reported as `WAITING_RESOURCE` when observable and still fails closed at the real lease boundary before task state becomes `running`;
 - node-exclusive execution blocks lifecycle mutation through the existing interlock path;
 - callback failure propagates dependency blockers and never reports success;
 - restart reconciliation leaves no stale `running` task;

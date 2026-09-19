@@ -2,7 +2,7 @@ import os from 'node:os';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
-import { ACTION_SCHEMA_VERSION, CAPABILITIES, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
+import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, CAPABILITIES, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
@@ -42,7 +42,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'capabilities_list', undefined, async () => ({
-    server: 'remote-workstation-mcp', version: SERVER_VERSION, protocol: 'MCP', vendorNeutral: true,
+    server: 'remote-workstation-mcp', version: SERVER_VERSION, channel: BUILD_CHANNEL, gitCommit: BUILD_COMMIT ?? null, protocol: 'MCP', vendorNeutral: true,
     actionSchemaVersion: ACTION_SCHEMA_VERSION,
     engineeringApiVersion: ENGINEERING_API_VERSION,
     actorTag: ctx.actor,
@@ -56,6 +56,8 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'system_info', undefined, async () => ({
     serverVersion: SERVER_VERSION,
+    channel: BUILD_CHANNEL,
+    gitCommit: BUILD_COMMIT ?? null,
     device: ctx.identity,
     platform: os.platform(), release: os.release(), arch: os.arch(), hostname: os.hostname(),
     cpuCount: os.cpus().length, totalMemoryBytes: os.totalmem(), freeMemoryBytes: os.freemem(), uptimeSeconds: os.uptime(),
@@ -271,7 +273,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   )));
 
   server.registerTool('work_objective_schedule', {
-    description: 'Return a deterministic read-only plan for READY tasks. Planning classifies concurrency requirements but does not acquire leases/interlocks, start processes or authorize execution.',
+    description: 'Return a deterministic read-only plan enriched with live Work Session/resource/node awareness. Awareness can classify READY work as waiting, but it never grants authority or acquires leases/interlocks.',
     inputSchema: z.object({
       workSessionId: z.string().uuid(),
       objectiveId: z.string().uuid(),
@@ -280,10 +282,10 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workSessionId, objectiveId, limit }) => result(await audited(ctx.audit, 'work_objective_schedule', undefined, () =>
     ctx.runInWorkSession(workSessionId, async () => ({
-      plan: await ctx.taskScheduler.plan(objectiveId, limit),
+      ...(await ctx.schedulerAwareness.snapshot(objectiveId, limit)),
       authority: 'planning-only',
       executionActive: false,
-      note: 'A dispatchable scheduler item is not permission to execute; 3C Executor must acquire the required Work Session/resource/node authority before changing task runtime state.'
+      note: 'Scheduler awareness reports live contention and session/worktree state. It is not permission to execute; policy, typed workflow validation, resource leases and node interlocks remain authoritative at execution time.'
     }))
   )));
 

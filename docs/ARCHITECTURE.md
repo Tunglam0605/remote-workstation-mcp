@@ -213,6 +213,14 @@ Attempt history is stored separately from the mutable DAG. It records bounded st
 
 Cancellation is intentionally truthful. Pending/READY work can transition to `cancelled` before dispatch, which blocks dependents like another non-success dependency. An explicit retry may then advance generation and recompute downstream readiness. If a task is already RUNNING, RWMCP records `cancelRequestedAt` on the durable attempt but does not claim the underlying typed provider was preempted. The eventual real workflow result remains the final attempt outcome until provider-specific cancellable contracts are introduced.
 
+Phase 3F adds **Scheduler Awareness** as a read-only live-state layer above the deterministic plan. It observes active Work Sessions and their worktree/build ownership, current-session Task Attempts, canonical `EngineeringResourceManager` leases, caller-visible serial/debug sessions, and active node interlocks. It may classify otherwise READY work as `waiting-resource`, `waiting-session` or `waiting-node`, but it never acquires a lease, creates a permission, or mutates the DAG.
+
+Awareness intentionally uses exact canonical identifiers. Resource/project-variant task keys that want proactive contention detection should use the same `EngineeringResourceLease.resourceId` used by the underlying typed provider; session-isolated keys should use the canonical Work Session worktree/build path. If a caller supplies a non-canonical key, awareness may be conservative rather than guessing aliases, while execution-time typed provider/resource checks remain fail-closed and authoritative.
+
+`TaskExecutionCoordinator` consults Scheduler Awareness immediately before dispatch, then still acquires the real lease/interlock through the existing resource managers. This closes the observability gap without creating a global scheduler lock: an ST-Link busy in one session can make another matching task `WAITING_RESOURCE`, while an unrelated task remains `READY`.
+
+Development identity is distinct from production identity. During Phase 3 development the source reports `serverVersion=0.17.0-dev.0`, `channel=development`, optional `gitCommit`, Action Schema 4 and Engineering API 4. Stable production remains v0.16.0 / Action Schema 3 until the v0.17 RC/release gates and production rollout complete.
+
 No autonomous agent provider is part of this foundation. Future optional workers must enter through the same scheduler/executor boundary and cannot bypass Work Session ownership, resource leases, node interlocks, workspace policy or cross-node authorization.
 
 ## Control plane vs data plane

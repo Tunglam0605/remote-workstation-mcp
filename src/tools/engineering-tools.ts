@@ -1,7 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
-import { deriveQualityCompatibilityInput } from '../quality-learning.js';
+import {
+  engineeringWorkflowIdSchema,
+  legacyWorkflowOverridesSchema,
+  profileProjectSchema,
+  workflowParametersSchema,
+  workflowRuntimeParametersSchema
+} from '../engineering-workflow-contract.js';
 import { decodeCortexMFault } from '../adapters/engineering/fault-decode.js';
 import { audited } from '../security/audit.js';
 
@@ -14,70 +20,11 @@ const workspacePath = z.object({ workspace: z.string().min(1), projectPath: z.st
 const debugSession = z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() });
 
 export function registerEngineeringTools(server: McpServer, ctx: AppContext): void {
-  const workflowId = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
-  const legacyWorkflowOverrides = z.object({
-    artifact: z.string().optional(),
-    port: z.string().optional(),
-    probeSerial: z.string().optional(),
-    targetConfig: z.string().optional(),
-    adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
-    monitorPort: z.string().optional(),
-    monitorBaudRate: z.number().int().min(300).max(12_000_000).optional(),
-    expectText: z.string().min(1).max(512).optional(),
-    expectTimeoutMs: z.number().int().min(100).max(120_000).optional(),
-    rosPackagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).optional(),
-    rosSymlinkInstall: z.boolean().optional(),
-    rosMergeInstall: z.boolean().optional(),
-    debugMaxFrames: z.number().int().min(1).max(64).optional(),
-    variant: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    keilProject: z.string().min(1).max(512).optional(),
-    keilTarget: z.string().min(1).max(160).optional()
-  }).strict().default({});
-  const workflowRuntimeParameters = z.object({
-    file: z.string().min(1).max(1024).optional(),
-    fileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    artifact: z.string().optional(),
-    port: z.string().optional(),
-    probeSerial: z.string().optional(),
-    targetConfig: z.string().optional(),
-    adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
-    monitorPort: z.string().optional(),
-    monitorBaudRate: z.number().int().min(300).max(12_000_000).optional(),
-    expectText: z.string().min(1).max(512).optional(),
-    expectTimeoutMs: z.number().int().min(100).max(120_000).optional(),
-    rosPackagesSelect: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_][A-Za-z0-9_-]*$/)).max(50).optional(),
-    rosSymlinkInstall: z.boolean().optional(),
-    rosMergeInstall: z.boolean().optional(),
-    debugMaxFrames: z.number().int().min(1).max(64).optional(),
-    variant: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    keilProject: z.string().min(1).max(512).optional(),
-    keilTarget: z.string().min(1).max(160).optional(),
-    keepMonitorOpen: z.boolean().optional(),
-    expectedSha256: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
-    expectedSize: z.number().int().positive().max(512 * 1024 * 1024).optional(),
-    artifactName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    transferEndpoint: z.string().url().max(2048).optional(),
-    transferEndpoints: z.array(z.string().url().max(2048)).min(1).max(8).optional(),
-    transferTicket: z.string().min(32).max(256).regex(/^[-_A-Za-z0-9]+$/).optional(),
-    transferTimeoutMs: z.number().int().min(5000).max(600000).optional(),
-    relaySessionId: z.string().uuid().optional(),
-    relayOffset: z.number().int().min(0).max(32 * 1024 * 1024).optional(),
-    relayChunkBytes: z.number().int().min(1).max(64 * 1024).optional(),
-    relayDataBase64: z.string().min(4).max(90_000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
-    relayChunkSha256: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
-    relayTtlMs: z.number().int().min(60_000).max(60 * 60 * 1000).optional(),
-    transferGrantId: z.string().min(1).max(96).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    sourceNodeId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    destinationNodeId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    sourceWorkspace: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    destinationWorkspace: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    sourcePath: z.string().min(1).max(1024).optional(),
-    destinationBasePath: z.string().min(1).max(1024).optional(),
-    destinationFileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
-    workSessionId: z.string().uuid().optional()
-  }).strict().default({});
-  const workflowParameters = z.record(z.string().min(1).max(80), z.unknown()).default({});
-  const profileProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
+  const workflowId = engineeringWorkflowIdSchema;
+  const legacyWorkflowOverrides = legacyWorkflowOverridesSchema;
+  const workflowRuntimeParameters = workflowRuntimeParametersSchema;
+  const workflowParameters = workflowParametersSchema;
+  const profileProject = profileProjectSchema;
 
   server.registerTool('engineering_project_inspect', {
     description: 'Inspect project markers, artifacts, attached hardware, canonical .rwmcp/project.yaml profile and available high-level workflows in one read-only call.',
@@ -154,72 +101,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     const parsed = workflowRuntimeParameters.parse({ ...(overrides ?? {}), ...parameters });
     const { workSessionId, ...runtimeParameters } = parsed;
     return result(await audited(ctx.audit, 'engineering_workflow_run', workspace, () =>
-      ctx.runInWorkSession(workSessionId, async () => {
-        const run = await ctx.workflowRuns.begin(workspace, projectPath, workflow);
-        let interlock: Awaited<ReturnType<typeof ctx.nodeInterlocks.acquireWorkflow>> | undefined;
-        try {
-          interlock = await ctx.nodeInterlocks.acquireWorkflow(`${workflow}:${workspace}:${projectPath}`);
-          const output = await ctx.engineering.workflows.run(workspace, projectPath, workflow as never, runtimeParameters);
-          const outputStatus = typeof output === 'object' && output && 'status' in output
-            ? String((output as { status?: unknown }).status ?? '')
-            : '';
-          const explicitOutcome = ['succeeded', 'blocked', 'failed'].includes(outputStatus);
-          const runStatus = outputStatus === 'succeeded'
-            ? 'succeeded'
-            : outputStatus === 'blocked'
-              ? 'blocked'
-              : outputStatus === 'failed'
-                ? 'failed'
-                : 'succeeded';
-          const finished = await ctx.workflowRuns.finish(run.id, runStatus);
-          let qualityObservation: unknown;
-          try {
-            const observation = await ctx.qualityObservations.observe(finished, {
-              completionSource: 'workflow-output',
-              explicitOutcome,
-              compatibility: deriveQualityCompatibilityInput({
-                workspace,
-                projectPath,
-                workflow,
-                runtimeParameters: runtimeParameters as Record<string, unknown>,
-                output
-              })
-            });
-            qualityObservation = {
-              recorded: observation !== undefined,
-              disabled: observation === undefined,
-              observation: observation ?? null
-            };
-          } catch (telemetryError) {
-            qualityObservation = {
-              recorded: false,
-              error: (telemetryError instanceof Error ? telemetryError.message : String(telemetryError)).slice(0, 512)
-            };
-          }
-          return { ...output, workflowRun: finished, qualityObservation };
-        } catch (error) {
-          const finished = await ctx.workflowRuns.finish(
-            run.id,
-            'failed',
-            error instanceof Error ? error.message : String(error)
-          );
-          await ctx.qualityObservations.observe(finished, {
-            completionSource: 'exception',
-            explicitOutcome: true,
-            compatibility: deriveQualityCompatibilityInput({
-              workspace,
-              projectPath,
-              workflow,
-              runtimeParameters: runtimeParameters as Record<string, unknown>
-            })
-          }).catch(() => undefined);
-          throw error;
-        } finally {
-          if (interlock) await ctx.nodeInterlocks.release(interlock.id);
-        }
-      })
+      ctx.runInWorkSession(workSessionId, () =>
+        ctx.engineering.execution.run(workspace, projectPath, workflow, runtimeParameters)
+      )
     ));
   });
+
   server.registerTool('hardware_list', {
     description: 'Discover serial ports and supported debug probes such as ST-Link without mutating hardware.',
     inputSchema: z.object({}),

@@ -201,6 +201,12 @@ The scheduler is planning-only. A READY item without a declared `ConcurrencyOper
 
 The executor reuses existing authority primitives. Shared work needs no extra lease. Session-isolated, resource-exclusive and project/variant-exclusive work takes an `EngineeringResourceManager` lease. Node-exclusive work additionally takes the existing lifecycle `NodeInterlockStore` record so update/restart/rollback paths see active orchestration work. A busy lease fails before task state changes from READY to RUNNING.
 
+Phase 3D adds a typed execution binding without turning the task graph into a command store. A persisted binding contains only `workspace + projectPath + workflow + validated durable parameters`. The persisted schema deliberately removes transient `transferTicket` credentials and relay payload bytes, and arbitrary shell/program/argv recipes are not representable.
+
+Direct `engineering_workflow_run` and scheduled task execution share `EngineeringWorkflowExecutionService`. That service is the single path for durable `WorkflowRunStore` attribution, node lifecycle interlock ownership, typed `EngineeringWorkflowEngine` execution and Quality Learning observation. `TaskWorkflowExecutionService` composes that shared path with `TaskExecutionCoordinator`; a task becomes `succeeded` only when the resulting workflow run is actually `succeeded`. A typed workflow returning `blocked` or `failed` cannot be misreported as task success.
+
+The MCP execution surface remains narrow: `work_objective_execute_task` accepts only Work Session/objective/task identifiers and is classified as `workstation.execute`. It cannot supply an alternate command, override persisted secrets, mutate permissions or bypass the scheduler. Underlying workspace policy, hardware leases, cross-node authorization and typed provider checks are still evaluated at execution time.
+
 No autonomous agent provider is part of this foundation. Future optional workers must enter through the same scheduler/executor boundary and cannot bypass Work Session ownership, resource leases, node interlocks, workspace policy or cross-node authorization.
 
 ## Control plane vs data plane

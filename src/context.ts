@@ -43,7 +43,9 @@ import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
 import { currentPrincipal } from './security/request-principal.js';
 import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
+import { EngineeringWorkflowExecutionService } from './engineering-workflow-execution.js';
 import { TaskExecutionCoordinator } from './task-executor.js';
+import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
 import { WorkflowRunStore } from './workflow-run-store.js';
 import { WorktreeManager } from './worktree-manager.js';
@@ -113,6 +115,8 @@ export async function createContext() {
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
+  const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
+  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution);
   return {
     config,
     hostsConfig,
@@ -132,6 +136,7 @@ export async function createContext() {
     taskGraphs,
     taskScheduler,
     taskExecutor,
+    taskWorkflowExecution,
     reconciledWorkTasks,
     runInWorkSession,
     worktreeManager,
@@ -162,6 +167,7 @@ export async function createContext() {
       artifactTransfer: engineeringArtifactTransfer,
       profiles: engineeringProfiles,
       workflows: engineeringWorkflows,
+      execution: engineeringWorkflowExecution,
       debug: engineeringDebug,
       ros2: engineeringRos2,
       docker: engineeringDocker

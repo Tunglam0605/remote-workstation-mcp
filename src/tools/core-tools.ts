@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, CAPABILITIES, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
+import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
 
 const result = (value: unknown) => ({
@@ -19,7 +20,14 @@ const workObjectiveMutation = z.discriminatedUnion('action', [
     priority: z.number().int().min(-1000).max(1000).default(0),
     dependencies: z.array(z.string().uuid()).max(64).default([]),
     concurrencyOperation: z.enum(CONCURRENCY_OPERATIONS).optional(),
-    concurrencyKey: z.string().min(1).max(512).optional()
+    concurrencyKey: z.string().min(1).max(512).optional(),
+    execution: z.object({
+      kind: z.literal('engineering-workflow'),
+      workspace: z.string().min(1).max(128),
+      projectPath: z.string().min(1).max(1024).default('.'),
+      workflow: engineeringWorkflowIdSchema,
+      parameters: persistedWorkflowParametersSchema
+    }).strict().optional()
   }),
   z.object({
     action: z.literal('replace_dependencies'),
@@ -235,7 +243,8 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
             concurrency: {
               ...(mutation.concurrencyOperation ? { operation: mutation.concurrencyOperation } : {}),
               ...(mutation.concurrencyKey ? { key: mutation.concurrencyKey } : {})
-            }
+            },
+            ...(mutation.execution ? { execution: mutation.execution } : {})
           })
         };
       }
@@ -260,6 +269,20 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       executionActive: false,
       note: 'A dispatchable scheduler item is not permission to execute; 3C Executor must acquire the required Work Session/resource/node authority before changing task runtime state.'
     }))
+  )));
+
+  server.registerTool('work_objective_execute_task', {
+    description: 'Execute one READY task through its persisted typed engineering-workflow binding. The task cannot inject shell commands or widen authority; Work Session, policy, scheduler concurrency, resource leases, workflow-run durability, lifecycle interlocks and Quality Learning remain authoritative.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      taskId: z.string().uuid()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskId }) => result(await audited(ctx.audit, 'work_objective_execute_task', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.taskWorkflowExecution.execute(objectiveId, taskId)
+    )
   )));
 
   server.registerTool('fs_list', {

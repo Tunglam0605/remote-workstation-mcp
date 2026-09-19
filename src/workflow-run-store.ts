@@ -106,22 +106,28 @@ export class WorkflowRunStore {
     }
   }
 
-  async reconcileInterrupted(reason = 'runtime-restarted-before-completion'): Promise<number> {
+  async reconcileInterruptedRecords(
+    reason = 'runtime-restarted-before-completion'
+  ): Promise<WorkflowRunRecord[]> {
     return this.mutate(async () => {
       const state = await this.load();
       const timestamp = this.now().toISOString();
-      let count = 0;
+      const reconciled: WorkflowRunRecord[] = [];
       for (const record of state.runs) {
         if (record.status !== 'running') continue;
         record.status = 'failed';
         record.updatedAt = timestamp;
         record.endedAt = timestamp;
         record.error = reason.slice(0, 1024);
-        count += 1;
+        reconciled.push(structuredClone(record));
       }
-      if (count > 0) await this.save(state);
-      return count;
+      if (reconciled.length > 0) await this.save(state);
+      return reconciled;
     });
+  }
+
+  async reconcileInterrupted(reason = 'runtime-restarted-before-completion'): Promise<number> {
+    return (await this.reconcileInterruptedRecords(reason)).length;
   }
 
   async begin(workspace: string, projectPath: string, workflow: string): Promise<WorkflowRunRecord> {

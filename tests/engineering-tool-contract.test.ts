@@ -72,3 +72,25 @@ test('v0.15 Work Session routing uses Action Schema v3 and Keil shared outputs a
   assert.match(firmware, /project-variant:keil:\$\{workspace\}:\$\{projectPath\}:\$\{projectFile\}:\$\{target\}/);
   assert.match(firmware, /this\.resources\.withLease\(buildResourceId, 'building'/);
 });
+
+test('v0.16 quality learning foundation is evidence-gated and never exposes MCP approval', async () => {
+  const capabilities = await read('src/capabilities.ts');
+  const coreTools = await read('src/tools/core-tools.ts');
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const quality = await read('src/quality-learning.ts');
+  const context = await read('src/context.ts');
+
+  assert.match(capabilities, /quality_learning\.telemetry/);
+  assert.match(context, /qualityObservationReconciliationFailures/);
+  assert.match(context, /Quality telemetry is advisory[\s\S]*qualityObservationReconciliationFailures \+= 1/);
+  assert.match(engineeringTools, /ctx\.qualityObservations\.observe\(finished/);
+  assert.match(coreTools, /qualityObservations: await ctx\.qualityObservations\.list\(20\)\.catch/);
+  assert.match(quality, /pending-owner-review/);
+  assert.match(quality, /ambiguous-outcome-evidence/);
+  assert.match(quality, /implicit-work-session/);
+  assert.match(quality, /runtime-reconciliation/);
+  assert.match(quality, /promotionState: 'not-promoted'/);
+  assert.match(quality, /active: false/);
+  assert.doesNotMatch(coreTools, /quality_learning_(approve|promote|activate)/);
+  assert.doesNotMatch(engineeringTools, /quality_learning_(approve|promote|activate)/);
+});

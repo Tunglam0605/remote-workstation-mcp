@@ -92,6 +92,49 @@ Concurrency is classified rather than globally serialized:
 
 Workflow-run metadata is durably attributed to principal + Work Session. On runtime restart, any record left `running` is reconciled to a bounded failed state rather than resurrected as fake live work.
 
+## Selective Quality Learning plane
+
+v0.16 adds a telemetry and review boundary above durable workflow attribution. It does **not** train a model, infer trust from repetition or automatically activate a learned workflow.
+
+```text
+engineering_workflow_run
+        |
+        v
+  WorkflowRunRecord
+        |
+        +--> deterministic outcome evidence
+        +--> completion source
+        +--> explicit Work Session identity
+        +--> non-secret EnvironmentFingerprint
+        |
+        v
+ QualityObservation
+        |
+        +-- failed / blocked / ambiguous / implicit / restart -> ineligible
+        |
+        +-- explicit typed success ---------------------------> pending-owner-review
+                                                                  |
+                                                                  v
+                                                       future owner-local review
+                                                                  |
+                                                                  v
+                                                        reusable knowledge
+```
+
+The first v0.16 slice is intentionally one-way. `QualityObservationStore` persists bounded, owner/session-scoped observations outside repositories. A candidate can only be `ineligible` or `pending-owner-review`; its promotion state remains `not-promoted` and `active=false`.
+
+Environment fingerprints contain only compatibility inputs required to compare evidence: OS platform, CPU architecture, Node major, RWMCP server version, Action Schema version and Engineering API version. They intentionally exclude hostname, user identity, IP addresses, tokens, API keys and raw logs.
+
+Quality telemetry is advisory. Failure to persist an observation must not change the engineering workflow result, and startup reconciliation must not fail the control plane if telemetry persistence is unavailable. Interrupted durable workflow records still reconcile to failed state first; any telemetry derived from that reconciliation is explicitly marked ineligible.
+
+The security boundary remains unchanged:
+
+- observation or candidate identity is not an authorization credential;
+- no MCP action can approve, promote or activate a candidate in this slice;
+- owner/security policy, scopes, Full Access and cross-node grants cannot be widened by learning state;
+- no Git push, firmware mutation or runtime lifecycle action is triggered by observation collection;
+- frequency/repetition is not evidence of quality.
+
 ## Control plane vs data plane
 
 The normal MCP connection is a **control plane**. Commands, plans, compact status and bounded results travel through it. Large cross-node payloads should not be relayed through the model when the owner has an approved direct path.

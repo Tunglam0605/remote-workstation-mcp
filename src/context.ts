@@ -34,6 +34,7 @@ import { loadOrCreateDeviceIdentity } from './device-identity.js';
 import { loadHosts } from './hosts.js';
 import { loadPermissionLease } from './permissions.js';
 import { NodeInterlockStore } from './node-interlock.js';
+import { QualityObservationStore } from './quality-learning.js';
 import { PairingStore } from './pairing/pairing-store.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
@@ -59,7 +60,21 @@ export async function createContext() {
   const currentClientId = () => currentPrincipal()?.id ?? actor.clientId;
   const workSessions = new WorkSessionStore(currentClientId);
   const workflowRuns = new WorkflowRunStore(currentClientId);
-  const reconciledWorkflowRuns = await workflowRuns.reconcileInterrupted();
+  const qualityObservations = new QualityObservationStore(currentClientId);
+  const interruptedWorkflowRuns = await workflowRuns.reconcileInterruptedRecords();
+  let qualityObservationReconciliationFailures = 0;
+  for (const run of interruptedWorkflowRuns) {
+    try {
+      await qualityObservations.observe(run, {
+        completionSource: 'runtime-reconciliation',
+        explicitOutcome: true
+      });
+    } catch {
+      // Quality telemetry is advisory. It must never prevent the control plane from starting.
+      qualityObservationReconciliationFailures += 1;
+    }
+  }
+  const reconciledWorkflowRuns = interruptedWorkflowRuns.length;
   const nodeInterlocks = new NodeInterlockStore(currentClientId);
   const reconciledNodeInterlocks = await nodeInterlocks.reconcileStale();
   const runInWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> => {
@@ -103,7 +118,9 @@ export async function createContext() {
     multiNodeAuthorization,
     workSessions,
     workflowRuns,
+    qualityObservations,
     reconciledWorkflowRuns,
+    qualityObservationReconciliationFailures,
     nodeInterlocks,
     reconciledNodeInterlocks,
     runInWorkSession,

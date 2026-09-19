@@ -90,6 +90,10 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       debug: ctx.engineering.debug.list(),
       hardwareLeases: ctx.engineering.resources.list(),
       workflowRuns: await ctx.workflowRuns.list(20),
+      qualityObservations: await ctx.qualityObservations.list(20).catch(error => ({
+        available: false,
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 512)
+      })),
       nodeInterlocks: await ctx.nodeInterlocks.listOwned(),
       worktree: await ctx.worktreeManager.status(sessionId)
     }));

@@ -162,6 +162,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
           const outputStatus = typeof output === 'object' && output && 'status' in output
             ? String((output as { status?: unknown }).status ?? '')
             : '';
+          const explicitOutcome = ['succeeded', 'blocked', 'failed'].includes(outputStatus);
           const runStatus = outputStatus === 'succeeded'
             ? 'succeeded'
             : outputStatus === 'blocked'
@@ -170,13 +171,32 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
                 ? 'failed'
                 : 'succeeded';
           const finished = await ctx.workflowRuns.finish(run.id, runStatus);
-          return { ...output, workflowRun: finished };
+          let qualityObservation: unknown;
+          try {
+            qualityObservation = {
+              recorded: true,
+              observation: await ctx.qualityObservations.observe(finished, {
+                completionSource: 'workflow-output',
+                explicitOutcome
+              })
+            };
+          } catch (telemetryError) {
+            qualityObservation = {
+              recorded: false,
+              error: (telemetryError instanceof Error ? telemetryError.message : String(telemetryError)).slice(0, 512)
+            };
+          }
+          return { ...output, workflowRun: finished, qualityObservation };
         } catch (error) {
-          await ctx.workflowRuns.finish(
+          const finished = await ctx.workflowRuns.finish(
             run.id,
             'failed',
             error instanceof Error ? error.message : String(error)
           );
+          await ctx.qualityObservations.observe(finished, {
+            completionSource: 'exception',
+            explicitOutcome: true
+          }).catch(() => undefined);
           throw error;
         } finally {
           if (interlock) await ctx.nodeInterlocks.release(interlock.id);

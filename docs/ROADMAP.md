@@ -382,6 +382,36 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.2 - Bounded control-plane relay fallback
+
+Real v0.14.1 acceptance proved that endpoint discovery alone cannot guarantee transfer: Windows, Ubuntu Vision and Ubuntu Personal were all independently healthy Direct Nodes, but Windows had no working peer route to either Ubuntu over the available Tailscale graphs, RFC1918 LAN paths or the existing WireGuard overlay.
+
+v0.14.2 therefore:
+
+- keeps direct node-to-node transport as the preferred path;
+- adds a secondary `ControlPlaneRelayAdapter` in the core platform, outside firmware/engineering-domain ownership;
+- caps relay files at 32 MiB and chunks at 64 KiB;
+- adds persistent relay sessions with exact expected filename, SHA-256, size, next offset and bounded expiry;
+- adds `platform.relay_read_chunk`, `platform.relay_begin`, `platform.relay_status`, `platform.relay_write_chunk`, `platform.relay_finalize`, and `platform.relay_abort`;
+- hashes every chunk independently and rejects wrong hash or non-sequential offset before advancing session state;
+- supports resume after runtime interruption because session state is persisted under `.rwmcp/transfers/relay/<session-id>/`;
+- performs full-file SHA-256/size verification again before the existing atomic verified-store promotion;
+- exposes relay support and limits through `chatgpt_web_status.nodeHealth.dataPlane.controlPlaneRelay`;
+- preserves Action Schema v2 / Engineering API v3 through the existing generic workflow parameters envelope.
+
+Acceptance criteria:
+
+- generic relay works with engineering-domain functionality disabled;
+- binary payloads larger than one chunk transfer correctly;
+- wrong chunk hash and wrong offset fail without advancing destination state;
+- relay resumes from persisted offset after adapter/runtime recreation;
+- full-file mismatch fails closed and remains cleanly abortable;
+- workflow plans never echo `relayDataBase64`;
+- Windows/Linux CI and packed release smoke remain green;
+- real Windows -> Vision acceptance uses orchestration to pipe chunk results directly between nested MCP tool calls without rendering payload content into the chat response;
+- destination verified SHA-256/size exactly match source;
+- temporary relay session is removed after finalize and camera/runtime state is unchanged.
+
 ### v0.14.1 - Multi-endpoint direct data-plane hotfix
 
 Real v0.14.0 acceptance found a platform assumption error: Windows and Ubuntu Vision each had a healthy Tailscale IPv4 address, but they belonged to different Tailscale peer graphs. Source preflight passed and the one-shot receiver opened correctly, yet Windows could not route to the Vision Tailscale address.

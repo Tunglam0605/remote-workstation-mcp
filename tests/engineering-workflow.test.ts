@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { ControlPlaneRelayAdapter } from '../src/adapters/control-plane-relay.js';
 import { DataPlaneAdapter } from '../src/adapters/data-plane.js';
 import { ArtifactIntegrityAdapter } from '../src/adapters/engineering/artifact-integrity.js';
 import { ArtifactTransferAdapter } from '../src/adapters/engineering/artifact-transfer.js';
@@ -39,6 +40,7 @@ async function fixture(project: FirmwareProjectInfo) {
     bindAddress: '127.0.0.1',
     allowLoopbackForTests: true
   });
+  const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane);
   const artifactIntegrity = new ArtifactIntegrityAdapter(policy, paths);
   const artifactTransfer = new ArtifactTransferAdapter(policy, paths, artifactIntegrity, {
     bindAddress: '127.0.0.1',
@@ -199,6 +201,7 @@ async function fixture(project: FirmwareProjectInfo) {
     policy,
     profiles,
     dataPlane,
+    controlPlaneRelay,
     artifactIntegrity,
     artifactTransfer,
     firmware as never,
@@ -212,6 +215,7 @@ async function fixture(project: FirmwareProjectInfo) {
     profiles,
     engine,
     dataPlane,
+    controlPlaneRelay,
     calls,
     rosCalls,
     setArtifacts(value: Array<{ path: string; kind: string; size: number }>) { artifacts = value; },
@@ -1040,6 +1044,84 @@ test('generic platform transfer workflows remain available without firmware capa
     assert.equal(pushPlan.resolved.dataPlane?.ticketPresent, true);
     assert.equal(pushPlan.resolved.dataPlane?.endpoints.length, 2);
     assert.equal(JSON.stringify(pushPlan).includes(secret), false);
+  } finally {
+    await f.dataPlane.closeAllForTests();
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('control-plane relay workflows stay generic and never echo chunk payload in plans', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w',
+    projectPath: 'project',
+    family: 'unknown',
+    framework: 'unknown',
+    buildSystem: undefined,
+    markers: [],
+    ros2: false,
+    docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const body = Buffer.from('workflow relay binary\u0000payload\n', 'utf8');
+    await fs.writeFile(path.join(f.root, 'project', 'relay-source.bin'), body);
+    const expectedSha256 = createHash('sha256').update(body).digest('hex');
+
+    const list = await f.engine.list('w', 'project');
+    for (const id of [
+      'platform.relay_read_chunk',
+      'platform.relay_begin',
+      'platform.relay_status',
+      'platform.relay_write_chunk',
+      'platform.relay_finalize',
+      'platform.relay_abort'
+    ]) {
+      assert.ok(list.workflows.some(item => item.id === id), `missing generic relay workflow ${id}`);
+    }
+
+    const begun = await f.engine.run('w', 'project', 'platform.relay_begin', {
+      fileName: 'relay-destination.bin',
+      expectedSha256,
+      expectedSize: body.length
+    });
+    assert.equal(begun.status, 'succeeded');
+    const sessionId = (begun as any).outputs.session.sessionId as string;
+
+    const read = await f.engine.run('w', 'project', 'platform.relay_read_chunk', {
+      file: 'relay-source.bin',
+      relayOffset: 0,
+      relayChunkBytes: 64 * 1024
+    });
+    assert.equal(read.status, 'succeeded');
+    const chunk = (read as any).outputs.chunk;
+    assert.equal(chunk.length, body.length);
+
+    const writePlan = await f.engine.plan('w', 'project', 'platform.relay_write_chunk', {
+      relaySessionId: sessionId,
+      relayOffset: 0,
+      relayDataBase64: chunk.dataBase64,
+      relayChunkSha256: chunk.sha256
+    });
+    assert.equal(writePlan.relay?.ready, true);
+    assert.equal(writePlan.resolved.relay?.dataPresent, true);
+    assert.equal(JSON.stringify(writePlan).includes(chunk.dataBase64), false);
+
+    const written = await f.engine.run('w', 'project', 'platform.relay_write_chunk', {
+      relaySessionId: sessionId,
+      relayOffset: 0,
+      relayDataBase64: chunk.dataBase64,
+      relayChunkSha256: chunk.sha256
+    });
+    assert.equal(written.status, 'succeeded');
+    assert.equal((written as any).outputs.relay.complete, true);
+
+    const finalized = await f.engine.run('w', 'project', 'platform.relay_finalize', {
+      relaySessionId: sessionId
+    });
+    assert.equal(finalized.status, 'succeeded');
+    assert.equal((finalized as any).outputs.receipt.accepted.sha256, expectedSha256);
+    assert.deepEqual(f.calls, []);
   } finally {
     await f.dataPlane.closeAllForTests();
     await fs.rm(f.root, { recursive: true, force: true });

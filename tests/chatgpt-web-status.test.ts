@@ -27,6 +27,16 @@ function fakeContext(): AppContext {
         recentTransfers: []
       })
     },
+    controlPlaneRelay: {
+      status: () => ({
+        transport: 'control-plane-relay',
+        supported: true,
+        maxRelayBytes: 33554432,
+        maxChunkBytes: 65536,
+        resumable: true,
+        persistentSessionState: true
+      })
+    },
     processes: { list: () => [{ status: 'running' }] },
     engineering: {
       terminals: { list: () => [] },
@@ -48,6 +58,8 @@ test('ChatGPT Web status does not claim an authenticated tunnel for local calls'
   assert.deepEqual(status.workspaces, [{ id: 'projects', name: 'Projects', readOnly: false }]);
   assert.equal(status.nodeHealth.state, 'reachable');
   assert.equal(status.nodeHealth.dataPlane.tailscaleIpv4Available, true);
+  assert.equal(status.nodeHealth.dataPlane.controlPlaneRelay.supported, true);
+  assert.equal(status.nodeHealth.dataPlane.controlPlaneRelay.maxChunkBytes, 65536);
   assert.equal(status.nodeHealth.activeSessions.processes, 1);
 });
 

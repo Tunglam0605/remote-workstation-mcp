@@ -65,7 +65,7 @@ Transport and agent delegation are replaceable edges. They must not bypass the p
 
 The normal MCP connection is a **control plane**. Commands, plans, compact status and bounded results travel through it. Large cross-node payloads should not be relayed through the model when the owner has an approved direct path.
 
-v0.14 adds a generic core `DataPlaneAdapter`; v0.14.1 makes direct transport multi-endpoint instead of assuming every Tailscale address is mutually reachable:
+v0.14 adds a generic core `DataPlaneAdapter`; v0.14.1 makes direct transport multi-endpoint instead of assuming every Tailscale address is mutually reachable. v0.14.2 adds a bounded control-plane relay fallback for the case where independent Direct Nodes are each reachable from ChatGPT but have no mutual peer route:
 
 ```text
 AI client
@@ -80,6 +80,8 @@ Direct Node A                    Direct Node B
 ```
 
 The normal MCP runtime remains loopback-only. A receive offer creates separate short-lived one-shot listeners only on approved direct IPv4 candidates (Tailscale and filtered RFC1918 private LAN), under one exact SHA-256/size contract and ephemeral bearer ticket. Network-unreachable endpoints may be retried; authenticated receiver rejections remain fail-closed.
+
+When no direct peer route exists, the fallback path uses the already-authenticated MCP control connections in bounded 64 KiB chunks. Relay state is persistent/resumable, each chunk carries its own SHA-256 and exact offset, and final acceptance still re-hashes the complete file before atomic promotion. Relay is deliberately capped at 32 MiB and remains secondary to the direct data plane.
 
 The data plane belongs to the core platform. Firmware/STM32, ROS 2, vision and other extensions may consume it but must not own or redefine it.
 

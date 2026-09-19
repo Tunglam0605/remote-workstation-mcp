@@ -12,6 +12,22 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.2**
+
+v0.14.2 closes the second real multi-node acceptance gap: healthy Direct Nodes can each be reachable from ChatGPT while still having **no mutual peer route** over Tailscale, private LAN or an existing WireGuard overlay.
+
+- keep direct transfer as the preferred fast path up to 512 MiB;
+- add a bounded **control-plane relay fallback** for files up to 32 MiB when no direct node-to-node path exists;
+- add `platform.relay_read_chunk`, `platform.relay_begin`, `platform.relay_status`, `platform.relay_write_chunk`, `platform.relay_finalize`, and `platform.relay_abort` through the existing stable workflow envelope;
+- relay at most 64 KiB per chunk with exact sequential offsets and SHA-256 per chunk;
+- persist relay session state under `.rwmcp/transfers/relay/<session-id>/` so orchestration can resume after interruption;
+- verify full-file SHA-256/size again before atomically promoting into the generic verified store;
+- expose relay support/limits in `chatgpt_web_status.nodeHealth.dataPlane.controlPlaneRelay`;
+- keep payload content out of workflow plans and recommended chat output; orchestration should pipe nested tool results directly from source read to destination write;
+- preserve `actionSchemaVersion=2` and `engineeringApiVersion=3`; no ChatGPT action refresh is required.
+
+The relay is intentionally bounded and secondary. It uses the already-authenticated MCP control paths only when no direct peer route exists.
+
 **v0.14.1**
 
 v0.14.1 fixes the first real multi-node acceptance gap found in v0.14.0:

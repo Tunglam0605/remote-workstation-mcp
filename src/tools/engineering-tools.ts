@@ -58,7 +58,13 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     transferEndpoint: z.string().url().max(2048).optional(),
     transferEndpoints: z.array(z.string().url().max(2048)).min(1).max(8).optional(),
     transferTicket: z.string().min(32).max(256).regex(/^[-_A-Za-z0-9]+$/).optional(),
-    transferTimeoutMs: z.number().int().min(5000).max(600000).optional()
+    transferTimeoutMs: z.number().int().min(5000).max(600000).optional(),
+    relaySessionId: z.string().uuid().optional(),
+    relayOffset: z.number().int().min(0).max(32 * 1024 * 1024).optional(),
+    relayChunkBytes: z.number().int().min(1).max(64 * 1024).optional(),
+    relayDataBase64: z.string().min(4).max(90_000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
+    relayChunkSha256: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
+    relayTtlMs: z.number().int().min(60_000).max(60 * 60 * 1000).optional()
   }).strict().default({});
   const workflowParameters = z.record(z.string().min(1).max(80), z.unknown()).default({});
   const profileProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });

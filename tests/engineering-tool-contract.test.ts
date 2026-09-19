@@ -78,11 +78,14 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const quality = await read('src/quality-learning.ts');
+  const qualityPolicy = await read('src/quality-learning-policy.ts');
+  const qualityKnowledge = await read('src/quality-knowledge.ts');
   const qualityReview = await read('src/quality-review.ts');
   const setupServer = await read('src/setup/setup-server.ts');
   const context = await read('src/context.ts');
 
   assert.match(capabilities, /quality_learning\.telemetry/);
+  assert.match(capabilities, /quality_learning\.knowledge/);
   assert.match(context, /qualityObservationReconciliationFailures/);
   assert.match(context, /Quality telemetry is advisory[\s\S]*qualityObservationReconciliationFailures \+= 1/);
   assert.match(engineeringTools, /ctx\.qualityObservations\.observe\(finished/);
@@ -95,8 +98,19 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
   assert.match(quality, /active: false/);
   assert.match(qualityReview, /OwnerQualityReviewStore/);
   assert.match(qualityReview, /'approved' \| 'rejected' \| 'revoked'/);
+  assert.match(qualityPolicy, /enabled: true/);
+  assert.match(qualityPolicy, /retentionDays: 30/);
+  assert.match(qualityPolicy, /minApprovedSamples: 3/);
+  assert.match(qualityKnowledge, /recommendationOnly: true/);
+  assert.match(qualityKnowledge, /executionActive: false/);
+  assert.match(qualityKnowledge, /raw-shell-when-typed-workflow-exists/);
+  assert.match(qualityKnowledge, /needs-revalidation/);
+  assert.match(qualityKnowledge, /insufficient-approved-samples/);
   assert.match(setupServer, /\/api\/quality\/review/);
+  assert.match(setupServer, /\/api\/quality\/settings/);
+  assert.match(setupServer, /\/api\/quality\/knowledge/);
+  assert.match(setupServer, /\/api\/quality\/history/);
   assert.match(setupServer, /authority: 'owner-local-only'/);
-  assert.doesNotMatch(coreTools, /quality_(learning|review)_(approve|reject|revoke|promote|activate)/);
-  assert.doesNotMatch(engineeringTools, /quality_(learning|review)_(approve|reject|revoke|promote|activate)/);
+  assert.doesNotMatch(coreTools, /quality_(learning|review|knowledge)_(approve|reject|revoke|promote|activate|shadow)/);
+  assert.doesNotMatch(engineeringTools, /quality_(learning|review|knowledge)_(approve|reject|revoke|promote|activate|shadow)/);
 });

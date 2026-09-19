@@ -94,7 +94,7 @@ Workflow-run metadata is durably attributed to principal + Work Session. On runt
 
 ## Selective Quality Learning plane
 
-v0.16 adds a telemetry and review boundary above durable workflow attribution. It does **not** train a model, infer trust from repetition or automatically activate a learned workflow.
+v0.16 adds a deterministic Selective Quality Learning plane above durable workflow attribution. It does **not** train a custom model, infer trust from repetition or automatically activate learned behavior.
 
 ```text
 engineering_workflow_run
@@ -103,9 +103,8 @@ engineering_workflow_run
   WorkflowRunRecord
         |
         +--> deterministic outcome evidence
-        +--> completion source
         +--> explicit Work Session identity
-        +--> non-secret EnvironmentFingerprint
+        +--> bounded compatibility metadata
         |
         v
  QualityObservation
@@ -115,26 +114,45 @@ engineering_workflow_run
         +-- explicit typed success ---------------------------> pending-owner-review
                                                                   |
                                                                   v
-                                                       future owner-local review
+                                                        owner-local decision
+                                                                  |
+                                                      approved evidence set
                                                                   |
                                                                   v
-                                                        reusable knowledge
+                                                        ReusableKnowledge
+                                                                  |
+                                             metrics + canonical comparison
+                                                                  |
+                                                    shadow evaluation
+                                                                  |
+                                           owner-local promotion/revocation
+                                                                  |
+                                                     recommendation only
 ```
 
-The first v0.16 slice is intentionally one-way. `QualityObservationStore` persists bounded, owner/session-scoped observations outside repositories. A candidate can only be `ineligible` or `pending-owner-review`; its promotion state remains `not-promoted` and `active=false`.
+`QualityObservationStore` persists bounded observations outside repositories. Collection is owner-configurable through `QualityLearningSettingsStore`: learning can be disabled without affecting workflow execution, observation retention is time-bounded, record count is bounded, and the owner can clear learning history without modifying canonical project data such as `.rwmcp/project.yaml`.
 
-The second slice adds an explicit owner-local review boundary without mutating observations. `OwnerQualityReviewStore` writes an append-only decision history (`approved`, `rejected`, `revoked`) bound to the exact observation digest. Review is exposed only through the loopback Setup & Control Center, which already requires a loopback peer, allowed Origin and ephemeral CSRF token. No MCP review/approval action is added. An approval remains a human decision record only: it does not promote reusable knowledge, activate behavior, widen scopes or change security policy.
+`OwnerQualityReviewStore` keeps observation evidence immutable and writes a separate append-only decision history (`approved`, `rejected`, `revoked`) bound to the exact observation digest. Review remains loopback Control Center only. Approval is evidence consent, not execution authority.
 
-Environment fingerprints contain only compatibility inputs required to compare evidence: OS platform, CPU architecture, Node major, RWMCP server version, Action Schema version and Engineering API version. They intentionally exclude hostname, user identity, IP addresses, tokens, API keys and raw logs.
+`QualityKnowledgeStore` aggregates only approved, quality-gated typed-workflow evidence. Its metrics include sample count, approved sample count, success/failure/blocked rate, duration consistency, typed-completion ratio, environment diversity, recency, reproducibility and safety penalties. Repetition alone does not raise trust: unapproved samples do not count toward promotion evidence, failed or unsafe history lowers quality, and a configurable minimum evidence count plus score gate must pass.
 
-Quality telemetry is advisory. Failure to persist an observation must not change the engineering workflow result, and startup reconciliation must not fail the control plane if telemetry persistence is unavailable. Interrupted durable workflow records still reconcile to failed state first; any telemetry derived from that reconciliation is explicitly marked ineligible.
+Canonical comparison is explicit. When a typed canonical workflow already exists, learned knowledge may only improve confidence/recommendation around that workflow. A manual or raw-shell sequence competing with an available typed workflow is classified as an anti-pattern and the canonical workflow is preferred instead of learning a duplicate execution recipe.
+
+Before promotion, a candidate enters shadow evaluation. A candidate with too little evidence remains `needs-more-evidence`; a material environment mismatch becomes `needs-revalidation`; a failing evidence gate remains failed. Promotion is append-only/versioned and creates `proven-learned` recommendation knowledge while preserving prior draft/shadow records. Promoted knowledge is always `recommendationOnly=true` and `executionActive=false`. A material environment change moves the latest recommendation back to shadow revalidation rather than silently trusting stale evidence.
+
+Environment fingerprints contain bounded non-secret compatibility inputs. The core includes OS platform, CPU architecture, Node major, RWMCP server version, Action Schema version and Engineering API version. When available from the typed workflow, it also includes a hashed project identity, workflow, variant, hashed probe/hardware identity, provider/provider version and toolchain/toolchain version. Hostname, IP addresses, raw serial identifiers, user identity, tokens, API keys, source payloads and raw logs are excluded.
+
+All owner learning controls are exposed only through the loopback Setup & Control Center with its peer/origin/ephemeral-token boundary: settings, review, draft creation, shadow evaluation, promotion, environment revalidation, revocation and history clearing. None are MCP tools.
+
+Quality telemetry remains advisory. Failure to persist an observation must not change the engineering workflow result, and startup reconciliation must not fail the control plane if telemetry persistence is unavailable. Interrupted durable workflow records reconcile to failed state first; telemetry derived from restart reconciliation is explicitly ineligible.
 
 The security boundary remains unchanged:
 
-- observation or candidate identity is not an authorization credential;
-- no MCP action can approve, promote or activate a candidate in this slice;
+- observation, knowledge or Work Session identity is not an authorization credential;
+- no MCP action can approve, promote, revoke, activate or clear learning state;
 - owner/security policy, scopes, Full Access and cross-node grants cannot be widened by learning state;
-- no Git push, firmware mutation or runtime lifecycle action is triggered by observation collection;
+- promotion cannot auto-push Git, mutate firmware, restart the runtime or create cross-node authority;
+- promoted knowledge is recommendation-only and never an execution default by itself;
 - frequency/repetition is not evidence of quality.
 
 ## Control plane vs data plane

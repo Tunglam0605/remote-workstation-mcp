@@ -12,6 +12,8 @@ import { NodeInterlockStore } from '../node-interlock.js';
 import { PairingStore } from '../pairing/pairing-store.js';
 import { PairingBootstrapAdapter } from '../pairing/pairing-bootstrap.js';
 import { QualityObservationStore } from '../quality-learning.js';
+import { QualityLearningSettingsStore } from '../quality-learning-policy.js';
+import { QualityKnowledgeStore } from '../quality-knowledge.js';
 import { OwnerQualityReviewStore, type OwnerQualityDecisionKind } from '../quality-review.js';
 import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
 import { linuxOpenAiEnvPath, readEnvFile, readTuiRuntimeState, updateEnvFile } from '../tui/config.js';
@@ -1138,6 +1140,112 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         ], { cwd: repoRoot, detached: true, stdio: 'ignore', windowsHide: true });
         child.unref();
         json(res, 202, { requestId: approved.request.id, state: approved.request.state, uacPrompted: true });
+        return;
+      }
+
+      if (url.pathname === '/api/quality/settings' && req.method === 'GET') {
+        json(res, 200, {
+          settings: await new QualityLearningSettingsStore().load(),
+          authority: 'owner-local-only',
+          canonicalProjectDataUnaffected: true
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/quality/settings' && req.method === 'POST') {
+        const body = await readJsonBody(req) as {
+          enabled?: boolean;
+          retentionDays?: number;
+          maxObservations?: number;
+          minApprovedSamples?: number;
+          minScore?: number;
+        };
+        const settings = await new QualityLearningSettingsStore().update(body);
+        const retention = await new QualityObservationStore('local-owner').applyRetentionForOwnerLearning();
+        json(res, 200, {
+          settings,
+          retention,
+          authority: 'owner-local-only',
+          restartRequired: false
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/quality/knowledge' && req.method === 'GET') {
+        json(res, 200, {
+          records: await new QualityKnowledgeStore().list(200),
+          authority: 'owner-local-only',
+          recommendationOnly: true,
+          executionActivationEnabled: false,
+          mcpPromotionEnabled: false
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/quality/knowledge/draft' && req.method === 'POST') {
+        const body = await readJsonBody(req) as {
+          workspace?: string;
+          projectPath?: string;
+          workflow?: string;
+        };
+        if (!body.workspace?.trim() || !body.projectPath?.trim() || !body.workflow?.trim()) {
+          throw new Error('workspace, projectPath and workflow are required.');
+        }
+        const record = await new QualityKnowledgeStore().createDraft(
+          body.workspace.trim(),
+          body.projectPath.trim(),
+          body.workflow.trim()
+        );
+        json(res, 200, {
+          record,
+          authority: 'owner-local-only',
+          recommendationOnly: true,
+          executionActive: false
+        });
+        return;
+      }
+
+      const qualityKnowledgeAction = url.pathname.match(
+        /^\/api\/quality\/knowledge\/([0-9a-fA-F-]+)\/(shadow|promote|revalidate|revoke)$/
+      );
+      if (qualityKnowledgeAction && req.method === 'POST') {
+        const [, recordId, action] = qualityKnowledgeAction;
+        const body = await readJsonBody(req) as { reason?: string };
+        const knowledge = new QualityKnowledgeStore();
+        const record = action === 'shadow'
+          ? await knowledge.evaluateShadowAgainstApprovedEvidence(recordId!)
+          : action === 'promote'
+            ? await knowledge.promote(recordId!, body.reason)
+            : action === 'revalidate'
+              ? await knowledge.revalidateAgainstApprovedEvidence(recordId!)
+              : await knowledge.revoke(recordId!, body.reason);
+        json(res, 200, {
+          record,
+          authority: 'owner-local-only',
+          recommendationOnly: true,
+          executionActive: false
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/quality/history' && req.method === 'DELETE') {
+        const observations = new QualityObservationStore('local-owner');
+        const reviews = new OwnerQualityReviewStore();
+        const knowledge = new QualityKnowledgeStore();
+        const [observationCount, decisionCount, knowledgeCount] = await Promise.all([
+          observations.clearForOwnerLearning(),
+          reviews.clearForOwner(),
+          knowledge.clearForOwner()
+        ]);
+        json(res, 200, {
+          cleared: {
+            observations: observationCount,
+            ownerDecisions: decisionCount,
+            reusableKnowledgeRecords: knowledgeCount
+          },
+          canonicalProjectDataUnaffected: true,
+          authority: 'owner-local-only'
+        });
         return;
       }
 

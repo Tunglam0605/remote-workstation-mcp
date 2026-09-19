@@ -175,4 +175,14 @@ export class OwnerQualityReviewStore {
       return structuredClone(record);
     });
   }
+
+  /** Owner-local privacy control. This history is separate from canonical project data. */
+  async clearForOwner(): Promise<number> {
+    return this.mutate(async () => {
+      const state = await this.load();
+      const count = state.decisions.length;
+      await fs.rm(this.file, { force: true });
+      return count;
+    });
+  }
 }

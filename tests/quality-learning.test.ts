@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { QualityObservationStore } from '../src/quality-learning.js';
+import { QualityLearningSettingsStore } from '../src/quality-learning-policy.js';
 import { runWithWorkSession } from '../src/security/execution-context.js';
 import { WorkflowRunStore } from '../src/workflow-run-store.js';
 
@@ -140,6 +141,39 @@ test('one workflow run produces at most one quality observation', async t => {
 
   assert.equal(second.id, first.id);
   assert.equal((await runWithWorkSession(sessionA, () => observations.list())).length, 1);
+});
+
+test('owner retention policy prunes expired observations immediately', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-quality-retention-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const observationFile = path.join(root, 'quality.json');
+  const settingsFile = path.join(root, 'settings.json');
+  const runs = new WorkflowRunStore('openai-tunnel', { file: path.join(root, 'runs.json') });
+  const oldNow = () => new Date('2026-01-01T00:00:00.000Z');
+  const observations = new QualityObservationStore('openai-tunnel', {
+    file: observationFile,
+    settingsFile,
+    now: oldNow
+  });
+
+  const run = await runWithWorkSession(sessionA, async () => {
+    const started = await runs.begin('projects', 'repo', 'firmware.build');
+    return runs.finish(started.id, 'succeeded');
+  });
+  await runWithWorkSession(sessionA, () =>
+    observations.observe(run, { completionSource: 'workflow-output', explicitOutcome: true })
+  );
+  assert.equal((await observations.listForOwnerLearning()).length, 1);
+
+  await new QualityLearningSettingsStore({ file: settingsFile }).update({ retentionDays: 1 });
+  const later = new QualityObservationStore('openai-tunnel', {
+    file: observationFile,
+    settingsFile,
+    now: () => new Date('2026-01-03T00:00:00.000Z')
+  });
+  const result = await later.applyRetentionForOwnerLearning();
+  assert.deepEqual(result, { before: 1, after: 0, removed: 1 });
+  assert.deepEqual(await later.listForOwnerLearning(), []);
 });
 
 test('malformed or semantically tampered observations are never canonical quality evidence', async t => {

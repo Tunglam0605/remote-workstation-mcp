@@ -12,6 +12,17 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.5**
+
+v0.14.5 is a narrow production hotfix for the PTY worker isolation introduced in v0.14.4.
+
+- preserve executable allowlist validation on the original requested program token;
+- resolve the already-approved executable deterministically without a shell before handing it to the PTY worker;
+- share the same executable resolver with tool discovery;
+- fix Windows ConPTY startup when policy stores an executable basename such as `node` / `node.exe` but the isolated worker requires a concrete path;
+- add a regression test that starts a terminal from an allowlisted basename;
+- preserve per-session PTY worker isolation, process-tree cleanup, v0.14.3 multi-node security, Action Schema v2 and Engineering API v3.
+
 **v0.14.4**
 
 v0.14.4 is the first Phase-0 engineering-runtime hardening patch before Multi-Session Execution.

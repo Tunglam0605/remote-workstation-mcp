@@ -5,6 +5,7 @@ import type { TerminalReadResult, TerminalSessionSnapshot } from '../../engineer
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
+import { resolveExecutablePath } from '../executable-resolver.js';
 import { ProcessTreeSupervisor } from '../process-tree-supervisor.js';
 
 type OwnerIdSource = string | (() => string);
@@ -76,6 +77,10 @@ export class TerminalManager {
     this.policy.workspace(workspace);
     this.policy.assertExecute(program);
     const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
+    const resolvedProgram = await resolveExecutablePath(program, { cwd });
+    if (!resolvedProgram) {
+      throw new Error(`Allowlisted executable '${program}' could not be resolved without a shell.`);
+    }
     if (!Number.isInteger(cols) || cols < 20 || cols > 500) throw new Error('Terminal cols must be in range 20..500.');
     if (!Number.isInteger(rows) || rows < 5 || rows > 200) throw new Error('Terminal rows must be in range 5..200.');
 
@@ -178,7 +183,7 @@ export class TerminalManager {
     if (!worker.connected || !worker.send) {
       settleStarted(new Error('PTY worker IPC channel is unavailable.'));
     } else {
-      worker.send({ type: 'start', program, args, cwd, cols, rows, env: terminalEnv });
+      worker.send({ type: 'start', program: resolvedProgram, args, cwd, cols, rows, env: terminalEnv });
     }
 
     const startupTimeout = setTimeout(() => settleStarted(new Error('PTY worker startup timed out.')), 5000);

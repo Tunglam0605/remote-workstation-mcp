@@ -1,4 +1,34 @@
-﻿import assert from 'node:assert/strict';
+﻿
+
+test('terminal manager resolves an allowlisted executable basename before starting the PTY worker', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-pty-resolve-'));
+  try {
+    const executable = path.basename(process.execPath);
+    const config: PolicyConfig = {
+      version: 1,
+      mode: 'workspace',
+      workspaces: [{ id: 'w', root, readOnly: false }],
+      filesystem: { maxReadBytes: 1024 * 1024, maxWriteBytes: 1024 * 1024 },
+      process: {
+        allowExecutables: [executable],
+        inheritEnv: ['PATH', 'HOME', 'TEMP', 'TMP'],
+        maxOutputBytes: 65536,
+        maxRuntimeMs: 60000,
+        maxInputBytes: 65536
+      }
+    };
+    const policy = new PolicyEngine(config);
+    const terminal = new TerminalManager(policy, new PathGuard(policy), 'owner');
+    const session = await terminal.start('w', executable, ['-e', "console.log('PTY_RESOLVE_OK')"], '.');
+    await waitFor(() => terminal.read(session.id).text.includes('PTY_RESOLVE_OK'));
+    assert.match(terminal.read(session.id).text, /PTY_RESOLVE_OK/);
+    await terminal.stop(session.id);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

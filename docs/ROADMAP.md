@@ -382,6 +382,21 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.5 - PTY executable-resolution production hotfix
+
+Real post-deploy acceptance on Windows found that the v0.14.4 isolated PTY worker could fail to start an executable referenced by an allowlisted basename such as `node`: policy validation succeeded, but ConPTY inside the worker required a concrete executable path.
+
+v0.14.5 therefore:
+
+- keeps policy validation on the original requested program token;
+- resolves that already-approved token to a concrete executable without a shell;
+- reuses the resolver used by tool discovery instead of adding a second path-search implementation;
+- preserves the PTY worker isolation boundary and all v0.14.3 multi-node security invariants;
+- adds a regression test that starts a PTY from an allowlisted executable basename;
+- keeps Action Schema v2 and Engineering API v3 unchanged.
+
+Acceptance requires the Windows production node to start/read/exit a benign typed terminal session using the same basename-style executable policy that failed on v0.14.4, with Linux production nodes still healthy and no camera/runtime disruption.
+
 ### v0.14.4 - Process-tree, PTY isolation and deterministic supply-chain hardening
 
 This patch is the first Phase-0 engineering-hardening increment before Multi-Session Execution.

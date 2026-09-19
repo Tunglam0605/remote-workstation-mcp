@@ -89,10 +89,13 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       name: z.string().min(1).max(128).optional(),
       workspace: z.string().min(1).max(128).optional(),
       projectPath: z.string().min(1).max(1024).optional(),
-      objective: z.string().min(1).max(2048).optional()
+      objective: z.string().min(1).max(2048).optional(),
+      role: z.string().min(1).max(256).optional(),
+      idleAfterMinutes: z.number().int().min(1).max(43200).optional(),
+      expireAfterMinutes: z.number().int().min(1).max(43200).optional()
     }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, async ({ name, workspace, projectPath, objective }) => result(await audited(ctx.audit, 'work_session_create', workspace, async () => {
+  }, async ({ name, workspace, projectPath, objective, role, idleAfterMinutes, expireAfterMinutes }) => result(await audited(ctx.audit, 'work_session_create', workspace, async () => {
     if (workspace) {
       ctx.policy.workspace(workspace);
       if (projectPath) await ctx.paths.resolveExisting(workspace, projectPath);
@@ -100,7 +103,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       throw new Error('projectPath requires workspace.');
     }
     return {
-      session: await ctx.workSessions.create({ name, workspace, projectPath, objective }),
+      session: await ctx.workSessions.create({ name, workspace, projectPath, objective, role, idleAfterMinutes, expireAfterMinutes }),
       permissionModel: 'session permissions are always a subset of authenticated principal scopes and local owner policy'
     };
   })));
@@ -110,13 +113,13 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     inputSchema: z.object({ sessionId: z.string().uuid() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ sessionId }) => result(await audited(ctx.audit, 'work_session_resume', undefined, async () => {
-    const session = await ctx.workSessions.resume(sessionId);
-    const runtime = await ctx.runInWorkSession(sessionId, async () => ({
+    const session = await ctx.workSessions.inspect(sessionId, true);
+    const runtime = await ctx.scopeWorkSession(sessionId, async () => ({
       processes: ctx.processes.list(),
       terminals: ctx.engineering.terminals.list(),
       serial: ctx.engineering.serial.list(),
       debug: ctx.engineering.debug.list(),
-      hardwareLeases: ctx.engineering.resources.list(),
+      hardwareLeases: ctx.engineering.resources.listOwned(),
       workflowRuns: await ctx.workflowRuns.list(20),
       taskAttempts: await ctx.taskAttempts.list({ limit: 20 }),
       qualityObservations: await ctx.qualityObservations.list(20).catch(error => ({
@@ -146,21 +149,36 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     inputSchema: z.object({
       sessionId: z.string().uuid(),
       currentObjective: z.string().min(1).max(2048).optional(),
+      role: z.string().min(1).max(256).optional(),
       validatedFacts: z.array(z.string().min(1).max(512)).max(32).optional(),
       selectedProvider: z.string().min(1).max(256).optional(),
       selectedToolchain: z.string().min(1).max(256).optional(),
       selectedVariant: z.string().min(1).max(256).optional(),
+      completedTasks: z.array(z.string().min(1).max(512)).max(64).optional(),
+      currentTask: z.string().min(1).max(512).optional(),
       lastSuccessfulBuild: z.string().min(1).max(1024).optional(),
       lastSuccessfulDeploy: z.string().min(1).max(1024).optional(),
       lastAcceptance: z.string().min(1).max(1024).optional(),
       blockers: z.array(z.string().min(1).max(512)).max(32).optional(),
       decisions: z.array(z.string().min(1).max(512)).max(32).optional(),
-      pendingActions: z.array(z.string().min(1).max(512)).max(32).optional()
+      resourceState: z.array(z.string().min(1).max(512)).max(32).optional(),
+      pendingActions: z.array(z.string().min(1).max(512)).max(32).optional(),
+      nextRecommendedEngineeringAction: z.string().min(1).max(1024).optional()
     }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, async ({ sessionId, ...checkpoint }) => result(await audited(ctx.audit, 'work_session_checkpoint', undefined, async () => ({
     session: await ctx.workSessions.checkpoint(sessionId, checkpoint)
   }))));
+
+  server.registerTool('work_session_close', {
+    description: 'Close a caller-owned Work Session only after fail-closed runtime-resource and worktree checks. Close never deletes source, removes a worktree, stops runtime resources or force-cleans dirty work.',
+    inputSchema: z.object({ sessionId: z.string().uuid() }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ sessionId }) => result(
+    await audited(ctx.audit, 'work_session_close', undefined, () =>
+      ctx.workSessionLifecycle.close(sessionId)
+    )
+  ));
 
   server.registerTool('work_session_worktree_prepare', {
     description: 'Create or reuse the caller-owned isolated Git worktree for a writable Work Session. RWMCP never widens workspace scope automatically.',

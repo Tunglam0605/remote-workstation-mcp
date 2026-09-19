@@ -68,7 +68,7 @@ export class WorktreeManager {
   }
 
   async prepare(sessionId: string, options: WorktreePrepareOptions): Promise<WorktreeState> {
-    const session = await this.sessions.resume(sessionId);
+    const session = await this.sessions.touch(sessionId);
     const workspace = options.workspace.trim();
     if (!workspace) throw new Error('workspace must not be empty.');
     if (session.capsule.project?.workspace && session.capsule.project.workspace !== workspace) {
@@ -129,7 +129,7 @@ export class WorktreeManager {
   }
 
   async status(sessionId: string): Promise<WorktreeState> {
-    const session = await this.sessions.resume(sessionId);
+    const session = await this.sessions.inspect(sessionId, true);
     const project = session.capsule.project;
     if (!project?.workspace || !project.worktreePath) {
       return {
@@ -153,7 +153,7 @@ export class WorktreeManager {
   }
 
   async cleanup(sessionId: string): Promise<WorktreeState> {
-    const session = await this.sessions.resume(sessionId);
+    const session = await this.sessions.inspect(sessionId, true);
     const project = session.capsule.project;
     if (!project?.workspace || !project.worktreePath) {
       return {
@@ -185,7 +185,7 @@ export class WorktreeManager {
     await this.sessions.updateProject(sessionId, {
       worktreePath: undefined,
       buildDir: undefined
-    });
+    }, { allowTerminal: true });
     return {
       sessionId,
       workspace: project.workspace,

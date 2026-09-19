@@ -542,8 +542,17 @@ Objective Progress aggregation slice:
 - report only mechanically actionable READY tasks; do not infer engineering strategy or become a planner;
 - never return raw workflow logs, full transcripts or hidden/model reasoning.
 
+Phase 3H - Context Capsule handoff + Work Session lifecycle completion:
+
+- extend the bounded Context Capsule with role, completed/current task context, resource state and next recommended engineering action;
+- keep `work_session_resume` read-only and separate internal execution activation/touch;
+- complete `CREATED/ACTIVE/IDLE/BLOCKED/CLOSING/CLOSED/EXPIRED/RECOVERING` lifecycle semantics;
+- add idle/expiry policy, bounded terminal-record GC and restart/interrupted-close reconciliation;
+- make close fail closed on owned runtime resources and dirty worktrees without implicitly stopping/releasing/deleting anything;
+- keep explicit clean worktree cleanup available after `CLOSED` and `EXPIRED`.
+
 Next slices:
-- extend Context Capsule handoff for Objective/task/resource continuity and complete the Work Session lifecycle;
+- only after Phase 3H CI/main gates pass, continue the remaining v0.17 orchestration-core slices;
 - only after v0.17 orchestration-core gates pass, prepare optional Project Session Group / worker-provider foundations behind the same scheduler and local policy boundaries.
 
 Phase-3 acceptance gates:

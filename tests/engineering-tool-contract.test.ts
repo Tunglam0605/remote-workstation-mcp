@@ -36,7 +36,9 @@ test('Phase 3 Task Graph bumps Action Schema to v4 while Engineering API remains
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 4;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.16\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.17\.0-dev\.0';/);
+  assert.match(capabilities, /export const BUILD_CHANNEL = 'development'/);
+  assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
   assert.match(capabilities, /multi_device\.authorization/);
@@ -132,6 +134,7 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const taskWorkflowExecution = await read('src/task-workflow-execution.ts');
   const taskAttempts = await read('src/task-attempt-store.ts');
+  const schedulerAwareness = await read('src/scheduler-awareness.ts');
   const context = await read('src/context.ts');
 
   assert.match(capabilities, /work_objective\.task_graph/);
@@ -189,11 +192,20 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(workflowExecution, /this\.qualityObservations\.observe/);
   assert.match(taskAttempts, /class TaskAttemptStore/);
   assert.match(taskAttempts, /runtime-restarted-before-task-attempt-completion/);
+  assert.match(coreTools, /ctx\.schedulerAwareness\.snapshot\(objectiveId, limit\)/);
+  assert.match(schedulerAwareness, /waiting-resource/);
+  assert.match(schedulerAwareness, /waiting-session/);
+  assert.match(schedulerAwareness, /waiting-node/);
+  assert.match(schedulerAwareness, /RESOURCE_BUSY/);
+  assert.match(schedulerAwareness, /NODE_INTERLOCK_ACTIVE/);
+  assert.match(schedulerAwareness, /resourceLeases/);
+  assert.doesNotMatch(schedulerAwareness, /acquire\(|withLease\(|grant|permission|crossNode/);
   assert.match(context, /new TaskAttemptStore/);
   assert.match(context, /reconciledTaskAttempts/);
   assert.match(context, /new TaskGraphStore/);
   assert.match(context, /reconcileInterrupted/);
   assert.match(context, /new DeterministicTaskScheduler/);
+  assert.match(context, /new SchedulerAwarenessService/);
   assert.match(context, /new EngineeringWorkflowExecutionService/);
   assert.match(context, /new TaskWorkflowExecutionService/);
 });

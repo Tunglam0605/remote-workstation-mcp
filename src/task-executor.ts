@@ -1,5 +1,6 @@
 import type { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
 import type { NodeInterlockStore } from './node-interlock.js';
+import type { SchedulerAwarenessService } from './scheduler-awareness.js';
 import {
   DeterministicTaskScheduler,
   TaskGraphStore,
@@ -34,7 +35,8 @@ export class TaskExecutionCoordinator {
     private readonly store: TaskGraphStore,
     private readonly scheduler: DeterministicTaskScheduler,
     private readonly resources: EngineeringResourceManager,
-    private readonly nodeInterlocks: NodeInterlockStore
+    private readonly nodeInterlocks: NodeInterlockStore,
+    private readonly awareness?: SchedulerAwarenessService
   ) {}
 
   async execute<T>(
@@ -43,17 +45,22 @@ export class TaskExecutionCoordinator {
     operation: () => Promise<T>,
     hooks: TaskExecutionHooks = {}
   ): Promise<TaskExecutionResult<T>> {
-    const plan = await this.scheduler.plan(objectiveId, 128);
-    const item = plan.find(candidate => candidate.task.id === taskId);
-    if (!item) {
-      const objective = await this.store.get(objectiveId);
-      const task = objective.tasks.find(candidate => candidate.id === taskId);
-      if (!task) throw new Error(`Unknown Work Task '${taskId}'.`);
-      throw new Error(`TASK_NOT_READY: Work Task '${taskId}' is ${task.status}.`);
-    }
-    if (!item.dispatchable) {
-      throw new Error(`TASK_NOT_DISPATCHABLE: ${item.blocker ?? 'scheduler-blocked'}.`);
-    }
+    const item = this.awareness
+      ? await this.awareness.assertDispatchable(objectiveId, taskId)
+      : await (async () => {
+          const plan = await this.scheduler.plan(objectiveId, 128);
+          const candidate = plan.find(entry => entry.task.id === taskId);
+          if (!candidate) {
+            const objective = await this.store.get(objectiveId);
+            const task = objective.tasks.find(entry => entry.id === taskId);
+            if (!task) throw new Error(`Unknown Work Task '${taskId}'.`);
+            throw new Error(`TASK_NOT_READY: Work Task '${taskId}' is ${task.status}.`);
+          }
+          if (!candidate.dispatchable) {
+            throw new Error(`TASK_NOT_DISPATCHABLE: ${candidate.blocker ?? 'scheduler-blocked'}.`);
+          }
+          return candidate;
+        })();
 
     const run = async (): Promise<TaskExecutionResult<T>> => {
       let interlockId: string | undefined;

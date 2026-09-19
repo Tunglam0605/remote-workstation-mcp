@@ -45,6 +45,7 @@ import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
 import { EngineeringWorkflowExecutionService } from './engineering-workflow-execution.js';
 import { TaskExecutionCoordinator } from './task-executor.js';
+import { SchedulerAwarenessService } from './scheduler-awareness.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
 import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
@@ -105,7 +106,6 @@ export async function createContext() {
   const dataPlane = new DataPlaneAdapter(policy, paths);
   const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane);
   const engineeringResources = new EngineeringResourceManager(currentClientId);
-  const taskExecutor = new TaskExecutionCoordinator(taskGraphs, taskScheduler, engineeringResources, nodeInterlocks);
   const engineeringRunner = new EngineeringCommandRunner(policy);
   const engineeringHardware = new HardwareDiscoveryAdapter();
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
@@ -115,6 +115,23 @@ export async function createContext() {
   const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
   const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
+  const schedulerAwareness = new SchedulerAwarenessService(
+    taskScheduler,
+    taskGraphs,
+    workSessions,
+    taskAttempts,
+    engineeringResources,
+    nodeInterlocks,
+    engineeringSerial,
+    engineeringDebug
+  );
+  const taskExecutor = new TaskExecutionCoordinator(
+    taskGraphs,
+    taskScheduler,
+    engineeringResources,
+    nodeInterlocks,
+    schedulerAwareness
+  );
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
@@ -140,6 +157,7 @@ export async function createContext() {
     reconciledTaskAttempts,
     taskGraphs,
     taskScheduler,
+    schedulerAwareness,
     taskExecutor,
     taskWorkflowExecution,
     reconciledWorkTasks,

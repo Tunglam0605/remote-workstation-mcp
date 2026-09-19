@@ -459,10 +459,17 @@ First foundation slice:
 - telemetry is best-effort and must never make an otherwise valid workflow fail or prevent the control plane from starting;
 - repetition/frequency never increases trust by itself.
 
+Second foundation slice:
+
+- owner-local review/approve/reject/revoke decisions are stored separately from immutable observations;
+- decision history is append-only and bound to the exact observation digest;
+- owner review is reachable only through loopback Control Center APIs protected by the existing local peer/origin/ephemeral-token boundary;
+- there is still no MCP approve/reject/revoke/promote/activate action;
+- approval does not promote or activate anything and cannot change scopes, policy, Git, firmware or runtime lifecycle.
+
 Remaining v0.16 gates before reusable knowledge may be promoted:
 
-- owner-local review/approve/reject/revoke surface outside MCP authority;
-- canonical reusable-knowledge schema separated from raw observations;
+- canonical reusable-knowledge schema separated from raw observations and owner decisions;
 - promotion policy requiring deterministic evidence across compatible environment fingerprints;
 - retention/migration rules and bounded storage health;
 - anti-pattern coverage for flaky/retried/manual-recovery workflows;

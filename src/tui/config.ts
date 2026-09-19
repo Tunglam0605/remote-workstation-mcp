@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import YAML from 'yaml';
 import { deviceIdentityPath, loadOrCreateDeviceIdentity } from '../device-identity.js';
+import { NodeInterlockStore } from '../node-interlock.js';
 import { applyOwnerPermissionMode, readPermissionState, type OwnerPermissionMode } from '../setup/permissions.js';
 import { loadSetupSettings, saveSetupSettings, setupConfigDir, setupSecretPath } from '../setup/settings.js';
 
@@ -404,6 +405,15 @@ export async function bootstrapManagedNode(
   return await readTuiRuntimeState(repoRoot, options);
 }
 export async function restartManagedRuntime(repoRoot: string, options: TuiConfigOptions = {}): Promise<string> {
+  const configBase = setupConfigDir({ platform: platformOf(options), homeDir: homeOf(options), env: envOf(options) });
+  const interlocks = new NodeInterlockStore('owner-local-lifecycle', {
+    file: path.join(configBase, 'runtime', 'work-session-interlocks.json')
+  });
+  await interlocks.reconcileStale();
+  const active = await interlocks.listActive();
+  if (active.length > 0) {
+    throw new Error(`NODE_BUSY: ${active.length} active Work Session workflow interlock(s) prevent runtime restart.`);
+  }
   if (platformOf(options) === 'win32') {
     const configuredLauncher = process.env.RWMCP_WINDOWS_LAUNCHER?.trim();
     const launcher = configuredLauncher || path.resolve(repoRoot, '..', '..', 'bin', 'rwmcp.ps1');

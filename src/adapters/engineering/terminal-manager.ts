@@ -288,6 +288,10 @@ export class TerminalManager {
     return [...this.sessions.values()].filter(item => item.ownerId === owner).map(item => this.snapshot(item));
   }
 
+  activeCount(): number {
+    return [...this.sessions.values()].filter(item => item.status === 'running').length;
+  }
+
   private snapshot(managed: ManagedTerminal): TerminalSessionSnapshot {
     const {
       ownerId: _owner, worker: _worker, output: _output, outputBase: _base,

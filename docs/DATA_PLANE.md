@@ -34,6 +34,8 @@ Full Access is intentionally insufficient. A local/unauthenticated caller is den
 
 A transfer grant authorizes bytes only. It does not authorize remote command execution, hardware mutation, arbitrary peer reads or peer credentials.
 
+Starting in v0.15, a Work Session may carry transfer workflow attribution, but its session ID does not satisfy any transfer authorization check. Work Session context cannot add the dedicated cross-node scope, create a grant or convert Full Access into federation authority. Source and destination continue to authorize the underlying authenticated principal and bilateral owner grant independently.
+
 ## Why this is core
 
 The data plane is intentionally independent of STM32, ESP32, ROS 2, vision and OTA. It can carry any regular file inside an authorized workspace, including:
@@ -51,7 +53,7 @@ Domain extensions may add extra validation after a generic transfer, but they mu
 
 ## Stable workflow surface
 
-v0.14.0 exposes the first platform workflows through the existing generic `engineering_workflow_plan` / `engineering_workflow_run` envelope so `actionSchemaVersion` remains 2:
+v0.14.0 exposed the first platform workflows through the generic `engineering_workflow_plan` / `engineering_workflow_run` envelope introduced with Action Schema v2. v0.15 keeps that workflow envelope but uses Action Schema v3 because Work Session lifecycle adds new top-level tools:
 
 - `platform.transfer_prepare`
 - `platform.transfer_receive_offer`

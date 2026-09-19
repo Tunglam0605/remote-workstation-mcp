@@ -55,6 +55,10 @@ export class EngineeringResourceManager {
     return [...this.leases.values()].map(item => this.snapshot(item, owner.key, owner.principalId));
   }
 
+  activeCount(): number {
+    return this.leases.size;
+  }
+
   async withLease<T>(resourceId: string, mode: EngineeringResourceMode, operation: () => Promise<T>): Promise<T> {
     const lease = this.acquire(resourceId, mode);
     try {

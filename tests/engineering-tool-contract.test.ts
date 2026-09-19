@@ -25,16 +25,16 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.doesNotMatch(legacyBlock, /keepMonitorOpen/);
   assert.match(runtimeBlock, /keepMonitorOpen: z\.boolean\(\)\.optional\(\)/);
 
-  // Action schema v2 keeps the legacy overrides shape frozen. New workflow parameters
-  // are accepted through the generic envelope and validated by the internal runtime schema.
+  // Action schema v3 retains the legacy v2 override shape while Work Session parameters
+  // continue to flow through the generic envelope and internal runtime validation.
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.14 platform workflow growth keeps ChatGPT Action Schema v2 stable while preserving Engineering API v3', async () => {
+test('v0.15 Work Session tools intentionally bump ChatGPT Action Schema to v3 and Engineering API to v4', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 2;/);
-  assert.match(capabilities, /export const ENGINEERING_API_VERSION = 3;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.14\.6';/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 3;/);
+  assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.15\.0';/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
   assert.match(capabilities, /multi_device\.authorization/);
@@ -50,4 +50,25 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
   assert.match(firmware, /Keil target '\$\{target\}'.*was not found in inspected \.uvprojx metadata/);
   assert.doesNotMatch(profile, /command:/);
   assert.doesNotMatch(profile, /args:/);
+});
+
+
+test('v0.15 Work Session routing uses Action Schema v3 and Keil shared outputs are project-variant exclusive', async () => {
+  const capabilities = await read('src/capabilities.ts');
+  const coreTools = await read('src/tools/core-tools.ts');
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 3;/);
+  assert.match(coreTools, /work_session_create/);
+  assert.match(coreTools, /work_session_resume/);
+  assert.match(coreTools, /work_session_worktree_prepare/);
+  assert.match(engineeringTools, /workSessionId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
+  assert.match(engineeringTools, /const \{ workSessionId, \.\.\.runtimeParameters \} = parsed/);
+  assert.match(engineeringTools, /ctx\.runInWorkSession\(workSessionId/);
+  assert.match(engineeringTools, /ctx\.workflowRuns\.begin\(workspace, projectPath, workflow\)/);
+  assert.match(engineeringTools, /ctx\.workflowRuns\.finish\(run\.id/);
+
+  assert.match(firmware, /project-variant:keil:\$\{workspace\}:\$\{projectPath\}:\$\{projectFile\}:\$\{target\}/);
+  assert.match(firmware, /this\.resources\.withLease\(buildResourceId, 'building'/);
 });

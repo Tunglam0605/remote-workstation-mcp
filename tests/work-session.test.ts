@@ -36,6 +36,8 @@ test('WorkSessionStore persists compact owner-scoped context and never discloses
 
   const resumed = await store.resume(session.id);
   assert.deepEqual(resumed, session);
+  const afterReconnect = new WorkSessionStore(() => principal, { file });
+  assert.deepEqual(await afterReconnect.resume(session.id), session);
   assert.equal((await store.list()).length, 1);
 
   principal = 'different-principal';
@@ -71,4 +73,47 @@ test('execution context produces distinct ResourceOwner keys for the same princi
   assert.equal(ownerA.implicit, false);
   assert.equal(ownerB.implicit, false);
   assert.equal(currentWorkSessionId(), 'implicit');
+});
+
+
+test('Context Capsule checkpoint stays bounded and replaces only explicit checkpoint fields', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-work-session-checkpoint-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const store = new WorkSessionStore('openai-tunnel', {
+    file: path.join(root, 'work-sessions.json')
+  });
+  const session = await store.create({
+    workspace: 'stm32',
+    projectPath: 'B300-Main-Custom',
+    objective: 'initial'
+  });
+
+  const updated = await store.checkpoint(session.id, {
+    currentObjective: 'Validate multi-session isolation',
+    validatedFacts: ['Phase 0 closed', 'Windows PTY acceptance passed'],
+    selectedProvider: 'keil',
+    selectedToolchain: 'ArmClang',
+    selectedVariant: 'f407',
+    lastAcceptance: 'v0.14.6 three-node acceptance passed',
+    blockers: ['Windows integration pending'],
+    decisions: ['Work Session id is not an authorization credential'],
+    pendingActions: ['Run Windows CI']
+  });
+
+  assert.equal(updated.capsule.project?.workspace, 'stm32');
+  assert.equal(updated.capsule.currentObjective, 'Validate multi-session isolation');
+  assert.deepEqual(updated.capsule.validatedFacts, ['Phase 0 closed', 'Windows PTY acceptance passed']);
+  assert.equal(updated.capsule.selectedProvider, 'keil');
+  assert.equal(updated.capsule.selectedToolchain, 'ArmClang');
+  assert.equal(updated.capsule.selectedVariant, 'f407');
+  assert.deepEqual(updated.capsule.pendingActions, ['Run Windows CI']);
+
+  await assert.rejects(
+    store.checkpoint(session.id, { validatedFacts: Array.from({ length: 33 }, (_, i) => `fact-${i}`) }),
+    /at most 32 items/
+  );
+  await assert.rejects(
+    store.checkpoint(session.id, { decisions: ['x'.repeat(513)] }),
+    /at most 512 characters/
+  );
 });

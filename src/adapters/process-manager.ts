@@ -187,6 +187,10 @@ export class ProcessManager {
       .map(item => this.snapshot(item));
   }
 
+  activeCount(): number {
+    return [...this.processes.values()].filter(item => item.status === 'running').length;
+  }
+
   async stop(id: string): Promise<ProcessSnapshot> {
     const managed = this.owned(id);
     if (managed.status === 'running') {

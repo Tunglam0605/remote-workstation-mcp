@@ -73,6 +73,30 @@ export interface WorkSessionCreateInput {
   objective?: string;
 }
 
+export interface WorkSessionCheckpointInput {
+  currentObjective?: string;
+  validatedFacts?: string[];
+  selectedProvider?: string;
+  selectedToolchain?: string;
+  selectedVariant?: string;
+  lastSuccessfulBuild?: string;
+  lastSuccessfulDeploy?: string;
+  lastAcceptance?: string;
+  blockers?: string[];
+  decisions?: string[];
+  pendingActions?: string[];
+}
+
+function boundedList(values: string[] | undefined, field: string, maxItems = 32, maxLength = 512): string[] | undefined {
+  if (values === undefined) return undefined;
+  if (values.length > maxItems) throw new Error(`${field} accepts at most ${maxItems} items.`);
+  return values.map((value, index) => {
+    const normalized = boundedText(value, `${field}[${index}]`, maxLength);
+    if (!normalized) throw new Error(`${field}[${index}] must not be empty.`);
+    return normalized;
+  });
+}
+
 export interface WorkSessionStoreOptions {
   file?: string;
   now?: () => Date;
@@ -190,6 +214,87 @@ export class WorkSessionStore {
         capsule
       };
       state.sessions.push(session);
+      await this.save(state);
+      return structuredClone(session);
+    });
+  }
+
+  async checkpoint(
+    sessionId: string,
+    patch: WorkSessionCheckpointInput
+  ): Promise<WorkSession> {
+    const normalized = sessionId.trim();
+    if (!normalized) throw new Error('Work Session id must not be empty.');
+    const principalId = this.principalId();
+
+    return this.mutate(async () => {
+      const state = await this.load();
+      const session = state.sessions.find(item =>
+        item.id === normalized &&
+        item.principalId === principalId &&
+        item.status === 'active'
+      );
+      if (!session) throw new Error(`Unknown active Work Session '${normalized}'.`);
+
+      const next: ContextCapsule = {
+        ...session.capsule,
+        ...(patch.currentObjective !== undefined ? { currentObjective: boundedText(patch.currentObjective, 'currentObjective', 2048) } : {}),
+        ...(patch.selectedProvider !== undefined ? { selectedProvider: boundedText(patch.selectedProvider, 'selectedProvider', 256) } : {}),
+        ...(patch.selectedToolchain !== undefined ? { selectedToolchain: boundedText(patch.selectedToolchain, 'selectedToolchain', 256) } : {}),
+        ...(patch.selectedVariant !== undefined ? { selectedVariant: boundedText(patch.selectedVariant, 'selectedVariant', 256) } : {}),
+        ...(patch.lastSuccessfulBuild !== undefined ? { lastSuccessfulBuild: boundedText(patch.lastSuccessfulBuild, 'lastSuccessfulBuild', 1024) } : {}),
+        ...(patch.lastSuccessfulDeploy !== undefined ? { lastSuccessfulDeploy: boundedText(patch.lastSuccessfulDeploy, 'lastSuccessfulDeploy', 1024) } : {}),
+        ...(patch.lastAcceptance !== undefined ? { lastAcceptance: boundedText(patch.lastAcceptance, 'lastAcceptance', 1024) } : {}),
+        ...(patch.validatedFacts !== undefined ? { validatedFacts: boundedList(patch.validatedFacts, 'validatedFacts')! } : {}),
+        ...(patch.blockers !== undefined ? { blockers: boundedList(patch.blockers, 'blockers')! } : {}),
+        ...(patch.decisions !== undefined ? { decisions: boundedList(patch.decisions, 'decisions')! } : {}),
+        ...(patch.pendingActions !== undefined ? { pendingActions: boundedList(patch.pendingActions, 'pendingActions')! } : {})
+      };
+      for (const key of [
+        'currentObjective',
+        'selectedProvider',
+        'selectedToolchain',
+        'selectedVariant',
+        'lastSuccessfulBuild',
+        'lastSuccessfulDeploy',
+        'lastAcceptance'
+      ] as const) {
+        if (next[key] === undefined) delete next[key];
+      }
+      session.capsule = next;
+      session.updatedAt = this.now().toISOString();
+      await this.save(state);
+      return structuredClone(session);
+    });
+  }
+
+  async updateProject(
+    sessionId: string,
+    patch: Partial<ContextCapsuleProject>
+  ): Promise<WorkSession> {
+    const normalized = sessionId.trim();
+    if (!normalized) throw new Error('Work Session id must not be empty.');
+    const principalId = this.principalId();
+
+    return this.mutate(async () => {
+      const state = await this.load();
+      const session = state.sessions.find(item =>
+        item.id === normalized &&
+        item.principalId === principalId &&
+        item.status === 'active'
+      );
+      if (!session) throw new Error(`Unknown active Work Session '${normalized}'.`);
+
+      const existing = session.capsule.project;
+      const workspace = boundedText(patch.workspace ?? existing?.workspace, 'workspace', 128);
+      if (!workspace) throw new Error('Context Capsule project workspace is required.');
+
+      const merged: ContextCapsuleProject = { ...(existing ?? { workspace }), ...patch, workspace };
+      for (const key of Object.keys(merged) as Array<keyof ContextCapsuleProject>) {
+        if (merged[key] === undefined) delete merged[key];
+      }
+      session.capsule.project = merged;
+      session.updatedAt = this.now().toISOString();
       await this.save(state);
       return structuredClone(session);
     });

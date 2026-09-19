@@ -9,6 +9,7 @@ import { PolicyEngine } from '../src/policy.js';
 import { AuditLogger } from '../src/security/audit.js';
 import { MultiNodeAuthorization, type CrossNodeTransferIntent } from '../src/security/multi-node-authorization.js';
 import { runAsPrincipal, type RequestPrincipal } from '../src/security/request-principal.js';
+import { runWithWorkSession } from '../src/security/execution-context.js';
 
 const sourceIdentity: DeviceIdentity = {
   version: 1,
@@ -244,6 +245,30 @@ test('cross-node authorization writes explicit allow and deny security audit eve
     assert.equal(lines[0].details.grantId, 'build-to-vision');
     assert.equal(lines[1].ok, false);
     assert.equal(lines[1].details.sourcePath, 'project/private/secret.json');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('Work Session identity cannot create or widen cross-node authority', async () => {
+  const f = await fixture();
+  const sessionId = '11111111-1111-4111-8111-111111111111';
+  try {
+    await assert.rejects(
+      runAsPrincipal(
+        securePrincipal(['workstation.full_control']),
+        () => runWithWorkSession(sessionId, () => f.auth.authorizeSource(intent()))
+      ),
+      /dedicated 'workstation\.cross_node_transfer' scope/i
+    );
+
+    const allowed = await runAsPrincipal(
+      securePrincipal(['workstation.cross_node_transfer']),
+      () => runWithWorkSession(sessionId, () => f.auth.authorizeSource(intent()))
+    );
+    assert.equal(allowed.grantId, 'build-to-vision');
+    assert.equal(allowed.localRole, 'source');
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

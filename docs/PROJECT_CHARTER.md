@@ -94,6 +94,8 @@ The following rules are product-level invariants:
 11. **No horizontal authority.** A Direct Node must not gain command authority, credentials, data-read authority or implicit trust over another Direct Node merely because both are connected to the same AI controller. Compromise of one node must not confer authority over another.
 12. **Bilateral transfer authorization.** Cross-node data movement is default-deny and requires an explicit directional owner grant on both participating nodes, the authenticated owner-approved AI control-plane principal, and an exact match for node identities, workspaces, path boundaries, file type, size and transport.
 13. **Data transfer is not remote control.** A transfer grant authorizes bounded bytes only. It must never authorize remote command execution, arbitrary pull of peer data, hardware mutation or reuse of the peer's credentials.
+14. **Work Session identity is not authority.** A Work Session is durable application-level execution context, not a credential. Session permissions and resource access must remain a subset of the authenticated principal and local owner policy; a session cannot grant Full Control, raw shell, host filesystem access, Administrator/root or cross-node trust.
+15. **Conversation history is not canonical state.** Resumable work must persist only compact, bounded, non-secret project/session facts and lifecycle state. Full transcripts, large raw logs and speculative model narrative must not become control-plane truth.
 
 ## 5. Multi-Node Direction
 

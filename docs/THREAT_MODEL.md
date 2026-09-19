@@ -80,6 +80,18 @@ SHA-256 verifies that a downloaded package matches the published checksum but do
 
 Mitigation: future signed artifacts, provenance/SBOM and stronger release verification.
 
+### Cross-chat resource confusion
+
+Two ChatGPT windows may authenticate as the same principal. Treating principal identity alone as resource ownership would let one conversation read/stop another conversation's managed process/PT​Y/serial/debug state.
+
+Mitigation in v0.15: durable Work Session identity is carried separately from the authenticated principal and resource ownership uses the composite pair. Session IDs are not credentials, omitted IDs map only to the compatibility implicit session, and tests require same-principal sibling sessions to receive non-disclosing access failures. Physical hardware remains globally exclusive by resource identity.
+
+### Stale durable workflow state after runtime restart
+
+Persisting a workflow as `running` across process death could mislead a resumed conversation into assuming hardware/build activity is still live.
+
+Mitigation in v0.15: startup reconciliation converts durable incomplete workflow records to failed with a bounded interruption reason. Ephemeral hardware leases are not resurrected.
+
 ## Current residual boundaries and future hardening
 
 The current control plane intentionally does **not** claim:
@@ -90,7 +102,7 @@ The current control plane intentionally does **not** claim:
 - GUI desktop automation as a default control primitive;
 - public directory approval/entitlement control inside ChatGPT;
 - independent release publisher signing/provenance;
-- durable multi-user / Multi-Session isolation until the v0.15 Work Session ownership model is implemented.
+- OS-enforced isolation between mutually hostile users sharing the same service account. v0.15 implements application-level Work Session isolation for authenticated control-plane work, not a kernel/container security boundary.
 
 Typed debug/probe/serial/ROS2 engineering adapters are now in scope and remain constrained by local policy, leases and provider-specific validation.
 

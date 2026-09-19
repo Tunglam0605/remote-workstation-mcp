@@ -1,4 +1,4 @@
-export type EngineeringResourceMode = 'reading' | 'monitoring' | 'flashing' | 'debugging' | 'resetting';
+export type EngineeringResourceMode = 'reading' | 'monitoring' | 'building' | 'flashing' | 'debugging' | 'resetting';
 
 export interface EngineeringResourceLease {
   id: string;

@@ -17,6 +17,9 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 }
 
 . (Join-Path $Root 'scripts\windows-settings.ps1')
+$workSessionInterlockScript = Join-Path $Root 'scripts\work-session-interlock-windows.ps1'
+if (-not (Test-Path $workSessionInterlockScript)) { throw "Work Session interlock helper not found: $workSessionInterlockScript" }
+. $workSessionInterlockScript
 $runtimeConvergenceScript = Join-Path $Root 'scripts\windows-runtime-convergence.ps1'
 if (-not (Test-Path $runtimeConvergenceScript)) { throw "Runtime convergence helper not found: $runtimeConvergenceScript" }
 . $runtimeConvergenceScript
@@ -476,6 +479,8 @@ function Unregister-Startup {
   } catch {}
   return Runtime-Status
 }
+
+if ($Action -eq 'Restart') { Assert-NoRwmcpActiveWorkSessionInterlocks -Operation 'runtime restart' }
 
 $preserveDesired = $env:RWMCP_RECOVERY_PRESERVE_DESIRED -eq '1'
 $lifecycleEpoch = $null

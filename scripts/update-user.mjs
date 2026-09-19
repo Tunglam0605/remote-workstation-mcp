@@ -19,6 +19,29 @@ const validModes = new Set(['off', 'notify', 'auto_patch', 'auto']);
 if (!validModes.has(updateMode)) throw new Error(`Invalid RWMCP_UPDATE_MODE '${updateMode}'.`);
 if (scheduled && updateMode === 'off') process.exit(0);
 
+async function activeWorkSessionInterlocks() {
+  const file = path.join(configHome, 'runtime', 'work-session-interlocks.json');
+  try {
+    const parsed = JSON.parse((await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
+    if (parsed?.version !== 1 || !Array.isArray(parsed.records)) {
+      throw new Error('invalid Work Session interlock state');
+    }
+    return parsed.records.filter(record => {
+      const pid = Number(record?.pid);
+      if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return error?.code === 'EPERM';
+      }
+    });
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw new Error(`Unable to verify Work Session lifecycle interlocks: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function readInstalledVersion() {
   try {
     const pkg = JSON.parse(await fs.readFile(path.join(dataHome, 'current', 'package.json'), 'utf8'));
@@ -143,6 +166,16 @@ console.log(JSON.stringify({
 
 // Never downgrade automatically or manually. A downgrade must be an explicit rollback to a locally retained version slot.
 if (checkOnly || !updateAvailable || installedIsNewer || !scheduledMayApply(installed, latest)) process.exit(0);
+
+const activeInterlocks = await activeWorkSessionInterlocks();
+if (activeInterlocks.length > 0) {
+  const message = `NODE_BUSY: ${activeInterlocks.length} active Work Session workflow interlock(s) prevent runtime update.`;
+  if (scheduled) {
+    console.log(JSON.stringify({ updateDeferred: true, reason: 'NODE_BUSY', activeWorkSessionInterlocks: activeInterlocks.length }, null, 2));
+    process.exit(0);
+  }
+  throw new Error(message);
+}
 
 const tgzAsset = release.assets.find(asset => asset.name === `remote-workstation-mcp-v${latest}.tgz`);
 const sumsAsset = release.assets.find(asset => asset.name === 'SHA256SUMS.txt');

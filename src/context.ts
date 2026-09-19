@@ -28,10 +28,12 @@ import { TaskAdapter } from './adapters/tasks.js';
 import { ToolDiscoveryAdapter } from './adapters/tool-discovery.js';
 import { UpdateAdapter } from './adapters/update.js';
 import { SERVER_VERSION } from './capabilities.js';
+import { ConcurrencyPolicy } from './concurrency-policy.js';
 import { loadPolicy } from './config.js';
 import { loadOrCreateDeviceIdentity } from './device-identity.js';
 import { loadHosts } from './hosts.js';
 import { loadPermissionLease } from './permissions.js';
+import { NodeInterlockStore } from './node-interlock.js';
 import { PairingStore } from './pairing/pairing-store.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
@@ -40,6 +42,8 @@ import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
 import { currentPrincipal } from './security/request-principal.js';
 import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
+import { WorkflowRunStore } from './workflow-run-store.js';
+import { WorktreeManager } from './worktree-manager.js';
 
 export async function createContext() {
   const actor = {
@@ -54,12 +58,19 @@ export async function createContext() {
   ]);
   const currentClientId = () => currentPrincipal()?.id ?? actor.clientId;
   const workSessions = new WorkSessionStore(currentClientId);
+  const workflowRuns = new WorkflowRunStore(currentClientId);
+  const reconciledWorkflowRuns = await workflowRuns.reconcileInterrupted();
+  const nodeInterlocks = new NodeInterlockStore(currentClientId);
+  const reconciledNodeInterlocks = await nodeInterlocks.reconcileStale();
   const runInWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> => {
     if (workSessionId?.trim()) await workSessions.resume(workSessionId);
     return await runWithWorkSession(workSessionId, operation);
   };
   const policy = new PolicyEngine(config, lease, currentClientId);
   const paths = new PathGuard(policy);
+  const git = new GitAdapter(policy, paths);
+  const worktreeManager = new WorktreeManager(git, workSessions);
+  const concurrencyPolicy = new ConcurrencyPolicy();
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const audit = new AuditLogger(auditPath, actor);
   const multiNodeAuthorization = new MultiNodeAuthorization(policy, identity, audit);
@@ -91,11 +102,17 @@ export async function createContext() {
     audit,
     multiNodeAuthorization,
     workSessions,
+    workflowRuns,
+    reconciledWorkflowRuns,
+    nodeInterlocks,
+    reconciledNodeInterlocks,
     runInWorkSession,
+    worktreeManager,
+    concurrencyPolicy,
     fs: new FilesystemAdapter(policy, paths),
     hostFs: new HostFilesystemAdapter(policy),
     fullControl: new FullControlAdapter(policy),
-    git: new GitAdapter(policy, paths),
+    git,
     lsp: new LspAdapter(policy, paths, currentClientId),
     processes,
     buildDiagnostics: new BuildDiagnosticsAdapter(processes),

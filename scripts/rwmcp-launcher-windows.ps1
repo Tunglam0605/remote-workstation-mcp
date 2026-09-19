@@ -61,6 +61,9 @@ if (-not (Test-Path $RecoveryStateScript)) { throw "Recovery state helper is mis
 $LifecycleStateScript = Join-Path $RecoveryStateRoot 'scripts\windows-lifecycle-state.ps1'
 if (-not (Test-Path $LifecycleStateScript)) { throw "Lifecycle state helper is missing: $LifecycleStateScript" }
 . $LifecycleStateScript
+$WorkSessionInterlockScript = Join-Path $RecoveryStateRoot 'scripts\work-session-interlock-windows.ps1'
+if (-not (Test-Path $WorkSessionInterlockScript)) { throw "Work Session interlock helper is missing: $WorkSessionInterlockScript" }
+. $WorkSessionInterlockScript
 
 function Get-RootVersion([string]$Root) {
   try {
@@ -200,6 +203,7 @@ switch ($Action) {
   'Boot' { Invoke-SafeBoot }
   'Stop' { Invoke-Runtime 'Stop' 'OpenAI' $Root }
   'Restart' {
+    Assert-NoRwmcpActiveWorkSessionInterlocks -Operation 'runtime restart'
     $safeRestart = Join-Path $Root 'scripts\safe-restart-windows.ps1'
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $safeRestart -Root $Root -Mode OpenAI
     if ($LASTEXITCODE -ne 0) { throw "Safe runtime restart failed with exit code $LASTEXITCODE." }
@@ -211,6 +215,7 @@ switch ($Action) {
   'AutoUpdateOn' { Invoke-Updater 'Enable' }
   'AutoUpdateOff' { Invoke-Updater 'Disable' }
   'Update' {
+    Assert-NoRwmcpActiveWorkSessionInterlocks -Operation 'runtime update'
     $updateTx = $null
     $updateOwned = $false
     $updateOutcome = 'FAILED'
@@ -278,6 +283,7 @@ switch ($Action) {
     }
   }
   'Rollback' {
+    Assert-NoRwmcpActiveWorkSessionInterlocks -Operation 'runtime rollback'
     $rollbackTx = $null
     $rollbackOwned = $false
     $rollbackOutcome = 'FAILED'

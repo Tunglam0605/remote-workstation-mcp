@@ -47,3 +47,38 @@ test('same principal Work Sessions compete for exclusive resources but cannot re
   runWithWorkSession(sessionA, () => manager.release(lease.id));
   assert.deepEqual(manager.list(), []);
 });
+
+
+test('serial/debug resources conflict globally across Work Sessions and leases do not resurrect after manager restart', () => {
+  const sessionA = '11111111-1111-4111-8111-111111111111';
+  const sessionB = '22222222-2222-4222-8222-222222222222';
+  const manager = new EngineeringResourceManager('openai-tunnel');
+
+  const serialLease = runWithWorkSession(sessionA, () =>
+    manager.acquire('serial:usb:1234:5678:ABC', 'monitoring')
+  );
+  runWithWorkSession(sessionB, () => {
+    assert.throws(
+      () => manager.acquire('serial:usb:1234:5678:ABC', 'monitoring'),
+      /RESOURCE_BUSY/
+    );
+  });
+  runWithWorkSession(sessionA, () => manager.release(serialLease.id));
+
+  const probeLease = runWithWorkSession(sessionA, () =>
+    manager.acquire('debug-probe:STLINK-001', 'debugging')
+  );
+  runWithWorkSession(sessionB, () => {
+    assert.throws(
+      () => manager.acquire('debug-probe:STLINK-001', 'flashing'),
+      /RESOURCE_BUSY/
+    );
+  });
+
+  // Hardware leases are deliberately ephemeral. A fresh manager after a runtime
+  // restart/reboot starts empty rather than resurrecting stale hardware ownership.
+  const afterRestart = new EngineeringResourceManager('openai-tunnel');
+  assert.deepEqual(runWithWorkSession(sessionA, () => afterRestart.list()), []);
+
+  runWithWorkSession(sessionA, () => manager.release(probeLease.id));
+});

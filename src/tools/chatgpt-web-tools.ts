@@ -46,9 +46,9 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
     principal.id === multiNodePolicy.controllerPrincipalId &&
     principal.type === multiNodePolicy.controllerPrincipalType
   );
-  const managedProcesses = ctx.processes.list();
-  const terminalSessions = ctx.engineering.terminals.list();
-  const hardwareLeases = ctx.engineering.resources.list();
+  const activeProcessCount = ctx.processes.activeCount();
+  const activeTerminalCount = ctx.engineering.terminals.activeCount();
+  const activeHardwareLeaseCount = ctx.engineering.resources.activeCount();
   const healthWarnings = [
     ...(!dataPlane.directIpv4Available && !controlPlaneRelay.supported ? ['data-plane-unavailable'] : []),
     ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : []),
@@ -107,9 +107,9 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
         freeBytes: os.freemem()
       },
       activeSessions: {
-        processes: managedProcesses.filter(item => item.status === 'running').length,
-        terminals: terminalSessions.filter(item => item.status === 'running').length,
-        hardwareLeases: hardwareLeases.length
+        processes: activeProcessCount,
+        terminals: activeTerminalCount,
+        hardwareLeases: activeHardwareLeaseCount
       },
       dataPlane: {
         ...dataPlane,

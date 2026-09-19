@@ -1,5 +1,14 @@
 # Engineering Workflow Benchmark
 
+## v0.15 Multi-Session benchmark extension
+
+The workflow benchmark now measures not only call count but safe parallel throughput. Two ChatGPT conversations authenticated as the same principal must be able to run independent projects without sharing private process/PT​Y/serial/debug state. Writable sessions use separate worktrees/build directories; exclusive hardware or shared-output project variants reject the second owner with `RESOURCE_BUSY` rather than racing.
+
+A new conversation should resume established work with one `work_session_resume(sessionId)` call returning the bounded Context Capsule, owned runtime resources, recent workflow runs and worktree state. Reconstructing state by replaying the full conversation is explicitly not part of the benchmark.
+
+Node-wide update/restart/rollback operations must observe active workflow interlocks and fail with `NODE_BUSY` instead of interrupting a critical typed workflow. Owner Stop remains available as an explicit recovery action.
+
+
 This document records the high-signal GitHub projects reviewed before introducing the RWMCP Engineering Workflow Engine.
 
 The goal is not to clone another task runner. The goal is to remove repeated per-chat setup/build/flash/monitor/ROS commands while preserving RWMCP's typed tools, authorization, resource leases, audit trail, and workspace containment.

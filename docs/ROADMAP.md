@@ -380,6 +380,68 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 
 Raw shell remains an explicitly elevated escape hatch; routine engineering operations should prefer typed adapters.
 
+## v0.15 — Multi-Session Execution
+
+### Phase 0 closure — v0.14.6 accepted ✅
+
+The v0.14.6 baseline was accepted on 2026-09-19 before opening v0.15:
+
+- Windows, Ubuntu Vision and Ubuntu Personal all reported v0.14.6 with authenticated Direct Control Path healthy;
+- Action Schema v2 / Engineering API v3 matched the deployed baseline and no node reported a pending update;
+- cross-node transfer remained default-deny, no temporary grants were present and legacy node-to-node remote control remained disabled;
+- managed process, PTY and hardware-lease counters returned to zero;
+- Windows PTY create/write/resize/natural-exit/explicit-stop acceptance passed with no worker orphan;
+- managed root/child/grandchild cleanup passed;
+- v0.14.6 release package, installers, CycloneDX SBOM and SHA-256 manifest were present behind green release/main CI;
+- `tunglam-apriltag.service` on Ubuntu Vision remained `active/running` on MainPID `2705483`, started `2026-09-17 16:42:35 +07`, with no acceptance-driven restart.
+
+**PHASE 0 CLOSED.**
+
+### v0.15.0 - Work Session execution foundation
+
+v0.15 replaces the assumption that one authenticated principal maps to one stream of work. An MCP connection or browser tab is reachability, not durable execution identity.
+
+Canonical model:
+
+```text
+authenticated principal
+        |
+        +-- Work Session A -> B300 worktree/build/resources
+        +-- Work Session B -> Callbox worktree/build/resources
+        +-- Work Session C -> Vision observation/resources
+        +-- Work Session D -> Report worktree/build/resources
+```
+
+Implemented foundation:
+
+- durable owner-scoped `WorkSessionStore` and compact `ContextCapsule`;
+- per-invocation `ExecutionContext / ResourceOwner` using `principalId + workSessionId`;
+- backward-compatible implicit session when clients omit `workSessionId`;
+- process, PTY, serial, debug and engineering resource isolation between two Work Sessions sharing the same authenticated principal;
+- Work Session IDs are identifiers, never bearer credentials and never permission sources;
+- session permissions remain a subset of authenticated principal permissions and local owner policy;
+- durable workflow-run attribution with restart reconciliation of interrupted runs;
+- caller-owned Git worktree/branch/build-dir preparation with no automatic workspace widening;
+- dirty worktree cleanup returns `NEEDS_OWNER_OR_EXPLICIT_ACTION` and never force-removes;
+- concurrency classification: shared, session-isolated, resource-exclusive, project/variant-exclusive, node-exclusive and owner-local-only;
+- Keil shared-output builds serialize on a deterministic project/variant lease;
+- Work Session context cannot create or bypass `workstation.cross_node_transfer` authority;
+- Action Schema v3 reflects the new top-level Work Session lifecycle tools; Engineering API v4 reflects session attribution/concurrency semantics.
+
+Acceptance gates for v0.15.0:
+
+- same principal/different Work Sessions cannot access each other's process/PT​Y/serial/debug/lease state;
+- same repo writable sessions use separate worktrees/build directories;
+- read-only inspection remains shareable;
+- dirty cleanup fails closed;
+- same exclusive hardware resource returns `RESOURCE_BUSY`;
+- interrupted workflow-run state is reconciled after runtime restart;
+- Work Session resume returns enough bounded state for a new conversation to continue in one or two calls;
+- cross-node authorization remains unchanged and cannot be widened by a Work Session;
+- Windows/Linux regression, plugin validation, CI, release-integrity and three-node post-deploy acceptance must all pass before v0.15.0 is considered complete.
+
+Selective Quality Learning remains deferred until Work Session attribution and concurrency isolation are proven in production.
+
 ## v0.13 — Daily engineering workflows
 
 ### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening

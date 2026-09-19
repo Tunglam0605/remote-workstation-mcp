@@ -442,6 +442,33 @@ Acceptance gates for v0.15.0:
 
 Selective Quality Learning remains deferred until Work Session attribution and concurrency isolation are proven in production.
 
+## v0.16 — Selective Quality Learning
+
+v0.15 production acceptance proved durable Work Session attribution, bounded resume state and same-principal resource isolation. v0.16 therefore starts with **measurement and owner review**, not autonomous learning.
+
+First foundation slice:
+
+- every completed Engineering Workflow may emit a bounded `QualityObservationRecord`;
+- observations remain attributed to `principalId + workSessionId + workflowRunId`;
+- deterministic evidence gates require an explicit typed success, an explicit Work Session and normal typed workflow completion;
+- implicit-session success, ambiguous success, failed/blocked workflows, exceptions and restart-reconciled runs are retained only as ineligible evidence;
+- a non-secret environment fingerprint binds platform, architecture, Node major, server version, Action Schema and Engineering API;
+- anti-patterns are explicit structured facts rather than inferred model narrative;
+- eligible observations stop at `pending-owner-review`;
+- promotion is `not-promoted` and activation is always false in this slice;
+- telemetry is best-effort and must never make an otherwise valid workflow fail or prevent the control plane from starting;
+- repetition/frequency never increases trust by itself.
+
+Remaining v0.16 gates before reusable knowledge may be promoted:
+
+- owner-local review/approve/reject/revoke surface outside MCP authority;
+- canonical reusable-knowledge schema separated from raw observations;
+- promotion policy requiring deterministic evidence across compatible environment fingerprints;
+- retention/migration rules and bounded storage health;
+- anti-pattern coverage for flaky/retried/manual-recovery workflows;
+- real Linux/Windows workflow acceptance and adversarial persistence tests;
+- explicit proof that approval cannot grant scopes, alter security policy, auto-push Git or activate learned behavior without owner action.
+
 ## v0.13 — Daily engineering workflows
 
 ### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening

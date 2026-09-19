@@ -62,9 +62,20 @@ test('two writable Work Sessions on the same repo receive isolated sibling workt
   assert.equal(await fs.stat(path.join(root, a.worktreePath!)).then(s => s.isDirectory()), true);
   assert.equal(await fs.stat(path.join(root, b.worktreePath!)).then(s => s.isDirectory()), true);
 
+  await fs.writeFile(path.join(root, a.worktreePath!, 'README.md'), 'committed\n', 'utf8');
+  await git(path.join(root, a.worktreePath!), ['add', 'README.md']);
+  await git(path.join(root, a.worktreePath!), ['commit', '-m', 'session commit']);
+  const liveCommit = (await adapter.log('demo', 1, a.worktreePath!))[0]?.hash;
+  assert.ok(liveCommit);
+  assert.notEqual(liveCommit, a.commit);
+
+  const statusAfterCommit = await manager.status(sessionA.id);
+  assert.equal(statusAfterCommit.commit, liveCommit);
+
   const aAgain = await manager.prepare(sessionA.id, { workspace: 'demo' });
   assert.equal(aAgain.reused, true);
   assert.equal(aAgain.worktreePath, a.worktreePath);
+  assert.equal(aAgain.commit, liveCommit);
 
   await fs.writeFile(path.join(root, a.worktreePath!, 'README.md'), 'dirty\n', 'utf8');
   const blocked = await manager.cleanup(sessionA.id);

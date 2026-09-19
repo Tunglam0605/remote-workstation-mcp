@@ -67,6 +67,10 @@ export class WorktreeManager {
     return { worktreePath, branch };
   }
 
+  private async currentCommit(workspace: string, worktreePath: string): Promise<string | undefined> {
+    return (await this.git.log(workspace, 1, worktreePath))[0]?.hash;
+  }
+
   async prepare(sessionId: string, options: WorktreePrepareOptions): Promise<WorktreeState> {
     const session = await this.sessions.touch(sessionId);
     const workspace = options.workspace.trim();
@@ -81,13 +85,14 @@ export class WorktreeManager {
         throw new Error('Work Session already owns a worktree for a different repository.');
       }
       const status = await this.git.status(workspace, session.capsule.project.worktreePath);
+      const commit = await this.currentCommit(workspace, session.capsule.project.worktreePath);
       return {
         sessionId,
         workspace,
         repoPath,
         worktreePath: session.capsule.project.worktreePath,
         branch: session.capsule.project.branch,
-        commit: session.capsule.project.commit,
+        commit,
         buildDir: session.capsule.project.buildDir,
         dirty: dirtyStatus(status),
         reused: true
@@ -140,13 +145,14 @@ export class WorktreeManager {
       };
     }
     const status = await this.git.status(project.workspace, project.worktreePath);
+    const commit = await this.currentCommit(project.workspace, project.worktreePath);
     return {
       sessionId,
       workspace: project.workspace,
       repoPath: project.repoPath ?? project.projectPath ?? '.',
       worktreePath: project.worktreePath,
       branch: project.branch,
-      commit: project.commit,
+      commit,
       buildDir: project.buildDir,
       dirty: dirtyStatus(status)
     };
@@ -166,6 +172,7 @@ export class WorktreeManager {
 
     const repoPath = project.repoPath ?? project.projectPath ?? '.';
     const status = await this.git.status(project.workspace, project.worktreePath);
+    const commit = await this.currentCommit(project.workspace, project.worktreePath);
     if (dirtyStatus(status)) {
       return {
         sessionId,
@@ -173,7 +180,7 @@ export class WorktreeManager {
         repoPath,
         worktreePath: project.worktreePath,
         branch: project.branch,
-        commit: project.commit,
+        commit,
         buildDir: project.buildDir,
         dirty: true,
         cleanupState: 'needs-owner-or-explicit-action',
@@ -191,7 +198,7 @@ export class WorktreeManager {
       workspace: project.workspace,
       repoPath,
       branch: project.branch,
-      commit: project.commit,
+      commit,
       dirty: false,
       cleanupState: 'removed'
     };

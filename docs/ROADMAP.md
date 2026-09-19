@@ -568,6 +568,16 @@ Phase-3 acceptance gates:
 - no task can execute without a declared concurrency classification and a typed execution binding;
 - full Linux/Windows regression, Action Schema/plugin validation and real safe acceptance must pass before a v0.17 production release.
 
+Phase 3I - Acceptance Gate Consolidation / RC Readiness:
+
+- strengthen functional acceptance so sibling Work Sessions are denied both read and mutation of each other's objectives;
+- cover duplicate dependencies as an explicit fail-closed graph case;
+- prove deterministic READY ordering survives store reload rather than only initial in-memory scheduling;
+- prove execution callback failure transitively blocks descendants through the real TaskExecutionCoordinator path;
+- preserve existing resource contention, node interlock, restart reconciliation, typed-binding and authority-boundary tests as the canonical acceptance evidence;
+- require full local regression, build, plugin validation, dependency audit, PR Linux/Windows CI and post-merge main CI before declaring Phase 3 orchestration core closed;
+- keep production Direct Nodes on v0.16.0 until the separate v0.17 RC / three-node acceptance / soak decision.
+
 ## v0.13 — Daily engineering workflows
 
 ### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening

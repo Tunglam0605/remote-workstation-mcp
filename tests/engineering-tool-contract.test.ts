@@ -25,14 +25,14 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.doesNotMatch(legacyBlock, /keepMonitorOpen/);
   assert.match(runtimeBlock, /keepMonitorOpen: z\.boolean\(\)\.optional\(\)/);
 
-  // Action schema v3 retains the legacy v2 override shape while Work Session parameters
+  // Action Schema v4 retains the legacy v2 workflow override shape while Work Session parameters
   // continue to flow through the generic envelope and internal runtime validation.
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.16 preserves the v0.15 Work Session Action Schema v3 and Engineering API v4', async () => {
+test('Phase 3 Task Graph bumps Action Schema to v4 while Engineering API remains v4', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 3;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 4;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
   assert.match(capabilities, /export const SERVER_VERSION = '0\.16\.0';/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -53,13 +53,13 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('v0.15 Work Session routing uses Action Schema v3 and Keil shared outputs are project-variant exclusive', async () => {
+test('Phase 3 retains Work Session routing under Action Schema v4 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 3;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 4;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_worktree_prepare/);
@@ -113,4 +113,44 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
   assert.match(setupServer, /authority: 'owner-local-only'/);
   assert.doesNotMatch(coreTools, /quality_(learning|review|knowledge)_(approve|reject|revoke|promote|activate|shadow)/);
   assert.doesNotMatch(engineeringTools, /quality_(learning|review|knowledge)_(approve|reject|revoke|promote|activate|shadow)/);
+});
+
+
+test('Phase 3 Task Graph surface is bounded planning-only state, not an execution authority', async () => {
+  const capabilities = await read('src/capabilities.ts');
+  const coreTools = await read('src/tools/core-tools.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const taskGraph = await read('src/task-graph.ts');
+  const context = await read('src/context.ts');
+
+  assert.match(capabilities, /work_objective\.task_graph/);
+  assert.match(capabilities, /work_objective_create/);
+  assert.match(capabilities, /work_objective_inspect/);
+  assert.match(capabilities, /work_objective_mutate/);
+  assert.match(capabilities, /work_objective_schedule/);
+
+  assert.match(coreTools, /work_objective_create/);
+  assert.match(coreTools, /work_objective_inspect/);
+  assert.match(coreTools, /work_objective_mutate/);
+  assert.match(coreTools, /work_objective_schedule/);
+  assert.match(coreTools, /planning-only/);
+  assert.match(coreTools, /executionActive: false/);
+  assert.match(coreTools, /action: z\.literal\('add_task'\)/);
+  assert.match(coreTools, /action: z\.literal\('replace_dependencies'\)/);
+
+  assert.doesNotMatch(coreTools, /work_objective_(complete|succeed|activate|execute|dispatch)/);
+  assert.doesNotMatch(coreTools, /action: z\.literal\('(start_task|finish_task|mark_running|mark_succeeded)'\)/);
+
+  assert.match(scopes, /work_objective_create: 'workstation\.write'/);
+  assert.match(scopes, /work_objective_inspect: 'workstation\.read'/);
+  assert.match(scopes, /work_objective_mutate: 'workstation\.write'/);
+  assert.match(scopes, /work_objective_schedule: 'workstation\.read'/);
+
+  assert.match(taskGraph, /Task dependency cycle detected/);
+  assert.match(taskGraph, /runtime-restarted-before-task-completion/);
+  assert.match(taskGraph, /CONCURRENCY_KEY_REQUIRED/);
+  assert.match(taskGraph, /OWNER_LOCAL_ONLY/);
+  assert.match(context, /new TaskGraphStore/);
+  assert.match(context, /reconcileInterrupted/);
+  assert.match(context, /new DeterministicTaskScheduler/);
 });

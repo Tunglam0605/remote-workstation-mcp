@@ -487,6 +487,47 @@ Release gates for v0.16.0:
 - verify again that learning cannot grant scopes, alter security policy, auto-push Git, create cross-node grants or activate execution automatically;
 - only then tag/release/roll out v0.16.0 to the three production Direct Nodes.
 
+## v0.17 — Work Objective / Task Graph / Scheduler
+
+Phase 3 turns independent Work Sessions into a deterministic orchestration substrate without making task identity an authorization credential.
+
+Foundation slice implemented on the Phase-3 branch:
+
+- persistent owner-scoped `WorkObjective` + `WorkTask` DAG state outside repositories;
+- explicit Work Session required for every objective; sibling sessions/principals cannot inspect or mutate each other's graphs;
+- bounded task/dependency count, cycle detection, unknown-dependency rejection and deterministic priority/sequence ordering;
+- derived `pending -> ready -> running -> succeeded/failed/blocked` lifecycle with transitive dependency blocking;
+- runtime restart reconciles stale `running` tasks to failed state rather than resurrecting fake work;
+- Action Schema v4 adds only four graph-control tools: create, inspect, structural mutate and planning-only schedule;
+- MCP structural mutation cannot mark work running/succeeded/failed and cannot acquire permissions, leases or interlocks;
+- scheduler classifies existing ConcurrencyPolicy operations and fails closed for missing operation, missing required key and owner-local-only work;
+- `TaskExecutionCoordinator` reuses `EngineeringResourceManager` and `NodeInterlockStore` instead of creating a parallel lock/authority system;
+- executor marks `running` only after concurrency authority is acquired, keeps resource-busy work `ready`, marks callback failure `failed` and releases leases/interlocks in `finally`;
+- node-exclusive tasks take the canonical orchestration node lease plus lifecycle interlock for the callback lifetime;
+- no autonomous agent spawning exists in this slice.
+
+Next slices:
+
+- bind executable tasks only to existing typed RWMCP workflows/services; do not store arbitrary shell recipes;
+- refactor shared engineering-workflow execution so direct MCP calls and scheduled tasks use the same WorkflowRun, Quality Learning and lifecycle-interlock path;
+- add durable task assignment/attempt records, cancellation and idempotent resume semantics;
+- add scheduler awareness of active Work Sessions/worktrees and resource availability without treating planning output as authority;
+- add objective-level progress/result aggregation and compact Context Capsule handoff;
+- only after those gates pass, add optional worker-provider delegation (Codex/Claude/OpenHands/custom) behind the same scheduler and local policy boundaries.
+
+Phase-3 acceptance gates:
+
+- cycle/unknown-dependency/duplicate-dependency cases fail closed;
+- same principal but different Work Sessions cannot observe or mutate sibling objectives;
+- deterministic ready ordering is stable across reload/restart;
+- resource contention returns `RESOURCE_BUSY` before task state becomes `running`;
+- node-exclusive execution blocks lifecycle mutation through the existing interlock path;
+- callback failure propagates dependency blockers and never reports success;
+- restart reconciliation leaves no stale `running` task;
+- task/objective identifiers cannot grant scopes, Full Access, cross-node authority or owner-local permissions;
+- no task can execute without a declared concurrency classification and a typed execution binding;
+- full Linux/Windows regression, Action Schema/plugin validation and real safe acceptance must pass before a v0.17 production release.
+
 ## v0.13 — Daily engineering workflows
 
 ### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening

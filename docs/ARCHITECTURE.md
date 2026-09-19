@@ -155,6 +155,54 @@ The security boundary remains unchanged:
 - promoted knowledge is recommendation-only and never an execution default by itself;
 - frequency/repetition is not evidence of quality.
 
+## Work Objective orchestration plane
+
+Phase 3 introduces a persistent task graph above Work Sessions. It is deliberately a coordination layer, not a new authority layer.
+
+```text
+authenticated principal + local owner policy
+                    |
+                    v
+              Work Session
+                    |
+                    v
+              Work Objective
+                    |
+             persistent DAG
+            /       |       \
+         Task A   Task B   Task C
+            \       |       /
+                    v
+        DeterministicTaskScheduler
+                    |
+          concurrency classification
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
+ EngineeringResourceManager  NodeInterlockStore
+        |                       |
+        +-----------+-----------+
+                    |
+                    v
+        TaskExecutionCoordinator
+                    |
+                    v
+             typed callback only
+```
+
+A Work Objective and Work Task are state identifiers only. They do not authenticate a caller, grant scopes, widen workspace access, issue cross-node authority or override local owner policy. Every objective is bound to the explicit `principalId + workSessionId` resource owner. The implicit backward-compatible Work Session is rejected for orchestration state.
+
+The persistent DAG is bounded and validated on every structural mutation. Dependencies must reference tasks in the same objective, duplicate dependencies are rejected, self-dependencies are rejected and graph cycles fail closed. READY ordering is deterministic by priority, insertion sequence and stable task id.
+
+Task lifecycle is explicit. Structural MCP tools may create tasks or replace dependencies but cannot mark execution as running/succeeded/failed. Runtime execution state belongs to the executor. On process restart, any stale `running` task is reconciled to failed state and dependency blocking is recomputed transitively instead of pretending work survived.
+
+The scheduler is planning-only. A READY item without a declared `ConcurrencyOperation` is not dispatchable. Owner-local-only operations are never dispatchable through the orchestration executor. Operations whose concurrency class requires a key remain blocked until an explicit key is supplied.
+
+The executor reuses existing authority primitives. Shared work needs no extra lease. Session-isolated, resource-exclusive and project/variant-exclusive work takes an `EngineeringResourceManager` lease. Node-exclusive work additionally takes the existing lifecycle `NodeInterlockStore` record so update/restart/rollback paths see active orchestration work. A busy lease fails before task state changes from READY to RUNNING.
+
+No autonomous agent provider is part of this foundation. Future optional workers must enter through the same scheduler/executor boundary and cannot bypass Work Session ownership, resource leases, node interlocks, workspace policy or cross-node authorization.
+
 ## Control plane vs data plane
 
 The normal MCP connection is a **control plane**. Commands, plans, compact status and bounded results travel through it. Large cross-node payloads should not be relayed through the model when the owner has an approved direct path.

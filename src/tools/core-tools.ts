@@ -3,12 +3,30 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, CAPABILITIES, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
+import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { audited } from '../security/audit.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
   structuredContent: value as Record<string, unknown>
 });
+
+const workObjectiveMutation = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('add_task'),
+    title: z.string().min(1).max(256),
+    description: z.string().min(1).max(2048).optional(),
+    priority: z.number().int().min(-1000).max(1000).default(0),
+    dependencies: z.array(z.string().uuid()).max(64).default([]),
+    concurrencyOperation: z.enum(CONCURRENCY_OPERATIONS).optional(),
+    concurrencyKey: z.string().min(1).max(512).optional()
+  }),
+  z.object({
+    action: z.literal('replace_dependencies'),
+    taskId: z.string().uuid(),
+    dependencies: z.array(z.string().uuid()).max(64)
+  })
+]);
 
 export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   server.registerTool('capabilities_list', {
@@ -167,6 +185,82 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       ctx.worktreeManager.cleanup(sessionId)
     )
   ));
+
+  server.registerTool('work_objective_create', {
+    description: 'Create a durable Work Objective inside one explicit caller-owned Work Session. Objective/task identity never grants authority beyond the authenticated principal and local owner policy.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      name: z.string().min(1).max(128),
+      objective: z.string().min(1).max(2048)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, name, objective }) => result(await audited(ctx.audit, 'work_objective_create', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => ({
+      objective: await ctx.taskGraphs.create({ name, objective }),
+      permissionModel: 'objective/task ids are state identifiers, not authorization credentials'
+    }))
+  )));
+
+  server.registerTool('work_objective_inspect', {
+    description: 'Inspect durable Work Objectives owned by one explicit Work Session. Omitting objectiveId lists that session objectives only.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid().optional()
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId }) => result(await audited(ctx.audit, 'work_objective_inspect', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => objectiveId
+      ? { objective: await ctx.taskGraphs.get(objectiveId) }
+      : { objectives: await ctx.taskGraphs.list() }
+    )
+  )));
+
+  server.registerTool('work_objective_mutate', {
+    description: 'Edit Task Graph structure only. This tool may add a task or replace task dependencies; it cannot mark work running/succeeded/failed and cannot acquire permissions, leases or interlocks.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      mutation: workObjectiveMutation
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, mutation }) => result(await audited(ctx.audit, 'work_objective_mutate', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => {
+      if (mutation.action === 'add_task') {
+        return {
+          task: await ctx.taskGraphs.addTask(objectiveId, {
+            title: mutation.title,
+            description: mutation.description,
+            priority: mutation.priority,
+            dependencies: mutation.dependencies,
+            concurrency: {
+              ...(mutation.concurrencyOperation ? { operation: mutation.concurrencyOperation } : {}),
+              ...(mutation.concurrencyKey ? { key: mutation.concurrencyKey } : {})
+            }
+          })
+        };
+      }
+      return {
+        task: await ctx.taskGraphs.replaceDependencies(objectiveId, mutation.taskId, mutation.dependencies)
+      };
+    })
+  )));
+
+  server.registerTool('work_objective_schedule', {
+    description: 'Return a deterministic read-only plan for READY tasks. Planning classifies concurrency requirements but does not acquire leases/interlocks, start processes or authorize execution.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      limit: z.number().int().min(1).max(128).default(32)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, limit }) => result(await audited(ctx.audit, 'work_objective_schedule', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => ({
+      plan: await ctx.taskScheduler.plan(objectiveId, limit),
+      authority: 'planning-only',
+      executionActive: false,
+      note: 'A dispatchable scheduler item is not permission to execute; 3C Executor must acquire the required Work Session/resource/node authority before changing task runtime state.'
+    }))
+  )));
 
   server.registerTool('fs_list', {
     description: 'List a directory inside an authorized workspace. Paths are workspace-relative.',

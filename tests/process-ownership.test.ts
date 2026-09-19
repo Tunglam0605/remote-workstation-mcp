@@ -37,12 +37,12 @@ test('managed process ids and output are private to the creating principal', asy
   assert.deepEqual(manager.list(), []);
   assert.throws(() => manager.read(started.id), /Unknown process id/);
   assert.throws(() => manager.readSince(started.id), /Unknown process id/);
-  assert.throws(() => manager.stop(started.id), /Unknown process id/);
+  await assert.rejects(manager.stop(started.id), /Unknown process id/);
   assert.throws(() => diagnostics.report(started.id), /Unknown process id/);
 
   currentOwner = 'principal-a';
   assert.equal(manager.read(started.id).id, started.id);
-  manager.stop(started.id);
+  await manager.stop(started.id);
   await sleep(100);
 });
 

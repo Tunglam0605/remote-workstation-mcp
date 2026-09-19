@@ -2,8 +2,11 @@ import { spawn } from 'node:child_process';
 import type { EngineeringCommandResult } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
+import { ProcessTreeSupervisor } from '../process-tree-supervisor.js';
 
 export class EngineeringCommandRunner {
+  private readonly treeSupervisor = new ProcessTreeSupervisor();
+
   constructor(private readonly policy: PolicyEngine) {}
 
   async run(program: string, args: string[], cwd: string, timeoutMs?: number): Promise<EngineeringCommandResult> {
@@ -23,7 +26,7 @@ export class EngineeringCommandRunner {
           cwd,
           shell: false,
           windowsHide: true,
-          detached: process.platform !== 'win32',
+          detached: this.treeSupervisor.spawnDetached(),
           env: buildSafeEnvironment(this.policy.config.process.inheritEnv)
         });
       } catch (error) {
@@ -48,20 +51,10 @@ export class EngineeringCommandRunner {
         clearTimeout(timer);
         resolve({ program, args: [...args], cwd, exitCode: code, stdout, stderr, timedOut, durationMs: Date.now() - started });
       });
-      const terminate = (signal: NodeJS.Signals) => {
-        if (process.platform !== 'win32' && child.pid) {
-          try { process.kill(-child.pid, signal); } catch { child.kill(signal); }
-        } else {
-          child.kill(signal);
-        }
-      };
       const timer = setTimeout(() => {
         if (settled) return;
         timedOut = true;
-        terminate('SIGTERM');
-        setTimeout(() => {
-          if (!settled) terminate('SIGKILL');
-        }, 2000).unref();
+        void this.treeSupervisor.terminate(child);
       }, limit);
     });
   }

@@ -12,6 +12,20 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.1**
+
+v0.14.1 fixes the first real multi-node acceptance gap found in v0.14.0:
+
+- receiver offers can bind multiple approved direct IPv4 candidates instead of assuming one Tailscale address is mutually reachable;
+- production candidates include Tailscale and RFC1918 private-LAN interfaces, while Docker/bridge/common tunnel interfaces are filtered from automatic private-LAN discovery;
+- `platform.transfer_receive_offer` returns a bounded `endpoints[]` list plus the legacy first `endpoint`;
+- `platform.transfer_push` accepts `transferEndpoints[]` and automatically falls back across network-unreachable candidates while preserving one SHA/size/ticket contract;
+- HTTP rejection such as invalid ticket still fails closed and is not bypassed by trying another endpoint;
+- `nodeHealth` now reports direct/private-LAN/Tailscale availability separately and only degrades when no approved direct IPv4 candidate exists;
+- keep normal MCP loopback-only, one-shot tickets, bounded TTL, content-addressed acceptance and Action Schema v2 / Engineering API v3.
+
+Real acceptance on v0.14.0 showed Windows and Ubuntu Vision had valid Tailscale IPs but belonged to different Tailscale peer graphs, so Tailscale-only reachability was an invalid platform assumption.
+
 **v0.14.0**
 
 v0.14.0 begins the platform-first multi-node milestone defined by the project charter:

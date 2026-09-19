@@ -41,7 +41,7 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
   const terminalSessions = ctx.engineering.terminals.list();
   const hardwareLeases = ctx.engineering.resources.list();
   const healthWarnings = [
-    ...(!dataPlane.tailscaleIpv4Available ? ['native-data-plane-unavailable'] : []),
+    ...(!dataPlane.directIpv4Available ? ['native-data-plane-unavailable'] : []),
     ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : [])
   ];
 

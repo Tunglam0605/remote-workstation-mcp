@@ -1,6 +1,6 @@
 # Multi-device control
 
-Remote Workstation MCP v0.14.0 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable, reports its own health, and may exchange large workspace payloads through the generic Direct-Node data plane without creating a permanent master PC.
+Remote Workstation MCP v0.14.1 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable, reports its own health, and may exchange large workspace payloads through the generic Direct-Node data plane without creating a permanent master PC.
 
 ## Preferred topology: every workstation connects directly
 
@@ -47,16 +47,16 @@ When multiple Remote Workstation apps are selected for one ChatGPT message, the 
 ChatGPT can call `chatgpt_web_status` on several selected Direct Node apps and aggregate:
 
 ```text
-Windows       healthy   v0.14.0   transfers=0
-Vision        healthy   v0.14.0   transfers=1
-Personal      healthy   v0.14.0   transfers=0
+Windows       healthy   v0.14.1   transfers=0
+Vision        healthy   v0.14.1   transfers=1
+Personal      healthy   v0.14.1   transfers=0
 ```
 
 This aggregation happens at the AI/client control plane. No workstation becomes the permanent health master for the others.
 
 ## Generic Direct-Node data plane
 
-v0.14.0 adds generic workspace-file transfer between nodes over Tailscale. The payload goes node-to-node; ChatGPT carries only the offer metadata, ephemeral ticket and final receipt.
+v0.14.1 provides generic workspace-file transfer over a bounded list of approved direct endpoints. Tailscale is preferred when the nodes are peers; RFC1918 private-LAN endpoints provide a direct fallback when they share a LAN. The payload goes node-to-node; ChatGPT carries only offer metadata, the ephemeral ticket and final receipt.
 
 Use the stable workflow envelope with:
 

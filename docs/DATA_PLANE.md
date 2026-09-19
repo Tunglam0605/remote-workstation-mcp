@@ -1,6 +1,6 @@
 # Generic Direct-Node Data Plane
 
-Remote Workstation MCP v0.14.0 moves cross-node payload transfer into the **core platform** instead of treating it as a firmware-only capability.
+Remote Workstation MCP v0.14 moves cross-node payload transfer into the **core platform** instead of treating it as a firmware-only capability. v0.14.1 adds multi-endpoint direct transport after real acceptance proved that two healthy Direct Nodes can have Tailscale addresses without belonging to the same Tailscale peer graph.
 
 The control plane remains ChatGPT/MCP. Large file bytes move directly between owner-controlled Direct Nodes.
 
@@ -10,7 +10,8 @@ ChatGPT / MCP control plane
         | offer metadata / ticket / receipt
         v
    Direct Node A  ==================>  Direct Node B
-                  Tailscale data plane
+                approved direct data plane
+          Tailscale peer path or private LAN
                   streamed file bytes
 ```
 
@@ -78,11 +79,12 @@ Optional:
 The destination node:
 
 1. requires workspace write permission;
-2. locates a local Tailscale IPv4 address (`100.64.0.0/10`);
-3. opens one ephemeral HTTP listener on that address only;
-4. creates a random 256-bit one-shot bearer ticket;
-5. binds the offer to exact file name, SHA-256, byte size and expiry;
-6. returns the endpoint and ticket once.
+2. discovers approved local direct IPv4 candidates: Tailscale plus physical RFC1918 private-LAN interfaces;
+3. filters common Docker/bridge/virtual tunnel interfaces from automatic private-LAN discovery;
+4. opens ephemeral HTTP listeners only on candidates that bind successfully;
+5. creates one random 256-bit one-shot bearer ticket shared by those listeners;
+6. binds the offer to exact file name, SHA-256, byte size and expiry;
+7. returns `endpoints[]` plus the first legacy `endpoint` and the ticket once.
 
 The ticket is not included in workflow plans, `nodeHealth`, capability inventory, or transfer history.
 
@@ -93,14 +95,17 @@ Required parameters:
 ```json
 {
   "file": "relative/path/report.json",
-  "transferEndpoint": "http://100.x.y.z:<port>/rwmcp-data/<transfer-id>",
+  "transferEndpoints": [
+    "http://100.x.y.z:<port>/rwmcp-data/<transfer-id>",
+    "http://192.168.x.y:<port>/rwmcp-data/<transfer-id>"
+  ],
   "transferTicket": "<ephemeral ticket>",
   "expectedSha256": "<64 hex characters>",
   "expectedSize": 12345
 }
 ```
 
-The source re-hashes the local file before network I/O. A mismatch blocks before any payload is sent.
+The source re-hashes the local file before network I/O. A mismatch blocks before any payload is sent. It then tries the bounded direct endpoint list in order. Network-unreachable candidates may fall through to the next endpoint; an HTTP receiver rejection such as invalid ticket, expiry or integrity failure is authoritative and fails closed. `transferEndpoint` remains accepted for compatibility.
 
 ## Destination acceptance
 
@@ -129,8 +134,10 @@ Existing matching verified content is reused idempotently. Existing different co
 
 - maximum file size: **512 MiB**;
 - workspace-relative regular files only;
-- production receiver bind: Tailscale IPv4 only;
-- production peer endpoint: Tailscale IPv4 only;
+- production receiver bind: approved Tailscale or RFC1918 private IPv4 only;
+- common Docker/bridge/tunnel interfaces are excluded from automatic private-LAN discovery;
+- production peer endpoint: Tailscale or RFC1918 private IPv4 only;
+- maximum endpoint candidates per push: **8**;
 - one-shot tickets;
 - offer TTL: 10 seconds to 10 minutes;
 - response body is bounded;
@@ -155,7 +162,10 @@ nodeHealth
     terminals
     hardwareLeases
   dataPlane
+    directIpv4Available
     tailscaleIpv4Available
+    privateLanIpv4Available
+    availableTransports
     activeOffers
     recentTransfers
   warnings
@@ -171,6 +181,6 @@ New generic work should prefer `platform.transfer_*` unless a firmware-specific 
 
 ## Security model
 
-The normal MCP server stays bound to loopback. The temporary data-plane listener is a separate one-shot surface bound to the owner's encrypted Tailscale interface.
+The normal MCP server stays bound to loopback. Temporary data-plane listeners are separate one-shot surfaces bound only to approved direct interfaces. Tailscale remains preferred when the peer path exists; RFC1918 private-LAN fallback is available when nodes share a trusted local network. This does not make MCP itself LAN-accessible.
 
 The data plane does not grant access to another node. Each destination still enforces its own local workspace policy and write permission.

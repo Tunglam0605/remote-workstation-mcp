@@ -1,6 +1,6 @@
 # Engineering Tools
 
-RWMCP keeps domain engineering tools typed and project-aware. Starting in v0.14.0, generic cross-node transfer is explicitly a **core platform capability**, not an engineering/firmware capability. The existing `engineering_workflow_*` MCP actions remain the stable workflow envelope for both `platform.*` and engineering workflow IDs until a future action-schema change is intentionally justified.
+RWMCP keeps domain engineering tools typed and project-aware. Starting in v0.14, generic cross-node transfer is explicitly a **core platform capability**, not an engineering/firmware capability. v0.14.1 adds bounded multi-endpoint direct fallback without moving that capability back into a firmware-specific layer. The existing `engineering_workflow_*` MCP actions remain the stable workflow envelope for both `platform.*` and engineering workflow IDs until a future action-schema change is intentionally justified.
 
 For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push`; see [DATA_PLANE.md](DATA_PLANE.md). The `firmware.artifact_*` workflows below remain domain-specific compatibility APIs.
 

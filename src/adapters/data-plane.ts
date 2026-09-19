@@ -28,30 +28,41 @@ export interface DataPlaneAcceptedFile extends DataPlaneManifestV1 {
   reused: boolean;
 }
 
+export type DataPlaneTransport = 'tailscale-http' | 'private-lan-http' | 'loopback-test';
+
+export interface DataPlaneEndpoint {
+  transport: DataPlaneTransport;
+  endpoint: string;
+}
+
 export interface DataPlaneOffer {
   schemaVersion: 1;
   transferId: string;
   endpoint: string;
+  endpoints: DataPlaneEndpoint[];
   ticket: string;
   fileName: string;
   expectedSha256: string;
   expectedSize: number;
   expiresAt: string;
-  transport: 'tailscale-http';
+  transport: 'direct-http';
 }
 
 export interface DataPlaneReceipt {
   schemaVersion: 1;
   transferId: string;
-  transport: 'tailscale-http';
+  transport: DataPlaneTransport;
   source: DataPlaneManifestV1;
   accepted: DataPlaneAcceptedFile;
 }
 
 export interface DataPlaneStatus {
-  transport: 'tailscale-http';
+  transport: 'direct-http';
   maxTransferBytes: number;
+  directIpv4Available: boolean;
   tailscaleIpv4Available: boolean;
+  privateLanIpv4Available: boolean;
+  availableTransports: DataPlaneTransport[];
   activeOffers: Array<{
     transferId: string;
     fileName: string;
@@ -59,6 +70,7 @@ export interface DataPlaneStatus {
     expectedSize: number;
     expiresAt: string;
     state: 'waiting' | 'receiving';
+    transports: DataPlaneTransport[];
   }>;
   recentTransfers: Array<{
     transferId: string;
@@ -79,8 +91,8 @@ interface DataPlaneOptions {
 }
 
 interface ActiveOffer {
-  server: http.Server;
-  timer: NodeJS.Timeout;
+  servers: http.Server[];
+  timer?: NodeJS.Timeout;
   transferId: string;
   ticketHash: Buffer;
   workspace: string;
@@ -92,6 +104,7 @@ interface ActiveOffer {
   expiresAtMs: number;
   receiving: boolean;
   consumed: boolean;
+  transports: DataPlaneTransport[];
   request?: http.IncomingMessage;
 }
 
@@ -148,32 +161,76 @@ function isLoopbackIpv4(address: string): boolean {
   return /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(address);
 }
 
-function localIpv4Addresses(): string[] {
-  const result: string[] = [];
-  for (const entries of Object.values(os.networkInterfaces())) {
-    for (const entry of entries ?? []) {
-      if (entry.family === 'IPv4' && !entry.internal) result.push(entry.address);
-    }
-  }
-  return [...new Set(result)];
+function isPrivateIpv4(address: string): boolean {
+  const parts = address.split('.').map(item => Number(item));
+  if (parts.length !== 4 || !parts.every(item => Number.isInteger(item) && item >= 0 && item <= 255)) return false;
+  return parts[0] === 10 ||
+    (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31) ||
+    (parts[0] === 192 && parts[1] === 168);
 }
 
-function chooseBindAddress(options: DataPlaneOptions): string {
+interface LocalIpv4Candidate {
+  name: string;
+  address: string;
+  cidr?: string;
+  transport: DataPlaneTransport;
+}
+
+function isLikelyVirtualInterface(name: string): boolean {
+  return /^(?:docker|br-|veth|virbr|vmnet|vbox|wg\d*$|tun\d*$|tap\d*$|zt|vEthernet)/i.test(name);
+}
+
+function classifyAddress(address: string, allowLoopbackForTests = false): DataPlaneTransport | undefined {
+  if (isTailscaleIpv4(address)) return 'tailscale-http';
+  if (isPrivateIpv4(address)) return 'private-lan-http';
+  if (allowLoopbackForTests && isLoopbackIpv4(address)) return 'loopback-test';
+  return undefined;
+}
+
+function localIpv4Candidates(options: DataPlaneOptions = {}): LocalIpv4Candidate[] {
   if (options.bindAddress) {
-    if (options.allowLoopbackForTests && isLoopbackIpv4(options.bindAddress)) return options.bindAddress;
-    const locals = localIpv4Addresses();
-    if (!locals.includes(options.bindAddress)) throw new Error('Configured data-plane bind address is not a local IPv4 interface.');
-    if (!isTailscaleIpv4(options.bindAddress)) {
-      throw new Error('Data-plane bind address must be a Tailscale IPv4 address (100.64.0.0/10).');
+    const transport = classifyAddress(options.bindAddress, options.allowLoopbackForTests ?? false);
+    if (!transport) throw new Error('Configured data-plane bind address must be Tailscale, RFC1918 private LAN, or loopback in tests.');
+    if (transport === 'loopback-test') {
+      return [{ name: 'loopback-test', address: options.bindAddress, transport }];
     }
-    return options.bindAddress;
+    const found = Object.entries(os.networkInterfaces()).some(([, entries]) =>
+      (entries ?? []).some(entry => entry.family === 'IPv4' && entry.address === options.bindAddress)
+    );
+    if (!found) throw new Error('Configured data-plane bind address is not a local IPv4 interface.');
+    return [{ name: 'configured', address: options.bindAddress, transport }];
   }
-  const candidate = localIpv4Addresses().find(isTailscaleIpv4);
-  if (!candidate) throw new Error('No local Tailscale IPv4 address is available for the native data plane.');
-  return candidate;
+
+  const candidates: LocalIpv4Candidate[] = [];
+  for (const [name, entries] of Object.entries(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal) continue;
+      const transport = classifyAddress(entry.address, false);
+      if (!transport) continue;
+      if (transport === 'private-lan-http') {
+        if (isLikelyVirtualInterface(name)) continue;
+        const prefix = entry.cidr?.match(/\/(\d+)$/)?.[1];
+        if (prefix && Number(prefix) >= 31) continue;
+      }
+      candidates.push({ name, address: entry.address, ...(entry.cidr ? { cidr: entry.cidr } : {}), transport });
+    }
+  }
+
+  const rank = (item: LocalIpv4Candidate) =>
+    item.transport === 'tailscale-http' ? 0 :
+      item.address.startsWith('192.168.') ? 1 :
+        item.address.startsWith('172.') ? 2 : 3;
+  candidates.sort((a, b) => rank(a) - rank(b));
+
+  const seen = new Set<string>();
+  return candidates.filter(item => {
+    if (seen.has(item.address)) return false;
+    seen.add(item.address);
+    return true;
+  });
 }
 
-function validatePeerEndpoint(raw: string, allowLoopbackForTests = false): URL {
+function validatePeerEndpoint(raw: string, allowLoopbackForTests = false): { url: URL; transport: DataPlaneTransport } {
   let endpoint: URL;
   try {
     endpoint = new URL(raw);
@@ -181,19 +238,19 @@ function validatePeerEndpoint(raw: string, allowLoopbackForTests = false): URL {
     throw new Error('transferEndpoint must be a valid URL.');
   }
   if (endpoint.protocol !== 'http:') {
-    throw new Error('Native data-plane transfer requires http over the encrypted Tailscale transport.');
+    throw new Error('Native data-plane transfer requires HTTP over an approved direct private transport.');
   }
   if (endpoint.username || endpoint.password || endpoint.hash || endpoint.search) {
     throw new Error('transferEndpoint must not include credentials, query parameters or fragments.');
   }
-  const host = endpoint.hostname;
-  if (!(isTailscaleIpv4(host) || (allowLoopbackForTests && isLoopbackIpv4(host)))) {
-    throw new Error('transferEndpoint host must be a Tailscale IPv4 address.');
+  const transport = classifyAddress(endpoint.hostname, allowLoopbackForTests);
+  if (!transport) {
+    throw new Error('transferEndpoint host must be a Tailscale or RFC1918 private IPv4 address.');
   }
   if (!/^\/rwmcp-data\/[-A-Za-z0-9._]{8,128}$/.test(endpoint.pathname)) {
     throw new Error('transferEndpoint path is not a valid RWMCP data-plane endpoint.');
   }
-  return endpoint;
+  return { url: endpoint, transport };
 }
 
 function hashTicket(ticket: string): Buffer {
@@ -272,25 +329,32 @@ export class DataPlaneAdapter {
   }
 
   private async closeOffer(offer: ActiveOffer): Promise<void> {
-    clearTimeout(offer.timer);
+    if (offer.timer) clearTimeout(offer.timer);
     this.active.delete(offer.transferId);
-    if (offer.server.listening) {
-      await new Promise<void>(resolve => offer.server.close(() => resolve()));
-    }
+    await Promise.all(offer.servers.map(async server => {
+      if (!server.listening) return;
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }));
   }
 
   status(): DataPlaneStatus {
+    const candidates = localIpv4Candidates(this.options);
+    const transports = [...new Set(candidates.map(item => item.transport))];
     return {
-      transport: 'tailscale-http',
+      transport: 'direct-http',
       maxTransferBytes: MAX_TRANSFER_BYTES,
-      tailscaleIpv4Available: localIpv4Addresses().some(isTailscaleIpv4) || Boolean(this.options.allowLoopbackForTests),
+      directIpv4Available: candidates.length > 0,
+      tailscaleIpv4Available: transports.includes('tailscale-http'),
+      privateLanIpv4Available: transports.includes('private-lan-http'),
+      availableTransports: transports,
       activeOffers: [...this.active.values()].map(offer => ({
         transferId: offer.transferId,
         fileName: offer.fileName,
         expectedSha256: offer.expectedSha256,
         expectedSize: offer.expectedSize,
         expiresAt: new Date(offer.expiresAtMs).toISOString(),
-        state: offer.receiving ? 'receiving' : 'waiting'
+        state: offer.receiving ? 'receiving' : 'waiting',
+        transports: [...offer.transports]
       })),
       recentTransfers: [...this.history]
     };
@@ -405,7 +469,11 @@ export class DataPlaneAdapter {
     const expectedSha256 = normalizeSha256(options.expectedSha256);
     const expectedSize = validateSize(options.expectedSize);
     const ttlMs = Math.min(Math.max(options.ttlMs ?? DEFAULT_TTL_MS, 10_000), MAX_TTL_MS);
-    const bindAddress = chooseBindAddress(this.options);
+    const bindCandidates = localIpv4Candidates(this.options);
+    if (!bindCandidates.length) {
+      throw new Error('No approved local Tailscale or RFC1918 private IPv4 interface is available for the native data plane.');
+    }
+
     const baseRoot = await this.paths.resolveExisting(options.workspace, options.basePath);
     const incomingDir = path.join(baseRoot, '.rwmcp', 'transfers', 'incoming');
     await fs.mkdir(incomingDir, { recursive: true });
@@ -417,8 +485,23 @@ export class DataPlaneAdapter {
     const tempAbsolute = `${incomingAbsolute}.part`;
     const expiresAtMs = this.now() + ttlMs;
 
-    let offer!: ActiveOffer;
-    const server = http.createServer((request, response) => {
+    const offer: ActiveOffer = {
+      servers: [],
+      transferId,
+      ticketHash: hashTicket(ticket),
+      workspace: options.workspace,
+      basePath: options.basePath,
+      fileName,
+      expectedSha256,
+      expectedSize,
+      incomingRelative,
+      expiresAtMs,
+      receiving: false,
+      consumed: false,
+      transports: []
+    };
+
+    const handler = (request: http.IncomingMessage, response: http.ServerResponse) => {
       void (async () => {
         const fail = (status: number, message: string) => {
           response.statusCode = status;
@@ -516,63 +599,63 @@ export class DataPlaneAdapter {
         response.setHeader('content-type', 'application/json');
         response.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
       });
-    });
-
-    offer = {
-      server,
-      timer: setTimeout(() => {
-        void (async () => {
-          offer.consumed = true;
-          offer.request?.destroy(new Error('Data-plane receive offer expired.'));
-          await this.closeOffer(offer);
-          await fs.unlink(tempAbsolute).catch(() => undefined);
-          await fs.unlink(incomingAbsolute).catch(() => undefined);
-        })();
-      }, ttlMs),
-      transferId,
-      ticketHash: hashTicket(ticket),
-      workspace: options.workspace,
-      basePath: options.basePath,
-      fileName,
-      expectedSha256,
-      expectedSize,
-      incomingRelative,
-      expiresAtMs,
-      receiving: false,
-      consumed: false
     };
+
+    const endpoints: DataPlaneEndpoint[] = [];
+    for (const candidate of bindCandidates) {
+      const server = http.createServer(handler);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.once('error', reject);
+          server.listen(0, candidate.address, () => {
+            server.off('error', reject);
+            resolve();
+          });
+        });
+      } catch {
+        continue;
+      }
+
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        await new Promise<void>(resolve => server.close(() => resolve()));
+        continue;
+      }
+      offer.servers.push(server);
+      if (!offer.transports.includes(candidate.transport)) offer.transports.push(candidate.transport);
+      endpoints.push({
+        transport: candidate.transport,
+        endpoint: `http://${candidate.address}:${address.port}/rwmcp-data/${transferId}`
+      });
+    }
+
+    if (!endpoints.length) {
+      throw new Error('Unable to bind any approved native data-plane interface.');
+    }
+
+    offer.timer = setTimeout(() => {
+      void (async () => {
+        offer.consumed = true;
+        offer.request?.destroy(new Error('Data-plane receive offer expired.'));
+        await this.closeOffer(offer);
+        await fs.unlink(tempAbsolute).catch(() => undefined);
+        await fs.unlink(incomingAbsolute).catch(() => undefined);
+      })();
+    }, ttlMs);
     offer.timer.unref();
 
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, bindAddress, () => {
-          server.off('error', reject);
-          resolve();
-        });
-      });
-    } catch (error) {
-      clearTimeout(offer.timer);
-      throw error;
-    }
-
     this.active.set(transferId, offer);
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-      await this.closeOffer(offer);
-      throw new Error('Unable to determine native data-plane listener address.');
-    }
-
     return {
       schemaVersion: 1,
       transferId,
-      endpoint: `http://${bindAddress}:${address.port}/rwmcp-data/${transferId}`,
+      endpoint: endpoints[0]!.endpoint,
+      endpoints,
       ticket,
       fileName,
       expectedSha256,
       expectedSize,
       expiresAt: new Date(expiresAtMs).toISOString(),
-      transport: 'tailscale-http'
+      transport: 'direct-http'
     };
   }
 
@@ -580,7 +663,8 @@ export class DataPlaneAdapter {
     workspace: string;
     basePath: string;
     file: string;
-    endpoint: string;
+    endpoint?: string;
+    endpoints?: string[];
     ticket: string;
     expectedSha256: string;
     expectedSize: number;
@@ -589,7 +673,14 @@ export class DataPlaneAdapter {
     this.assertOperational();
     const expectedSha256 = normalizeSha256(options.expectedSha256);
     const expectedSize = validateSize(options.expectedSize);
-    const endpoint = validatePeerEndpoint(options.endpoint, this.options.allowLoopbackForTests ?? false);
+    const rawEndpoints = [...(options.endpoints ?? []), ...(options.endpoint ? [options.endpoint] : [])]
+      .map(item => item.trim())
+      .filter(Boolean);
+    const uniqueEndpoints = [...new Set(rawEndpoints)];
+    if (!uniqueEndpoints.length || uniqueEndpoints.length > 8) {
+      throw new Error('platform transfer requires between 1 and 8 direct endpoints.');
+    }
+    const endpoints = uniqueEndpoints.map(item => validatePeerEndpoint(item, this.options.allowLoopbackForTests ?? false));
     if (!/^[-_A-Za-z0-9]{32,256}$/.test(options.ticket)) throw new Error('transferTicket has an invalid format.');
 
     const manifest = await this.prepare(options.workspace, options.basePath, options.file);
@@ -601,68 +692,92 @@ export class DataPlaneAdapter {
     }
     const absolute = await this.paths.resolveExisting(options.workspace, path.join(options.basePath, manifest.file));
     const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 120_000, 5_000), 10 * 60 * 1000);
+    const connectTimeoutMs = Math.min(5_000, timeoutMs);
 
     try {
-      const response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
-        const request = http.request(endpoint, {
-          method: 'PUT',
-          headers: {
-            authorization: `Bearer ${options.ticket}`,
-            'content-type': 'application/octet-stream',
-            'content-length': String(manifest.size),
-            'x-rwmcp-sha256': manifest.sha256,
-            'x-rwmcp-transfer-version': '1'
-          }
-        }, async incoming => {
-          try {
-            resolve({ statusCode: incoming.statusCode ?? 0, body: await readBoundedResponse(incoming) });
-          } catch (error) {
-            reject(error);
-          }
-        });
-        request.setTimeout(timeoutMs, () => request.destroy(new Error('Data-plane transfer timed out.')));
-        request.once('error', reject);
-        const source = createReadStream(absolute);
-        source.once('error', reject);
-        source.pipe(request);
-      });
+      const networkFailures: string[] = [];
+      for (const candidate of endpoints) {
+        let response: { statusCode: number; body: string };
+        try {
+          response = await new Promise<{ statusCode: number; body: string }>((resolve, reject) => {
+            const request = http.request(candidate.url, {
+              method: 'PUT',
+              headers: {
+                authorization: `Bearer ${options.ticket}`,
+                'content-type': 'application/octet-stream',
+                'content-length': String(manifest.size),
+                'x-rwmcp-sha256': manifest.sha256,
+                'x-rwmcp-transfer-version': '1'
+              }
+            }, async incoming => {
+              try {
+                resolve({ statusCode: incoming.statusCode ?? 0, body: await readBoundedResponse(incoming) });
+              } catch (error) {
+                reject(error);
+              }
+            });
 
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(response.body);
-      } catch {
-        throw new Error(`Data-plane receiver returned non-JSON response (HTTP ${response.statusCode}).`);
+            const connectTimer = setTimeout(
+              () => request.destroy(new Error('Data-plane endpoint connect timed out.')),
+              connectTimeoutMs
+            );
+            request.once('socket', socket => {
+              const connected = () => clearTimeout(connectTimer);
+              if (socket.connecting) socket.once('connect', connected);
+              else connected();
+            });
+            request.once('close', () => clearTimeout(connectTimer));
+            request.setTimeout(timeoutMs, () => request.destroy(new Error('Data-plane transfer timed out.')));
+            request.once('error', reject);
+            const source = createReadStream(absolute);
+            source.once('error', reject);
+            source.pipe(request);
+          });
+        } catch (error) {
+          networkFailures.push(`${candidate.transport}: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(response.body);
+        } catch {
+          throw new Error(`Data-plane receiver returned non-JSON response (HTTP ${response.statusCode}).`);
+        }
+        if (response.statusCode !== 200) {
+          const message = parsed && typeof parsed === 'object' && 'error' in parsed
+            ? String((parsed as { error: unknown }).error)
+            : response.body;
+          throw new Error(`Data-plane receiver rejected transfer (HTTP ${response.statusCode}): ${message}`);
+        }
+        const record = parsed as { transferId?: unknown; accepted?: DataPlaneAcceptedFile };
+        if (typeof record.transferId !== 'string' || !record.accepted) {
+          throw new Error('Data-plane receiver response is missing transfer receipt fields.');
+        }
+        if (record.accepted.sha256 !== manifest.sha256 || record.accepted.size !== manifest.size) {
+          throw new Error('Data-plane receiver receipt does not match the source manifest.');
+        }
+
+        const receipt: DataPlaneReceipt = {
+          schemaVersion: 1,
+          transferId: record.transferId,
+          transport: candidate.transport,
+          source: manifest,
+          accepted: record.accepted
+        };
+        this.record({
+          transferId: record.transferId,
+          direction: 'send',
+          fileName: path.basename(manifest.file),
+          sha256: manifest.sha256,
+          size: manifest.size,
+          status: 'succeeded',
+          completedAt: new Date(this.now()).toISOString()
+        });
+        return receipt;
       }
-      if (response.statusCode !== 200) {
-        const message = parsed && typeof parsed === 'object' && 'error' in parsed
-          ? String((parsed as { error: unknown }).error)
-          : response.body;
-        throw new Error(`Data-plane receiver rejected transfer (HTTP ${response.statusCode}): ${message}`);
-      }
-      const record = parsed as { transferId?: unknown; accepted?: DataPlaneAcceptedFile };
-      if (typeof record.transferId !== 'string' || !record.accepted) {
-        throw new Error('Data-plane receiver response is missing transfer receipt fields.');
-      }
-      if (record.accepted.sha256 !== manifest.sha256 || record.accepted.size !== manifest.size) {
-        throw new Error('Data-plane receiver receipt does not match the source manifest.');
-      }
-      const receipt: DataPlaneReceipt = {
-        schemaVersion: 1,
-        transferId: record.transferId,
-        transport: 'tailscale-http',
-        source: manifest,
-        accepted: record.accepted
-      };
-      this.record({
-        transferId: record.transferId,
-        direction: 'send',
-        fileName: path.basename(manifest.file),
-        sha256: manifest.sha256,
-        size: manifest.size,
-        status: 'succeeded',
-        completedAt: new Date(this.now()).toISOString()
-      });
-      return receipt;
+
+      throw new Error(`All direct data-plane endpoints failed: ${networkFailures.join(' | ')}`);
     } catch (error) {
       this.record({
         transferId: randomUUID(),

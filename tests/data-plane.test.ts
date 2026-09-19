@@ -178,3 +178,47 @@ test('generic data plane remains workspace-contained and fails before network on
     await fs.rm(f.root, { recursive: true, force: true });
   }
 });
+
+
+test('generic data plane falls back across direct endpoints without exposing the ticket', async () => {
+  const f = await fixture();
+  try {
+    const body = 'multi-endpoint fallback\n';
+    await fs.writeFile(path.join(f.root, 'source', 'project', 'fallback.txt'), body, 'utf8');
+    const expectedSha256 = createHash('sha256').update(body).digest('hex');
+    const expectedSize = Buffer.byteLength(body);
+    const offer = await f.dest.createReceiveOffer({
+      workspace: 'dest',
+      basePath: 'project',
+      fileName: 'fallback.txt',
+      expectedSha256,
+      expectedSize,
+      ttlMs: 60_000
+    });
+
+    assert.equal(offer.transport, 'direct-http');
+    assert.ok(offer.endpoints.length >= 1);
+    assert.equal(JSON.stringify(offer.endpoints).includes(offer.ticket), false);
+
+    const receipt = await f.source.push({
+      workspace: 'source',
+      basePath: 'project',
+      file: 'fallback.txt',
+      endpoints: [
+        'http://127.0.0.1:1/rwmcp-data/unreachable-test',
+        ...offer.endpoints.map(item => item.endpoint)
+      ],
+      ticket: offer.ticket,
+      expectedSha256,
+      expectedSize,
+      timeoutMs: 10_000
+    });
+
+    assert.equal(receipt.accepted.sha256, expectedSha256);
+    assert.equal(receipt.transport, 'loopback-test');
+  } finally {
+    await f.source.closeAllForTests();
+    await f.dest.closeAllForTests();
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});

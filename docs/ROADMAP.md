@@ -382,6 +382,24 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.1 - Multi-endpoint direct data-plane hotfix
+
+Real v0.14.0 acceptance found a platform assumption error: Windows and Ubuntu Vision each had a healthy Tailscale IPv4 address, but they belonged to different Tailscale peer graphs. Source preflight passed and the one-shot receiver opened correctly, yet Windows could not route to the Vision Tailscale address.
+
+v0.14.1 therefore:
+
+- keeps the core data plane generic and Direct-Node-first;
+- discovers approved direct IPv4 candidates instead of equating "Tailscale address exists" with peer reachability;
+- opens one-shot listeners on Tailscale plus filtered RFC1918 private-LAN interfaces when available;
+- returns bounded `endpoints[]` while preserving the legacy first `endpoint`;
+- lets `platform.transfer_push` try up to 8 direct candidates in order for network-level failures;
+- treats any receiver HTTP rejection as authoritative so invalid tickets, expiry and integrity errors cannot be bypassed by fallback;
+- filters common Docker/bridge/tunnel interfaces and excludes private /31-/32 links from automatic LAN candidates;
+- reports Tailscale, private-LAN and aggregate direct-path availability separately in `nodeHealth`;
+- preserves normal MCP loopback isolation, one-shot 256-bit tickets, SHA/size verification, atomic promotion, Action Schema v2 and Engineering API v3.
+
+Acceptance must prove a non-firmware Windows -> Vision transfer succeeds by falling through from the unreachable cross-tailnet endpoint to the private-LAN endpoint, with the same SHA/size/ticket contract and no camera/runtime disruption. A second independent-node transfer should validate the same generic mechanism without firmware dependencies.
+
 ### v0.14.0 - Platform-first multi-node foundation
 
 - move generic cross-node file transfer into a core `DataPlaneAdapter` outside the engineering/firmware domain;

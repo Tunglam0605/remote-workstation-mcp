@@ -17,9 +17,12 @@ function fakeContext(): AppContext {
     },
     dataPlane: {
       status: () => ({
-        transport: 'tailscale-http',
+        transport: 'direct-http',
         maxTransferBytes: 536870912,
+        directIpv4Available: true,
         tailscaleIpv4Available: true,
+        privateLanIpv4Available: true,
+        availableTransports: ['tailscale-http', 'private-lan-http'],
         activeOffers: [],
         recentTransfers: []
       })

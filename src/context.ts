@@ -38,6 +38,8 @@ import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
 import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
 import { currentPrincipal } from './security/request-principal.js';
+import { runWithWorkSession } from './security/execution-context.js';
+import { WorkSessionStore } from './work-session.js';
 
 export async function createContext() {
   const actor = {
@@ -51,6 +53,11 @@ export async function createContext() {
     loadOrCreateDeviceIdentity()
   ]);
   const currentClientId = () => currentPrincipal()?.id ?? actor.clientId;
+  const workSessions = new WorkSessionStore(currentClientId);
+  const runInWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> => {
+    if (workSessionId?.trim()) await workSessions.resume(workSessionId);
+    return await runWithWorkSession(workSessionId, operation);
+  };
   const policy = new PolicyEngine(config, lease, currentClientId);
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
@@ -83,6 +90,8 @@ export async function createContext() {
     identity,
     audit,
     multiNodeAuthorization,
+    workSessions,
+    runInWorkSession,
     fs: new FilesystemAdapter(policy, paths),
     hostFs: new HostFilesystemAdapter(policy),
     fullControl: new FullControlAdapter(policy),

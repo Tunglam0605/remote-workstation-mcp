@@ -10,7 +10,7 @@ const result = (value: unknown) => ({
 });
 
 const workspacePath = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
-const debugSession = z.object({ id: z.string().uuid() });
+const debugSession = z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() });
 
 export function registerEngineeringTools(server: McpServer, ctx: AppContext): void {
   const workflowId = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
@@ -72,7 +72,8 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     destinationWorkspace: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
     sourcePath: z.string().min(1).max(1024).optional(),
     destinationBasePath: z.string().min(1).max(1024).optional(),
-    destinationFileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional()
+    destinationFileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    workSessionId: z.string().uuid().optional()
   }).strict().default({});
   const workflowParameters = z.record(z.string().min(1).max(80), z.unknown()).default({});
   const profileProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
@@ -138,7 +139,10 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath, workflow, parameters, overrides }) => {
     const parsed = workflowRuntimeParameters.parse({ ...(overrides ?? {}), ...parameters });
-    return result(await audited(ctx.audit, 'engineering_workflow_plan', workspace, () => ctx.engineering.workflows.plan(workspace, projectPath, workflow as never, parsed)));
+    const { workSessionId, ...runtimeParameters } = parsed;
+    return result(await audited(ctx.audit, 'engineering_workflow_plan', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.workflows.plan(workspace, projectPath, workflow as never, runtimeParameters))
+    ));
   });
 
   server.registerTool('engineering_workflow_run', {
@@ -147,7 +151,10 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workspace, projectPath, workflow, parameters, overrides }) => {
     const parsed = workflowRuntimeParameters.parse({ ...(overrides ?? {}), ...parameters });
-    return result(await audited(ctx.audit, 'engineering_workflow_run', workspace, () => ctx.engineering.workflows.run(workspace, projectPath, workflow as never, parsed)));
+    const { workSessionId, ...runtimeParameters } = parsed;
+    return result(await audited(ctx.audit, 'engineering_workflow_run', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.workflows.run(workspace, projectPath, workflow as never, runtimeParameters))
+    ));
   });
   server.registerTool('hardware_list', {
     description: 'Discover serial ports and supported debug probes such as ST-Link without mutating hardware.',
@@ -163,21 +170,23 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
 
   server.registerTool('hardware_session_status', {
     description: 'List active engineering resource leases such as serial, flashing or debugging ownership.',
-    inputSchema: z.object({}),
+    inputSchema: z.object({ workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result({ leases: await audited(ctx.audit, 'hardware_session_status', undefined, async () => ctx.engineering.resources.list()) }));
+  }, async ({ workSessionId }) => result({ leases: await audited(ctx.audit, 'hardware_session_status', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.engineering.resources.list())
+  ) }));
 
   server.registerTool('serial_open', {
     description: 'Open a bounded caller-owned serial monitor session. Opening is non-destructive but unavailable in Read Only mode.',
-    inputSchema: z.object({ port: z.string().min(1), baudRate: z.number().int().min(300).max(12_000_000) }),
+    inputSchema: z.object({ port: z.string().min(1), baudRate: z.number().int().min(300).max(12_000_000), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, async ({ port, baudRate }) => result(await audited(ctx.audit, 'serial_open', undefined, () => ctx.engineering.serial.open(port, baudRate))));
+  }, async ({ port, baudRate, workSessionId }) => result(await audited(ctx.audit, 'serial_open', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.open(port, baudRate)))));
 
   server.registerTool('serial_read', {
     description: 'Read incremental UTF-8 output from a caller-owned serial session using a byte cursor.',
-    inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0) }),
+    inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, cursor }) => result(await audited(ctx.audit, 'serial_read', undefined, async () => ctx.engineering.serial.read(id, cursor))));
+  }, async ({ id, cursor, workSessionId }) => result(await audited(ctx.audit, 'serial_read', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.read(id, cursor)))));
 
   server.registerTool('serial_wait_for_text', {
     description: 'Wait for a bounded UTF-8 marker in a caller-owned serial session. Useful for boot/readiness acceptance without repeated polling from ChatGPT.',
@@ -185,54 +194,57 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
       id: z.string().uuid(),
       expectedText: z.string().min(1).max(512),
       timeoutMs: z.number().int().min(100).max(120_000).default(10_000),
-      cursor: z.number().int().nonnegative().default(0)
+      cursor: z.number().int().nonnegative().default(0),
+      workSessionId: z.string().uuid().optional()
     }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, expectedText, timeoutMs, cursor }) => result(
-    await audited(ctx.audit, 'serial_wait_for_text', undefined, () => ctx.engineering.serial.waitForText(id, expectedText, timeoutMs, cursor))
+  }, async ({ id, expectedText, timeoutMs, cursor, workSessionId }) => result(
+    await audited(ctx.audit, 'serial_wait_for_text', undefined, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.waitForText(id, expectedText, timeoutMs, cursor))
+    )
   ));
 
   server.registerTool('serial_write', {
     description: 'Write bounded data to a caller-owned serial session. Requires hardware-mutation permission unless the owner explicitly relaxes serial-write policy.',
-    inputSchema: z.object({ id: z.string().uuid(), data: z.string(), encoding: z.enum(['utf8', 'hex', 'base64']).default('utf8') }),
+    inputSchema: z.object({ id: z.string().uuid(), data: z.string(), encoding: z.enum(['utf8', 'hex', 'base64']).default('utf8'), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, data, encoding }) => result(await audited(ctx.audit, 'serial_write', undefined, () => ctx.engineering.serial.write(id, data, encoding))));
+  }, async ({ id, data, encoding, workSessionId }) => result(await audited(ctx.audit, 'serial_write', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.write(id, data, encoding)))));
 
   server.registerTool('serial_close', {
     description: 'Close a caller-owned serial session and release its hardware resource lease.',
-    inputSchema: z.object({ id: z.string().uuid() }),
+    inputSchema: z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(await audited(ctx.audit, 'serial_close', undefined, () => ctx.engineering.serial.close(id))));
+  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'serial_close', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.close(id)))));
 
   server.registerTool('terminal_start', {
     description: 'Start a true PTY/ConPTY terminal in an authorized workspace. The requested executable remains subject to process.allowExecutables.',
-    inputSchema: z.object({ workspace: z.string(), program: z.string().min(1), args: z.array(z.string()).max(500).default([]), cwd: z.string().default('.'), cols: z.number().int().min(20).max(500).default(120), rows: z.number().int().min(5).max(200).default(30) }),
+    inputSchema: z.object({ workspace: z.string(), program: z.string().min(1), args: z.array(z.string()).max(500).default([]), cwd: z.string().default('.'), cols: z.number().int().min(20).max(500).default(120), rows: z.number().int().min(5).max(200).default(30), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, program, args, cwd, cols, rows }) => result(await audited(ctx.audit, 'terminal_start', workspace, () => ctx.engineering.terminals.start(workspace, program, args, cwd, cols, rows))));
+  }, async ({ workspace, program, args, cwd, cols, rows, workSessionId }) => result(await audited(ctx.audit, 'terminal_start', workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.start(workspace, program, args, cwd, cols, rows)))));
 
   server.registerTool('terminal_read', {
     description: 'Read incremental output from a caller-owned PTY/ConPTY session.',
-    inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0) }),
+    inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, cursor }) => result(await audited(ctx.audit, 'terminal_read', undefined, async () => ctx.engineering.terminals.read(id, cursor))));
+  }, async ({ id, cursor, workSessionId }) => result(await audited(ctx.audit, 'terminal_read', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.read(id, cursor)))));
 
   server.registerTool('terminal_write', {
     description: 'Write bounded interactive input to a caller-owned PTY/ConPTY session.',
-    inputSchema: z.object({ id: z.string().uuid(), data: z.string() }),
+    inputSchema: z.object({ id: z.string().uuid(), data: z.string(), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, data }) => result(await audited(ctx.audit, 'terminal_write', undefined, async () => ctx.engineering.terminals.write(id, data))));
+  }, async ({ id, data, workSessionId }) => result(await audited(ctx.audit, 'terminal_write', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.write(id, data)))));
 
   server.registerTool('terminal_resize', {
     description: 'Resize a caller-owned PTY/ConPTY terminal.',
-    inputSchema: z.object({ id: z.string().uuid(), cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200) }),
+    inputSchema: z.object({ id: z.string().uuid(), cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, cols, rows }) => result(await audited(ctx.audit, 'terminal_resize', undefined, async () => ctx.engineering.terminals.resize(id, cols, rows))));
+  }, async ({ id, cols, rows, workSessionId }) => result(await audited(ctx.audit, 'terminal_resize', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.resize(id, cols, rows)))));
 
   server.registerTool('terminal_stop', {
     description: 'Stop a caller-owned PTY/ConPTY terminal session.',
-    inputSchema: z.object({ id: z.string().uuid() }),
+    inputSchema: z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(await audited(ctx.audit, 'terminal_stop', undefined, async () => ctx.engineering.terminals.stop(id))));
+  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'terminal_stop', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.stop(id)))));
 
   server.registerTool('firmware_project_inspect', {
     description: 'Detect firmware/project family and build framework from project markers without executing project code.',
@@ -296,57 +308,57 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
 
   server.registerTool('debug_session_start', {
     description: 'Start an owner-scoped loopback-only OpenOCD + GDB/MI debug session for an explicit ELF/AXF and optional ST-Link serial.',
-    inputSchema: z.object({ workspace: z.string(), projectPath: z.string().default('.'), symbols: z.string().min(1), probeSerial: z.string().min(1), targetConfig: z.string().optional(), adapterSpeedKhz: z.number().int().min(50).max(24000).optional() }),
+    inputSchema: z.object({ workspace: z.string(), projectPath: z.string().default('.'), symbols: z.string().min(1), probeSerial: z.string().min(1), targetConfig: z.string().optional(), adapterSpeedKhz: z.number().int().min(50).max(24000).optional(), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async args => result(await audited(ctx.audit, 'debug_session_start', args.workspace, () => ctx.engineering.debug.start(args))));
+  }, async ({ workSessionId, ...args }) => result(await audited(ctx.audit, 'debug_session_start', args.workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.start(args)))));
 
   server.registerTool('debug_session_list', {
-    description: 'List caller-owned debug sessions.', inputSchema: z.object({}),
+    description: 'List caller-owned debug sessions.', inputSchema: z.object({ workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result({ sessions: await audited(ctx.audit, 'debug_session_list', undefined, async () => ctx.engineering.debug.list()) }));
+  }, async ({ workSessionId }) => result({ sessions: await audited(ctx.audit, 'debug_session_list', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.list())) }));
 
-  server.registerTool('debug_halt', { description: 'Interrupt and halt the target in a caller-owned debug session.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id }) => result(await audited(ctx.audit, 'debug_halt', undefined, () => ctx.engineering.debug.halt(id))));
-  server.registerTool('debug_resume', { description: 'Resume target execution in a caller-owned debug session.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id }) => result(await audited(ctx.audit, 'debug_resume', undefined, () => ctx.engineering.debug.resume(id))));
-  server.registerTool('debug_step', { description: 'Single-step into source/instruction execution and wait for the next stopped event.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id }) => result(await audited(ctx.audit, 'debug_step', undefined, () => ctx.engineering.debug.step(id, 'step'))));
-  server.registerTool('debug_next', { description: 'Step over and wait for the next stopped event.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id }) => result(await audited(ctx.audit, 'debug_next', undefined, () => ctx.engineering.debug.step(id, 'next'))));
+  server.registerTool('debug_halt', { description: 'Interrupt and halt the target in a caller-owned debug session.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_halt', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.halt(id)))));
+  server.registerTool('debug_resume', { description: 'Resume target execution in a caller-owned debug session.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_resume', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.resume(id)))));
+  server.registerTool('debug_step', { description: 'Single-step into source/instruction execution and wait for the next stopped event.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_step', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.step(id, 'step')))));
+  server.registerTool('debug_next', { description: 'Step over and wait for the next stopped event.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_next', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.step(id, 'next')))));
 
   server.registerTool('debug_stack', {
     description: 'Read a bounded stack trace from a caller-owned halted debug session.',
-    inputSchema: z.object({ id: z.string().uuid(), maxFrames: z.number().int().min(1).max(64).default(16) }),
+    inputSchema: z.object({ id: z.string().uuid(), maxFrames: z.number().int().min(1).max(64).default(16), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, maxFrames }) => result({ frames: await audited(ctx.audit, 'debug_stack', undefined, () => ctx.engineering.debug.stack(id, maxFrames)) }));
+  }, async ({ id, maxFrames, workSessionId }) => result({ frames: await audited(ctx.audit, 'debug_stack', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.stack(id, maxFrames))) }));
 
-  server.registerTool('debug_registers', { description: 'Read target register values through GDB/MI.', inputSchema: debugSession, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ id }) => result({ registers: await audited(ctx.audit, 'debug_registers', undefined, () => ctx.engineering.debug.registers(id)) }));
+  server.registerTool('debug_registers', { description: 'Read target register values through GDB/MI.', inputSchema: debugSession, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ id, workSessionId }) => result({ registers: await audited(ctx.audit, 'debug_registers', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.registers(id))) }));
 
   server.registerTool('debug_variable', {
     description: 'Evaluate one safe variable/member/index expression; arbitrary GDB expressions are rejected.',
-    inputSchema: z.object({ id: z.string().uuid(), expression: z.string().min(1).max(256) }),
+    inputSchema: z.object({ id: z.string().uuid(), expression: z.string().min(1).max(256), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, expression }) => result(await audited(ctx.audit, 'debug_variable', undefined, () => ctx.engineering.debug.variable(id, expression))));
+  }, async ({ id, expression, workSessionId }) => result(await audited(ctx.audit, 'debug_variable', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.variable(id, expression)))));
 
   server.registerTool('debug_breakpoint_add', {
     description: 'Add one hardware breakpoint at a function or basename:line location.',
-    inputSchema: z.object({ id: z.string().uuid(), location: z.string().min(1).max(256) }),
+    inputSchema: z.object({ id: z.string().uuid(), location: z.string().min(1).max(256), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, location }) => result(await audited(ctx.audit, 'debug_breakpoint_add', undefined, () => ctx.engineering.debug.addBreakpoint(id, location))));
+  }, async ({ id, location, workSessionId }) => result(await audited(ctx.audit, 'debug_breakpoint_add', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.addBreakpoint(id, location)))));
 
   server.registerTool('debug_breakpoint_remove', {
     description: 'Remove one breakpoint by GDB breakpoint number.',
-    inputSchema: z.object({ id: z.string().uuid(), number: z.number().int().min(1).max(9999) }),
+    inputSchema: z.object({ id: z.string().uuid(), number: z.number().int().min(1).max(9999), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, number }) => result(await audited(ctx.audit, 'debug_breakpoint_remove', undefined, () => ctx.engineering.debug.removeBreakpoint(id, number))));
+  }, async ({ id, number, workSessionId }) => result(await audited(ctx.audit, 'debug_breakpoint_remove', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.removeBreakpoint(id, number)))));
 
   server.registerTool('debug_memory_read', {
     description: 'Read at most 4096 bytes of target memory through GDB/MI. Memory writes are intentionally not exposed.',
-    inputSchema: z.object({ id: z.string().uuid(), address: z.number().int().min(0).max(0xffffffff), length: z.number().int().min(1).max(4096) }),
+    inputSchema: z.object({ id: z.string().uuid(), address: z.number().int().min(0).max(0xffffffff), length: z.number().int().min(1).max(4096), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, address, length }) => result(await audited(ctx.audit, 'debug_memory_read', undefined, () => ctx.engineering.debug.memoryRead(id, address, length))));
+  }, async ({ id, address, length, workSessionId }) => result(await audited(ctx.audit, 'debug_memory_read', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.memoryRead(id, address, length)))));
 
   server.registerTool('debug_fault_snapshot', {
     description: 'Read Cortex-M core/fault registers from a halted debug session and decode HardFault/MemManage/BusFault/UsageFault state.',
     inputSchema: debugSession,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id }) => result(await audited(ctx.audit, 'debug_fault_snapshot', undefined, () => ctx.engineering.debug.faultSnapshot(id))));
+  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_fault_snapshot', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.faultSnapshot(id)))));
 
   server.registerTool('fault_decode', {
     description: 'Decode supplied Cortex-M SCB fault registers without connecting to hardware.',
@@ -354,7 +366,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async args => result(await audited(ctx.audit, 'fault_decode', undefined, async () => decodeCortexMFault(args))));
 
-  server.registerTool('debug_session_stop', { description: 'Stop a caller-owned debug session and release the debug probe.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, async ({ id }) => result(await audited(ctx.audit, 'debug_session_stop', undefined, () => ctx.engineering.debug.stop(id))));
+  server.registerTool('debug_session_stop', { description: 'Stop a caller-owned debug session and release the debug probe.', inputSchema: debugSession, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_session_stop', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.stop(id)))));
 
   const rosWorkspace = z.object({ workspace: z.string(), cwd: z.string().default('.') });
   server.registerTool('ros2_build', {

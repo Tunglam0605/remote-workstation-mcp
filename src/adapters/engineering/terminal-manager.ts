@@ -4,11 +4,10 @@ import { fileURLToPath } from 'node:url';
 import type { TerminalReadResult, TerminalSessionSnapshot } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
+import { resolveResourceOwner, type ResourceOwnerSource } from '../../security/execution-context.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
 import { resolveExecutablePath } from '../executable-resolver.js';
 import { ProcessTreeSupervisor } from '../process-tree-supervisor.js';
-
-type OwnerIdSource = string | (() => string);
 
 type WorkerMessage =
   | { type: 'started'; pid: number }
@@ -42,12 +41,11 @@ export class TerminalManager {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly paths: PathGuard,
-    private readonly ownerIdSource: OwnerIdSource = 'unknown'
+    private readonly ownerIdSource: ResourceOwnerSource = 'unknown'
   ) {}
 
   private ownerId(): string {
-    const value = typeof this.ownerIdSource === 'function' ? this.ownerIdSource() : this.ownerIdSource;
-    return value || 'unknown';
+    return resolveResourceOwner(this.ownerIdSource).key;
   }
 
   private owned(id: string): ManagedTerminal {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { DebugSessionSnapshot } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
+import { resolveResourceOwner, type ResourceOwnerSource } from '../../security/execution-context.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
 import { decodeCortexMFault } from './fault-decode.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
@@ -14,8 +15,6 @@ import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-poli
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
-
-type OwnerIdSource = string | (() => string);
 
 interface MiResult { token: number; resultClass: string; payload: string; raw: string; }
 interface AsyncRecord { prefix: string; body: string; raw: string; }
@@ -198,14 +197,13 @@ export class DebugSessionManager {
     private readonly policy: PolicyEngine,
     private readonly paths: PathGuard,
     private readonly resources: EngineeringResourceManager,
-    private readonly ownerIdSource: OwnerIdSource = 'unknown'
+    private readonly ownerIdSource: ResourceOwnerSource = 'unknown'
   ) {
     this.inspector = new FirmwareProjectInspector(paths);
   }
 
   private ownerId(): string {
-    const value = typeof this.ownerIdSource === 'function' ? this.ownerIdSource() : this.ownerIdSource;
-    return value || 'unknown';
+    return resolveResourceOwner(this.ownerIdSource).key;
   }
 
   private owned(id: string): ManagedDebug {

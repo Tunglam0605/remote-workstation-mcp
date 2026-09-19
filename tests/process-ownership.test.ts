@@ -8,6 +8,7 @@ import { ProcessManager } from '../src/adapters/process-manager.js';
 import type { PolicyConfig } from '../src/model.js';
 import { PolicyEngine } from '../src/policy.js';
 import { PathGuard } from '../src/security/path-guard.js';
+import { runWithWorkSession } from '../src/security/execution-context.js';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const cleanup = (root: string) => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
@@ -66,4 +67,39 @@ test('legacy/local process manager behavior remains shared under its fallback ow
     await sleep(20);
   }
   assert.notEqual(manager.read(started.id).status, 'running');
+});
+
+
+test('same principal cannot read or stop a process owned by another Work Session', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-process-work-session-'));
+  t.after(async () => cleanup(root));
+  const executable = path.basename(process.execPath);
+  const config: PolicyConfig = {
+    version: 1,
+    mode: 'workspace',
+    workspaces: [{ id: 'w', root }],
+    filesystem: { maxReadBytes: 1024, maxWriteBytes: 1024 },
+    process: { allowExecutables: [executable], inheritEnv: ['PATH'], maxOutputBytes: 4096, maxRuntimeMs: 5000 }
+  };
+  const policy = new PolicyEngine(config);
+  const manager = new ProcessManager(policy, new PathGuard(policy), 'openai-tunnel');
+  const sessionA = '11111111-1111-4111-8111-111111111111';
+  const sessionB = '22222222-2222-4222-8222-222222222222';
+
+  const started = await runWithWorkSession(sessionA, () =>
+    manager.start('w', process.execPath, ['-e', "console.log('SESSION_A');setTimeout(()=>{}, 2000)"])
+  );
+
+  runWithWorkSession(sessionB, () => {
+    assert.deepEqual(manager.list(), []);
+    assert.throws(() => manager.read(started.id), /Unknown process id/);
+    assert.throws(() => manager.readSince(started.id), /Unknown process id/);
+  });
+  await assert.rejects(
+    runWithWorkSession(sessionB, () => manager.stop(started.id)),
+    /Unknown process id/
+  );
+
+  await runWithWorkSession(sessionA, () => manager.stop(started.id));
+  await sleep(50);
 });

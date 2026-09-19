@@ -45,6 +45,7 @@ import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
 import { EngineeringWorkflowExecutionService } from './engineering-workflow-execution.js';
 import { TaskExecutionCoordinator } from './task-executor.js';
+import { TaskAttemptStore } from './task-attempt-store.js';
 import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
 import { WorkflowRunStore } from './workflow-run-store.js';
@@ -81,6 +82,8 @@ export async function createContext() {
   const reconciledWorkflowRuns = interruptedWorkflowRuns.length;
   const nodeInterlocks = new NodeInterlockStore(currentClientId);
   const reconciledNodeInterlocks = await nodeInterlocks.reconcileStale();
+  const taskAttempts = new TaskAttemptStore(currentClientId);
+  const reconciledTaskAttempts = (await taskAttempts.reconcileInterrupted()).length;
   const taskGraphs = new TaskGraphStore(currentClientId);
   const reconciledWorkTasks = (await taskGraphs.reconcileInterrupted()).length;
   const runInWorkSession = async <T>(workSessionId: string | undefined, operation: () => T | Promise<T>): Promise<T> => {
@@ -116,7 +119,7 @@ export async function createContext() {
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
-  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution);
+  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts);
   return {
     config,
     hostsConfig,
@@ -133,6 +136,8 @@ export async function createContext() {
     qualityObservationReconciliationFailures,
     nodeInterlocks,
     reconciledNodeInterlocks,
+    taskAttempts,
+    reconciledTaskAttempts,
     taskGraphs,
     taskScheduler,
     taskExecutor,

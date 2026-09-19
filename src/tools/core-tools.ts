@@ -116,6 +116,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       debug: ctx.engineering.debug.list(),
       hardwareLeases: ctx.engineering.resources.list(),
       workflowRuns: await ctx.workflowRuns.list(20),
+      taskAttempts: await ctx.taskAttempts.list({ limit: 20 }),
       qualityObservations: await ctx.qualityObservations.list(20).catch(error => ({
         available: false,
         error: (error instanceof Error ? error.message : String(error)).slice(0, 512)
@@ -223,6 +224,21 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     )
   )));
 
+  server.registerTool('work_objective_attempts', {
+    description: 'Inspect bounded durable Task Attempt history for the caller-owned Work Session. Attempts are execution evidence, not authority grants.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid().optional(),
+      taskId: z.string().uuid().optional(),
+      limit: z.number().int().min(1).max(500).default(100)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskId, limit }) => result(await audited(ctx.audit, 'work_objective_attempts', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => ({
+      attempts: await ctx.taskAttempts.list({ objectiveId, taskId, limit })
+    }))
+  )));
+
   server.registerTool('work_objective_mutate', {
     description: 'Edit Task Graph structure only. This tool may add a task or replace task dependencies; it cannot mark work running/succeeded/failed and cannot acquire permissions, leases or interlocks.',
     inputSchema: z.object({
@@ -282,6 +298,34 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   }, async ({ workSessionId, objectiveId, taskId }) => result(await audited(ctx.audit, 'work_objective_execute_task', undefined, () =>
     ctx.runInWorkSession(workSessionId, () =>
       ctx.taskWorkflowExecution.execute(objectiveId, taskId)
+    )
+  )));
+
+  server.registerTool('work_objective_cancel_task', {
+    description: 'Cancel one task safely. Pending/READY work is cancelled before dispatch; RUNNING work records a cancellation request but does not falsely claim generic provider preemption.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      taskId: z.string().uuid()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskId }) => result(await audited(ctx.audit, 'work_objective_cancel_task', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.taskWorkflowExecution.cancel(objectiveId, taskId)
+    )
+  )));
+
+  server.registerTool('work_objective_retry_task', {
+    description: 'Create a new explicit execution generation for one failed or cancelled task. Previous generations are immutable execution history and are never rerun implicitly.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      taskId: z.string().uuid()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskId }) => result(await audited(ctx.audit, 'work_objective_retry_task', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.taskWorkflowExecution.retry(objectiveId, taskId)
     )
   )));
 

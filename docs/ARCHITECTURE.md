@@ -207,6 +207,12 @@ Direct `engineering_workflow_run` and scheduled task execution share `Engineerin
 
 The MCP execution surface remains narrow: `work_objective_execute_task` accepts only Work Session/objective/task identifiers and is classified as `workstation.execute`. It cannot supply an alternate command, override persisted secrets, mutate permissions or bypass the scheduler. Underlying workspace policy, hardware leases, cross-node authorization and typed provider checks are still evaluated at execution time.
 
+Phase 3E adds durable execution attempts without making the scheduler a retry loop. Each Work Task owns an integer `generation`, starting at 1. `TaskAttemptStore` persists at most one attempt for a given `principalId + workSessionId + objectiveId + taskId + generation`. Therefore a repeated execute call for the same generation returns the existing attempt with `replayed=true` and never re-runs hardware/software side effects. A new execution is possible only after an explicit retry transition increments generation.
+
+Attempt history is stored separately from the mutable DAG. It records bounded status/timestamps, optional workflow-run identity, cancellation intent and bounded error text; it does not store workflow output payloads, secrets or transcripts. Runtime restart converts stale `running` attempts to `interrupted`; Task Graph restart reconciliation independently converts stale RUNNING tasks to failed. Neither path silently resumes side effects.
+
+Cancellation is intentionally truthful. Pending/READY work can transition to `cancelled` before dispatch, which blocks dependents like another non-success dependency. An explicit retry may then advance generation and recompute downstream readiness. If a task is already RUNNING, RWMCP records `cancelRequestedAt` on the durable attempt but does not claim the underlying typed provider was preempted. The eventual real workflow result remains the final attempt outcome until provider-specific cancellable contracts are introduced.
+
 No autonomous agent provider is part of this foundation. Future optional workers must enter through the same scheduler/executor boundary and cannot bypass Work Session ownership, resource leases, node interlocks, workspace policy or cross-node authorization.
 
 ## Control plane vs data plane

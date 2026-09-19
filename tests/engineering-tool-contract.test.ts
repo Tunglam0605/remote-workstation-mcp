@@ -131,6 +131,7 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   const workflowContract = await read('src/engineering-workflow-contract.ts');
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const taskWorkflowExecution = await read('src/task-workflow-execution.ts');
+  const taskAttempts = await read('src/task-attempt-store.ts');
   const context = await read('src/context.ts');
 
   assert.match(capabilities, /work_objective\.task_graph/);
@@ -138,24 +139,33 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(capabilities, /work_objective_inspect/);
   assert.match(capabilities, /work_objective_mutate/);
   assert.match(capabilities, /work_objective_schedule/);
+  assert.match(capabilities, /work_objective_attempts/);
   assert.match(capabilities, /work_objective_execute_task/);
+  assert.match(capabilities, /work_objective_cancel_task/);
+  assert.match(capabilities, /work_objective_retry_task/);
 
   assert.match(coreTools, /work_objective_create/);
   assert.match(coreTools, /work_objective_inspect/);
   assert.match(coreTools, /work_objective_mutate/);
   assert.match(coreTools, /work_objective_schedule/);
+  assert.match(coreTools, /work_objective_attempts/);
   assert.match(coreTools, /work_objective_execute_task/);
+  assert.match(coreTools, /work_objective_cancel_task/);
+  assert.match(coreTools, /work_objective_retry_task/);
   assert.match(coreTools, /planning-only/);
   assert.match(coreTools, /executionActive: false/);
   assert.match(coreTools, /ctx\.taskWorkflowExecution\.execute\(objectiveId, taskId\)/);
   assert.match(taskWorkflowExecution, /this\.taskExecutor\.execute/);
   assert.match(taskWorkflowExecution, /this\.workflowExecution\.run/);
   assert.match(taskWorkflowExecution, /TASK_WORKFLOW_NOT_SUCCEEDED/);
+  assert.match(taskWorkflowExecution, /replayed: true/);
+  assert.match(taskWorkflowExecution, /requestCancellation/);
+  assert.match(taskWorkflowExecution, /retryTask/);
   assert.match(coreTools, /action: z\.literal\('add_task'\)/);
   assert.match(coreTools, /action: z\.literal\('replace_dependencies'\)/);
 
   const executeStart = coreTools.indexOf("server.registerTool('work_objective_execute_task'");
-  const executeEnd = coreTools.indexOf("server.registerTool('fs_list'", executeStart);
+  const executeEnd = coreTools.indexOf("server.registerTool('work_objective_cancel_task'", executeStart);
   assert.ok(executeStart >= 0 && executeEnd > executeStart);
   const executeBlock = coreTools.slice(executeStart, executeEnd);
   assert.doesNotMatch(executeBlock, /shell_exec|program:|args:|host_fs|permission_|cross_node_transfer/);
@@ -165,7 +175,10 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(scopes, /work_objective_inspect: 'workstation\.read'/);
   assert.match(scopes, /work_objective_mutate: 'workstation\.write'/);
   assert.match(scopes, /work_objective_schedule: 'workstation\.read'/);
+  assert.match(scopes, /work_objective_attempts: 'workstation\.read'/);
   assert.match(scopes, /work_objective_execute_task: 'workstation\.execute'/);
+  assert.match(scopes, /work_objective_cancel_task: 'workstation\.execute'/);
+  assert.match(scopes, /work_objective_retry_task: 'workstation\.execute'/);
 
   assert.match(taskGraph, /Task dependency cycle detected/);
   assert.match(taskGraph, /runtime-restarted-before-task-completion/);
@@ -174,6 +187,10 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(taskGraph, /OWNER_LOCAL_ONLY/);
   assert.match(workflowContract, /persistedWorkflowParametersSchema[\s\S]*transferTicket: true[\s\S]*relayDataBase64: true/);
   assert.match(workflowExecution, /this\.qualityObservations\.observe/);
+  assert.match(taskAttempts, /class TaskAttemptStore/);
+  assert.match(taskAttempts, /runtime-restarted-before-task-attempt-completion/);
+  assert.match(context, /new TaskAttemptStore/);
+  assert.match(context, /reconciledTaskAttempts/);
   assert.match(context, /new TaskGraphStore/);
   assert.match(context, /reconcileInterrupted/);
   assert.match(context, /new DeterministicTaskScheduler/);

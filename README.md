@@ -18,9 +18,9 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 Production Direct Nodes remain on v0.16.0 until the v0.17 orchestration core passes RC, three-node acceptance and soak gates.
 
-**v0.17.0-dev.0 - Phase 3 orchestration core**
+**v0.17.0-dev.0 - Phase 3 orchestration core + post-Phase-3 coordination foundation**
 
-Phase 3H completes Context Capsule handoff and Work Session lifecycle semantics on top of the Phase 3 task-graph/scheduler slices.
+Phase 3I closes the Work Objective / Task Graph / Scheduler acceptance gates. The next v0.17 foundation adds Project Session Group coordination and a read-only Worker Provider Registry without introducing autonomous dispatch authority.
 
 - `work_session_resume` remains read-only and returns bounded Context Capsule plus session-owned runtime state without activating the session;
 - execution paths activate/touch `CREATED`, `IDLE` or `RECOVERING` sessions internally;
@@ -28,7 +28,10 @@ Phase 3H completes Context Capsule handoff and Work Session lifecycle semantics 
 - `work_session_close` fails closed on owned runtime resources or dirty worktrees and never stops processes, releases leases or deletes worktrees implicitly;
 - idle/expiry policies, restart reconciliation and bounded terminal-record GC are durable;
 - clean worktrees may still be explicitly removed after `CLOSED` or `EXPIRED`;
-- production remains v0.16.0 until v0.17 RC/acceptance gates pass.
+- `project_session_group_*` groups only caller-owned Work Sessions already bound to the same project; group lifecycle is coordination metadata only and grants no execution authority;
+- `worker_provider_list` is a bounded read-only registry/status surface; there is no worker dispatch/execute MCP action in this foundation;
+- future delegation must reuse the existing deterministic scheduler, TaskExecutionCoordinator, typed workflow binding, local policy, resource leases and node interlocks;
+- production remains v0.16.0 until v0.17 RC/three-node acceptance/soak gates pass.
 
 **v0.16.0**
 

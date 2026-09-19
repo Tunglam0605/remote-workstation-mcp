@@ -578,6 +578,26 @@ Phase 3I - Acceptance Gate Consolidation / RC Readiness:
 - require full local regression, build, plugin validation, dependency audit, PR Linux/Windows CI and post-merge main CI before declaring Phase 3 orchestration core closed;
 - keep production Direct Nodes on v0.16.0 until the separate v0.17 RC / three-node acceptance / soak decision.
 
+Post-Phase-3 v0.17 foundation - Project Session Group + Worker Provider Registry:
+
+- add owner-scoped Project Session Groups that can contain only explicit caller-owned Work Sessions already bound to the same workspace/projectPath;
+- keep active membership unique so one Work Session cannot silently participate in two active coordination groups;
+- keep group lifecycle coordination-only: closing a group does not close Work Sessions, stop processes, release hardware, remove worktrees, execute tasks or change permissions;
+- add a bounded read-only Worker Provider Registry for future Codex/Claude/OpenHands/custom adapters;
+- deliberately provide no worker dispatch/execute MCP surface in this slice; direct MCP control remains independent of provider availability;
+- require future worker execution to enter through the existing TaskExecutionCoordinator, typed workflow binding, Scheduler Awareness, resource leases, node interlocks and local policy boundaries;
+- retain Action Schema 4 / Engineering API 4 during v0.17 development and keep production on v0.16.0.
+
+Foundation acceptance gates:
+
+- a group rejects members from another project or another authenticated principal;
+- a Work Session cannot belong to two active groups at once;
+- group inspect/create/mutate never activates member Work Sessions or grants workstation.execute;
+- worker provider status is bounded/read-only and provider failure cannot affect direct control;
+- Worker Provider Registry exposes no execute/dispatch method;
+- closed group records are bounded by terminal retention GC;
+- full regression, build, plugin validation, dependency audit and Linux/Windows CI must pass before merge.
+
 ## v0.13 — Daily engineering workflows
 
 ### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening

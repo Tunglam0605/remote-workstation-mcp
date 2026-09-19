@@ -112,6 +112,39 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.equal(qualityReviewBody.promotionEnabled, false);
     assert.equal(qualityReviewBody.activationEnabled, false);
 
+    const qualitySettings = await fetch(`${base}/api/quality/settings`, {
+      headers: { 'x-rwmcp-setup-token': token }
+    });
+    assert.equal(qualitySettings.status, 200);
+    const qualitySettingsBody = await qualitySettings.json() as {
+      settings: { enabled: boolean; retentionDays: number; minApprovedSamples: number; minScore: number };
+      authority: string;
+      canonicalProjectDataUnaffected: boolean;
+    };
+    assert.equal(qualitySettingsBody.authority, 'owner-local-only');
+    assert.equal(typeof qualitySettingsBody.settings.enabled, 'boolean');
+    assert.ok(qualitySettingsBody.settings.retentionDays >= 1);
+    assert.ok(qualitySettingsBody.settings.minApprovedSamples >= 1);
+    assert.ok(qualitySettingsBody.settings.minScore >= 0.5);
+    assert.equal(qualitySettingsBody.canonicalProjectDataUnaffected, true);
+
+    const qualityKnowledge = await fetch(`${base}/api/quality/knowledge`, {
+      headers: { 'x-rwmcp-setup-token': token }
+    });
+    assert.equal(qualityKnowledge.status, 200);
+    const qualityKnowledgeBody = await qualityKnowledge.json() as {
+      records: unknown[];
+      authority: string;
+      recommendationOnly: boolean;
+      executionActivationEnabled: boolean;
+      mcpPromotionEnabled: boolean;
+    };
+    assert.ok(Array.isArray(qualityKnowledgeBody.records));
+    assert.equal(qualityKnowledgeBody.authority, 'owner-local-only');
+    assert.equal(qualityKnowledgeBody.recommendationOnly, true);
+    assert.equal(qualityKnowledgeBody.executionActivationEnabled, false);
+    assert.equal(qualityKnowledgeBody.mcpPromotionEnabled, false);
+
     const recoveryTest = await fetch(`${base}/api/recovery/test`, {
       method: 'POST',
       headers: { 'x-rwmcp-setup-token': token, 'content-type': 'application/json' },

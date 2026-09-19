@@ -467,14 +467,25 @@ Second foundation slice:
 - there is still no MCP approve/reject/revoke/promote/activate action;
 - approval does not promote or activate anything and cannot change scopes, policy, Git, firmware or runtime lifecycle.
 
-Remaining v0.16 gates before reusable knowledge may be promoted:
+Reusable-knowledge implementation slice:
 
-- canonical reusable-knowledge schema separated from raw observations and owner decisions;
-- promotion policy requiring deterministic evidence across compatible environment fingerprints;
-- retention/migration rules and bounded storage health;
-- anti-pattern coverage for flaky/retried/manual-recovery workflows;
-- real Linux/Windows workflow acceptance and adversarial persistence tests;
-- explicit proof that approval cannot grant scopes, alter security policy, auto-push Git or activate learned behavior without owner action.
+- `QualityLearningSettingsStore` provides owner-local enable/disable, retention, bounded observation count, minimum approved evidence and quality-score thresholds;
+- `QualityKnowledgeStore` separates reusable knowledge from raw observations and owner decisions and keeps its transition history append-only/versioned;
+- quality metrics aggregate success/failure/blocked outcomes, approved evidence, duration consistency, typed-completion ratio, environment diversity, recency, reproducibility and safety penalties;
+- canonical-baseline comparison prefers an existing typed workflow and classifies raw-shell/manual duplication as an anti-pattern;
+- shadow evaluation prevents direct activation, keeps low-evidence candidates in `needs-more-evidence`, and requires environment revalidation after material fingerprint changes;
+- promoted knowledge remains recommendation-only with `executionActive=false`; promotion, revocation, settings and history clearing remain owner-local Control Center operations and are not MCP actions;
+- learning history can be cleared without modifying canonical project profiles or Git state;
+- compatibility fingerprints may include hashed project/probe identity plus workflow, variant, provider/provider-version and toolchain/toolchain-version while excluding secrets, raw serial IDs, hostname/IP and logs.
+
+Release gates for v0.16.0:
+
+- run the full Linux and Windows CI matrix, packed-runtime smoke tests, plugin validation, dependency audit and release-integrity checks;
+- add/retain adversarial persistence coverage proving tampered observations or changed approval digests cannot become trusted evidence;
+- perform real typed-workflow acceptance on Windows and Linux, including at least one hardware-backed workflow when safe, without disrupting the production Vision pipeline;
+- prove learning-disabled operation, environment revalidation, immutable version history and canonical-vs-raw-shell anti-pattern behavior in acceptance evidence;
+- verify again that learning cannot grant scopes, alter security policy, auto-push Git, create cross-node grants or activate execution automatically;
+- only then tag/release/roll out v0.16.0 to the three production Direct Nodes.
 
 ## v0.13 — Daily engineering workflows
 

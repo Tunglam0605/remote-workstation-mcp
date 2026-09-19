@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
+import { deriveQualityCompatibilityInput } from '../quality-learning.js';
 import { decodeCortexMFault } from '../adapters/engineering/fault-decode.js';
 import { audited } from '../security/audit.js';
 
@@ -173,12 +174,21 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
           const finished = await ctx.workflowRuns.finish(run.id, runStatus);
           let qualityObservation: unknown;
           try {
-            qualityObservation = {
-              recorded: true,
-              observation: await ctx.qualityObservations.observe(finished, {
-                completionSource: 'workflow-output',
-                explicitOutcome
+            const observation = await ctx.qualityObservations.observe(finished, {
+              completionSource: 'workflow-output',
+              explicitOutcome,
+              compatibility: deriveQualityCompatibilityInput({
+                workspace,
+                projectPath,
+                workflow,
+                runtimeParameters: runtimeParameters as Record<string, unknown>,
+                output
               })
+            });
+            qualityObservation = {
+              recorded: observation !== undefined,
+              disabled: observation === undefined,
+              observation: observation ?? null
             };
           } catch (telemetryError) {
             qualityObservation = {
@@ -195,7 +205,13 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
           );
           await ctx.qualityObservations.observe(finished, {
             completionSource: 'exception',
-            explicitOutcome: true
+            explicitOutcome: true,
+            compatibility: deriveQualityCompatibilityInput({
+              workspace,
+              projectPath,
+              workflow,
+              runtimeParameters: runtimeParameters as Record<string, unknown>
+            })
           }).catch(() => undefined);
           throw error;
         } finally {

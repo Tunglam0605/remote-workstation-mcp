@@ -527,10 +527,24 @@ Durable Task Attempt / cancellation / idempotent resume slice:
 - for already RUNNING work, persist cancellation intent but do not claim generic provider preemption that the typed workflow contract does not support;
 - expose bounded attempt inspection through Work Session scope only.
 
+Scheduler Awareness slice:
+
+- observe active Work Sessions plus worktree/build ownership without creating a global scheduler lock;
+- observe canonical EngineeringResourceManager leases, serial/debug session state, Task Attempts and node interlocks;
+- classify otherwise READY work as WAITING_RESOURCE, WAITING_SESSION or WAITING_NODE when live state proves contention;
+- keep execution-time policy, typed provider checks and actual lease/interlock acquisition authoritative.
+
+Objective Progress aggregation slice:
+
+- add bounded read-only `work_objective_summary` instead of requiring many low-level tool calls to understand one Objective;
+- compute complete status counts while bounding detailed task/blocker/resource/actionable lists;
+- surface latest failed/blocked/interrupted Attempt and current resource/session waits;
+- report only mechanically actionable READY tasks; do not infer engineering strategy or become a planner;
+- never return raw workflow logs, full transcripts or hidden/model reasoning.
+
 Next slices:
-- add scheduler awareness of active Work Sessions/worktrees and resource availability without treating planning output as authority;
-- add objective-level progress/result aggregation and compact Context Capsule handoff;
-- only after those gates pass, add optional worker-provider delegation (Codex/Claude/OpenHands/custom) behind the same scheduler and local policy boundaries.
+- extend Context Capsule handoff for Objective/task/resource continuity and complete the Work Session lifecycle;
+- only after v0.17 orchestration-core gates pass, prepare optional Project Session Group / worker-provider foundations behind the same scheduler and local policy boundaries.
 
 Phase-3 acceptance gates:
 

@@ -46,6 +46,7 @@ import { WorkSessionStore } from './work-session.js';
 import { EngineeringWorkflowExecutionService } from './engineering-workflow-execution.js';
 import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
+import { ObjectiveProgressService } from './objective-progress.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
 import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
@@ -125,6 +126,13 @@ export async function createContext() {
     engineeringSerial,
     engineeringDebug
   );
+  const objectiveProgress = new ObjectiveProgressService(
+    taskGraphs,
+    taskAttempts,
+    schedulerAwareness,
+    workSessions
+  );
+
   const taskExecutor = new TaskExecutionCoordinator(
     taskGraphs,
     taskScheduler,
@@ -158,6 +166,7 @@ export async function createContext() {
     taskGraphs,
     taskScheduler,
     schedulerAwareness,
+    objectiveProgress,
     taskExecutor,
     taskWorkflowExecution,
     reconciledWorkTasks,

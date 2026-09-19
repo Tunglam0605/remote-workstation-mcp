@@ -97,7 +97,24 @@ function Invoke-RwmcpRecoveryPlaneConvergence {
     [void](Stop-RwmcpManagedProcessTree -ProcessId $entryPid -OwnershipNeedle 'autonomous-recovery-windows.ps1' -Logger $Logger)
   }
 
-  return @(Get-RwmcpManagedProcessEntries 'autonomous-recovery-windows.ps1')
+  # Win32_Process can lag briefly after taskkill reports success. Wait for the
+  # observable recovery-plane process set to converge before returning it, so
+  # callers do not receive stale CIM entries from a process that is already
+  # terminating. This wait is bounded and never hides a genuinely stuck worker.
+  $remaining = @()
+  $deadline = [Diagnostics.Stopwatch]::StartNew()
+  do {
+    $remaining = @(Get-RwmcpManagedProcessEntries 'autonomous-recovery-windows.ps1')
+    $converged = if ($KeepProcessId -gt 0) {
+      @($remaining).Count -eq 1 -and [int]$remaining[0].ProcessId -eq $KeepProcessId
+    } else {
+      @($remaining).Count -eq 0
+    }
+    if ($converged) { break }
+    Start-Sleep -Milliseconds 50
+  } while ($deadline.ElapsedMilliseconds -lt 2000)
+
+  return $remaining
 }
 
 

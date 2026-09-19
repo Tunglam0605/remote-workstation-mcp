@@ -11,6 +11,8 @@ import { loadHosts } from '../hosts.js';
 import { NodeInterlockStore } from '../node-interlock.js';
 import { PairingStore } from '../pairing/pairing-store.js';
 import { PairingBootstrapAdapter } from '../pairing/pairing-bootstrap.js';
+import { QualityObservationStore } from '../quality-learning.js';
+import { OwnerQualityReviewStore, type OwnerQualityDecisionKind } from '../quality-review.js';
 import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
 import { linuxOpenAiEnvPath, readEnvFile, readTuiRuntimeState, updateEnvFile } from '../tui/config.js';
 import {
@@ -1136,6 +1138,58 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         ], { cwd: repoRoot, detached: true, stdio: 'ignore', windowsHide: true });
         child.unref();
         json(res, 202, { requestId: approved.request.id, state: approved.request.state, uacPrompted: true });
+        return;
+      }
+
+      if (url.pathname === '/api/quality/review' && req.method === 'GET') {
+        const observations = await new QualityObservationStore('local-owner').listForOwnerReview(100);
+        const decisions = await new OwnerQualityReviewStore().list(500);
+        const latestByObservation = new Map<string, (typeof decisions)[number]>();
+        for (const decision of decisions) {
+          if (!latestByObservation.has(decision.observationId)) {
+            latestByObservation.set(decision.observationId, decision);
+          }
+        }
+        json(res, 200, {
+          items: observations.map(observation => ({
+            observation,
+            ownerDecision: latestByObservation.get(observation.id) ?? null
+          })),
+          authority: 'owner-local-only',
+          promotionEnabled: false,
+          activationEnabled: false
+        });
+        return;
+      }
+
+      const qualityReviewAction = url.pathname.match(
+        /^\/api\/quality\/review\/([0-9a-fA-F-]+)\/(approve|reject|revoke)$/
+      );
+      if (qualityReviewAction && req.method === 'POST') {
+        const [, observationId, action] = qualityReviewAction;
+        const body = await readJsonBody(req) as { reason?: string };
+        const observations = new QualityObservationStore('local-owner');
+        const observation = await observations.getForOwnerReview(observationId!);
+        if (!observation) {
+          json(res, 404, { error: 'Pending quality observation was not found.' });
+          return;
+        }
+        const decisionMap: Record<'approve' | 'reject' | 'revoke', OwnerQualityDecisionKind> = {
+          approve: 'approved',
+          reject: 'rejected',
+          revoke: 'revoked'
+        };
+        const decision = await new OwnerQualityReviewStore().decide(
+          observation,
+          decisionMap[action as 'approve' | 'reject' | 'revoke'],
+          body.reason
+        );
+        json(res, 200, {
+          observationId: observation.id,
+          decision,
+          promotionState: 'not-promoted',
+          active: false
+        });
         return;
       }
 

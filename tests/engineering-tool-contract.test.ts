@@ -78,6 +78,8 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const quality = await read('src/quality-learning.ts');
+  const qualityReview = await read('src/quality-review.ts');
+  const setupServer = await read('src/setup/setup-server.ts');
   const context = await read('src/context.ts');
 
   assert.match(capabilities, /quality_learning\.telemetry/);
@@ -91,6 +93,10 @@ test('v0.16 quality learning foundation is evidence-gated and never exposes MCP 
   assert.match(quality, /runtime-reconciliation/);
   assert.match(quality, /promotionState: 'not-promoted'/);
   assert.match(quality, /active: false/);
-  assert.doesNotMatch(coreTools, /quality_learning_(approve|promote|activate)/);
-  assert.doesNotMatch(engineeringTools, /quality_learning_(approve|promote|activate)/);
+  assert.match(qualityReview, /OwnerQualityReviewStore/);
+  assert.match(qualityReview, /'approved' \| 'rejected' \| 'revoked'/);
+  assert.match(setupServer, /\/api\/quality\/review/);
+  assert.match(setupServer, /authority: 'owner-local-only'/);
+  assert.doesNotMatch(coreTools, /quality_(learning|review)_(approve|reject|revoke|promote|activate)/);
+  assert.doesNotMatch(engineeringTools, /quality_(learning|review)_(approve|reject|revoke|promote|activate)/);
 });

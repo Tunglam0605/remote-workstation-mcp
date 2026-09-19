@@ -97,6 +97,21 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.equal(recoveryBody.recoveryMode, true);
     assert.equal(recoveryBody.localControlCenter, 'ONLINE');
 
+    const qualityReview = await fetch(`${base}/api/quality/review`, {
+      headers: { 'x-rwmcp-setup-token': token }
+    });
+    assert.equal(qualityReview.status, 200);
+    const qualityReviewBody = await qualityReview.json() as {
+      items: unknown[];
+      authority: string;
+      promotionEnabled: boolean;
+      activationEnabled: boolean;
+    };
+    assert.ok(Array.isArray(qualityReviewBody.items));
+    assert.equal(qualityReviewBody.authority, 'owner-local-only');
+    assert.equal(qualityReviewBody.promotionEnabled, false);
+    assert.equal(qualityReviewBody.activationEnabled, false);
+
     const recoveryTest = await fetch(`${base}/api/recovery/test`, {
       method: 'POST',
       headers: { 'x-rwmcp-setup-token': token, 'content-type': 'application/json' },

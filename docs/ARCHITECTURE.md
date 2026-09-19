@@ -123,6 +123,8 @@ engineering_workflow_run
 
 The first v0.16 slice is intentionally one-way. `QualityObservationStore` persists bounded, owner/session-scoped observations outside repositories. A candidate can only be `ineligible` or `pending-owner-review`; its promotion state remains `not-promoted` and `active=false`.
 
+The second slice adds an explicit owner-local review boundary without mutating observations. `OwnerQualityReviewStore` writes an append-only decision history (`approved`, `rejected`, `revoked`) bound to the exact observation digest. Review is exposed only through the loopback Setup & Control Center, which already requires a loopback peer, allowed Origin and ephemeral CSRF token. No MCP review/approval action is added. An approval remains a human decision record only: it does not promote reusable knowledge, activate behavior, widen scopes or change security policy.
+
 Environment fingerprints contain only compatibility inputs required to compare evidence: OS platform, CPU architecture, Node major, RWMCP server version, Action Schema version and Engineering API version. They intentionally exclude hostname, user identity, IP addresses, tokens, API keys and raw logs.
 
 Quality telemetry is advisory. Failure to persist an observation must not change the engineering workflow result, and startup reconciliation must not fail the control plane if telemetry persistence is unavailable. Interrupted durable workflow records still reconcile to failed state first; any telemetry derived from that reconciliation is explicitly marked ineligible.

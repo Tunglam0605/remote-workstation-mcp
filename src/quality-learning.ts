@@ -318,4 +318,27 @@ export class QualityObservationStore {
       .reverse()
       .map(item => structuredClone(item));
   }
+
+  /**
+   * Owner-local Control Center use only. This deliberately bypasses principal/work-session
+   * filtering so the human owner can review candidates across sessions. It is not wired
+   * to MCP tools and therefore does not widen remote authority.
+   */
+  async listForOwnerReview(limit = 100): Promise<QualityObservationRecord[]> {
+    const boundedLimit = Math.max(1, Math.min(limit, 500));
+    const state = await this.load();
+    return state.observations
+      .filter(item => item.candidateState === 'pending-owner-review')
+      .slice(-boundedLimit)
+      .reverse()
+      .map(item => structuredClone(item));
+  }
+
+  async getForOwnerReview(observationId: string): Promise<QualityObservationRecord | undefined> {
+    const state = await this.load();
+    const observation = state.observations.find(item =>
+      item.id === observationId && item.candidateState === 'pending-owner-review'
+    );
+    return observation ? structuredClone(observation) : undefined;
+  }
 }

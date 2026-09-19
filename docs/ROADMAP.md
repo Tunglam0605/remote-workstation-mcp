@@ -382,6 +382,25 @@ Raw shell remains an explicitly elevated escape hatch; routine engineering opera
 
 ## v0.13 — Daily engineering workflows
 
+### v0.14.3 - Multi-node security and authorization hardening
+
+v0.14.3 closes the trust-boundary gap exposed after the data plane became operational: independently authorized Direct Nodes must be able to exchange owner-approved data without becoming mutually trusted controllers.
+
+- make cross-node transfer default-deny;
+- require the owner-configured authenticated OpenAI Secure MCP Tunnel principal and exact `workstation.cross_node_transfer` scope;
+- require the same enabled directional grant on both source and destination;
+- bind grants to source/destination node IDs, workspaces, source path prefixes, destination base paths, file extensions, maximum size and direct/relay transport;
+- keep Full Access from implying cross-node authority;
+- bind direct-transfer tickets to the exact authorization contract in addition to SHA/size;
+- persist relay authorization in the resumable session and re-check it on status/write/finalize/abort so revocation takes effect immediately;
+- emit dedicated security audit records for cross-node allow/deny decisions;
+- disable legacy SSH/device node-to-node command routing by default;
+- remove legacy firmware peer-transfer workflows from the advertised workflow catalog so firmware cross-node bytes cannot bypass the generic authorization layer;
+- expose non-secret multi-node security state through `chatgpt_web_status`;
+- preserve Action Schema v2 / Engineering API v3.
+
+Acceptance must prove default deny, local/unauthenticated deny, Full Access without cross-node scope deny, wrong principal/direction/workspace/path/type/size/transport deny, grant revocation, direct-ticket contract binding, secured authorized transfer, legacy remote command denial, zero leaked tickets/payloads, and unchanged production camera/runtime state.
+
 ### v0.14.2 - Bounded control-plane relay fallback
 
 Real v0.14.1 acceptance proved that endpoint discovery alone cannot guarantee transfer: Windows, Ubuntu Vision and Ubuntu Personal were all independently healthy Direct Nodes, but Windows had no working peer route to either Ubuntu over the available Tailscale graphs, RFC1918 LAN paths or the existing WireGuard overlay.

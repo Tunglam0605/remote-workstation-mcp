@@ -64,7 +64,15 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     relayChunkBytes: z.number().int().min(1).max(64 * 1024).optional(),
     relayDataBase64: z.string().min(4).max(90_000).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
     relayChunkSha256: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
-    relayTtlMs: z.number().int().min(60_000).max(60 * 60 * 1000).optional()
+    relayTtlMs: z.number().int().min(60_000).max(60 * 60 * 1000).optional(),
+    transferGrantId: z.string().min(1).max(96).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    sourceNodeId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    destinationNodeId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    sourceWorkspace: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    destinationWorkspace: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).optional(),
+    sourcePath: z.string().min(1).max(1024).optional(),
+    destinationBasePath: z.string().min(1).max(1024).optional(),
+    destinationFileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional()
   }).strict().default({});
   const workflowParameters = z.record(z.string().min(1).max(80), z.unknown()).default({});
   const profileProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });

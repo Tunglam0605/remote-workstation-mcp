@@ -8,6 +8,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
+import type { CrossNodeTransferIntent } from '../security/multi-node-authorization.js';
 
 const MAX_TRANSFER_BYTES = 512 * 1024 * 1024;
 const DEFAULT_TTL_MS = 2 * 60 * 1000;
@@ -46,6 +47,7 @@ export interface DataPlaneOffer {
   expectedSize: number;
   expiresAt: string;
   transport: 'direct-http';
+  authorization: CrossNodeTransferIntent;
 }
 
 export interface DataPlaneReceipt {
@@ -105,6 +107,7 @@ interface ActiveOffer {
   receiving: boolean;
   consumed: boolean;
   transports: DataPlaneTransport[];
+  authorization: CrossNodeTransferIntent;
   request?: http.IncomingMessage;
 }
 
@@ -146,6 +149,33 @@ function validateSize(value: number): number {
 
 function portable(value: string): string {
   return value.split(path.sep).join('/');
+}
+
+function workspaceRelative(basePath: string, file = '.'): string {
+  if (path.isAbsolute(basePath) || path.isAbsolute(file)) {
+    throw new Error('Data-plane authorization paths must remain workspace-relative.');
+  }
+  const joined = path.normalize(path.join(basePath, file));
+  const parts = joined.split(/[\\/]+/);
+  if (parts.includes('..')) throw new Error('Data-plane authorization path escapes the workspace.');
+  return portable(joined === '' ? '.' : joined);
+}
+
+function authorizationBinding(intent: CrossNodeTransferIntent): string {
+  const canonical = {
+    grantId: intent.grantId,
+    sourceNodeId: intent.sourceNodeId,
+    destinationNodeId: intent.destinationNodeId,
+    sourceWorkspace: intent.sourceWorkspace,
+    destinationWorkspace: intent.destinationWorkspace,
+    sourcePath: intent.sourcePath,
+    destinationBasePath: intent.destinationBasePath,
+    destinationFileName: intent.destinationFileName,
+    size: intent.size,
+    sha256: intent.sha256 ?? null,
+    transport: intent.transport
+  };
+  return Buffer.from(JSON.stringify(canonical), 'utf8').toString('base64url');
 }
 
 function isTailscaleIpv4(address: string): boolean {
@@ -360,13 +390,20 @@ export class DataPlaneAdapter {
     };
   }
 
-  async prepare(workspace: string, basePath: string, file: string): Promise<DataPlaneManifestV1> {
+  async inspectSource(workspace: string, basePath: string, file: string): Promise<{ file: string; size: number }> {
     const relative = assertRelativeFile(file);
     const absolute = await this.paths.resolveExisting(workspace, path.join(basePath, relative));
     const stat = await fs.stat(absolute);
     if (!stat.isFile()) throw new Error('file must resolve to a regular file.');
     if (stat.size <= 0) throw new Error('file is empty.');
     if (stat.size > MAX_TRANSFER_BYTES) throw new Error(`file exceeds the ${MAX_TRANSFER_BYTES} byte data-plane limit.`);
+    return { file: portable(relative), size: stat.size };
+  }
+
+  async prepare(workspace: string, basePath: string, file: string): Promise<DataPlaneManifestV1> {
+    const inspected = await this.inspectSource(workspace, basePath, file);
+    const relative = inspected.file;
+    const absolute = await this.paths.resolveExisting(workspace, path.join(basePath, relative));
     const digest = await hashFile(absolute);
     return {
       schemaVersion: 1,
@@ -462,12 +499,19 @@ export class DataPlaneAdapter {
     expectedSha256: string;
     expectedSize: number;
     ttlMs?: number;
+    authorization: CrossNodeTransferIntent;
   }): Promise<DataPlaneOffer> {
     this.assertOperational();
     this.policy.assertWrite(options.workspace);
     const fileName = validateFileName(options.fileName);
     const expectedSha256 = normalizeSha256(options.expectedSha256);
     const expectedSize = validateSize(options.expectedSize);
+    if (options.authorization.transport !== 'direct') throw new Error('Direct receive offer requires direct authorization transport.');
+    if (options.authorization.destinationWorkspace !== options.workspace) throw new Error('Direct receive authorization destination workspace mismatch.');
+    if (options.authorization.destinationBasePath !== workspaceRelative(options.basePath)) throw new Error('Direct receive authorization destination base path mismatch.');
+    if (options.authorization.destinationFileName !== fileName) throw new Error('Direct receive authorization destination filename mismatch.');
+    if (options.authorization.size !== expectedSize) throw new Error('Direct receive authorization size mismatch.');
+    if (options.authorization.sha256 !== expectedSha256) throw new Error('Direct receive authorization SHA-256 mismatch.');
     const ttlMs = Math.min(Math.max(options.ttlMs ?? DEFAULT_TTL_MS, 10_000), MAX_TTL_MS);
     const bindCandidates = localIpv4Candidates(this.options);
     if (!bindCandidates.length) {
@@ -498,7 +542,8 @@ export class DataPlaneAdapter {
       expiresAtMs,
       receiving: false,
       consumed: false,
-      transports: []
+      transports: [],
+      authorization: { ...options.authorization }
     };
 
     const handler = (request: http.IncomingMessage, response: http.ServerResponse) => {
@@ -519,6 +564,12 @@ export class DataPlaneAdapter {
         const auth = request.headers.authorization ?? '';
         const ticketValue = auth.startsWith('Bearer ') ? auth.slice(7) : '';
         if (!ticketValue || !ticketMatches(offer.ticketHash, ticketValue)) return fail(401, 'Invalid transfer ticket.');
+        const bindingHeader = typeof request.headers['x-rwmcp-transfer-binding'] === 'string'
+          ? request.headers['x-rwmcp-transfer-binding']
+          : '';
+        if (!bindingHeader || bindingHeader !== authorizationBinding(offer.authorization)) {
+          return fail(403, 'Transfer authorization binding does not match the receive offer.');
+        }
 
         const contentLengthRaw = request.headers['content-length'];
         const contentLength = typeof contentLengthRaw === 'string' ? Number(contentLengthRaw) : NaN;
@@ -655,7 +706,8 @@ export class DataPlaneAdapter {
       expectedSha256,
       expectedSize,
       expiresAt: new Date(expiresAtMs).toISOString(),
-      transport: 'direct-http'
+      transport: 'direct-http',
+      authorization: { ...options.authorization }
     };
   }
 
@@ -669,10 +721,16 @@ export class DataPlaneAdapter {
     expectedSha256: string;
     expectedSize: number;
     timeoutMs?: number;
+    authorization: CrossNodeTransferIntent;
   }): Promise<DataPlaneReceipt> {
     this.assertOperational();
     const expectedSha256 = normalizeSha256(options.expectedSha256);
     const expectedSize = validateSize(options.expectedSize);
+    if (options.authorization.transport !== 'direct') throw new Error('Direct push requires direct authorization transport.');
+    if (options.authorization.sourceWorkspace !== options.workspace) throw new Error('Direct push authorization source workspace mismatch.');
+    if (options.authorization.sourcePath !== workspaceRelative(options.basePath, options.file)) throw new Error('Direct push authorization source path mismatch.');
+    if (options.authorization.size !== expectedSize) throw new Error('Direct push authorization size mismatch.');
+    if (options.authorization.sha256 !== expectedSha256) throw new Error('Direct push authorization SHA-256 mismatch.');
     const rawEndpoints = [...(options.endpoints ?? []), ...(options.endpoint ? [options.endpoint] : [])]
       .map(item => item.trim())
       .filter(Boolean);
@@ -707,7 +765,8 @@ export class DataPlaneAdapter {
                 'content-type': 'application/octet-stream',
                 'content-length': String(manifest.size),
                 'x-rwmcp-sha256': manifest.sha256,
-                'x-rwmcp-transfer-version': '1'
+                'x-rwmcp-transfer-version': '2',
+                'x-rwmcp-transfer-binding': authorizationBinding(options.authorization)
               }
             }, async incoming => {
               try {

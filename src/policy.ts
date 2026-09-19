@@ -110,6 +110,19 @@ export class PolicyEngine {
     }
   }
 
+  legacyRemoteControlEnabled(): boolean {
+    return this.config.legacyRemoteControl?.enabled ?? false;
+  }
+
+  assertLegacyRemoteControl(): void {
+    if (!this.legacyRemoteControlEnabled()) {
+      throw new Error('Legacy node-to-node SSH/device control is disabled by local owner policy (legacyRemoteControl.enabled=false).');
+    }
+    if (this.effectiveMode() === 'read_only') {
+      throw new Error('Legacy node-to-node remote control is disabled in read_only mode.');
+    }
+  }
+
   assertEngineeringEnabled(): void {
     if (!(this.config.engineering?.enabled ?? true)) {
       throw new Error('Engineering tools are disabled by local owner policy (engineering.enabled=false).');

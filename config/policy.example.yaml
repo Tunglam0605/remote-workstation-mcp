@@ -91,3 +91,40 @@ engineering:
   maxCommandRuntimeMs: 600000
   allowHardwareMutationInWorkspace: false
   allowSerialWriteInWorkspace: false
+
+# Cross-node data exchange is DEFAULT DENY.
+# Enabling it is not enough: the same directional grant must also be present
+# on the other participating Direct Node. Only the authenticated OpenAI Secure
+# MCP Tunnel principal with the dedicated cross-node scope can use these grants.
+multiNode:
+  enabled: false
+  controllerPrincipalId: openai-tunnel
+  controllerPrincipalType: openai-secure-mcp-tunnel
+  grants: []
+  # Example only — copy and narrow this on BOTH participating nodes:
+  # grants:
+  #   - id: windows-build-to-vision
+  #     enabled: true
+  #     sourceNodeId: dev_source_example
+  #     destinationNodeId: dev_destination_example
+  #     sourceWorkspace: stm32
+  #     destinationWorkspace: projects
+  #     sourcePathPrefixes:
+  #       - B300-Main-Custom/exports
+  #     destinationBasePaths:
+  #       - incoming/b300
+  #     allowedExtensions:
+  #       - .hex
+  #       - .bin
+  #       - .json
+  #       - .log
+  #     maxBytes: 33554432
+  #     transports:
+  #       - direct
+  #       - relay
+
+# Legacy workstation-to-workstation SSH/device execution is disabled by default.
+# Keep this false for the Direct-Node architecture. Enable only for an explicit
+# owner-selected bootstrap/recovery workflow.
+legacyRemoteControl:
+  enabled: false

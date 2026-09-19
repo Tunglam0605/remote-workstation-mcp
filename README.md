@@ -12,6 +12,24 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.3**
+
+v0.14.3 hardens Direct Multi-Node around a strict security invariant: **ChatGPT controls nodes; nodes do not control one another.**
+
+- cross-node data movement is default-deny;
+- a transfer requires the owner-approved OpenAI Secure MCP Tunnel principal plus the dedicated `workstation.cross_node_transfer` scope;
+- source and destination independently require the same directional grant, so permission on one laptop is never enough to read another node;
+- grants bind source/destination node IDs, workspaces, source path prefixes, destination base paths, file extensions, maximum size and allowed direct/relay transports;
+- Direct HTTP tickets are cryptographically random but are now also bound to the exact authorization contract, so a valid ticket cannot be reused for another node/workspace/file contract;
+- relay sessions persist the authorization binding and re-check the destination grant on status/write/finalize/abort, making revocation effective during resumable transfers;
+- Full Access does **not** imply cross-node authority;
+- legacy workstation-to-workstation SSH/device execution is locally disabled by default;
+- legacy `firmware.artifact_receive_offer` / `firmware.artifact_push` are no longer exposed in the workflow catalog; firmware bytes use the secured generic platform data plane;
+- authorization allow/deny decisions receive dedicated security audit entries;
+- Action Schema v2 and Engineering API v3 remain unchanged; no ChatGPT action refresh is required.
+
+Existing installations that do not add `multiNode` grants become safer after upgrade: local engineering work continues, while cross-node transfer remains denied until the owner explicitly configures matching grants on both participating nodes.
+
 **v0.14.2**
 
 v0.14.2 closes the second real multi-node acceptance gap: healthy Direct Nodes can each be reachable from ChatGPT while still having **no mutual peer route** over Tailscale, private LAN or an existing WireGuard overlay.

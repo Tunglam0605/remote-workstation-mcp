@@ -3,6 +3,7 @@ import { ControlPlaneRelayAdapter } from '../control-plane-relay.js';
 import { DataPlaneAdapter } from '../data-plane.js';
 import type { FirmwareProjectInfo } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
+import { MultiNodeAuthorization, type CrossNodeTransferIntent } from '../../security/multi-node-authorization.js';
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
 import { ArtifactTransferAdapter } from './artifact-transfer.js';
 import { DebugSessionManager } from './debug-session.js';
@@ -87,6 +88,14 @@ export interface EngineeringWorkflowOverrides {
   relayDataBase64?: string;
   relayChunkSha256?: string;
   relayTtlMs?: number;
+  transferGrantId?: string;
+  sourceNodeId?: string;
+  destinationNodeId?: string;
+  sourceWorkspace?: string;
+  destinationWorkspace?: string;
+  sourcePath?: string;
+  destinationBasePath?: string;
+  destinationFileName?: string;
 }
 
 interface ProjectState {
@@ -107,6 +116,20 @@ interface StepResult {
 function safeId(value: string): string {
   const normalized = value.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return normalized || 'engineering-project';
+}
+
+function portableRelative(value: string): string {
+  return value.split(path.sep).join('/');
+}
+
+function workspaceRelative(projectPath: string, child = '.'): string {
+  if (path.isAbsolute(projectPath) || path.isAbsolute(child)) {
+    throw new Error('Cross-node transfer paths must remain workspace-relative.');
+  }
+  const joined = path.normalize(path.join(projectPath, child));
+  const segments = joined.split(/[\\/]+/);
+  if (segments.includes('..')) throw new Error('Cross-node transfer paths must not escape the workspace.');
+  return portableRelative(joined === '' ? '.' : joined);
 }
 
 function projectChild(projectPath: string, child = '.'): string {
@@ -139,6 +162,7 @@ export class EngineeringWorkflowEngine {
     private readonly profiles: EngineeringProjectProfileStore,
     private readonly dataPlane: DataPlaneAdapter,
     private readonly controlPlaneRelay: ControlPlaneRelayAdapter,
+    private readonly multiNodeAuthorization: MultiNodeAuthorization,
     private readonly artifacts: ArtifactIntegrityAdapter,
     private readonly artifactTransfer: ArtifactTransferAdapter,
     private readonly firmware: FirmwareAdapter,
@@ -147,6 +171,76 @@ export class EngineeringWorkflowEngine {
     private readonly debug: DebugSessionManager,
     private readonly ros2: Ros2Adapter
   ) {}
+
+  private transferIntent(
+    role: 'source' | 'destination',
+    workspace: string,
+    projectPath: string,
+    overrides: EngineeringWorkflowOverrides,
+    details: {
+      sourceFile?: string;
+      destinationFileName?: string;
+      size: number;
+      sha256?: string;
+      transport: 'direct' | 'relay';
+    }
+  ): CrossNodeTransferIntent {
+    const grantId = overrides.transferGrantId?.trim();
+    const sourceNodeId = overrides.sourceNodeId?.trim();
+    const destinationNodeId = overrides.destinationNodeId?.trim();
+    if (!grantId || !sourceNodeId || !destinationNodeId) {
+      throw new Error('Cross-node transfer requires transferGrantId, sourceNodeId and destinationNodeId.');
+    }
+
+    const sourceWorkspace = role === 'source'
+      ? workspace
+      : overrides.sourceWorkspace?.trim();
+    const destinationWorkspace = role === 'destination'
+      ? workspace
+      : overrides.destinationWorkspace?.trim();
+    if (!sourceWorkspace || !destinationWorkspace) {
+      throw new Error('Cross-node transfer requires explicit sourceWorkspace and destinationWorkspace context.');
+    }
+    if (overrides.sourceWorkspace && role === 'source' && overrides.sourceWorkspace.trim() !== workspace) {
+      throw new Error('parameters.sourceWorkspace does not match the selected source workspace.');
+    }
+    if (overrides.destinationWorkspace && role === 'destination' && overrides.destinationWorkspace.trim() !== workspace) {
+      throw new Error('parameters.destinationWorkspace does not match the selected destination workspace.');
+    }
+
+    const sourcePath = role === 'source'
+      ? workspaceRelative(projectPath, details.sourceFile ?? '.')
+      : overrides.sourcePath?.trim();
+    const destinationBasePath = role === 'destination'
+      ? workspaceRelative(projectPath, '.')
+      : overrides.destinationBasePath?.trim();
+    const destinationFileName = details.destinationFileName ?? overrides.destinationFileName?.trim();
+    if (!sourcePath || !destinationBasePath || !destinationFileName) {
+      throw new Error('Cross-node transfer requires sourcePath, destinationBasePath and destinationFileName.');
+    }
+
+    return {
+      grantId,
+      sourceNodeId,
+      destinationNodeId,
+      sourceWorkspace,
+      destinationWorkspace,
+      sourcePath,
+      destinationBasePath,
+      destinationFileName,
+      size: details.size,
+      sha256: details.sha256,
+      transport: details.transport
+    };
+  }
+
+  private async authorizeSourceTransfer(intent: CrossNodeTransferIntent) {
+    return await this.multiNodeAuthorization.authorizeSource(intent);
+  }
+
+  private async authorizeDestinationTransfer(intent: CrossNodeTransferIntent) {
+    return await this.multiNodeAuthorization.authorizeDestination(intent);
+  }
 
   private suggestedProfile(workspace: string, projectPath: string, project: FirmwareProjectInfo): EngineeringProjectProfile {
     const label = projectPath === '.' ? (project.target ?? workspace) : path.basename(projectPath);
@@ -305,7 +399,7 @@ export class EngineeringWorkflowEngine {
     ];
     const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
     if (firmwareCapable) {
-      ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.artifact_receive_offer', 'firmware.artifact_push', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
+      ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
         ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deploy_accept');
       }
@@ -418,19 +512,30 @@ export class EngineeringWorkflowEngine {
         if (!Number.isSafeInteger(chunkBytes) || chunkBytes <= 0 || chunkBytes > 64 * 1024) {
           throw new Error('parameters.relayChunkBytes must be between 1 and 65536.');
         }
+        const source = await this.dataPlane.inspectSource(workspace, projectPath, file);
+        const intent = this.transferIntent('source', workspace, projectPath, overrides, {
+          sourceFile: file,
+          destinationFileName: overrides.destinationFileName,
+          size: source.size,
+          sha256: overrides.expectedSha256,
+          transport: 'relay'
+        });
+        const authorization = await this.authorizeSourceTransfer(intent);
         return {
           workflow,
           scope,
-          steps: ['relay.read_chunk'],
+          steps: ['transfer.authorization', 'relay.read_chunk'],
           relay: {
             ready: true,
             transport: 'control-plane-relay',
             file,
             offset,
             chunkBytes,
+            source,
+            authorization,
             blockers: []
           },
-          resolved: { relay: { file, offset, chunkBytes } }
+          resolved: { relay: { file, offset, chunkBytes, authorization } }
         };
       }
 
@@ -449,10 +554,17 @@ export class EngineeringWorkflowEngine {
         if (!Number.isSafeInteger(relayTtlMs) || relayTtlMs < 60_000 || relayTtlMs > 60 * 60 * 1000) {
           throw new Error('parameters.relayTtlMs must be between 60000 and 3600000.');
         }
+        const intent = this.transferIntent('destination', workspace, projectPath, overrides, {
+          destinationFileName: fileName,
+          size: expectedSize!,
+          sha256: expectedSha256,
+          transport: 'relay'
+        });
+        const authorization = await this.authorizeDestinationTransfer(intent);
         return {
           workflow,
           scope,
-          steps: ['relay.begin'],
+          steps: ['transfer.authorization', 'relay.begin'],
           relay: {
             ready: true,
             transport: 'control-plane-relay',
@@ -460,9 +572,10 @@ export class EngineeringWorkflowEngine {
             expectedSha256,
             expectedSize,
             relayTtlMs,
+            authorization,
             blockers: []
           },
-          resolved: { relay: { fileName, expectedSha256, expectedSize, relayTtlMs } }
+          resolved: { relay: { fileName, expectedSha256, expectedSize, relayTtlMs, authorization } }
         };
       }
 
@@ -481,14 +594,15 @@ export class EngineeringWorkflowEngine {
           basePath: projectPath,
           sessionId: relaySessionId
         });
+        const authorization = await this.authorizeDestinationTransfer(state.authorization);
 
         if (workflow === 'platform.relay_status') {
           return {
             workflow,
             scope,
             steps: ['relay.status'],
-            relay: { ready: true, transport: 'control-plane-relay', state, blockers: [] },
-            resolved: { relay: { relaySessionId } }
+            relay: { ready: true, transport: 'control-plane-relay', state, authorization, blockers: [] },
+            resolved: { relay: { relaySessionId, authorization } }
           };
         }
 
@@ -518,9 +632,10 @@ export class EngineeringWorkflowEngine {
               offset,
               chunkSha256,
               dataPresent: true,
+              authorization,
               blockers
             },
-            resolved: { relay: { relaySessionId, offset, chunkSha256, dataPresent: true } }
+            resolved: { relay: { relaySessionId, offset, chunkSha256, dataPresent: true, authorization } }
           };
         }
 
@@ -532,8 +647,8 @@ export class EngineeringWorkflowEngine {
             workflow,
             scope,
             steps: ['relay.final_preflight', 'relay.verify_accept'],
-            relay: { ready: blockers.length === 0, transport: 'control-plane-relay', state, blockers },
-            resolved: { relay: { relaySessionId } }
+            relay: { ready: blockers.length === 0, transport: 'control-plane-relay', state, authorization, blockers },
+            resolved: { relay: { relaySessionId, authorization } }
           };
         }
 
@@ -541,8 +656,8 @@ export class EngineeringWorkflowEngine {
           workflow,
           scope,
           steps: ['relay.abort'],
-          relay: { ready: true, transport: 'control-plane-relay', state, blockers: [] },
-          resolved: { relay: { relaySessionId } }
+          relay: { ready: true, transport: 'control-plane-relay', state, authorization, blockers: [] },
+          resolved: { relay: { relaySessionId, authorization } }
         };
       }
 
@@ -561,12 +676,19 @@ export class EngineeringWorkflowEngine {
         if (!Number.isSafeInteger(transferTimeoutMs) || transferTimeoutMs < 10_000 || transferTimeoutMs > 600_000) {
           throw new Error('parameters.transferTimeoutMs must be between 10000 and 600000.');
         }
+        const intent = this.transferIntent('destination', workspace, projectPath, overrides, {
+          destinationFileName: fileName,
+          size: expectedSize!,
+          sha256: expectedSha256,
+          transport: 'direct'
+        });
+        const authorization = await this.authorizeDestinationTransfer(intent);
         const status = this.dataPlane.status();
         const blockers = status.directIpv4Available ? [] : ['No approved local Tailscale or private-LAN IPv4 interface is available for the native data plane.'];
         return {
           workflow,
           scope,
-          steps: ['transfer.receive_offer'],
+          steps: ['transfer.authorization', 'transfer.receive_offer'],
           dataPlane: {
             ready: blockers.length === 0,
             transport: 'direct-http',
@@ -575,10 +697,11 @@ export class EngineeringWorkflowEngine {
             expectedSha256,
             expectedSize,
             transferTimeoutMs,
+            authorization,
             blockers
           },
           resolved: {
-            dataPlane: { fileName, expectedSha256, expectedSize, transferTimeoutMs }
+            dataPlane: { fileName, expectedSha256, expectedSize, transferTimeoutMs, authorization }
           }
         };
       }
@@ -600,6 +723,14 @@ export class EngineeringWorkflowEngine {
         throw new Error('platform.transfer_push requires parameters.expectedSize between 1 and 536870912.');
       }
       const source = await this.dataPlane.prepare(workspace, projectPath, file);
+      const intent = this.transferIntent('source', workspace, projectPath, overrides, {
+        sourceFile: file,
+        destinationFileName: overrides.destinationFileName,
+        size: source.size,
+        sha256: source.sha256,
+        transport: 'direct'
+      });
+      const authorization = await this.authorizeSourceTransfer(intent);
       const blockers = [
         ...(source.sha256 !== expectedSha256 ? [`SHA-256 mismatch: expected ${expectedSha256}, got ${source.sha256}.`] : []),
         ...(source.size !== expectedSize ? [`Size mismatch: expected ${expectedSize}, got ${source.size}.`] : [])
@@ -607,7 +738,7 @@ export class EngineeringWorkflowEngine {
       return {
         workflow,
         scope,
-        steps: ['transfer.source_preflight', 'transfer.peer_push', 'transfer.peer_receipt'],
+        steps: ['transfer.authorization', 'transfer.source_preflight', 'transfer.peer_push', 'transfer.peer_receipt'],
         dataPlane: {
           ready: blockers.length === 0,
           transport: 'direct-http',
@@ -615,6 +746,7 @@ export class EngineeringWorkflowEngine {
           endpoints,
           expectedSha256,
           expectedSize,
+          authorization,
           blockers
         },
         resolved: {
@@ -624,7 +756,8 @@ export class EngineeringWorkflowEngine {
             expectedSha256,
             expectedSize,
             transferTimeoutMs: overrides.transferTimeoutMs ?? 120_000,
-            ticketPresent: true
+            ticketPresent: true,
+            authorization
           }
         }
       };
@@ -1012,13 +1145,20 @@ export class EngineeringWorkflowEngine {
         if (!fileName || !expectedSha256 || expectedSize === undefined) {
           throw new Error('platform.relay_begin requires fileName, expectedSha256 and expectedSize.');
         }
+        const intent = this.transferIntent('destination', workspace, projectPath, overrides, {
+          destinationFileName: fileName,
+          size: expectedSize,
+          sha256: expectedSha256,
+          transport: 'relay'
+        });
         const begun = await capture('relay.begin', () => this.controlPlaneRelay.begin({
           workspace,
           basePath: projectPath,
           fileName,
           expectedSha256,
           expectedSize,
-          ttlMs: overrides.relayTtlMs
+          ttlMs: overrides.relayTtlMs,
+          authorization: intent
         }));
         if (!begun.ok) return { workflow, status: 'failed', plan, steps };
         return { workflow, status: 'succeeded', plan, steps, outputs: { session: begun.value } };
@@ -1120,13 +1260,20 @@ export class EngineeringWorkflowEngine {
         if (!fileName || !expectedSha256 || expectedSize === undefined) {
           throw new Error('platform.transfer_receive_offer requires fileName, expectedSha256 and expectedSize.');
         }
+        const intent = this.transferIntent('destination', workspace, projectPath, overrides, {
+          destinationFileName: fileName,
+          size: expectedSize,
+          sha256: expectedSha256,
+          transport: 'direct'
+        });
         const offered = await capture('transfer.receive_offer', () => this.dataPlane.createReceiveOffer({
           workspace,
           basePath: projectPath,
           fileName,
           expectedSha256,
           expectedSize,
-          ttlMs: overrides.transferTimeoutMs
+          ttlMs: overrides.transferTimeoutMs,
+          authorization: intent
         }));
         if (!offered.ok) return { workflow, status: 'failed', plan, steps };
         return { workflow, status: 'succeeded', plan, steps, outputs: { offer: offered.value } };
@@ -1154,6 +1301,13 @@ export class EngineeringWorkflowEngine {
       if (!file || !endpoints.length || !ticket || !expectedSha256 || expectedSize === undefined) {
         throw new Error('platform.transfer_push requires file, transferEndpoints/transferEndpoint, transferTicket, expectedSha256 and expectedSize.');
       }
+      const intent = this.transferIntent('source', workspace, projectPath, overrides, {
+        sourceFile: file,
+        destinationFileName: overrides.destinationFileName,
+        size: expectedSize,
+        sha256: expectedSha256,
+        transport: 'direct'
+      });
       const pushed = await capture('transfer.peer_push', () => this.dataPlane.push({
         workspace,
         basePath: projectPath,
@@ -1162,7 +1316,8 @@ export class EngineeringWorkflowEngine {
         ticket,
         expectedSha256,
         expectedSize,
-        timeoutMs: overrides.transferTimeoutMs
+        timeoutMs: overrides.transferTimeoutMs,
+        authorization: intent
       }));
       if (!pushed.ok) return { workflow, status: 'failed', plan, steps };
       steps.push({ id: 'transfer.peer_receipt', status: 'succeeded', durationMs: 0, result: pushed.value.accepted });

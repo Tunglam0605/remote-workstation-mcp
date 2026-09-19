@@ -183,7 +183,7 @@ async function waitForTunnelReady(healthUrlFile: string, timeoutMs: number, chil
 }
 
 function defaultScopes(env: NodeJS.ProcessEnv): string {
-  return env.RWMCP_HTTP_SCOPES?.trim() || 'workstation.read,workstation.write,workstation.execute,workstation.admin_request';
+  return env.RWMCP_HTTP_SCOPES?.trim() || 'workstation.read,workstation.write,workstation.execute,workstation.admin_request,workstation.cross_node_transfer';
 }
 
 export class OpenAiSecureTunnelConnectionProvider implements ConnectionProvider {

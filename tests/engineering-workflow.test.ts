@@ -197,11 +197,44 @@ async function fixture(project: FirmwareProjectInfo) {
       return { summary: { nodes: 1, topics: 2, services: 3, actions: 4 } };
     }
   };
+  const multiNodeAuthorization = {
+    async authorizeSource(intent: any) {
+      return {
+        grantId: intent.grantId,
+        localRole: 'source',
+        localNodeId: intent.sourceNodeId,
+        remoteNodeId: intent.destinationNodeId,
+        sourceWorkspace: intent.sourceWorkspace,
+        destinationWorkspace: intent.destinationWorkspace,
+        sourcePath: intent.sourcePath,
+        destinationBasePath: intent.destinationBasePath,
+        destinationFileName: intent.destinationFileName,
+        size: intent.size,
+        transport: intent.transport
+      };
+    },
+    async authorizeDestination(intent: any) {
+      return {
+        grantId: intent.grantId,
+        localRole: 'destination',
+        localNodeId: intent.destinationNodeId,
+        remoteNodeId: intent.sourceNodeId,
+        sourceWorkspace: intent.sourceWorkspace,
+        destinationWorkspace: intent.destinationWorkspace,
+        sourcePath: intent.sourcePath,
+        destinationBasePath: intent.destinationBasePath,
+        destinationFileName: intent.destinationFileName,
+        size: intent.size,
+        transport: intent.transport
+      };
+    }
+  };
   const engine = new EngineeringWorkflowEngine(
     policy,
     profiles,
     dataPlane,
     controlPlaneRelay,
+    multiNodeAuthorization as never,
     artifactIntegrity,
     artifactTransfer,
     firmware as never,
@@ -968,32 +1001,26 @@ test('firmware artifact accept promotes verified content without invoking build 
 });
 
 
-test('native artifact workflows are exposed through the generic workflow contract without echoing transfer tickets in plans', async () => {
+test('legacy firmware peer-transfer workflows are not exposed and cannot bypass the secured platform data plane', async () => {
   const project: FirmwareProjectInfo = {
     workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
     target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
   };
   const f = await fixture(project);
   try {
-    const body = ':020000040801F1\n:00000001FF\n';
-    await fs.writeFile(path.join(f.root, 'project', 'firmware.hex'), body, 'utf8');
-    const expectedSha256 = createHash('sha256').update(body).digest('hex');
-    const expectedSize = Buffer.byteLength(body);
     const list = await f.engine.list('w', 'project');
-    assert.ok(list.workflows.some(item => item.id === 'firmware.artifact_receive_offer'));
-    assert.ok(list.workflows.some(item => item.id === 'firmware.artifact_push'));
-
-    const secret = 'S'.repeat(43);
-    const plan = await f.engine.plan('w', 'project', 'firmware.artifact_push', {
-      artifact: 'firmware.hex',
-      transferEndpoint: 'http://127.0.0.1:34567/artifact-transfer/test-transfer-1234',
-      transferTicket: secret,
-      expectedSha256,
-      expectedSize
-    });
-    assert.equal(plan.artifactTransfer?.ready, true);
-    assert.equal(plan.resolved.artifactTransfer?.ticketPresent, true);
-    assert.equal(JSON.stringify(plan).includes(secret), false);
+    assert.equal(list.workflows.some(item => item.id === 'firmware.artifact_receive_offer'), false);
+    assert.equal(list.workflows.some(item => item.id === 'firmware.artifact_push'), false);
+    await assert.rejects(
+      f.engine.plan('w', 'project', 'firmware.artifact_push', {
+        artifact: 'firmware.hex',
+        transferEndpoint: 'http://127.0.0.1:34567/artifact-transfer/test-transfer-1234',
+        transferTicket: 'S'.repeat(43),
+        expectedSha256: '0'.repeat(64),
+        expectedSize: 16
+      }),
+      /not available/
+    );
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }
@@ -1038,7 +1065,14 @@ test('generic platform transfer workflows remain available without firmware capa
       ],
       transferTicket: secret,
       expectedSha256,
-      expectedSize
+      expectedSize,
+      transferGrantId: 'test-direct',
+      sourceNodeId: 'dev_source',
+      destinationNodeId: 'dev_dest',
+      sourceWorkspace: 'w',
+      destinationWorkspace: 'w',
+      destinationBasePath: 'project',
+      destinationFileName: 'report.json'
     });
     assert.equal(pushPlan.dataPlane?.ready, true);
     assert.equal(pushPlan.resolved.dataPlane?.ticketPresent, true);
@@ -1083,7 +1117,13 @@ test('control-plane relay workflows stay generic and never echo chunk payload in
     const begun = await f.engine.run('w', 'project', 'platform.relay_begin', {
       fileName: 'relay-destination.bin',
       expectedSha256,
-      expectedSize: body.length
+      expectedSize: body.length,
+      transferGrantId: 'test-relay',
+      sourceNodeId: 'dev_source',
+      destinationNodeId: 'dev_dest',
+      sourceWorkspace: 'w',
+      destinationWorkspace: 'w',
+      sourcePath: 'project/relay-source.bin'
     });
     assert.equal(begun.status, 'succeeded');
     const sessionId = (begun as any).outputs.session.sessionId as string;
@@ -1091,7 +1131,15 @@ test('control-plane relay workflows stay generic and never echo chunk payload in
     const read = await f.engine.run('w', 'project', 'platform.relay_read_chunk', {
       file: 'relay-source.bin',
       relayOffset: 0,
-      relayChunkBytes: 64 * 1024
+      relayChunkBytes: 64 * 1024,
+      expectedSha256,
+      transferGrantId: 'test-relay',
+      sourceNodeId: 'dev_source',
+      destinationNodeId: 'dev_dest',
+      sourceWorkspace: 'w',
+      destinationWorkspace: 'w',
+      destinationBasePath: 'project',
+      destinationFileName: 'relay-destination.bin'
     });
     assert.equal(read.status, 'succeeded');
     const chunk = (read as any).outputs.chunk;

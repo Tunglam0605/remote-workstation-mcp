@@ -34,7 +34,8 @@ test('ssh host listing never exposes identity file paths', () => {
     mode: 'workspace',
     workspaces: [{ id: 'w', root: '/tmp' }],
     filesystem: { maxReadBytes: 1024, maxWriteBytes: 1024 },
-    process: { allowExecutables: [], inheritEnv: [], maxOutputBytes: 1024, maxRuntimeMs: 1000 }
+    process: { allowExecutables: [], inheritEnv: [], maxOutputBytes: 1024, maxRuntimeMs: 1000 },
+    legacyRemoteControl: { enabled: true }
   };
   const hostsConfig: HostsConfig = {
     version: 1,
@@ -48,4 +49,32 @@ test('ssh host listing never exposes identity file paths', () => {
   assert.equal(listed.id, 'lab');
   assert.equal('identityFile' in listed, false);
   assert.equal(listed.remoteShell, 'windows-powershell');
+});
+
+
+test('legacy node-to-node SSH control is default-deny', async () => {
+  const policyConfig: PolicyConfig = {
+    version: 1,
+    mode: 'workspace',
+    workspaces: [{ id: 'w', root: '/tmp' }],
+    filesystem: { maxReadBytes: 1024, maxWriteBytes: 1024 },
+    process: { allowExecutables: [], inheritEnv: [], maxOutputBytes: 1024, maxRuntimeMs: 1000 }
+  };
+  const hostsConfig: HostsConfig = {
+    version: 1,
+    hosts: [{
+      id: 'lab',
+      hostname: '127.0.0.1',
+      port: 22,
+      user: 'robot',
+      auth: 'agent',
+      strictHostKeyChecking: 'yes',
+      allowPrograms: ['git'],
+      maxRuntimeMs: 1000
+    }]
+  };
+  const adapter = new SshAdapter(new PolicyEngine(policyConfig), hostsConfig);
+  assert.deepEqual(adapter.listHosts(), []);
+  await assert.rejects(adapter.probe('lab'), /disabled by local owner policy/i);
+  await assert.rejects(adapter.execute('lab', 'git', ['status']), /disabled by local owner policy/i);
 });

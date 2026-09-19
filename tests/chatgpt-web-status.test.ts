@@ -9,11 +9,19 @@ function fakeContext(): AppContext {
     config: {
       workspaces: [
         { id: 'projects', name: 'Projects', root: 'C:/work', readOnly: false }
-      ]
+      ],
+      multiNode: {
+        enabled: true,
+        controllerPrincipalId: 'openai-tunnel',
+        controllerPrincipalType: 'openai-secure-mcp-tunnel',
+        grants: []
+      },
+      legacyRemoteControl: { enabled: false }
     },
     policy: {
       effectiveMode: () => 'workspace',
-      status: () => ({ mode: 'workspace' })
+      status: () => ({ mode: 'workspace' }),
+      legacyRemoteControlEnabled: () => false
     },
     dataPlane: {
       status: () => ({
@@ -35,6 +43,16 @@ function fakeContext(): AppContext {
         maxChunkBytes: 65536,
         resumable: true,
         persistentSessionState: true
+      })
+    },
+    multiNodeAuthorization: {
+      status: () => ({
+        enabled: true,
+        defaultDeny: true,
+        secureTunnelOnly: true,
+        localNodeId: 'dev_test',
+        configuredGrantCount: 0,
+        requiredScope: 'workstation.cross_node_transfer'
       })
     },
     processes: { list: () => [{ status: 'running' }] },
@@ -61,6 +79,9 @@ test('ChatGPT Web status does not claim an authenticated tunnel for local calls'
   assert.equal(status.nodeHealth.dataPlane.controlPlaneRelay.supported, true);
   assert.equal(status.nodeHealth.dataPlane.controlPlaneRelay.maxChunkBytes, 65536);
   assert.equal(status.nodeHealth.activeSessions.processes, 1);
+  assert.equal(status.nodeHealth.security.multiNode.defaultDeny, true);
+  assert.equal(status.nodeHealth.security.legacyRemoteControlEnabled, false);
+  assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, false);
 });
 
 test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scopes', () => {
@@ -78,6 +99,27 @@ test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scop
   assert.equal(status.chatgptWeb.permissions.write, true);
   assert.equal(status.chatgptWeb.permissions.execute, true);
   assert.equal(status.chatgptWeb.permissions.fullControl, false);
+  assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, false);
   assert.equal(status.nodeHealth.state, 'healthy');
   assert.deepEqual(status.nodeHealth.warnings, []);
+});
+
+test('ChatGPT Web status exposes cross-node permission only for the configured controller and dedicated scope', () => {
+  const status = runAsPrincipal({
+    id: 'openai-tunnel',
+    type: 'openai-secure-mcp-tunnel',
+    scopes: ['workstation.read', 'workstation.full_control', 'workstation.cross_node_transfer'],
+    authenticated: true
+  }, () => buildChatGptWebStatus(fakeContext())) as any;
+
+  assert.equal(status.chatgptWeb.permissions.fullControl, true);
+  assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, true);
+
+  const wrong = runAsPrincipal({
+    id: 'other-openai-client',
+    type: 'openai-secure-mcp-tunnel',
+    scopes: ['workstation.cross_node_transfer'],
+    authenticated: true
+  }, () => buildChatGptWebStatus(fakeContext())) as any;
+  assert.equal(wrong.chatgptWeb.permissions.crossNodeTransfer, false);
 });

@@ -35,6 +35,22 @@ export interface LspConfig {
   diagnosticsSettleMs: number;
 }
 
+export type MultiNodeTransferTransport = 'direct' | 'relay';
+
+export interface MultiNodeTransferGrantConfig {
+  id: string;
+  enabled?: boolean;
+  sourceNodeId: string;
+  destinationNodeId: string;
+  sourceWorkspace: string;
+  destinationWorkspace: string;
+  sourcePathPrefixes: string[];
+  destinationBasePaths: string[];
+  allowedExtensions: string[];
+  maxBytes: number;
+  transports: MultiNodeTransferTransport[];
+}
+
 export interface PolicyConfig {
   version: 1;
   mode: PermissionMode;
@@ -70,6 +86,15 @@ export interface PolicyConfig {
     maxCommandRuntimeMs: number;
     allowHardwareMutationInWorkspace: boolean;
     allowSerialWriteInWorkspace: boolean;
+  };
+  multiNode?: {
+    enabled: boolean;
+    controllerPrincipalId: string;
+    controllerPrincipalType: string;
+    grants: MultiNodeTransferGrantConfig[];
+  };
+  legacyRemoteControl?: {
+    enabled: boolean;
   };
 }
 

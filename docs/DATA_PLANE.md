@@ -1,6 +1,6 @@
 # Generic Direct-Node Data Plane
 
-Remote Workstation MCP v0.14 moves cross-node payload transfer into the **core platform** instead of treating it as a firmware-only capability. v0.14.1 adds multi-endpoint direct transport after real acceptance proved that two healthy Direct Nodes can have Tailscale addresses without belonging to the same Tailscale peer graph. v0.14.2 adds a bounded control-plane relay after acceptance further proved that independently reachable Direct Nodes may have no mutual route at all.
+Remote Workstation MCP v0.14 moves cross-node payload transfer into the **core platform** instead of treating it as a firmware-only capability. v0.14.1 adds multi-endpoint direct transport after real acceptance proved that two healthy Direct Nodes can have Tailscale addresses without belonging to the same Tailscale peer graph. v0.14.2 adds a bounded control-plane relay after acceptance further proved that independently reachable Direct Nodes may have no mutual route at all. v0.14.3 makes both paths **default-deny** behind bilateral owner authorization.
 
 The control plane remains ChatGPT/MCP. Large file bytes move directly between owner-controlled Direct Nodes whenever a peer path exists; the authenticated control path is only a bounded fallback.
 
@@ -14,6 +14,25 @@ ChatGPT / MCP control plane
           Tailscale peer path or private LAN
                   streamed file bytes
 ```
+
+## Authorization boundary
+
+Cross-node transfer is not implied by connecting two Direct Nodes. v0.14.3 requires all of the following before bytes may move:
+
+- `multiNode.enabled=true` on each participating node;
+- the request arrives as the owner-configured authenticated OpenAI Secure MCP Tunnel principal;
+- the principal has the exact `workstation.cross_node_transfer` scope;
+- source and destination both contain the same enabled directional grant;
+- the grant matches source/destination node IDs and workspaces;
+- source path is under an explicitly allowed prefix;
+- destination base path is explicitly allowed;
+- both source and destination file extensions are allowed;
+- size is within the grant maximum;
+- the selected `direct` or `relay` transport is allowed.
+
+Full Access is intentionally insufficient. A local/unauthenticated caller is denied. Direct tickets are additionally bound to the complete transfer contract. Relay session state persists the authorization contract and re-evaluates the destination grant on subsequent session operations, so revocation takes effect without waiting for a session to finish.
+
+A transfer grant authorizes bytes only. It does not authorize remote command execution, hardware mutation, arbitrary peer reads or peer credentials.
 
 ## Why this is core
 
@@ -237,9 +256,9 @@ This allows ChatGPT to call each independent Direct Node and aggregate multi-nod
 
 ## Compatibility
 
-v0.13.6 `firmware.artifact_receive_offer` and `firmware.artifact_push` remain available for compatibility. They remain firmware-domain APIs with the stricter firmware artifact rules.
+v0.13.6 firmware peer-transfer APIs remain historical implementation references, but v0.14.3 no longer exposes `firmware.artifact_receive_offer` or `firmware.artifact_push` through the workflow catalog. Keeping a second peer-transfer path would bypass the unified authorization layer.
 
-New generic work should prefer `platform.transfer_*` unless a firmware-specific integrity workflow is intentionally required.
+Firmware integrity workflows `firmware.artifact_prepare` / `firmware.artifact_accept` remain available locally; cross-node byte movement uses the secured generic `platform.transfer_*` or `platform.relay_*` transport.
 
 ## Security model
 

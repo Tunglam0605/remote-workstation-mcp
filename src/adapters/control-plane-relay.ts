@@ -4,6 +4,7 @@ import path from 'node:path';
 import { DataPlaneAdapter, type DataPlaneAcceptedFile } from './data-plane.js';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
+import type { CrossNodeTransferIntent } from '../security/multi-node-authorization.js';
 
 const MAX_RELAY_BYTES = 32 * 1024 * 1024;
 const MAX_RELAY_CHUNK_BYTES = 64 * 1024;
@@ -14,17 +15,18 @@ interface RelayOptions {
   now?: () => number;
 }
 
-interface RelaySessionStateV1 {
-  schemaVersion: 1;
+interface RelaySessionStateV2 {
+  schemaVersion: 2;
   sessionId: string;
   fileName: string;
   expectedSha256: string;
   expectedSize: number;
   nextOffset: number;
   expiresAt: string;
+  authorization: CrossNodeTransferIntent;
 }
 
-export interface RelayBeginResult extends RelaySessionStateV1 {
+export interface RelayBeginResult extends RelaySessionStateV2 {
   transport: 'control-plane-relay';
   maxChunkBytes: number;
 }
@@ -142,7 +144,7 @@ export class ControlPlaneRelayAdapter {
     return path.join(sessionDir, 'session.json');
   }
 
-  private async persistState(sessionDir: string, state: RelaySessionStateV1): Promise<void> {
+  private async persistState(sessionDir: string, state: RelaySessionStateV2): Promise<void> {
     const target = this.statePath(sessionDir);
     const temp = `${target}.${randomUUID()}.tmp`;
     await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -173,17 +175,19 @@ export class ControlPlaneRelayAdapter {
     }
   }
 
-  private validateState(value: unknown, expectedSessionId: string): RelaySessionStateV1 {
+  private validateState(value: unknown, expectedSessionId: string): RelaySessionStateV2 {
     if (!value || typeof value !== 'object') throw new Error('relay session state is invalid.');
-    const state = value as Partial<RelaySessionStateV1>;
+    const state = value as Partial<RelaySessionStateV2>;
     if (
-      state.schemaVersion !== 1 ||
+      state.schemaVersion !== 2 ||
       state.sessionId !== expectedSessionId ||
       typeof state.fileName !== 'string' ||
       typeof state.expectedSha256 !== 'string' ||
       typeof state.expectedSize !== 'number' ||
       typeof state.nextOffset !== 'number' ||
-      typeof state.expiresAt !== 'string'
+      typeof state.expiresAt !== 'string' ||
+      !state.authorization ||
+      typeof state.authorization !== 'object'
     ) {
       throw new Error('relay session state is invalid.');
     }
@@ -195,14 +199,14 @@ export class ControlPlaneRelayAdapter {
     }
     const expiry = Date.parse(state.expiresAt);
     if (!Number.isFinite(expiry)) throw new Error('relay session expiry is invalid.');
-    return state as RelaySessionStateV1;
+    return state as RelaySessionStateV2;
   }
 
   private async loadState(workspace: string, basePath: string, sessionIdRaw: string): Promise<{
     baseRoot: string;
     sessionDir: string;
     payloadPath: string;
-    state: RelaySessionStateV1;
+    state: RelaySessionStateV2;
   }> {
     const sessionId = validateSessionId(sessionIdRaw);
     const baseRoot = await this.baseRoot(workspace, basePath);
@@ -311,6 +315,7 @@ export class ControlPlaneRelayAdapter {
     expectedSha256: string;
     expectedSize: number;
     ttlMs?: number;
+    authorization: CrossNodeTransferIntent;
   }): Promise<RelayBeginResult> {
     this.policy.assertWrite(options.workspace);
     const fileName = validateFileName(options.fileName);
@@ -326,14 +331,18 @@ export class ControlPlaneRelayAdapter {
     const sessionDir = this.sessionDir(baseRoot, sessionId);
     await fs.mkdir(sessionDir, { recursive: false, mode: 0o700 });
     await fs.writeFile(path.join(sessionDir, fileName), Buffer.alloc(0), { flag: 'wx', mode: 0o600 });
-    const state: RelaySessionStateV1 = {
-      schemaVersion: 1,
+    if (options.authorization.transport !== 'relay') {
+      throw new Error('Relay session authorization must use relay transport.');
+    }
+    const state: RelaySessionStateV2 = {
+      schemaVersion: 2,
       sessionId,
       fileName,
       expectedSha256,
       expectedSize,
       nextOffset: 0,
-      expiresAt: new Date(this.now() + ttlMs).toISOString()
+      expiresAt: new Date(this.now() + ttlMs).toISOString(),
+      authorization: { ...options.authorization }
     };
     await this.persistState(sessionDir, state);
     return { ...state, transport: 'control-plane-relay', maxChunkBytes: MAX_RELAY_CHUNK_BYTES };

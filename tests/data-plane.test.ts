@@ -23,6 +23,22 @@ function config(root: string): PolicyConfig {
   };
 }
 
+function directAuthorization(fileName: string, size: number, digest: string) {
+  return {
+    grantId: 'test-direct',
+    sourceNodeId: 'dev_source',
+    destinationNodeId: 'dev_dest',
+    sourceWorkspace: 'source',
+    destinationWorkspace: 'dest',
+    sourcePath: `project/${fileName}`,
+    destinationBasePath: 'project',
+    destinationFileName: fileName,
+    size,
+    sha256: digest,
+    transport: 'direct' as const
+  };
+}
+
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-data-plane-'));
   await fs.mkdir(path.join(root, 'source', 'project'), { recursive: true });
@@ -53,7 +69,8 @@ test('generic data plane transfers a non-firmware file while engineering tools a
       fileName: 'report.json',
       expectedSha256,
       expectedSize,
-      ttlMs: 60_000
+      ttlMs: 60_000,
+      authorization: directAuthorization('report.json', expectedSize, expectedSha256)
     });
 
     const before = f.dest.status();
@@ -68,7 +85,8 @@ test('generic data plane transfers a non-firmware file while engineering tools a
       endpoint: offer.endpoint,
       ticket: offer.ticket,
       expectedSha256,
-      expectedSize
+      expectedSize,
+      authorization: directAuthorization('report.json', expectedSize, expectedSha256)
     });
 
     assert.equal(receipt.accepted.sha256, expectedSha256);
@@ -103,7 +121,8 @@ test('generic data plane rejects a wrong ticket without consuming the valid one-
       fileName: 'notes.txt',
       expectedSha256,
       expectedSize,
-      ttlMs: 60_000
+      ttlMs: 60_000,
+      authorization: directAuthorization('notes.txt', expectedSize, expectedSha256)
     });
 
     await assert.rejects(
@@ -114,7 +133,8 @@ test('generic data plane rejects a wrong ticket without consuming the valid one-
         endpoint: offer.endpoint,
         ticket: 'A'.repeat(43),
         expectedSha256,
-        expectedSize
+        expectedSize,
+        authorization: directAuthorization('notes.txt', expectedSize, expectedSha256)
       }),
       /HTTP 401.*Invalid transfer ticket/
     );
@@ -127,7 +147,8 @@ test('generic data plane rejects a wrong ticket without consuming the valid one-
       endpoint: offer.endpoint,
       ticket: offer.ticket,
       expectedSha256,
-      expectedSize
+      expectedSize,
+      authorization: directAuthorization('notes.txt', expectedSize, expectedSha256)
     });
     assert.equal(receipt.accepted.sha256, expectedSha256);
   } finally {
@@ -156,7 +177,8 @@ test('generic data plane remains workspace-contained and fails before network on
       fileName: 'data.log',
       expectedSha256: actualSha256,
       expectedSize,
-      ttlMs: 60_000
+      ttlMs: 60_000,
+      authorization: directAuthorization('data.log', expectedSize, actualSha256)
     });
 
     await assert.rejects(
@@ -167,7 +189,8 @@ test('generic data plane remains workspace-contained and fails before network on
         endpoint: offer.endpoint,
         ticket: offer.ticket,
         expectedSha256: '0'.repeat(64),
-        expectedSize
+        expectedSize,
+        authorization: directAuthorization('data.log', expectedSize, '0'.repeat(64))
       }),
       /Source file SHA-256 mismatch/
     );
@@ -193,7 +216,8 @@ test('generic data plane falls back across direct endpoints without exposing the
       fileName: 'fallback.txt',
       expectedSha256,
       expectedSize,
-      ttlMs: 60_000
+      ttlMs: 60_000,
+      authorization: directAuthorization('fallback.txt', expectedSize, expectedSha256)
     });
 
     assert.equal(offer.transport, 'direct-http');
@@ -211,11 +235,65 @@ test('generic data plane falls back across direct endpoints without exposing the
       ticket: offer.ticket,
       expectedSha256,
       expectedSize,
-      timeoutMs: 10_000
+      timeoutMs: 10_000,
+      authorization: directAuthorization('fallback.txt', expectedSize, expectedSha256)
     });
 
     assert.equal(receipt.accepted.sha256, expectedSha256);
     assert.equal(receipt.transport, 'loopback-test');
+  } finally {
+    await f.source.closeAllForTests();
+    await f.dest.closeAllForTests();
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+
+test('direct transfer ticket is bound to the authorized node/workspace/file contract', async () => {
+  const f = await fixture();
+  try {
+    const body = 'binding-check\n';
+    await fs.writeFile(path.join(f.root, 'source', 'project', 'binding.txt'), body, 'utf8');
+    const expectedSha256 = createHash('sha256').update(body).digest('hex');
+    const expectedSize = Buffer.byteLength(body);
+    const authorization = directAuthorization('binding.txt', expectedSize, expectedSha256);
+
+    const offer = await f.dest.createReceiveOffer({
+      workspace: 'dest',
+      basePath: 'project',
+      fileName: 'binding.txt',
+      expectedSha256,
+      expectedSize,
+      ttlMs: 60_000,
+      authorization
+    });
+
+    await assert.rejects(
+      f.source.push({
+        workspace: 'source',
+        basePath: 'project',
+        file: 'binding.txt',
+        endpoint: offer.endpoint,
+        ticket: offer.ticket,
+        expectedSha256,
+        expectedSize,
+        authorization: { ...authorization, destinationNodeId: 'dev_other' }
+      }),
+      /HTTP 403.*authorization binding/i
+    );
+
+    assert.equal(f.dest.status().activeOffers.length, 1);
+    const receipt = await f.source.push({
+      workspace: 'source',
+      basePath: 'project',
+      file: 'binding.txt',
+      endpoint: offer.endpoint,
+      ticket: offer.ticket,
+      expectedSha256,
+      expectedSize,
+      authorization
+    });
+    assert.equal(receipt.accepted.sha256, expectedSha256);
   } finally {
     await f.source.closeAllForTests();
     await f.dest.closeAllForTests();

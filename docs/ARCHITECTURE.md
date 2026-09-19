@@ -225,7 +225,7 @@ Phase 3G adds `ObjectiveProgressService` as a compact read-only projection over 
 
 `work_objective_summary` is intentionally descriptive rather than prescriptive. `nextActionable` means only that the DAG and current Scheduler Awareness make a task mechanically dispatchable; it is not an engineering recommendation. The summary cannot create tasks, mutate state, acquire a lease or widen authority.
 
-Development identity is distinct from production identity. During Phase 3 development the source reports `serverVersion=0.17.0-dev.0`, `channel=development`, optional `gitCommit`, Action Schema 4 and Engineering API 4. Stable production remains v0.16.0 / Action Schema 3 until the v0.17 RC/release gates and production rollout complete.
+Release identity remains explicit. v0.17.0 reports `serverVersion=0.17.0`, `channel=stable`, optional `gitCommit`, Action Schema 4 and Engineering API 4. Production nodes remain independently managed and may stay on v0.16.0 / Action Schema 3 until their checksum-verified v0.17 rollout, health/readiness verification and rollback gate complete.
 
 Phase 3 closes without an autonomous agent provider. The post-Phase-3 v0.17 foundation adds two coordination primitives without adding execution authority:
 

@@ -52,6 +52,12 @@ test('executor marks success only after callback completion and unlocks dependen
       concurrency: { operation: 'project.inspect' },
       execution: EXECUTION
     });
+    const third = await store.addTask(objective.id, {
+      title: 'third',
+      dependencies: [second.id],
+      concurrency: { operation: 'project.inspect' },
+      execution: EXECUTION
+    });
 
     const result = await executor.execute(objective.id, first.id, async () => 42);
     assert.equal(result.result, 42);
@@ -59,6 +65,7 @@ test('executor marks success only after callback completion and unlocks dependen
 
     let state = await store.get(objective.id);
     assert.equal(state.tasks.find(task => task.id === second.id)?.status, 'ready');
+    assert.equal(state.tasks.find(task => task.id === third.id)?.status, 'pending');
 
     await assert.rejects(
       executor.execute(objective.id, second.id, async () => {
@@ -70,6 +77,8 @@ test('executor marks success only after callback completion and unlocks dependen
     state = await store.get(objective.id);
     assert.equal(state.tasks.find(task => task.id === second.id)?.status, 'failed');
     assert.equal(state.tasks.find(task => task.id === second.id)?.error, 'verification failed');
+    assert.equal(state.tasks.find(task => task.id === third.id)?.status, 'blocked');
+    assert.equal(state.tasks.find(task => task.id === third.id)?.error, 'blocked-by-dependency');
     assert.equal(state.status, 'failed');
   });
 });

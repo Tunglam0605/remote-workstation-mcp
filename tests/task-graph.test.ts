@@ -43,6 +43,10 @@ test('Task Graph requires an explicit Work Session and isolates objectives by se
   await runWithWorkSession(SESSION_B, async () => {
     assert.deepEqual(await store.list(), []);
     await assert.rejects(store.get(objective.id), /Unknown Work Objective/);
+    await assert.rejects(
+      store.addTask(objective.id, { title: 'must not mutate sibling objective' }),
+      /Unknown Work Objective/
+    );
   });
 
   const reloaded = new TaskGraphStore('openai-tunnel', {
@@ -53,7 +57,7 @@ test('Task Graph requires an explicit Work Session and isolates objectives by se
 });
 
 test('Task Graph validates dependencies, rejects cycles and derives READY deterministically', async t => {
-  const { store } = await fixture(t);
+  const { root, store } = await fixture(t);
   const objective = await runWithWorkSession(SESSION_A, () =>
     store.create({ name: 'DAG', objective: 'Validate dependency graph' })
   );
@@ -75,10 +79,24 @@ test('Task Graph validates dependencies, rejects cycles and derives READY determ
   const ready = await runWithWorkSession(SESSION_A, () => store.readyTasks(objective.id));
   assert.deepEqual(ready.map(task => task.id), [b.id, a.id]);
 
+  const reloaded = new TaskGraphStore('openai-tunnel', {
+    file: path.join(root, 'work-objectives.json')
+  });
+  const readyAfterReload = await runWithWorkSession(SESSION_A, () => reloaded.readyTasks(objective.id));
+  assert.deepEqual(readyAfterReload.map(task => task.id), [b.id, a.id]);
+
   await runWithWorkSession(SESSION_A, () => store.replaceDependencies(objective.id, a.id, [b.id]));
   await assert.rejects(
     runWithWorkSession(SESSION_A, () => store.replaceDependencies(objective.id, b.id, [a.id])),
     /cycle detected/
+  );
+
+  await assert.rejects(
+    runWithWorkSession(SESSION_A, () => store.addTask(objective.id, {
+      title: 'duplicate dependency',
+      dependencies: [a.id, a.id]
+    })),
+    /duplicate task ids/
   );
 
   await assert.rejects(

@@ -128,6 +128,7 @@ jobs:
             'scripts/admin-approval-windows.ps1',
             'scripts/privileged-helper-windows.ps1',
             'scripts/windows-settings.ps1',
+            'scripts/work-session-interlock-windows.ps1',
             'scripts/windows-secret.ps1',
             'scripts/lib/tunnel-health-windows.ps1',
             'scripts/test-tunnel-health-windows.ps1',

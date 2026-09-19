@@ -83,6 +83,10 @@ The normal MCP runtime remains loopback-only. A receive offer creates separate s
 
 When no direct peer route exists, the fallback path uses the already-authenticated MCP control connections in bounded 64 KiB chunks. Relay state is persistent/resumable, each chunk carries its own SHA-256 and exact offset, and final acceptance still re-hashes the complete file before atomic promotion. Relay is deliberately capped at 32 MiB and remains secondary to the direct data plane.
 
+v0.14.3 places a bilateral authorization boundary above both direct and relay transports. Cross-node data is default-deny. The source and destination each evaluate the same directional owner grant against stable node identity, source/destination workspace, path boundaries, file extension, size and transport. Only the configured authenticated OpenAI Secure MCP Tunnel principal with the dedicated cross-node scope may exercise a grant. A node cannot use this mechanism to issue commands to a peer or pull arbitrary peer data.
+
+Legacy SSH/device execution is a separate recovery surface and is locally disabled by default. Full Access on one node does not imply authority over another node.
+
 The data plane belongs to the core platform. Firmware/STM32, ROS 2, vision and other extensions may consume it but must not own or redefine it.
 
 See [DATA_PLANE.md](DATA_PLANE.md).

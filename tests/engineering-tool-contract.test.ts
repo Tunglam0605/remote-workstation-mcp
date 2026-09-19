@@ -34,9 +34,10 @@ test('v0.14 platform workflow growth keeps ChatGPT Action Schema v2 stable while
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 2;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 3;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.14\.2';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.14\.3';/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
+  assert.match(capabilities, /multi_device\.authorization/);
 });
 
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {

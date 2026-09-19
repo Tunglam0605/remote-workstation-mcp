@@ -36,6 +36,7 @@ import { PairingStore } from './pairing/pairing-store.js';
 import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
+import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
 import { currentPrincipal } from './security/request-principal.js';
 
 export async function createContext() {
@@ -53,6 +54,8 @@ export async function createContext() {
   const policy = new PolicyEngine(config, lease, currentClientId);
   const paths = new PathGuard(policy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
+  const audit = new AuditLogger(auditPath, actor);
+  const multiNodeAuthorization = new MultiNodeAuthorization(policy, identity, audit);
   const processes = new ProcessManager(policy, paths, currentClientId);
   const ssh = new SshAdapter(policy, hostsConfig);
   const pairing = new PairingStore();
@@ -70,7 +73,7 @@ export async function createContext() {
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
   return {
     config,
     hostsConfig,
@@ -78,7 +81,8 @@ export async function createContext() {
     paths,
     actor,
     identity,
-    audit: new AuditLogger(auditPath, actor),
+    audit,
+    multiNodeAuthorization,
     fs: new FilesystemAdapter(policy, paths),
     hostFs: new HostFilesystemAdapter(policy),
     fullControl: new FullControlAdapter(policy),

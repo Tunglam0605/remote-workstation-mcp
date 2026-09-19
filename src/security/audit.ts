@@ -37,6 +37,20 @@ export class AuditLogger {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8', mode: 0o600 });
   }
+
+  async recordSecurityEvent(event: string, ok: boolean, details: Record<string, unknown>, error?: unknown): Promise<void> {
+    const entry = {
+      ts: new Date().toISOString(),
+      actor: this.actor(),
+      event,
+      category: 'security',
+      ok,
+      details,
+      error: ok ? undefined : String(error instanceof Error ? error.message : error)
+    };
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    await fs.appendFile(this.filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8', mode: 0o600 });
+  }
 }
 
 export async function audited<T>(audit: AuditLogger, tool: string, workspace: string | undefined, fn: () => Promise<T>): Promise<T> {

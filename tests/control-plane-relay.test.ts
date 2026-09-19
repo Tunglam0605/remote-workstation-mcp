@@ -40,6 +40,22 @@ function sha256(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
+function relayAuthorization(fileName: string, size: number, digest: string) {
+  return {
+    grantId: 'test-relay',
+    sourceNodeId: 'dev_source',
+    destinationNodeId: 'dev_dest',
+    sourceWorkspace: 'source',
+    destinationWorkspace: 'dest',
+    sourcePath: `project/${fileName}`,
+    destinationBasePath: 'project',
+    destinationFileName: fileName,
+    size,
+    sha256: digest,
+    transport: 'relay' as const
+  };
+}
+
 test('control-plane relay transfers binary data and resumes from persistent session state', async () => {
   const f = await fixture();
   try {
@@ -53,7 +69,8 @@ test('control-plane relay transfers binary data and resumes from persistent sess
       basePath: 'project',
       fileName: 'evidence.bin',
       expectedSha256,
-      expectedSize: body.length
+      expectedSize: body.length,
+      authorization: relayAuthorization('evidence.bin', body.length, expectedSha256)
     });
 
     const first = await f.source.readChunk({
@@ -137,7 +154,8 @@ test('control-plane relay rejects wrong chunk hash and wrong offset without adva
       basePath: 'project',
       fileName: 'payload.txt',
       expectedSha256: sha256(body),
-      expectedSize: body.length
+      expectedSize: body.length,
+      authorization: relayAuthorization('payload.txt', body.length, sha256(body))
     });
     const chunk = await f.source.readChunk({
       workspace: 'source',
@@ -188,7 +206,8 @@ test('control-plane relay full-file mismatch fails closed and remains abortable'
       basePath: 'project',
       fileName: 'wrong.bin',
       expectedSha256: '0'.repeat(64),
-      expectedSize: body.length
+      expectedSize: body.length,
+      authorization: relayAuthorization('wrong.bin', body.length, '0'.repeat(64))
     });
     const chunk = await f.source.readChunk({
       workspace: 'source',
@@ -231,7 +250,8 @@ test('expired relay session is removed when accessed', async () => {
       fileName: 'expiry.txt',
       expectedSha256: sha256(body),
       expectedSize: body.length,
-      ttlMs: 60_000
+      ttlMs: 60_000,
+      authorization: relayAuthorization('expiry.txt', body.length, sha256(body))
     });
     nowMs += 60_001;
     await assert.rejects(

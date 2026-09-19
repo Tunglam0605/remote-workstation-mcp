@@ -91,6 +91,9 @@ The following rules are product-level invariants:
 8. **Local isolation.** The normal MCP runtime remains loopback-bound; remote reachability is provided by approved outbound secure transports.
 9. **Generic before specific.** When a domain feature exposes a reusable primitive, extract or design the reusable primitive rather than hard-coding the platform around the domain.
 10. **Observability and cleanup.** Managed processes, leases, sessions, temporary listeners and artifacts must have explicit lifecycle, bounded state and cleanup behavior.
+11. **No horizontal authority.** A Direct Node must not gain command authority, credentials, data-read authority or implicit trust over another Direct Node merely because both are connected to the same AI controller. Compromise of one node must not confer authority over another.
+12. **Bilateral transfer authorization.** Cross-node data movement is default-deny and requires an explicit directional owner grant on both participating nodes, the authenticated owner-approved AI control-plane principal, and an exact match for node identities, workspaces, path boundaries, file type, size and transport.
+13. **Data transfer is not remote control.** A transfer grant authorizes bounded bytes only. It must never authorize remote command execution, arbitrary pull of peer data, hardware mutation or reuse of the peer's credentials.
 
 ## 5. Multi-Node Direction
 
@@ -109,7 +112,11 @@ The preferred topology is independent Direct Nodes:
 
 A node outage must not make unrelated nodes unreachable.
 
-Cross-node cooperation should use explicit, generic capabilities such as identity, health, routing and a secure data plane. Legacy SSH/hub routing may remain available for bootstrap, recovery or owner-selected workflows, but it is not the default product topology.
+Cross-node cooperation should use explicit, generic capabilities such as identity, health, routing and a secure data plane. ChatGPT/another authorized AI client coordinates each Direct Node independently; one node does not command another.
+
+Cross-node data exchange is **default-deny**. The source node must independently authorize release of the exact data and the destination node must independently authorize receipt under the same directional grant. A local user, local HTTP caller, compromised workstation, leaked transfer ticket, or Full Access lease on one node must not be sufficient to read data from another node.
+
+Legacy SSH/hub routing may remain available for deliberate bootstrap or recovery, but it is **locally disabled by default** and is not the normal Direct-Node architecture.
 
 ## 6. Non-Goals
 

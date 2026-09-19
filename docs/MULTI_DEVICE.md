@@ -1,6 +1,6 @@
 # Multi-device control
 
-Remote Workstation MCP v0.14.2 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable and reports its own health. Cross-node payloads prefer a direct peer path; when no workstation-to-workstation route exists, a bounded control-plane relay can use the two already-authenticated Direct Node tunnels without creating a permanent master PC.
+Remote Workstation MCP v0.14.3 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable and reports its own health. ChatGPT coordinates nodes independently; the nodes do not gain command authority over one another. Cross-node payloads are default-deny and require matching directional owner grants on both nodes before choosing a direct peer path or bounded control-plane relay.
 
 ## Preferred topology: every workstation connects directly
 
@@ -74,7 +74,7 @@ Use the stable workflow envelope with:
 
 See [DATA_PLANE.md](DATA_PLANE.md) for the trust boundary, 512 MiB limit, content-addressed verified store and lifecycle.
 
-The older `firmware.artifact_*` transfer workflows remain compatible domain-extension APIs.
+Firmware-specific integrity preparation/acceptance remains available, but peer transfer itself uses only the secured generic platform data plane. Legacy firmware peer-transfer workflow IDs are no longer advertised in v0.14.3.
 
 ## Windows node
 
@@ -128,8 +128,14 @@ ChatGPT app for one workstation
 
 Each node has its own local policy, audit log, workspaces, Full Access gates and Administrator/sudo boundary. A compromise or outage on one node does not grant access to another node.
 
+## Cross-node trust boundary
+
+A node being online does not authorize it to exchange data with another node. The source and destination each enforce their own local grant. Local callers, a borrowed workstation, Full Access on only one node, or possession of a transfer ticket are insufficient to read another node.
+
+`chatgpt_web_status.nodeHealth.security.multiNode` reports whether multi-node exchange is enabled, default-deny state and grant count without exposing grant contents or secrets.
+
 ## Legacy Hub / SSH mode
 
-`device_list`, `device_probe`, `device_exec`, SSH host configuration and v0.8.2 pairing remain available for bootstrap, migration and explicitly owner-approved legacy workflows. They are **not** the preferred v0.8.3 path for routine multi-device work.
+`device_list`, `device_probe`, `device_exec`, SSH host configuration and v0.8.2 pairing remain packaged for bootstrap/recovery, but workstation-to-workstation SSH/device execution is **locally disabled by default** through `legacyRemoteControl.enabled=false`. It must not be enabled for normal Direct-Node operation.
 
 Use SSH when you intentionally need a gateway. For normal ChatGPT control of several independent PCs, install RWMCP + a separate Secure MCP Tunnel on every machine instead.

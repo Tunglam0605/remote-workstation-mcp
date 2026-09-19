@@ -5,7 +5,7 @@ import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { recommendedChatGptAppName } from '../device-identity.js';
 import { audited } from '../security/audit.js';
-import { currentPrincipal } from '../security/request-principal.js';
+import { currentPrincipal, principalHasExactScope } from '../security/request-principal.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -38,12 +38,21 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
   );
   const dataPlane = ctx.dataPlane.status();
   const controlPlaneRelay = ctx.controlPlaneRelay.status();
+  const multiNodeSecurity = ctx.multiNodeAuthorization.status();
+  const multiNodePolicy = ctx.config.multiNode;
+  const controllerPrincipalMatches = Boolean(
+    principal &&
+    multiNodePolicy?.enabled &&
+    principal.id === multiNodePolicy.controllerPrincipalId &&
+    principal.type === multiNodePolicy.controllerPrincipalType
+  );
   const managedProcesses = ctx.processes.list();
   const terminalSessions = ctx.engineering.terminals.list();
   const hardwareLeases = ctx.engineering.resources.list();
   const healthWarnings = [
     ...(!dataPlane.directIpv4Available && !controlPlaneRelay.supported ? ['data-plane-unavailable'] : []),
-    ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : [])
+    ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : []),
+    ...(ctx.policy.legacyRemoteControlEnabled() ? ['legacy-remote-control-enabled'] : [])
   ];
 
   return {
@@ -76,7 +85,8 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
         write: authenticated && allows(scopes, 'workstation.write'),
         execute: authenticated && allows(scopes, 'workstation.execute'),
         adminRequest: authenticated && allows(scopes, 'workstation.admin_request'),
-        fullControl: authenticated && allows(scopes, 'workstation.full_control')
+        fullControl: authenticated && allows(scopes, 'workstation.full_control'),
+        crossNodeTransfer: authenticated && controllerPrincipalMatches && principalHasExactScope('workstation.cross_node_transfer')
       }
     },
     policy: {
@@ -104,6 +114,10 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
       dataPlane: {
         ...dataPlane,
         controlPlaneRelay
+      },
+      security: {
+        multiNode: multiNodeSecurity,
+        legacyRemoteControlEnabled: ctx.policy.legacyRemoteControlEnabled()
       },
       warnings: healthWarnings
     },

@@ -91,6 +91,7 @@ export class SshAdapter {
   }
 
   listHosts() {
+    if (!this.policy.legacyRemoteControlEnabled()) return [];
     return this.hostsConfig.hosts.map(host => ({
       id: host.id,
       name: host.name ?? host.id,
@@ -107,6 +108,7 @@ export class SshAdapter {
   }
 
   async probe(id: string) {
+    this.policy.assertLegacyRemoteControl();
     const host = this.host(id);
     const args = await this.baseArgs(host);
     const probeCommand = remoteShell(host) === 'windows-powershell'
@@ -128,6 +130,7 @@ export class SshAdapter {
   }
 
   async execute(id: string, program: string, args: string[] = [], cwd = '.', timeoutMs?: number) {
+    this.policy.assertLegacyRemoteControl();
     const host = this.host(id);
     this.assertRemoteExecution(host, program);
     const base = await this.baseArgs(host);

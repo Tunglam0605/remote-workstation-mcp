@@ -5,7 +5,8 @@ export type WorkstationScope =
   | 'workstation.write'
   | 'workstation.execute'
   | 'workstation.admin_request'
-  | 'workstation.full_control';
+  | 'workstation.full_control'
+  | 'workstation.cross_node_transfer';
 
 export interface RequestPrincipal {
   id: string;
@@ -149,6 +150,12 @@ function scopeAllows(scopes: readonly string[], required: WorkstationScope): boo
   if (scopes.includes('*')) return true;
   if (scopes.includes(required)) return true;
   return scopes.includes('workstation.full_control');
+}
+
+export function principalHasExactScope(scope: string): boolean {
+  const principal = currentPrincipal();
+  if (!principal) return false;
+  return principal.scopes.includes('*') || principal.scopes.includes(scope);
 }
 
 export function assertToolScope(tool: string): void {

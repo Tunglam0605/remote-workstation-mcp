@@ -12,6 +12,22 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.16.0**
+
+v0.16.0 completes **Selective Quality Learning** on top of the accepted v0.15 Multi-Session execution baseline.
+
+- record bounded workflow-quality observations only from explicit typed workflow outcomes and explicit Work Sessions;
+- keep failed, blocked, ambiguous, implicit-session, exception and restart-reconciled outcomes as ineligible learning evidence;
+- add owner-local approve/reject/revoke review bound to immutable observation digests;
+- add configurable learning enable/disable, retention, bounded observation storage and owner history clearing without touching canonical project data;
+- aggregate approved evidence into versioned reusable recommendation knowledge with deterministic quality metrics;
+- compare learned behavior against canonical typed workflows and classify manual/raw-shell duplication as an anti-pattern instead of learning it;
+- require shadow evaluation before promotion, keep low-evidence candidates in `needs-more-evidence`, and require revalidation after material environment changes;
+- expand non-secret environment fingerprints with hashed project/probe identity plus workflow, variant, provider and toolchain metadata when available;
+- keep promoted knowledge `recommendationOnly=true` and `executionActive=false`; learning cannot grant scopes, change security policy, create cross-node authority, auto-push Git or auto-activate behavior;
+- harden Windows recovery convergence against transient CIM lag and make natural ConPTY-exit acceptance deterministic under loaded CI runners;
+- keep `actionSchemaVersion=3` and `engineeringApiVersion=4` because v0.16 adds no new MCP approval/promotion surface.
+
 **v0.15.0**
 
 v0.15.0 opens **Multi-Session Execution** after the accepted v0.14.6 Phase-0 hardening baseline.

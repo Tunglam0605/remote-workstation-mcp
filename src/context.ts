@@ -48,10 +48,12 @@ import { EngineeringWorkflowExecutionService } from './engineering-workflow-exec
 import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
 import { ObjectiveProgressService } from './objective-progress.js';
+import { ProjectSessionGroupService, ProjectSessionGroupStore } from './project-session-group.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
 import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
 import { WorkflowRunStore } from './workflow-run-store.js';
+import { WorkerProviderRegistry } from './worker-provider.js';
 import { WorktreeManager } from './worktree-manager.js';
 
 export async function createContext() {
@@ -69,6 +71,17 @@ export async function createContext() {
   const workSessions = new WorkSessionStore(currentClientId);
   const reconciledWorkSessions = await workSessions.reconcileLifecycle();
   const garbageCollectedWorkSessions = await workSessions.garbageCollect();
+  const projectSessionGroupStore = new ProjectSessionGroupStore(currentClientId);
+  let garbageCollectedProjectSessionGroups = 0;
+  let projectSessionGroupMaintenanceFailures = 0;
+  try {
+    garbageCollectedProjectSessionGroups = await projectSessionGroupStore.garbageCollect();
+  } catch {
+    // Project Session Group metadata is optional coordination state. Corruption must not block direct workstation control.
+    projectSessionGroupMaintenanceFailures += 1;
+  }
+  const projectSessionGroups = new ProjectSessionGroupService(projectSessionGroupStore, workSessions);
+  const workerProviders = new WorkerProviderRegistry();
   const workflowRuns = new WorkflowRunStore(currentClientId);
   const qualityObservations = new QualityObservationStore(currentClientId);
   const interruptedWorkflowRuns = await workflowRuns.reconcileInterruptedRecords();
@@ -175,6 +188,10 @@ export async function createContext() {
     workSessionLifecycle,
     reconciledWorkSessions,
     garbageCollectedWorkSessions,
+    projectSessionGroups,
+    garbageCollectedProjectSessionGroups,
+    projectSessionGroupMaintenanceFailures,
+    workerProviders,
     workflowRuns,
     qualityObservations,
     reconciledWorkflowRuns,

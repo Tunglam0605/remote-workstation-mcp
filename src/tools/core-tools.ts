@@ -36,6 +36,12 @@ const workObjectiveMutation = z.discriminatedUnion('action', [
   })
 ]);
 
+const projectSessionGroupMutation = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('add_session'), sessionId: z.string().uuid() }),
+  z.object({ action: z.literal('remove_session'), sessionId: z.string().uuid() }),
+  z.object({ action: z.literal('close') })
+]);
+
 export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   server.registerTool('capabilities_list', {
     description: 'Discover workstation capabilities exposed by this MCP server and their implementation status.',
@@ -214,6 +220,59 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       ctx.worktreeManager.cleanup(sessionId)
     )
   ));
+
+  server.registerTool('project_session_group_create', {
+    description: 'Create a bounded coordination-only Project Session Group from caller-owned Work Sessions that already belong to the same project. Group identity never grants authority or execution rights.',
+    inputSchema: z.object({
+      name: z.string().min(1).max(128).optional(),
+      sessionIds: z.array(z.string().uuid()).min(1).max(16)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ name, sessionIds }) => result(await audited(ctx.audit, 'project_session_group_create', undefined, async () => ({
+    group: await ctx.projectSessionGroups.create({ name, sessionIds }),
+    permissionModel: 'coordination metadata only; member Work Sessions retain their original principal, policy and resource boundaries'
+  }))));
+
+  server.registerTool('project_session_group_inspect', {
+    description: 'Inspect caller-owned Project Session Groups. The view is coordination-only and does not activate Work Sessions or grant cross-session execution authority.',
+    inputSchema: z.object({
+      groupId: z.string().uuid().optional(),
+      includeClosed: z.boolean().default(false)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ groupId, includeClosed }) => result(await audited(ctx.audit, 'project_session_group_inspect', undefined, async () =>
+    groupId
+      ? { group: await ctx.projectSessionGroups.get(groupId) }
+      : { groups: await ctx.projectSessionGroups.list(includeClosed) }
+  )));
+
+  server.registerTool('project_session_group_mutate', {
+    description: 'Mutate Project Session Group membership or close the group. This only changes coordination metadata; it never closes Work Sessions, removes worktrees, executes tasks, acquires resources or changes permissions.',
+    inputSchema: z.object({
+      groupId: z.string().uuid(),
+      mutation: projectSessionGroupMutation
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ groupId, mutation }) => result(await audited(ctx.audit, 'project_session_group_mutate', undefined, async () => {
+    if (mutation.action === 'add_session') {
+      return { group: await ctx.projectSessionGroups.addSession(groupId, mutation.sessionId) };
+    }
+    if (mutation.action === 'remove_session') {
+      return { group: await ctx.projectSessionGroups.removeSession(groupId, mutation.sessionId) };
+    }
+    return { group: await ctx.projectSessionGroups.close(groupId) };
+  })));
+
+  server.registerTool('worker_provider_list', {
+    description: 'List status for optional worker-provider adapters registered by the local runtime. This registry is read-only and has no dispatch/execute surface; direct MCP control remains independent of worker availability.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () => result(await audited(ctx.audit, 'worker_provider_list', undefined, async () => ({
+    providers: await ctx.workerProviders.listStatus(),
+    executionActive: false,
+    authority: 'registry-only',
+    note: 'Worker-provider dispatch is intentionally not implemented in this foundation. Future delegation must enter through the existing scheduler/executor and local policy boundaries.'
+  }))));
 
   server.registerTool('work_objective_create', {
     description: 'Create a durable Work Objective inside one explicit caller-owned Work Session. Objective/task identity never grants authority beyond the authenticated principal and local owner policy.',

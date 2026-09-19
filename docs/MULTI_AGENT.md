@@ -12,7 +12,12 @@ Several AI clients can independently connect to Remote Workstation MCP and invok
 
 ### Agent-to-agent orchestration
 
-One agent delegating work to another is a higher layer and is intentionally not part of the v0.5 core. A future task broker can coordinate agents while Remote Workstation MCP remains the execution/control plane and local policy boundary.
+One agent delegating work to another remains a higher layer. The v0.17 foundation now provides only two safe prerequisites:
+
+- Project Session Groups can coordinate multiple caller-owned Work Sessions that already belong to the same project.
+- Worker Provider Registry can report optional provider descriptors/status without exposing dispatch or execution.
+
+There is still no task broker or autonomous worker dispatch surface. Direct MCP control remains the primary path. A future broker may coordinate providers only by consuming existing Work Objective tasks and must route execution back through the deterministic scheduler, TaskExecutionCoordinator, typed workflow binding and local policy/resource boundaries.
 
 ## Concurrency today
 
@@ -66,9 +71,9 @@ Recommended practice:
 5. review audit records;
 6. keep raw shell disabled unless the workflow actually needs it.
 
-## Future worktree isolation
+## Worktree isolation today
 
-SHA-256 checks protect individual files but do not solve repository-level conflicts. Larger concurrent coding jobs should eventually use task-scoped Git worktrees:
+SHA-256 checks protect individual files but do not solve repository-level conflicts. Writable Work Sessions now use session-owned sibling Git worktrees and isolated build directories; future delegated workers must reuse those same boundaries rather than inventing a second isolation model:
 
 ```text
 repository/

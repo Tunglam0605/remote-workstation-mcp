@@ -227,7 +227,12 @@ Phase 3G adds `ObjectiveProgressService` as a compact read-only projection over 
 
 Development identity is distinct from production identity. During Phase 3 development the source reports `serverVersion=0.17.0-dev.0`, `channel=development`, optional `gitCommit`, Action Schema 4 and Engineering API 4. Stable production remains v0.16.0 / Action Schema 3 until the v0.17 RC/release gates and production rollout complete.
 
-No autonomous agent provider is part of this foundation. Future optional workers must enter through the same scheduler/executor boundary and cannot bypass Work Session ownership, resource leases, node interlocks, workspace policy or cross-node authorization.
+Phase 3 closes without an autonomous agent provider. The post-Phase-3 v0.17 foundation adds two coordination primitives without adding execution authority:
+
+- `ProjectSessionGroupStore/Service` groups explicit caller-owned Work Sessions that already point at the same `workspace + projectPath`. Active membership is unique and bounded. Group close is metadata-only: it does not close Work Sessions, stop processes, release hardware, remove worktrees, execute tasks or mutate permissions. Startup GC/maintenance is advisory so corrupted optional group metadata cannot prevent the direct workstation control plane from starting.
+- `WorkerProviderRegistry` is a bounded read-only registry for optional Codex/Claude/OpenHands/custom adapters. The registry exposes descriptor/status observation only and deliberately has no execute/dispatch method. Provider status failures are isolated and cannot affect direct MCP control.
+
+A Project Session Group id or worker provider id is therefore a state/coordination identifier, not an authorization credential. Future optional worker dispatch must enter through the existing Work Objective / deterministic scheduler / TaskExecutionCoordinator path and must still satisfy typed workflow binding, Work Session ownership, local policy, workspace containment, resource leases, node interlocks and cross-node authorization.
 
 ## Control plane vs data plane
 

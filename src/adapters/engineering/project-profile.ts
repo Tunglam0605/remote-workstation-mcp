@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import * as z from 'zod/v4';
+import type { SerialDeviceSelector } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
 
@@ -23,6 +24,7 @@ export interface EngineeringFirmwareProfile {
   flashProvider?: 'auto' | 'openocd' | 'esp-idf';
   artifact?: string;
   port?: string;
+  portSelector?: SerialDeviceSelector;
   probeSerial?: string;
   targetConfig?: string;
   adapterSpeedKhz?: number;
@@ -32,6 +34,7 @@ export interface EngineeringFirmwareProfile {
   variants?: Record<string, EngineeringFirmwareVariant>;
   monitor?: {
     port?: string;
+    selector?: SerialDeviceSelector;
     baudRate?: number;
     expectText?: string;
     expectTimeoutMs?: number;
@@ -61,6 +64,17 @@ export interface EngineeringProjectProfile {
 
 const relativePath = z.string().min(1).max(512);
 const profileId = z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/);
+const serialSelectorSchema = z.object({
+  deviceId: z.string().min(1).max(512).optional(),
+  serialNumber: z.string().min(1).max(256).optional(),
+  vendorId: z.string().regex(/^(?:0x)?[A-Fa-f0-9]{4}$/).optional(),
+  productId: z.string().regex(/^(?:0x)?[A-Fa-f0-9]{4}$/).optional(),
+  manufacturer: z.string().min(1).max(160).optional(),
+  nameContains: z.string().min(1).max(160).optional()
+}).strict().refine(
+  value => Boolean(value.deviceId || value.serialNumber || (value.vendorId && value.productId)),
+  { message: 'Serial selector requires deviceId, serialNumber, or both vendorId and productId.' }
+);
 const variantSchema = z.object({
   buildDir: relativePath.optional(),
   artifact: relativePath.optional(),
@@ -82,6 +96,7 @@ const profileSchema = z.object({
     flashProvider: z.enum(['auto', 'openocd', 'esp-idf']).default('auto'),
     artifact: relativePath.optional(),
     port: z.string().min(1).max(256).optional(),
+    portSelector: serialSelectorSchema.optional(),
     probeSerial: z.string().min(1).max(256).optional(),
     targetConfig: z.string().min(1).max(256).optional(),
     adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
@@ -93,6 +108,7 @@ const profileSchema = z.object({
     }).optional(),
     monitor: z.object({
       port: z.string().min(1).max(256).optional(),
+      selector: serialSelectorSchema.optional(),
       baudRate: z.number().int().min(300).max(12_000_000).default(115200),
       expectText: z.string().min(1).max(512).optional(),
       expectTimeoutMs: z.number().int().min(100).max(120_000).default(10_000)

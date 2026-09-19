@@ -78,6 +78,17 @@ const schema = z.object({
     allowHardwareMutationInWorkspace: z.boolean().default(false),
     allowSerialWriteInWorkspace: z.boolean().default(false)
   }).default({ enabled: true, maxCommandRuntimeMs: 600000, allowHardwareMutationInWorkspace: false, allowSerialWriteInWorkspace: false }),
+  containers: z.object({
+    allowLifecycleInWorkspace: z.boolean().default(false),
+    allowExecInWorkspace: z.boolean().default(false),
+    allowImageBuildInWorkspace: z.boolean().default(false),
+    allowHighRisk: z.boolean().default(false)
+  }).default({
+    allowLifecycleInWorkspace: false,
+    allowExecInWorkspace: false,
+    allowImageBuildInWorkspace: false,
+    allowHighRisk: false
+  }),
   multiNode: z.object({
     enabled: z.boolean().default(false),
     controllerPrincipalId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).default('openai-tunnel'),

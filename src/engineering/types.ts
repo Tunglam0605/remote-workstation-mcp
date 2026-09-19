@@ -23,6 +23,21 @@ export interface HardwareDevice {
   capabilities: string[];
 }
 
+export interface SerialDeviceSelector {
+  deviceId?: string;
+  serialNumber?: string;
+  vendorId?: string;
+  productId?: string;
+  manufacturer?: string;
+  nameContains?: string;
+}
+
+export interface SerialDeviceResolution {
+  selector: SerialDeviceSelector;
+  device: HardwareDevice;
+  path: string;
+}
+
 export type FirmwareFamily = 'stm32' | 'esp32' | 'generic-embedded' | 'unknown';
 export type FirmwareFramework = 'esp-idf' | 'stm32-cube' | 'keil-mdk' | 'cmake' | 'make' | 'unknown';
 
@@ -97,9 +112,58 @@ export interface FirmwareProviderStatus {
   executableSource?: 'owner-override' | 'path' | 'known-install';
   scriptSearchPath?: string;
   version?: string;
+  licenseStatus?: 'ok' | 'error' | 'unknown';
+  licenseMessage?: string;
   diagnostic?: OpenOcdDiagnostic;
   capabilities: string[];
   intentionallyUnavailable: string[];
+}
+
+export interface KeilStructuredDiagnostic {
+  file?: string;
+  line?: number;
+  column?: number;
+  severity: 'fatal' | 'error' | 'warning' | 'note';
+  code?: string;
+  message: string;
+}
+
+export interface KeilBuildSummary {
+  target: {
+    projectFile: string;
+    targetName: string;
+    device?: string;
+    outputDirectory?: string;
+    outputName?: string;
+    expectedArtifact?: string;
+    createHexFile?: boolean;
+  };
+  toolchain: {
+    family: 'armclang' | 'armcc' | 'unknown';
+    version?: string;
+  };
+  provider: {
+    executable: string;
+    executableSource: 'owner-override' | 'path' | 'known-install';
+  };
+  license: {
+    status: 'ok' | 'error' | 'unknown';
+    message?: string;
+  };
+  counts: {
+    errors: number;
+    warnings: number;
+    notes: number;
+  };
+  diagnostics: KeilStructuredDiagnostic[];
+  diagnosticsTruncated: boolean;
+  artifact: {
+    expectedPath?: string;
+    expectedHexPath?: string;
+    exists: boolean;
+    size?: number;
+    mtime?: string;
+  };
 }
 
 export interface FirmwareFlashPlan {

@@ -12,6 +12,17 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
+**v0.14.6**
+
+v0.14.6 completes the planned Phase-0 hardening for the current Docker/serial/Keil engineering primitives before Multi-Session Execution.
+
+- split container lifecycle/exec/image-build authority from firmware hardware-mutation policy;
+- classify Docker host-level risk before mutation and require `full_control + containers.allowHighRisk=true` for high-risk containers;
+- add stable serial selectors to project profiles and resolve them to the current COM/tty path on every relevant workflow run;
+- fail closed on missing or ambiguous serial identity while preserving legacy static `port:` profiles;
+- add bounded ARMCC/ArmClang/Keil/linker diagnostics, target/output metadata, toolchain version, license evidence and artifact summaries;
+- preserve typed provider argv, v0.14.3 cross-node security, `actionSchemaVersion=2` and `engineeringApiVersion=3`.
+
 **v0.14.5**
 
 v0.14.5 is a narrow production hotfix for the PTY worker isolation introduced in v0.14.4.
@@ -334,13 +345,21 @@ firmware:
   buildProvider: esp-idf
   buildDir: build
   flashProvider: esp-idf
-  port: COM7
+  portSelector:
+    serialNumber: CALLBOX-01
+    vendorId: 303A
+    productId: 1001
   monitor:
-    port: COM7
+    selector:
+      serialNumber: CALLBOX-01
+      vendorId: 303A
+      productId: 1001
     baudRate: 115200
     expectText: APP_READY
     expectTimeoutMs: 10000
 ```
+
+Stable serial selectors are resolved against live hardware every plan/run, so OS re-enumeration such as `COM7 -> COM11` does not require rewriting the project profile. A selector that matches more than one device is rejected; RWMCP never guesses between identical adapters. Legacy `port:` remains supported for projects that cannot expose stable USB identity.
 
 Example ROS 2 profile:
 

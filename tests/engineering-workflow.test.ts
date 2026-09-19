@@ -8,9 +8,10 @@ import { ControlPlaneRelayAdapter } from '../src/adapters/control-plane-relay.js
 import { DataPlaneAdapter } from '../src/adapters/data-plane.js';
 import { ArtifactIntegrityAdapter } from '../src/adapters/engineering/artifact-integrity.js';
 import { ArtifactTransferAdapter } from '../src/adapters/engineering/artifact-transfer.js';
+import { resolveSerialDevice } from '../src/adapters/engineering/hardware-discovery.js';
 import { EngineeringProjectProfileStore } from '../src/adapters/engineering/project-profile.js';
 import { EngineeringWorkflowEngine } from '../src/adapters/engineering/workflow-engine.js';
-import type { EngineeringCommandResult, FirmwareProjectInfo } from '../src/engineering/types.js';
+import type { EngineeringCommandResult, FirmwareProjectInfo, HardwareDevice, SerialDeviceSelector } from '../src/engineering/types.js';
 import type { PolicyConfig } from '../src/model.js';
 import { PolicyEngine } from '../src/policy.js';
 import { PathGuard } from '../src/security/path-guard.js';
@@ -112,7 +113,13 @@ async function fixture(project: FirmwareProjectInfo) {
       };
     }
   };
-  const hardware = { async list() { return []; } };
+  let hardwareDevices: HardwareDevice[] = [];
+  const hardware = {
+    async list() { return hardwareDevices; },
+    async resolveSerial(selector: SerialDeviceSelector) {
+      return resolveSerialDevice(hardwareDevices, selector);
+    }
+  };
   const serial = {
     async open(port: string, baudRate: number) {
       calls.push(`serial:${port}:${baudRate}`);
@@ -255,7 +262,8 @@ async function fixture(project: FirmwareProjectInfo) {
     setBuildResult(result: EngineeringCommandResult) { buildResult = result; },
     setVerifyResult(result: EngineeringCommandResult) { verifyResult = result; },
     setDeployResult(result: EngineeringCommandResult) { deployResult = result; },
-    setDeploymentReady(ready: boolean, blockers: string[] = []) { deploymentReady = ready; deploymentBlockers = blockers; }
+    setDeploymentReady(ready: boolean, blockers: string[] = []) { deploymentReady = ready; deploymentBlockers = blockers; },
+    setHardwareDevices(value: HardwareDevice[]) { hardwareDevices = value; }
   };
 }
 
@@ -283,6 +291,93 @@ test('project profile persists recurring ESP-IDF flash and monitor defaults', as
     assert.equal(plan.resolved.firmware?.port, 'COM7');
     assert.equal(plan.resolved.firmware?.monitorBaudRate, 921600);
     assert.deepEqual(plan.steps, ['firmware.build', 'firmware.flash', 'serial.open']);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('stable serial selector resolves the current OS port on every workflow run', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'esp-idf',
+    target: 'esp32s3', buildSystem: 'idf.py', markers: ['sdkconfig'], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setHardwareDevices([{
+      id: 'serial:serialport:CALLBOX-01',
+      kind: 'serial',
+      name: 'Callbox UART',
+      path: 'COM7',
+      serialNumber: 'CALLBOX-01',
+      vendorId: '303A',
+      productId: '1001',
+      manufacturer: 'Espressif',
+      provider: 'serialport',
+      capabilities: ['serial-monitor', 'serial-write']
+    }]);
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        portSelector: { serialNumber: 'CALLBOX-01', vendorId: '303A', productId: '1001' },
+        monitor: {
+          selector: { serialNumber: 'CALLBOX-01', vendorId: '303A', productId: '1001' },
+          baudRate: 115200
+        }
+      }
+    });
+
+    const firstPlan = await f.engine.plan('w', 'project', 'firmware.build_flash_monitor');
+    assert.equal(firstPlan.resolved.firmware?.port, 'COM7');
+    assert.equal(firstPlan.resolved.firmware?.portResolution.source, 'stable-selector');
+    assert.equal(firstPlan.resolved.firmware?.monitorPort, 'COM7');
+
+    f.setHardwareDevices([{
+      id: 'serial:serialport:CALLBOX-01',
+      kind: 'serial',
+      name: 'Callbox UART',
+      path: 'COM11',
+      serialNumber: 'CALLBOX-01',
+      vendorId: '303A',
+      productId: '1001',
+      manufacturer: 'Espressif',
+      provider: 'serialport',
+      capabilities: ['serial-monitor', 'serial-write']
+    }]);
+
+    const result = await f.engine.run('w', 'project', 'firmware.build_flash_monitor');
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, ['build:esp-idf:build:-:-', 'flash:COM11', 'serial:COM11:115200']);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('stable serial selector fails closed when the current device set is ambiguous', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'esp-idf',
+    target: 'esp32s3', buildSystem: 'idf.py', markers: ['sdkconfig'], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setHardwareDevices([
+      {
+        id: 'serial:a', kind: 'serial', name: 'USB UART A', path: 'COM7',
+        serialNumber: 'A', vendorId: '10C4', productId: 'EA60', provider: 'serialport',
+        capabilities: ['serial-monitor', 'serial-write']
+      },
+      {
+        id: 'serial:b', kind: 'serial', name: 'USB UART B', path: 'COM8',
+        serialNumber: 'B', vendorId: '10C4', productId: 'EA60', provider: 'serialport',
+        capabilities: ['serial-monitor', 'serial-write']
+      }
+    ]);
+    await f.engine.initProfile('w', 'project', {
+      firmware: { portSelector: { vendorId: '10C4', productId: 'EA60' } }
+    });
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'firmware.build_flash'),
+      /ambiguous/i
+    );
+    assert.equal(f.calls.length, 0);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

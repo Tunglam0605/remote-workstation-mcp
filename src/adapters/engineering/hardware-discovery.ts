@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { SerialPort } from 'serialport';
-import type { HardwareDevice } from '../../engineering/types.js';
+import type { HardwareDevice, SerialDeviceResolution, SerialDeviceSelector } from '../../engineering/types.js';
 
 const execFileAsync = promisify(execFile);
 const ST_VID = '0483';
@@ -18,7 +18,53 @@ function stableDeviceId(kind: string, provider: string, identity: string): strin
   return `${kind}:${provider}:${identity.replace(/[^A-Za-z0-9_.:-]+/g, '_')}`;
 }
 
+function normalizeSelectorHex(value?: string): string | undefined {
+  return value ? normHex(value) : undefined;
+}
+
+export function resolveSerialDevice(devices: HardwareDevice[], selector: SerialDeviceSelector): SerialDeviceResolution {
+  const stableIdentityPresent = Boolean(
+    selector.deviceId ||
+    selector.serialNumber ||
+    (selector.vendorId && selector.productId)
+  );
+  if (!stableIdentityPresent) {
+    throw new Error('Serial selector must include deviceId, serialNumber, or both vendorId and productId.');
+  }
+
+  const vendorId = normalizeSelectorHex(selector.vendorId);
+  const productId = normalizeSelectorHex(selector.productId);
+  const manufacturer = selector.manufacturer?.trim().toLowerCase();
+  const nameContains = selector.nameContains?.trim().toLowerCase();
+
+  const matches = devices.filter(device => {
+    if (device.kind !== 'serial' || !device.path) return false;
+    if (selector.deviceId && device.id !== selector.deviceId) return false;
+    if (selector.serialNumber && device.serialNumber !== selector.serialNumber) return false;
+    if (vendorId && normHex(device.vendorId) !== vendorId) return false;
+    if (productId && normHex(device.productId) !== productId) return false;
+    if (manufacturer && (device.manufacturer ?? '').trim().toLowerCase() !== manufacturer) return false;
+    if (nameContains && !device.name.toLowerCase().includes(nameContains)) return false;
+    return true;
+  });
+
+  if (matches.length === 0) {
+    throw new Error('No serial device matches the configured stable selector.');
+  }
+  if (matches.length > 1) {
+    const ids = matches.slice(0, 8).map(item => item.id).join(', ');
+    throw new Error(`Serial selector is ambiguous: ${matches.length} devices match (${ids}). Add serialNumber/deviceId or narrow VID/PID.`);
+  }
+
+  const device = matches[0]!;
+  return { selector: { ...selector }, device, path: device.path! };
+}
+
 export class HardwareDiscoveryAdapter {
+  async resolveSerial(selector: SerialDeviceSelector): Promise<SerialDeviceResolution> {
+    return resolveSerialDevice(await this.list(), selector);
+  }
+
   async list(): Promise<HardwareDevice[]> {
     const [serial, probes] = await Promise.all([this.serialDevices(), this.debugProbes()]);
     const merged = new Map<string, HardwareDevice>();

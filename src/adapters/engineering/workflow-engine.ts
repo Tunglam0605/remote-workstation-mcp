@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { ControlPlaneRelayAdapter } from '../control-plane-relay.js';
 import { DataPlaneAdapter } from '../data-plane.js';
-import type { FirmwareProjectInfo } from '../../engineering/types.js';
+import type { FirmwareProjectInfo, SerialDeviceResolution, SerialDeviceSelector } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { MultiNodeAuthorization, type CrossNodeTransferIntent } from '../../security/multi-node-authorization.js';
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
@@ -296,6 +296,22 @@ export class EngineeringWorkflowEngine {
       };
     }
     return profile;
+  }
+
+  private async resolveSerialPort(
+    explicitPort: string | undefined,
+    selector: SerialDeviceSelector | undefined,
+    legacyPort: string | undefined,
+    fallbackPort?: string
+  ): Promise<{ port?: string; source: 'override' | 'stable-selector' | 'legacy-port' | 'fallback' | 'unconfigured'; resolution?: SerialDeviceResolution }> {
+    if (explicitPort) return { port: explicitPort, source: 'override' };
+    if (selector) {
+      const resolution = await this.hardware.resolveSerial(selector);
+      return { port: resolution.path, source: 'stable-selector', resolution };
+    }
+    if (legacyPort) return { port: legacyPort, source: 'legacy-port' };
+    if (fallbackPort) return { port: fallbackPort, source: 'fallback' };
+    return { source: 'unconfigured' };
   }
 
   private effectiveFirmware(
@@ -912,8 +928,23 @@ export class EngineeringWorkflowEngine {
     const effective = this.effectiveFirmware(state.profile.firmware, overrides);
     const fw = effective.config;
     const flashProvider = fw.flashProvider ?? (state.project.family === 'esp32' ? 'esp-idf' : 'auto');
-    const port = overrides.port ?? fw.port;
-    const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? port;
+    const needsMonitorPort = workflow === 'firmware.build_flash_monitor'
+      || workflow === 'firmware.build_flash_monitor_expect'
+      || workflow === 'stm32.deploy_accept';
+    const needsFlashPort = workflow.startsWith('firmware.build_flash') && flashProvider === 'esp-idf';
+    const portResolution = (needsFlashPort || needsMonitorPort)
+      ? await this.resolveSerialPort(overrides.port, fw.portSelector, fw.port)
+      : { source: 'unconfigured' as const };
+    const port = portResolution.port;
+    const monitorResolution = needsMonitorPort
+      ? await this.resolveSerialPort(
+          overrides.monitorPort,
+          fw.monitor?.selector,
+          fw.monitor?.port,
+          port
+        )
+      : { source: 'unconfigured' as const };
+    const monitorPort = monitorResolution.port;
     const expectedText = overrides.expectText ?? fw.monitor?.expectText;
     const ros = state.profile.ros2;
     const rosBuild = ros?.build ?? {};
@@ -924,20 +955,20 @@ export class EngineeringWorkflowEngine {
     }
 
     if (workflow.startsWith('firmware.build_flash') && flashProvider === 'esp-idf' && !port) {
-      throw new Error('ESP-IDF flash workflow requires firmware.port in .rwmcp/project.yaml or an explicit port override.');
+      throw new Error('ESP-IDF flash workflow requires firmware.portSelector, legacy firmware.port, or an explicit port override.');
     }
     if (
       (workflow === 'firmware.build_flash_monitor' || workflow === 'firmware.build_flash_monitor_expect') &&
       !monitorPort
     ) {
-      throw new Error('Serial monitor workflow requires firmware.monitor.port, firmware.port, or monitorPort override.');
+      throw new Error('Serial monitor workflow requires firmware.monitor.selector, legacy monitor/firmware port, or monitorPort override.');
     }
     if (workflow === 'firmware.build_flash_monitor_expect' && !expectedText) {
       throw new Error('Monitor-expect workflow requires firmware.monitor.expectText or an expectText override.');
     }
     if (workflow === 'stm32.deploy_accept') {
       if (flashProvider === 'esp-idf') throw new Error('stm32.deploy_accept requires the constrained OpenOCD flash provider.');
-      if (!monitorPort) throw new Error('stm32.deploy_accept requires firmware.monitor.port, firmware.port, or parameters.monitorPort.');
+      if (!monitorPort) throw new Error('stm32.deploy_accept requires firmware.monitor.selector, a legacy monitor/firmware port, or parameters.monitorPort.');
       if (!expectedText) throw new Error('stm32.deploy_accept requires firmware.monitor.expectText or parameters.expectText.');
     }
 
@@ -990,10 +1021,12 @@ export class EngineeringWorkflowEngine {
           flashProvider,
           artifact: overrides.artifact ?? fw.artifact,
           port,
+          portResolution,
           probeSerial: overrides.probeSerial ?? fw.probeSerial,
           targetConfig: overrides.targetConfig ?? fw.targetConfig,
           adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz,
           monitorPort,
+          monitorResolution,
           monitorBaudRate: overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200,
           expectText: expectedText,
           expectTimeoutMs: overrides.expectTimeoutMs ?? fw.monitor?.expectTimeoutMs ?? 10_000,
@@ -1447,7 +1480,14 @@ export class EngineeringWorkflowEngine {
 
     if (workflow === 'stm32.deploy_accept') {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
-      const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? overrides.port ?? fw.port;
+      const basePortResolution = await this.resolveSerialPort(overrides.port, fw.portSelector, fw.port);
+      const monitorPortResolution = await this.resolveSerialPort(
+        overrides.monitorPort,
+        fw.monitor?.selector,
+        fw.monitor?.port,
+        basePortResolution.port
+      );
+      const monitorPort = monitorPortResolution.port;
       const expectedText = overrides.expectText ?? fw.monitor?.expectText;
       if (!monitorPort || !expectedText) {
         throw new Error('stm32.deploy_accept requires a configured serial monitor port and readiness marker.');
@@ -1606,6 +1646,8 @@ export class EngineeringWorkflowEngine {
 
     if (workflow.startsWith('firmware.')) {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
+      const effectiveFlashProvider = fw.flashProvider ?? (state.project.family === 'esp32' ? 'esp-idf' : 'auto');
+      const needsMonitorPort = workflow === 'firmware.build_flash_monitor' || workflow === 'firmware.build_flash_monitor_expect';
       const build = await capture('firmware.build', () => this.firmware.build(
         workspace,
         projectPath,
@@ -1625,12 +1667,24 @@ export class EngineeringWorkflowEngine {
       }
       if (workflow === 'firmware.build') return { workflow, status: 'succeeded', plan, steps };
 
+      const portResolution = (effectiveFlashProvider === 'esp-idf' || needsMonitorPort)
+        ? await this.resolveSerialPort(overrides.port, fw.portSelector, fw.port)
+        : { source: 'unconfigured' as const };
+      const monitorPortResolution = needsMonitorPort
+        ? await this.resolveSerialPort(
+            overrides.monitorPort,
+            fw.monitor?.selector,
+            fw.monitor?.port,
+            portResolution.port
+          )
+        : { source: 'unconfigured' as const };
+
       const flash = await capture('firmware.flash', () => this.firmware.flash({
         workspace,
         projectPath,
         artifact: overrides.artifact ?? fw.artifact,
         provider: fw.flashProvider ?? 'auto',
-        port: overrides.port ?? fw.port,
+        port: portResolution.port,
         probeSerial: overrides.probeSerial ?? fw.probeSerial,
         targetConfig: overrides.targetConfig ?? fw.targetConfig,
         adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz
@@ -1669,8 +1723,8 @@ export class EngineeringWorkflowEngine {
         };
       }
 
-      const monitorPort = overrides.monitorPort ?? fw.monitor?.port ?? overrides.port ?? fw.port;
-      if (!monitorPort) throw new Error('Serial monitor port was not resolved.');
+      const monitorPort = monitorPortResolution.port;
+      if (!monitorPort) throw new Error('Serial monitor port was not resolved from selector, legacy profile port, or explicit override.');
       const monitor = await capture('serial.open', () => this.serial.open(
         monitorPort,
         overrides.monitorBaudRate ?? fw.monitor?.baudRate ?? 115200

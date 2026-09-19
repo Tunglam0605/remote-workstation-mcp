@@ -108,6 +108,8 @@ Administrator control uses a separate request/approval boundary. The normal MCP 
 
 The workspace path guard protects the built-in filesystem tools. It does not sandbox a child process. If the owner allows an interpreter, compiler, build script, debugger or shell, that process inherits the OS rights of the service account. Treat project code and build scripts as executable content.
 
+Container authority is deliberately separate from the firmware/hardware-mutation gate. Read-only Docker inspection/logs follow engineering read policy; lifecycle, exec and image build have dedicated local owner switches. Privileged containers, host PID/network namespaces, Docker socket access, host-root/sensitive binds, device passthrough and remote Docker daemons are classified high risk and require both runtime `full_control` and explicit `containers.allowHighRisk=true`. Rootful/root-user state is surfaced as elevated risk even when it is not by itself blocked.
+
 For high-risk or untrusted repositories, use an additional VM/container/OS sandbox and keep the MCP policy least-privileged.
 
 ## SSH credential handling

@@ -149,4 +149,26 @@ export class PolicyEngine {
       throw new Error('Serial write requires elevated/full_control mode or engineering.allowSerialWriteInWorkspace=true.');
     }
   }
+
+  assertContainerCapability(capability: 'lifecycle' | 'exec' | 'image_build', highRisk = false): void {
+    this.assertEngineeringExecute();
+    const mode = this.effectiveMode();
+    const config = this.config.containers;
+    if (mode === 'workspace') {
+      const allowed = capability === 'lifecycle'
+        ? (config?.allowLifecycleInWorkspace ?? false)
+        : capability === 'exec'
+          ? (config?.allowExecInWorkspace ?? false)
+          : (config?.allowImageBuildInWorkspace ?? false);
+      if (!allowed) {
+        throw new Error(`Container capability '${capability}' requires elevated/full_control mode or the matching containers.*InWorkspace owner policy.`);
+      }
+    }
+    if (highRisk) {
+      this.assertFullControl();
+      if (!(config?.allowHighRisk ?? false)) {
+        throw new Error('High-risk container operation is disabled by local owner policy (containers.allowHighRisk=false).');
+      }
+    }
+  }
 }

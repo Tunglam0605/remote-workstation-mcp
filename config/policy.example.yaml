@@ -92,6 +92,18 @@ engineering:
   allowHardwareMutationInWorkspace: false
   allowSerialWriteInWorkspace: false
 
+# Container authority is separate from hardware mutation.
+# Read-only container inspection/logs follows engineering.enabled.
+# Mutation remains default-deny in workspace mode unless explicitly enabled.
+containers:
+  allowLifecycleInWorkspace: false
+  allowExecInWorkspace: false
+  allowImageBuildInWorkspace: false
+  # High-risk containers (privileged, host namespaces, Docker socket,
+  # host-root/sensitive mounts, devices, remote daemon) additionally require
+  # full_control at runtime. This local owner switch alone is never sufficient.
+  allowHighRisk: false
+
 # Cross-node data exchange is DEFAULT DENY.
 # Enabling it is not enough: the same directional grant must also be present
 # on the other participating Direct Node. Only the authenticated OpenAI Secure

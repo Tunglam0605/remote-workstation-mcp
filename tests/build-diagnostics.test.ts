@@ -45,3 +45,28 @@ test('parseBuildDiagnostics bounds output', () => {
   assert.equal(report.diagnostics.length, 2);
   assert.equal(report.truncated, true);
 });
+
+
+test('parseBuildDiagnostics parses Keil ARMCC and linker diagnostics', () => {
+  const input = [
+    '..\\Src\\main.c(123): error:  #20: identifier "missing" is undefined',
+    '..\\Src\\util.c(45): warning:  #177-D: variable "temp" was declared but never referenced',
+    'Error: L6218E: Undefined symbol HAL_Init (referred from main.o).'
+  ].join('\n');
+
+  const report = parseBuildDiagnostics(input, 20);
+  assert.equal(report.diagnostics.length, 3);
+  assert.deepEqual(report.diagnostics[0], {
+    file: '..\\Src\\main.c',
+    line: 123,
+    column: undefined,
+    severity: 'error',
+    code: '#20',
+    message: 'identifier "missing" is undefined',
+    raw: '..\\Src\\main.c(123): error:  #20: identifier "missing" is undefined'
+  });
+  assert.equal(report.diagnostics[1]?.code, '#177-D');
+  assert.equal(report.diagnostics[1]?.severity, 'warning');
+  assert.equal(report.diagnostics[2]?.code, 'L6218E');
+  assert.equal(report.diagnostics[2]?.severity, 'error');
+});

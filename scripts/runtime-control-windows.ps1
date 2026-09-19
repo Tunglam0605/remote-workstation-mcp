@@ -83,6 +83,24 @@ function Get-ManagedProcess($state) {
     $expectedStarted = [DateTimeOffset]::Parse([string]$state.startedAt).UtcDateTime
     $actualStarted = $process.StartTime.ToUniversalTime()
     if ([Math]::Abs(($actualStarted - $expectedStarted).TotalSeconds) -gt 10) { return $null }
+
+    # PID + executable path + near start time are not sufficient on a busy Windows host:
+    # powershell.exe PIDs can be reused quickly enough to make stale supervisor state
+    # identify an unrelated control shell. When the state has the managed entrypoint,
+    # bind identity to the actual command line as well before any stop/descendant logic.
+    if ($state.PSObject.Properties.Name -contains 'entrypoint' -and -not [string]::IsNullOrWhiteSpace([string]$state.entrypoint)) {
+      $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$state.pid)" -ErrorAction Stop
+      if (-not $entry) { return $null }
+      $commandLine = [string]$entry.CommandLine
+      $expectedEntrypoint = [IO.Path]::GetFullPath([string]$state.entrypoint)
+      if ([string]::IsNullOrWhiteSpace($commandLine) -or $commandLine.IndexOf($expectedEntrypoint, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $null
+      }
+      if ($state.PSObject.Properties.Name -contains 'root' -and -not [string]::IsNullOrWhiteSpace([string]$state.root)) {
+        $expectedRoot = [IO.Path]::GetFullPath([string]$state.root)
+        if ($commandLine.IndexOf($expectedRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0) { return $null }
+      }
+    }
     return $process
   } catch {
     return $null

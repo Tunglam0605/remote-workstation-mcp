@@ -1028,13 +1028,17 @@ test('generic platform transfer workflows remain available without firmware capa
     const secret = 'S'.repeat(43);
     const pushPlan = await f.engine.plan('w', 'project', 'platform.transfer_push', {
       file: 'report.json',
-      transferEndpoint: 'http://127.0.0.1:34567/rwmcp-data/test-transfer-1234',
+      transferEndpoints: [
+        'http://127.0.0.1:34567/rwmcp-data/test-transfer-1234',
+        'http://127.0.0.1:34568/rwmcp-data/test-transfer-5678'
+      ],
       transferTicket: secret,
       expectedSha256,
       expectedSize
     });
     assert.equal(pushPlan.dataPlane?.ready, true);
     assert.equal(pushPlan.resolved.dataPlane?.ticketPresent, true);
+    assert.equal(pushPlan.resolved.dataPlane?.endpoints.length, 2);
     assert.equal(JSON.stringify(pushPlan).includes(secret), false);
   } finally {
     await f.dataPlane.closeAllForTests();

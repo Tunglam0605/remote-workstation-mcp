@@ -71,6 +71,7 @@ export interface EngineeringWorkflowOverrides {
   expectedSize?: number;
   artifactName?: string;
   transferEndpoint?: string;
+  transferEndpoints?: string[];
   transferTicket?: string;
   transferTimeoutMs?: number;
 }
@@ -358,7 +359,7 @@ export class EngineeringWorkflowEngine {
           steps: ['transfer.hash', 'transfer.manifest'],
           dataPlane: {
             ready: true,
-            transport: 'tailscale-http',
+            transport: 'direct-http',
             source: manifest,
             blockers: []
           },
@@ -382,14 +383,15 @@ export class EngineeringWorkflowEngine {
           throw new Error('parameters.transferTimeoutMs must be between 10000 and 600000.');
         }
         const status = this.dataPlane.status();
-        const blockers = status.tailscaleIpv4Available ? [] : ['No local Tailscale IPv4 interface is available for the native data plane.'];
+        const blockers = status.directIpv4Available ? [] : ['No approved local Tailscale or private-LAN IPv4 interface is available for the native data plane.'];
         return {
           workflow,
           scope,
           steps: ['transfer.receive_offer'],
           dataPlane: {
             ready: blockers.length === 0,
-            transport: 'tailscale-http',
+            transport: 'direct-http',
+            availableTransports: status.availableTransports,
             fileName,
             expectedSha256,
             expectedSize,
@@ -403,11 +405,14 @@ export class EngineeringWorkflowEngine {
       }
 
       const file = overrides.file?.trim();
-      const endpoint = overrides.transferEndpoint?.trim();
+      const endpoints = [
+        ...(overrides.transferEndpoints ?? []),
+        ...(overrides.transferEndpoint?.trim() ? [overrides.transferEndpoint.trim()] : [])
+      ].filter(Boolean);
       const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
       const expectedSize = overrides.expectedSize;
       if (!file) throw new Error('platform.transfer_push requires parameters.file.');
-      if (!endpoint) throw new Error('platform.transfer_push requires parameters.transferEndpoint.');
+      if (!endpoints.length) throw new Error('platform.transfer_push requires parameters.transferEndpoints or parameters.transferEndpoint.');
       if (!overrides.transferTicket) throw new Error('platform.transfer_push requires parameters.transferTicket.');
       if (!expectedSha256 || !/^[a-f0-9]{64}$/.test(expectedSha256)) {
         throw new Error('platform.transfer_push requires parameters.expectedSha256 as 64 hexadecimal characters.');
@@ -426,9 +431,9 @@ export class EngineeringWorkflowEngine {
         steps: ['transfer.source_preflight', 'transfer.peer_push', 'transfer.peer_receipt'],
         dataPlane: {
           ready: blockers.length === 0,
-          transport: 'tailscale-http',
+          transport: 'direct-http',
           source,
-          endpoint,
+          endpoints,
           expectedSha256,
           expectedSize,
           blockers
@@ -436,7 +441,7 @@ export class EngineeringWorkflowEngine {
         resolved: {
           dataPlane: {
             file,
-            endpoint,
+            endpoints,
             expectedSha256,
             expectedSize,
             transferTimeoutMs: overrides.transferTimeoutMs ?? 120_000,
@@ -815,18 +820,21 @@ export class EngineeringWorkflowEngine {
       if (!transfer.ready) return { workflow, status: 'blocked', plan, steps, outputs: { transfer } };
 
       const file = overrides.file?.trim();
-      const endpoint = overrides.transferEndpoint?.trim();
+      const endpoints = [
+        ...(overrides.transferEndpoints ?? []),
+        ...(overrides.transferEndpoint?.trim() ? [overrides.transferEndpoint.trim()] : [])
+      ].filter(Boolean);
       const ticket = overrides.transferTicket;
       const expectedSha256 = overrides.expectedSha256?.trim().toLowerCase();
       const expectedSize = overrides.expectedSize;
-      if (!file || !endpoint || !ticket || !expectedSha256 || expectedSize === undefined) {
-        throw new Error('platform.transfer_push requires file, transferEndpoint, transferTicket, expectedSha256 and expectedSize.');
+      if (!file || !endpoints.length || !ticket || !expectedSha256 || expectedSize === undefined) {
+        throw new Error('platform.transfer_push requires file, transferEndpoints/transferEndpoint, transferTicket, expectedSha256 and expectedSize.');
       }
       const pushed = await capture('transfer.peer_push', () => this.dataPlane.push({
         workspace,
         basePath: projectPath,
         file,
-        endpoint,
+        endpoints,
         ticket,
         expectedSha256,
         expectedSize,

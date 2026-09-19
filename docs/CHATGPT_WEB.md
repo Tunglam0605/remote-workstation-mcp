@@ -172,9 +172,9 @@ For v0.12.0, `actionSchemaVersion=2`. Refresh the custom-app actions once after 
 
 v0.13.x keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`, so an app already refreshed for v0.12 does **not** need another action refresh. The high-level workflows are discovered through the existing `engineering_workflow_*` actions. v0.13.1 changes only Windows recovery-plane lifecycle behavior; v0.13.2 changes only OpenOCD provider discovery/script resolution; v0.13.3 adds active ST-Link access preflight and `probe-busy` diagnostics; v0.13.4 makes real xPack ownership failures observable; v0.13.5 adds artifact integrity workflows; v0.13.6 adds native firmware transfer workflows.
 
-v0.14.0 **also keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`**. It adds `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` through the same generic workflow + `parameters` envelope, and extends the output of `chatgpt_web_status` with `nodeHealth`. An app already refreshed for schema v2 does **not** need another action refresh.
+v0.14.x **also keeps `actionSchemaVersion=2` and `engineeringApiVersion=3`**. v0.14.0 adds `platform.transfer_prepare`, `platform.transfer_receive_offer`, `platform.transfer_push` and `chatgpt_web_status.nodeHealth`. v0.14.1 adds runtime-only `parameters.transferEndpoints[]` plus multi-endpoint direct fallback; the public top-level action catalog is unchanged. An app already refreshed for schema v2 does **not** need another action refresh.
 
-After refreshing, verify with `capabilities_list` and confirm both `actionSchemaVersion` and `engineeringApiVersion`. On v0.14.0, also inspect `chatgpt_web_status.nodeHealth` to confirm the local node and generic data-plane availability before a cross-node transfer.
+After refreshing, verify with `capabilities_list` and confirm both `actionSchemaVersion` and `engineeringApiVersion`. On v0.14.1, inspect `chatgpt_web_status.nodeHealth.dataPlane` for aggregate direct-path, Tailscale and private-LAN availability before a cross-node transfer.
 
 ## Step 6 - First safe verification
 

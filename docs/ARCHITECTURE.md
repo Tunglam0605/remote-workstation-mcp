@@ -65,7 +65,7 @@ Transport and agent delegation are replaceable edges. They must not bypass the p
 
 The normal MCP connection is a **control plane**. Commands, plans, compact status and bounded results travel through it. Large cross-node payloads should not be relayed through the model when the owner has an approved direct path.
 
-v0.14.0 adds a generic core `DataPlaneAdapter`:
+v0.14 adds a generic core `DataPlaneAdapter`; v0.14.1 makes direct transport multi-endpoint instead of assuming every Tailscale address is mutually reachable:
 
 ```text
 AI client
@@ -74,11 +74,12 @@ AI client
    v
 Direct Node A                    Direct Node B
      |                                |
-     +====== Tailscale data plane ====+
-             file bytes only
+     +==== approved direct data plane ====+
+       Tailscale peer path or private LAN
+                  file bytes only
 ```
 
-The normal MCP runtime remains loopback-only. A receive offer creates a separate short-lived one-shot listener bound only to a local Tailscale IPv4 interface, exact SHA-256/size contract and ephemeral bearer ticket.
+The normal MCP runtime remains loopback-only. A receive offer creates separate short-lived one-shot listeners only on approved direct IPv4 candidates (Tailscale and filtered RFC1918 private LAN), under one exact SHA-256/size contract and ephemeral bearer ticket. Network-unreachable endpoints may be retried; authenticated receiver rejections remain fail-closed.
 
 The data plane belongs to the core platform. Firmware/STM32, ROS 2, vision and other extensions may consume it but must not own or redefine it.
 

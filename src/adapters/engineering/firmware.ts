@@ -392,24 +392,39 @@ export class FirmwareAdapter {
       components: {},
       files: {}
     };
+    const formats: Record<'summary' | 'components' | 'files', 'json2' | 'json'> = {
+      summary: 'json', components: 'json', files: 'json'
+    };
     const commands = [
       ['summary', 'size'],
       ['components', 'size-components'],
       ['files', 'size-files']
     ] as const;
     for (const [key, verb] of commands) {
-      const command = await espIdfCommand([verb, '--format', 'json']);
-      const result = await this.runner.run(command.program, command.args, cwd, 120_000);
-      if (result.exitCode !== 0 || result.timedOut) {
-        throw new Error(`ESP-IDF ${verb} failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+      let accepted: { stdout: string; format: 'json2' | 'json' } | undefined;
+      const failures: string[] = [];
+      for (const format of ['json2', 'json'] as const) {
+        const command = await espIdfCommand([verb, '--format', format]);
+        const result = await this.runner.run(command.program, command.args, cwd, 120_000);
+        if (result.exitCode !== 0 || result.timedOut) {
+          failures.push(`${format}: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+          continue;
+        }
+        try {
+          JSON.parse(result.stdout.trim());
+          accepted = { stdout: result.stdout, format };
+          break;
+        } catch {
+          failures.push(`${format}: invalid structured output`);
+        }
       }
-      try {
-        outputs[key] = JSON.parse(result.stdout.trim()) as unknown;
-      } catch {
-        throw new Error(`ESP-IDF ${verb} did not return valid JSON.`);
+      if (!accepted) {
+        throw new Error(`ESP-IDF ${verb} failed structured-output compatibility probes: ${failures.join(' | ')}`);
       }
+      outputs[key] = JSON.parse(accepted.stdout.trim()) as unknown;
+      formats[key] = accepted.format;
     }
-    return { provider: 'esp-idf' as const, project, ...outputs };
+    return { provider: 'esp-idf' as const, project, formats, ...outputs };
   }
 
   async build(

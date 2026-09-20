@@ -31,7 +31,10 @@ function okCommand(): EngineeringCommandResult {
   return { program: 'fake', args: [], cwd: '.', exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 1 };
 }
 
-async function fixture(project: FirmwareProjectInfo) {
+async function fixture(
+  project: FirmwareProjectInfo,
+  extras: { docker?: any; systemd?: any; kicad?: any; platformio?: any } = {}
+) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-workflow-'));
   await fs.mkdir(path.join(root, 'project'), { recursive: true });
   const policy = new PolicyEngine(config(root));
@@ -248,7 +251,11 @@ async function fixture(project: FirmwareProjectInfo) {
     hardware as never,
     serial as never,
     debug as never,
-    ros2 as never
+    ros2 as never,
+    extras.docker,
+    extras.systemd,
+    extras.kicad,
+    extras.platformio
   );
   return {
     root,
@@ -266,6 +273,86 @@ async function fixture(project: FirmwareProjectInfo) {
     setHardwareDevices(value: HardwareDevice[]) { hardwareDevices = value; }
   };
 }
+
+test('PlatformIO projects expose diagnostics only and do not fall through to generic firmware build', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'platformio',
+    board: 'esp32-s3-devkitc-1', buildSystem: 'platformio', markers: ['platformio.ini'], ros2: false, docker: false
+  };
+  const f = await fixture(project, {
+    platformio: { async diagnostics() { return { provider: 'platformio' }; } }
+  });
+  try {
+    const listed = await f.engine.list('w', 'project');
+    assert.equal(listed.profile.kind, 'platformio');
+    assert.equal(listed.profile.firmware, undefined);
+    const ids = listed.workflows.map(item => item.id);
+    assert.ok(ids.includes('platformio.diagnostics'));
+    assert.equal(ids.includes('firmware.build'), false);
+    assert.equal(ids.includes('firmware.build_flash'), false);
+    assert.equal(ids.includes('espidf.diagnostics'), false);
+
+    const plan = await f.engine.plan('w', 'project', 'platformio.diagnostics');
+    assert.deepEqual(plan.steps, [
+      'platformio.version',
+      'platformio.project.metadata.json',
+      'platformio.project.config_lint.json',
+      'platformio.system.info.json',
+      'platformio.device.list.json'
+    ]);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('KiCad fabrication workflow is explicit, write-classified and rejects unsafe output paths at plan time', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'unknown', framework: 'unknown',
+    markers: ['robot.kicad_pcb', 'robot.kicad_sch'], ros2: false, docker: false,
+    kicad: { board: 'robot.kicad_pcb', schematic: 'robot.kicad_sch', jobsets: [] }
+  };
+  const calls: string[] = [];
+  const f = await fixture(project, {
+    kicad: {
+      async fabricationExport(_workspace: string, _projectPath: string, _files: unknown, outputDir: string) {
+        calls.push(outputDir);
+        return { outputDir, manifestPath: `${outputDir}/manifest.json` };
+      },
+      async diagnostics() { return {}; },
+      async validate() { return {}; }
+    }
+  });
+  try {
+    const listed = await f.engine.list('w', 'project');
+    const fabrication = listed.workflows.find(item => item.id === 'kicad.fabrication_export');
+    assert.equal(fabrication?.destructive, true);
+
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'kicad.fabrication_export'),
+      /kicadOutputDir/
+    );
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'kicad.fabrication_export', { kicadOutputDir: '../escape' }),
+      /escape/
+    );
+    await assert.rejects(
+      () => f.engine.plan('w', 'project', 'kicad.fabrication_export', { kicadOutputDir: '.git/fab' }),
+      /must not target \.git/
+    );
+
+    const plan = await f.engine.plan('w', 'project', 'kicad.fabrication_export', { kicadOutputDir: 'fab/rev-a' });
+    assert.equal((plan.resolved as any).outputDir, 'fab/rev-a');
+    assert.ok(plan.steps.includes('kicad.drc.json'));
+    assert.ok(plan.steps.includes('kicad.export.gerbers'));
+    assert.ok(plan.steps.includes('kicad.fabrication.manifest.sha256'));
+
+    const run = await f.engine.run('w', 'project', 'kicad.fabrication_export', { kicadOutputDir: 'fab/rev-a' });
+    assert.equal(run.status, 'succeeded');
+    assert.deepEqual(calls, ['fab/rev-a']);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
 
 test('project profile persists recurring ESP-IDF flash and monitor defaults', async () => {
   const project: FirmwareProjectInfo = {

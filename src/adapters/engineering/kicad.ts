@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -118,6 +119,82 @@ async function readJsonBounded(file: string): Promise<unknown> {
   return JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
 }
 
+function safeOutputDirectory(value: string): string {
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 1024) throw new Error('KiCad output directory must contain 1..1024 characters.');
+  if (path.isAbsolute(normalized)) throw new Error('KiCad output directory must remain project-relative.');
+  const segments = normalized.split(/[\\/]+/);
+  if (segments.includes('..') || segments.includes('.git')) {
+    throw new Error('KiCad output directory must not escape the project or target .git.');
+  }
+  const result = path.normalize(normalized);
+  if (result === '.' || result === '') throw new Error('KiCad output directory must not be the project root.');
+  return result;
+}
+
+function insideRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+async function prepareNewOutputDirectory(projectRoot: string, relativeOutput: string): Promise<string> {
+  let current = projectRoot;
+  const segments = relativeOutput.split(path.sep).filter(Boolean);
+  for (let index = 0; index < segments.length; index += 1) {
+    const candidate = path.join(current, segments[index]!);
+    const final = index === segments.length - 1;
+    try {
+      const stat = await fs.lstat(candidate);
+      if (stat.isSymbolicLink()) throw new Error('KiCad fabrication output path must not traverse symbolic links.');
+      if (final) throw new Error('KiCad fabrication output directory already exists; choose a new destination.');
+      if (!stat.isDirectory()) throw new Error('KiCad fabrication output parent must be a directory.');
+      const real = await fs.realpath(candidate);
+      if (!insideRoot(projectRoot, real)) throw new Error('KiCad fabrication output path escapes the project.');
+      current = real;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await fs.mkdir(candidate);
+      current = candidate;
+    }
+  }
+  return current;
+}
+
+async function sha256File(file: string): Promise<{ sha256: string; size: number }> {
+  const stat = await fs.stat(file);
+  if (!stat.isFile()) throw new Error('KiCad fabrication output must be a regular file.');
+  if (stat.size > 64 * 1024 * 1024) throw new Error('KiCad fabrication output exceeds the per-file 64 MiB limit.');
+  const data = await fs.readFile(file);
+  return { sha256: createHash('sha256').update(data).digest('hex'), size: stat.size };
+}
+
+async function fabricationManifest(root: string) {
+  const files: Array<{ path: string; size: number; sha256: string }> = [];
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const absolute = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) throw new Error('KiCad fabrication output must not contain symbolic links.');
+      if (entry.isDirectory()) {
+        await walk(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (files.length >= 512) throw new Error('KiCad fabrication output exceeds the 512-file manifest limit.');
+      const digest = await sha256File(absolute);
+      files.push({
+        path: path.relative(root, absolute).split(path.sep).join('/'),
+        size: digest.size,
+        sha256: digest.sha256
+      });
+    }
+  };
+  await walk(root);
+  const totalBytes = files.reduce((sum, item) => sum + item.size, 0);
+  if (totalBytes > 256 * 1024 * 1024) throw new Error('KiCad fabrication output exceeds the 256 MiB bundle limit.');
+  return { schemaVersion: 1 as const, fileCount: files.length, totalBytes, files };
+}
+
 async function discoverKicadCli(): Promise<{ path: string; source: 'owner-override' | 'path' | 'known-install' }> {
   const override = process.env.RWMCP_KICAD_CLI?.trim();
   if (override) {
@@ -232,5 +309,85 @@ export class KicadAdapter {
       files.schematic ? this.erc(workspace, projectPath, files.schematic) : Promise.resolve(undefined)
     ]);
     return { files, ...(drc ? { drc } : {}), ...(erc ? { erc } : {}) };
+  }
+
+  async fabricationExport(
+    workspace: string,
+    projectPath: string,
+    files: KicadProjectFiles,
+    outputDir: string
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!files.board) throw new Error('KiCad fabrication export requires a .kicad_pcb board file.');
+
+    const validation = await this.validate(workspace, projectPath, files);
+    const drcErrors = Number(validation.drc?.report.counts.bySeverity.error ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.bySeverity.error ?? 0);
+    if (drcErrors + ercErrors > 0) {
+      throw new Error(`KiCad fabrication export blocked by validation errors: DRC=${drcErrors}, ERC=${ercErrors}.`);
+    }
+
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const relativeOutput = safeOutputDirectory(outputDir);
+    const output = await prepareNewOutputDirectory(projectRoot, relativeOutput);
+
+    const cli = await discoverKicadCli();
+    const board = await resolveExistingProjectPath(this.paths, workspace, projectPath, files.board, 'KiCad board file');
+    const schematic = files.schematic
+      ? await resolveExistingProjectPath(this.paths, workspace, projectPath, files.schematic, 'KiCad schematic file')
+      : undefined;
+    const gerbers = path.join(output, 'gerbers');
+    const drill = path.join(output, 'drill');
+    const bom = path.join(output, 'bom.csv');
+
+    await fs.mkdir(gerbers, { recursive: true });
+    await fs.mkdir(drill, { recursive: true });
+
+    const commands: Array<{ id: string; args: string[] }> = [
+      { id: 'gerbers', args: ['pcb', 'export', 'gerbers', '--output', gerbers, board] },
+      { id: 'drill', args: ['pcb', 'export', 'drill', '--output', drill, board] },
+      ...(schematic ? [{ id: 'bom', args: ['sch', 'export', 'bom', '--output', bom, schematic] }] : [])
+    ];
+
+    try {
+      for (const command of commands) {
+        const result = await this.runner.run(cli.path, command.args, projectRoot, 180_000);
+        if (result.exitCode !== 0 || result.timedOut) {
+          throw new Error(`KiCad ${command.id} export failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+        }
+      }
+      const manifest = await fabricationManifest(output);
+      const manifestPath = path.join(output, 'manifest.json');
+      await fs.writeFile(manifestPath, `${JSON.stringify({
+        ...manifest,
+        generatedAt: new Date().toISOString(),
+        source: {
+          board: files.board,
+          ...(files.schematic ? { schematic: files.schematic } : {})
+        },
+        validation: { drcErrors, ercErrors }
+      }, null, 2)}\n`, 'utf8');
+      return {
+        outputDir: relativeOutput.split(path.sep).join('/'),
+        manifestPath: path.relative(projectRoot, manifestPath).split(path.sep).join('/'),
+        manifest,
+        validation,
+        commands: commands.map(command => ({
+          id: command.id,
+          args: command.args.map(arg =>
+            arg === board ? files.board! :
+            arg === schematic ? files.schematic! :
+            arg === gerbers ? path.join(relativeOutput, 'gerbers').split(path.sep).join('/') :
+            arg === drill ? path.join(relativeOutput, 'drill').split(path.sep).join('/') :
+            arg === bom ? path.join(relativeOutput, 'bom.csv').split(path.sep).join('/') :
+            arg
+          )
+        }))
+      };
+    } catch (error) {
+      await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 }

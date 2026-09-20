@@ -62,6 +62,7 @@ export type EngineeringWorkflowId =
   | 'docker.container_logs'
   | 'kicad.diagnostics'
   | 'kicad.validate'
+  | 'kicad.fabrication_export'
   | 'systemd.service_diagnostics'
   | 'systemd.service_restart';
 
@@ -93,6 +94,7 @@ export interface EngineeringWorkflowOverrides {
   rosBagPath?: string;
   dockerContainer?: string;
   dockerLogTail?: number;
+  kicadOutputDir?: string;
   systemdUnit?: string;
   systemdUser?: boolean;
   journalLines?: number;
@@ -166,7 +168,9 @@ function projectChild(projectPath: string, child = '.'): string {
 }
 
 function detectKind(project: FirmwareProjectInfo): EngineeringProjectKind {
-  const embedded = project.family === 'stm32' ? 'stm32' : project.family === 'esp32' ? 'esp-idf' : undefined;
+  const embedded = project.framework === 'platformio'
+    ? 'platformio'
+    : project.family === 'stm32' ? 'stm32' : project.family === 'esp32' ? 'esp-idf' : undefined;
   if (embedded && project.ros2) return 'mixed';
   if (embedded) return embedded;
   if (project.ros2) return 'ros2';
@@ -304,7 +308,7 @@ export class EngineeringWorkflowEngine {
           flashProvider: 'openocd'
         };
       }
-    } else if (project.family === 'esp32') {
+    } else if (project.family === 'esp32' && project.framework !== 'platformio') {
       profile.firmware = {
         buildProvider: 'esp-idf',
         buildDir: 'build',
@@ -466,7 +470,7 @@ export class EngineeringWorkflowEngine {
       ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.doctor', 'ros2.test', 'ros2.bag_info', 'ros2.build_health');
     }
     if (state.project.docker && this.docker) ids.push('docker.diagnostics', 'docker.stats_snapshot', 'docker.container_inspect', 'docker.container_logs');
-    if (state.project.kicad && this.kicad) ids.push('kicad.diagnostics', 'kicad.validate');
+    if (state.project.kicad && this.kicad) ids.push('kicad.diagnostics', 'kicad.validate', ...(state.project.kicad.board ? ['kicad.fabrication_export' as EngineeringWorkflowId] : []));
     if (os.platform() === 'linux' && this.systemd) {
       ids.push('systemd.service_diagnostics', 'systemd.service_restart');
     }
@@ -491,6 +495,7 @@ export class EngineeringWorkflowEngine {
           id.startsWith('firmware.build_flash') ||
           id === 'stm32.debug_fault_snapshot' ||
           id === 'stm32.deploy_accept' ||
+          id === 'kicad.fabrication_export' ||
           id === 'systemd.service_restart',
         description: {
           'platform.transfer_prepare': 'Hash any regular workspace file and emit a generic SHA-256/size manifest without moving or modifying it.',
@@ -508,7 +513,7 @@ export class EngineeringWorkflowEngine {
           'firmware.artifact_push': 'Stream one verified local firmware artifact directly to a Tailscale peer receive ticket without routing payload bytes through ChatGPT.',
           'espidf.diagnostics': 'Inspect ESP-IDF provider/version, project metadata, firmware artifacts and discovered serial ports without flashing.',
           'espidf.size_analysis': 'Collect official ESP-IDF JSON size, component and file memory analysis without flashing or changing project configuration.',
-          'platformio.diagnostics': 'Inspect PlatformIO Core version, project metadata and serial device inventory through official JSON outputs without build/upload mutation.',
+          'platformio.diagnostics': 'Inspect PlatformIO Core version, project metadata, computed-config lint, system info and serial device inventory through official JSON outputs without build/upload mutation.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
           'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
@@ -529,6 +534,7 @@ export class EngineeringWorkflowEngine {
           'docker.container_logs': 'Read a bounded tail from one explicit container without lifecycle or exec mutation.',
           'kicad.diagnostics': 'Inspect KiCad CLI/version, project file inventory and board statistics through JSON output without modifying design sources.',
           'kicad.validate': 'Run KiCad ERC/DRC into temporary JSON reports outside the project and return bounded validation findings without saving or upgrading design sources.',
+          'kicad.fabrication_export': 'Run ERC/DRC preflight, then export Gerbers, drill files and optional BOM into a new project-local output directory with a SHA-256 manifest; source design files are never saved or upgraded.',
           'systemd.service_diagnostics': 'Read one explicit systemd unit state and bounded journal tail on Linux.',
           'systemd.service_restart': 'Restart one exact owner-allowlisted systemd unit, then collect post-restart diagnostics.'
         }[id]
@@ -859,7 +865,7 @@ export class EngineeringWorkflowEngine {
         manifestPath: state.manifestPath,
         project: state.project,
         profile: state.profile,
-        steps: ['platformio.version', 'platformio.project.metadata.json', 'platformio.device.list.json']
+        steps: ['platformio.version', 'platformio.project.metadata.json', 'platformio.project.config_lint.json', 'platformio.system.info.json', 'platformio.device.list.json']
       };
     }
 
@@ -893,12 +899,21 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate') {
+    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate' || workflow === 'kicad.fabrication_export') {
       const kicad = state.project.kicad;
       if (!kicad) throw new Error(`${workflow} requires a detected KiCad project.`);
+      let kicadOutputDir: string | undefined;
+      if (workflow === 'kicad.fabrication_export') {
+        kicadOutputDir = overrides.kicadOutputDir?.trim();
+        if (!kicadOutputDir) throw new Error('kicad.fabrication_export requires parameters.kicadOutputDir.');
+        projectChild(projectPath, kicadOutputDir);
+        if (kicadOutputDir.split(/[\\/]+/).includes('.git')) throw new Error('kicadOutputDir must not target .git.');
+      }
       const steps = workflow === 'kicad.validate'
         ? [...(kicad.schematic ? ['kicad.erc.json'] : []), ...(kicad.board ? ['kicad.drc.json'] : [])]
-        : ['kicad.version', 'kicad.project.files', ...(kicad.board ? ['kicad.board.stats.json'] : [])];
+        : workflow === 'kicad.fabrication_export'
+          ? [...(kicad.schematic ? ['kicad.erc.json'] : []), 'kicad.drc.json', 'kicad.export.gerbers', 'kicad.export.drill', ...(kicad.schematic ? ['kicad.export.bom'] : []), 'kicad.fabrication.manifest.sha256']
+          : ['kicad.version', 'kicad.project.files', ...(kicad.board ? ['kicad.board.stats.json'] : [])];
       return {
         workflow,
         profileFound: state.profileFound,
@@ -906,7 +921,7 @@ export class EngineeringWorkflowEngine {
         project: state.project,
         profile: state.profile,
         steps,
-        resolved: { kicad }
+        resolved: { kicad, ...(kicadOutputDir ? { outputDir: kicadOutputDir } : {}) }
       };
     }
 
@@ -1568,7 +1583,7 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate') {
+    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate' || workflow === 'kicad.fabrication_export') {
       if (!this.kicad) throw new Error('KiCad adapter is unavailable.');
       const kicad = state.project.kicad;
       if (!kicad) throw new Error(`${workflow} requires a detected KiCad project.`);
@@ -1576,7 +1591,9 @@ export class EngineeringWorkflowEngine {
         workflow,
         () => workflow === 'kicad.validate'
           ? this.kicad!.validate(workspace, projectPath, kicad)
-          : this.kicad!.diagnostics(workspace, projectPath, kicad)
+          : workflow === 'kicad.fabrication_export'
+            ? this.kicad!.fabricationExport(workspace, projectPath, kicad, overrides.kicadOutputDir!)
+            : this.kicad!.diagnostics(workspace, projectPath, kicad)
       );
       return {
         workflow,

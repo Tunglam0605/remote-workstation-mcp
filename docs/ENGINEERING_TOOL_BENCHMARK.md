@@ -25,7 +25,7 @@ Patterns to adopt:
 
 RWMCP application:
 - Enrich espidf.diagnostics with build metadata and supported-target discovery.
-- v0.22 adds official JSON size, component and file memory analysis through idf.py size commands.
+- v0.22 adds structured size, component and file memory analysis through idf.py size commands and probes `json2` first with `json` fallback because ESP-IDF 6.x and 5.x expose different structured format names.
 - Explicit chip/flash identity inspection remains a later bounded phase.
 - Keep erase/eFuse/security mutation outside default engineering workflows.
 
@@ -74,7 +74,7 @@ Patterns to adopt:
 - Treat build/upload/monitor as separate lifecycle operations; do not infer upload authority from project detection.
 
 RWMCP application:
-- v0.22 detects `platformio.ini` and adds read-only/diagnostic metadata plus device inventory through official JSON outputs.
+- v0.22 detects `platformio.ini` and adds project metadata, computed-config lint, system info and device inventory through official JSON outputs.
 - Generic firmware build/flash workflows are intentionally not advertised for PlatformIO yet; a dedicated typed provider must define environment selection, upload port and hardware-resource ownership first.
 
 ## systemd
@@ -106,8 +106,9 @@ Patterns to adopt:
 - Prefer kicad-cli/KiBot contracts over GUI clicking when equivalent CLI capability exists.
 
 RWMCP application:
-- Next phase: detect KiCad projects, add read-only diagnostics, DRC/ERC preflight and bounded export plans.
-- Any source-modifying PCB operation must remain explicit and reviewable.
+- KiCad project detection, diagnostics and DRC/ERC preflight are implemented.
+- v0.22 adds validation-gated Gerber/drill/BOM fabrication export into a new isolated project-local output directory plus a bounded per-file SHA-256 manifest.
+- Any source-modifying PCB operation remains excluded unless it becomes an explicit, reviewable future contract.
 
 ## Explicit non-goals
 

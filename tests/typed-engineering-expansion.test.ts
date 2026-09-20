@@ -317,13 +317,19 @@ test('PlatformIO diagnostics use official JSON metadata and device inventory wit
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
       if (args[0] === '--version') return command(program, args, cwd, 'PlatformIO Core, version 6.1.18\n');
-      if (args[0] === 'project') {
+      if (args[0] === 'project' && args[1] === 'metadata') {
         return command(program, args, cwd, JSON.stringify({
           env_name: 'esp32s3',
           platform: 'espressif32',
           board: 'esp32-s3-devkitc-1',
           framework: ['arduino']
         }));
+      }
+      if (args[0] === 'project' && args[1] === 'config') {
+        return command(program, args, cwd, JSON.stringify({ env: { esp32s3: { platform: 'espressif32', board: 'esp32-s3-devkitc-1' } } }));
+      }
+      if (args[0] === 'system' && args[1] === 'info') {
+        return command(program, args, cwd, JSON.stringify({ platformio_core_version: '6.2.0', python_version: '3.12.7' }));
       }
       if (args[0] === 'device') {
         return command(program, args, cwd, JSON.stringify([
@@ -340,6 +346,8 @@ test('PlatformIO diagnostics use official JSON metadata and device inventory wit
     const result = await adapter.diagnostics('w');
     assert.match(result.version, /PlatformIO Core/);
     assert.equal((result.metadata as any).board, 'esp32-s3-devkitc-1');
+    assert.equal((result.computedConfig as any).env.esp32s3.board, 'esp32-s3-devkitc-1');
+    assert.equal((result.system as any).platformio_core_version, '6.2.0');
     assert.equal(result.serialDevices.length, 1);
     assert.equal(calls.some(args => ['run', 'upload', 'erase'].includes(args[0] ?? '')), false);
   } finally {
@@ -379,10 +387,54 @@ test('ESP-IDF size analysis consumes official JSON size outputs and never flashe
     const engine = new PolicyEngine(config(root, 'workspace'));
     const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
     const result = await adapter.espIdfSizeAnalysis('w');
+    assert.equal(result.formats.summary, 'json2');
+    assert.equal(result.formats.components, 'json2');
+    assert.equal(result.formats.files, 'json2');
     assert.equal((result.summary as any).total_size, 4096);
     assert.equal((result.components as any).components[0].name, 'main');
     assert.equal((result.files as any).files[0].name, 'main.c.obj');
     assert.equal(calls.some(args => args.includes('flash') || args.includes('erase-flash')), false);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ESP-IDF size analysis falls back from json2 to json for ESP-IDF 5.x compatibility', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-size-v5-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+    'cmake_minimum_required(VERSION 3.16)',
+    'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+    'project(size_fixture_v5)'
+  ].join('\n'));
+  await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+  await fakeExecutable(bin, 'idf.py');
+  await fakeExecutable(bin, 'python');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      if (args.includes('json2')) return command(program, args, cwd, '', 'invalid choice: json2', 2);
+      if (args.includes('json')) {
+        if (args.includes('size-components')) return command(program, args, cwd, JSON.stringify({ components: [] }));
+        if (args.includes('size-files')) return command(program, args, cwd, JSON.stringify({ files: [] }));
+        return command(program, args, cwd, JSON.stringify({ total_size: 2048 }));
+      }
+      return command(program, args, cwd, 'ESP-IDF v5.5.4\n');
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
+    const result = await adapter.espIdfSizeAnalysis('w');
+    assert.deepEqual(result.formats, { summary: 'json', components: 'json', files: 'json' });
+    assert.equal((result.summary as any).total_size, 2048);
+    assert.ok(calls.some(args => args.includes('json2')));
+    assert.ok(calls.some(args => args.includes('json')));
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });
@@ -528,6 +580,102 @@ test('KiCad diagnostics and validation use bounded JSON reports without source m
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('KiCad fabrication export gates on ERC/DRC and emits isolated SHA-256 manifest without source edits', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-fabrication-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin, 'kicad-cli');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const board = path.join(root, 'robot.kicad_pcb');
+  const schematic = path.join(root, 'robot.kicad_sch');
+  await fs.writeFile(board, '(kicad_pcb source)');
+  await fs.writeFile(schematic, '(kicad_sch source)');
+  const boardBefore = await fs.readFile(board, 'utf8');
+  const schematicBefore = await fs.readFile(schematic, 'utf8');
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      if (args[0] === 'version') return command(program, args, cwd, '10.0.6\n');
+      const outputIndex = args.indexOf('--output');
+      const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
+      if (args.includes('drc')) {
+        await fs.writeFile(output!, JSON.stringify({
+          violations: [], unconnected_items: [], schematic_parity: [], ignored_checks: []
+        }));
+      } else if (args.includes('erc')) {
+        await fs.writeFile(output!, JSON.stringify({ sheets: [{ path: '/', violations: [] }] }));
+      } else if (args.includes('gerbers')) {
+        await fs.mkdir(output!, { recursive: true });
+        await fs.writeFile(path.join(output!, 'robot-F_Cu.gbr'), 'G04 front*');
+        await fs.writeFile(path.join(output!, 'robot-B_Cu.gbr'), 'G04 back*');
+      } else if (args.includes('drill')) {
+        await fs.mkdir(output!, { recursive: true });
+        await fs.writeFile(path.join(output!, 'robot-PTH.drl'), 'M48');
+      } else if (args.includes('bom')) {
+        await fs.writeFile(output!, 'Refs,Value,Footprint,Qty,DNP\nR1,10k,R_0603,1,\n');
+      }
+      return command(program, args, cwd);
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new KicadAdapter(engine, new PathGuard(engine), runner as never);
+    const files = { schematic: 'robot.kicad_sch', board: 'robot.kicad_pcb', jobsets: [] };
+    const result = await adapter.fabricationExport('w', '.', files, 'out/fab-v1');
+    assert.equal(result.outputDir.replace(/\\/g, '/'), 'out/fab-v1');
+    assert.equal(result.manifest.fileCount, 4);
+    assert.equal(result.manifest.files.every(item => /^[a-f0-9]{64}$/.test(item.sha256)), true);
+    assert.equal(result.manifest.files.some(item => item.path === 'bom.csv'), true);
+    assert.equal(await fs.readFile(board, 'utf8'), boardBefore);
+    assert.equal(await fs.readFile(schematic, 'utf8'), schematicBefore);
+    assert.equal(calls.flat().includes('--save-board'), false);
+    assert.equal(calls.flat().includes('--refill-zones'), false);
+    await assert.rejects(() => adapter.fabricationExport('w', '.', files, 'out/fab-v1'), /already exists/);
+    await assert.rejects(() => adapter.fabricationExport('w', '.', files, '../escape'), /project-relative|escape/);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('KiCad fabrication export rejects symlinked output parents', { skip: process.platform === 'win32' }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-fabrication-symlink-'));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-fabrication-outside-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin, 'kicad-cli');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  await fs.writeFile(path.join(root, 'robot.kicad_pcb'), '(kicad_pcb source)');
+  await fs.symlink(outside, path.join(root, 'linked-output'), 'dir');
+
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      const outputIndex = args.indexOf('--output');
+      const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
+      if (args.includes('drc')) {
+        await fs.writeFile(output!, JSON.stringify({ violations: [], unconnected_items: [], schematic_parity: [], ignored_checks: [] }));
+      }
+      return command(program, args, cwd);
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new KicadAdapter(engine, new PathGuard(engine), runner as never);
+    await assert.rejects(
+      () => adapter.fabricationExport('w', '.', { board: 'robot.kicad_pcb', jobsets: [] }, 'linked-output/fab-v1'),
+      /symbolic links/
+    );
+    assert.deepEqual(await fs.readdir(outside), []);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
   }
 });
 

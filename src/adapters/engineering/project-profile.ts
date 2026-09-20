@@ -6,7 +6,7 @@ import type { SerialDeviceSelector } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
 
-export type EngineeringProjectKind = 'stm32' | 'esp-idf' | 'ros2' | 'mixed' | 'generic';
+export type EngineeringProjectKind = 'stm32' | 'esp-idf' | 'platformio' | 'ros2' | 'mixed' | 'generic';
 
 export interface EngineeringFirmwareVariant {
   buildDir?: string;
@@ -89,7 +89,7 @@ const profileSchema = z.object({
   version: z.literal(1),
   id: profileId,
   name: z.string().min(1).max(160).optional(),
-  kind: z.enum(['stm32', 'esp-idf', 'ros2', 'mixed', 'generic']).default('generic'),
+  kind: z.enum(['stm32', 'esp-idf', 'platformio', 'ros2', 'mixed', 'generic']).default('generic'),
   firmware: z.object({
     buildProvider: z.enum(['auto', 'esp-idf', 'cmake', 'make', 'keil']).default('auto'),
     buildDir: relativePath.default('build'),

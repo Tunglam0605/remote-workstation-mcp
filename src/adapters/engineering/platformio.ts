@@ -28,9 +28,11 @@ export class PlatformioAdapter {
     this.policy.assertEngineeringExecute();
     const cwd = await this.paths.resolveExisting(workspace, projectPath);
     const executable = await this.executable();
-    const [version, metadata, devices] = await Promise.all([
+    const [version, metadata, projectConfig, systemInfo, devices] = await Promise.all([
       this.runner.run(executable, ['--version'], cwd, 10_000),
       this.runner.run(executable, ['project', 'metadata', '--json-output'], cwd, 60_000),
+      this.runner.run(executable, ['project', 'config', '--lint', '--json-output'], cwd, 30_000),
+      this.runner.run(executable, ['system', 'info', '--json-output'], cwd, 20_000),
       this.runner.run(executable, ['device', 'list', '--json-output'], cwd, 20_000)
     ]);
     if (version.exitCode !== 0 || version.timedOut) {
@@ -40,6 +42,18 @@ export class PlatformioAdapter {
       throw new Error(`PlatformIO metadata failed: ${metadata.stderr || metadata.stdout || `exit=${metadata.exitCode}`}`);
     }
     const warnings: string[] = [];
+    let computedConfig: unknown;
+    let system: unknown;
+    if (projectConfig.exitCode === 0 && !projectConfig.timedOut) {
+      computedConfig = parseJson<unknown>(projectConfig.stdout, 'project config');
+    } else {
+      warnings.push(`PlatformIO project config lint failed: ${projectConfig.stderr || projectConfig.stdout || `exit=${projectConfig.exitCode}`}`);
+    }
+    if (systemInfo.exitCode === 0 && !systemInfo.timedOut) {
+      system = parseJson<unknown>(systemInfo.stdout, 'system info');
+    } else {
+      warnings.push(`PlatformIO system info failed: ${systemInfo.stderr || systemInfo.stdout || `exit=${systemInfo.exitCode}`}`);
+    }
     let serialDevices: unknown[] = [];
     if (devices.exitCode === 0 && !devices.timedOut) {
       const parsed = parseJson<unknown>(devices.stdout, 'device list');
@@ -51,6 +65,8 @@ export class PlatformioAdapter {
       provider: 'platformio' as const,
       version: (version.stdout || version.stderr).trim(),
       metadata: parseJson<unknown>(metadata.stdout, 'project metadata'),
+      computedConfig,
+      system,
       serialDevices,
       warnings
     };

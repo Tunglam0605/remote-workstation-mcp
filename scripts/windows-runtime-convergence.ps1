@@ -28,16 +28,50 @@ function Get-RwmcpManagedProcessEntries([string]$Needle) {
   }
 }
 
-function Test-RwmcpProcessDescendant([int]$ProcessId, [int]$AncestorId) {
+function Test-RwmcpProcessDescendant {
+  param(
+    [Parameter(Mandatory = $true)][int]$ProcessId,
+    [Parameter(Mandatory = $true)][int]$AncestorId,
+    [scriptblock]$ProcessLookup = $null
+  )
+
+  $lookup = if ($ProcessLookup) {
+    $ProcessLookup
+  } else {
+    { param([int]$Id) Get-CimInstance Win32_Process -Filter "ProcessId=$Id" -ErrorAction Stop }
+  }
+
   $current = $ProcessId
+  $entry = $null
   foreach ($depth in 1..32) {
     if ($current -eq $AncestorId) { return $true }
-    try { $entry = Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction Stop }
+    if (-not $entry) {
+      try { $entry = & $lookup $current }
+      catch { return $false }
+      if (-not $entry) { return $false }
+    }
+
+    $parentId = [int]$entry.ParentProcessId
+    if ($parentId -le 0 -or $parentId -eq $current) { return $false }
+
+    try { $parentEntry = & $lookup $parentId }
     catch { return $false }
-    if (-not $entry) { return $false }
-    $parent = [int]$entry.ParentProcessId
-    if ($parent -le 0 -or $parent -eq $current) { return $false }
-    $current = $parent
+    if (-not $parentEntry) { return $false }
+
+    # Win32_Process stores only the numeric parent PID. If that parent has
+    # already exited, Windows may reuse the PID for a newer unrelated process.
+    # Never treat such a newer process as an ancestor of the older child.
+    try {
+      $childCreated = [DateTime]$entry.CreationDate
+      $parentCreated = [DateTime]$parentEntry.CreationDate
+      if ($parentCreated -gt $childCreated) { return $false }
+    } catch {
+      # If creation metadata is unavailable, preserve the historical bounded
+      # PID walk rather than widening process-kill authority.
+    }
+
+    $current = $parentId
+    $entry = $parentEntry
   }
   return $false
 }

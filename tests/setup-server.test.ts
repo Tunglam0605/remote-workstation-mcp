@@ -40,7 +40,13 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /<dialog class="gw-modal setup-modal" id="setupModal">/);
     assert.match(pageText, /<dialog class="gw-modal confirm-modal" id="fullAccessConfirmModal">/);
     assert.doesNotMatch(pageText, /<details class="advanced-panel">/);
-    assert.match(pageText, /<dialog class="gw-modal" id="adminApprovalCard">/);
+    assert.match(pageText, /id="notificationToggle"/);
+    assert.match(pageText, /id="notificationBadge"/);
+    assert.match(pageText, /id="notificationPanel"/);
+    assert.match(pageText, /id="notificationList"/);
+    assert.doesNotMatch(pageText, /id="adminApprovalCard"/);
+    assert.match(pageText, /r=>r\.state==='pending'/);
+    assert.doesNotMatch(pageText, /\['pending','approved','running'\]/);
     assert.match(pageText, /value="read_only"/);
     assert.match(pageText, /value="workspace"/);
     assert.match(pageText, /value="full_control"/);

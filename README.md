@@ -12,11 +12,11 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.17.0 · channel=stable · Action Schema 4 · Engineering API 4**
+**Stable release: v0.17.1 · channel=stable · Action Schema 4 · Engineering API 4**
 
 The v0.17 orchestration core, post-Phase-3 coordination foundation, full Linux/Windows CI and three-node packed sidecar RC smoke have passed. Managed production rollout remains guarded by each node's existing checksum, health, readiness and rollback path.
 
-**v0.17.0 - Phase 3 orchestration core + post-Phase-3 coordination foundation**
+**v0.17.1 - Phase 3 orchestration core + Control Center notification-queue hotfix**
 
 Phase 3I closes the Work Objective / Task Graph / Scheduler acceptance gates. The next v0.17 foundation adds Project Session Group coordination and a read-only Worker Provider Registry without introducing autonomous dispatch authority.
 

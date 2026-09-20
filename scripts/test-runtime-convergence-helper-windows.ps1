@@ -27,6 +27,29 @@ try {
   . (Join-Path $repoRoot 'scripts\windows-settings.ps1')
   . (Join-Path $repoRoot 'scripts\windows-runtime-convergence.ps1')
 
+  # ParentProcessId is not a durable process identity on Windows. Verify that a
+  # reused parent PID with a newer CreationDate cannot be mistaken for an
+  # ancestor, while a normal older-parent chain is still recognized.
+  $childCreated = [DateTime]'2026-09-20T11:00:00Z'
+  $olderParentCreated = $childCreated.AddMinutes(-1)
+  $newerReusedCreated = $childCreated.AddMinutes(1)
+  $reusedMap = @{
+    100 = [pscustomobject]@{ ProcessId=100; ParentProcessId=200; CreationDate=$childCreated }
+    200 = [pscustomobject]@{ ProcessId=200; ParentProcessId=0; CreationDate=$newerReusedCreated }
+  }
+  $reusedLookup = { param([int]$Id) $reusedMap[$Id] }.GetNewClosure()
+  if (Test-RwmcpProcessDescendant -ProcessId 100 -AncestorId 200 -ProcessLookup $reusedLookup) {
+    throw 'PID reuse guard treated a newer unrelated process as an ancestor.'
+  }
+  $validMap = @{
+    300 = [pscustomobject]@{ ProcessId=300; ParentProcessId=400; CreationDate=$childCreated }
+    400 = [pscustomobject]@{ ProcessId=400; ParentProcessId=0; CreationDate=$olderParentCreated }
+  }
+  $validLookup = { param([int]$Id) $validMap[$Id] }.GetNewClosure()
+  if (-not (Test-RwmcpProcessDescendant -ProcessId 300 -AncestorId 400 -ProcessLookup $validLookup)) {
+    throw 'Creation-aware ancestry guard rejected a valid parent chain.'
+  }
+
   $fakeHost = Join-Path $oldScripts 'runtime-host-windows.ps1'
   [IO.File]::WriteAllText($fakeHost, "Start-Sleep -Seconds 120" + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
   $fakeTunnel = Join-Path $oldDist 'openai-tunnel-cli.js'

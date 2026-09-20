@@ -14,13 +14,22 @@ export interface WorkTaskConcurrency {
   key?: string;
 }
 
-export interface WorkTaskExecutionBinding {
+export interface EngineeringWorkflowTaskExecutionBinding {
   kind: 'engineering-workflow';
   workspace: string;
   projectPath: string;
   workflow: string;
   parameters: PersistedWorkflowParameters;
 }
+
+export interface WorkerProviderTaskExecutionBinding {
+  kind: 'worker-provider';
+  providerId: string;
+}
+
+export type WorkTaskExecutionBinding =
+  | EngineeringWorkflowTaskExecutionBinding
+  | WorkerProviderTaskExecutionBinding;
 
 export interface WorkTask {
   version: 1;
@@ -129,16 +138,23 @@ function normalizeExecution(
   value: WorkTaskExecutionBinding | undefined
 ): WorkTaskExecutionBinding | undefined {
   if (!value) return undefined;
-  if (value.kind !== 'engineering-workflow') {
-    throw new Error('Unsupported Work Task execution binding.');
+  if (value.kind === 'engineering-workflow') {
+    return {
+      kind: 'engineering-workflow',
+      workspace: bounded(value.workspace, 'execution.workspace', 128),
+      projectPath: bounded(value.projectPath || '.', 'execution.projectPath', 1024),
+      workflow: engineeringWorkflowIdSchema.parse(value.workflow),
+      parameters: persistedWorkflowParametersSchema.parse(value.parameters ?? {})
+    };
   }
-  return {
-    kind: 'engineering-workflow',
-    workspace: bounded(value.workspace, 'execution.workspace', 128),
-    projectPath: bounded(value.projectPath || '.', 'execution.projectPath', 1024),
-    workflow: engineeringWorkflowIdSchema.parse(value.workflow),
-    parameters: persistedWorkflowParametersSchema.parse(value.parameters ?? {})
-  };
+  if (value.kind === 'worker-provider') {
+    const providerId = bounded(value.providerId, 'execution.providerId', 64);
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(providerId)) {
+      throw new Error('execution.providerId must match [a-z0-9][a-z0-9._-]{0,63}.');
+    }
+    return { kind: 'worker-provider', providerId };
+  }
+  throw new Error('Unsupported Work Task execution binding.');
 }
 
 function validateTask(value: unknown): WorkTask {

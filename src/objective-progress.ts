@@ -21,6 +21,7 @@ export interface ObjectiveTaskSummary {
   status: WorkTaskStatus;
   generation: number;
   workflow?: string;
+  providerId?: string;
   availability?: SchedulerAwareTask['availability'];
   waitReason?: string;
   latestAttempt?: {
@@ -41,7 +42,8 @@ export interface ObjectiveBlocker {
     | 'task-cancelled'
     | 'waiting-resource'
     | 'waiting-session'
-    | 'waiting-node';
+    | 'waiting-node'
+    | 'waiting-provider';
   reason: string;
   resourceIds?: string[];
   sessionIds?: string[];
@@ -74,6 +76,7 @@ export interface ObjectiveProgressSummary {
     title: string;
     priority: number;
     workflow?: string;
+    providerId?: string;
   }>;
   workSession: null | {
     id: string;
@@ -152,7 +155,8 @@ function compactTask(
     title: task.title,
     status: task.status,
     generation: task.generation,
-    ...(task.execution?.workflow ? { workflow: task.execution.workflow } : {}),
+    ...(task.execution?.kind === 'engineering-workflow' ? { workflow: task.execution.workflow } : {}),
+    ...(task.execution?.kind === 'worker-provider' ? { providerId: task.execution.providerId } : {}),
     ...(aware ? { availability: aware.availability } : {}),
     ...(aware?.waitReason ? { waitReason: aware.waitReason } : {}),
     ...(latestAttempt ? {
@@ -195,6 +199,14 @@ function blockerFromTask(
       title: task.title,
       kind: 'waiting-node',
       reason: aware.waitReason ?? 'NODE_INTERLOCK_ACTIVE'
+    };
+  }
+  if (aware?.availability === 'waiting-provider') {
+    return {
+      taskId: task.id,
+      title: task.title,
+      kind: 'waiting-provider',
+      reason: aware.waitReason ?? 'WORKER_PROVIDER_UNAVAILABLE'
     };
   }
   if (task.status === 'failed') {
@@ -285,7 +297,8 @@ export class ObjectiveProgressService {
         taskId: item.task.id,
         title: item.task.title,
         priority: item.task.priority,
-        ...(item.task.execution?.workflow ? { workflow: item.task.execution.workflow } : {})
+        ...(item.task.execution?.kind === 'engineering-workflow' ? { workflow: item.task.execution.workflow } : {}),
+        ...(item.task.execution?.kind === 'worker-provider' ? { providerId: item.task.execution.providerId } : {})
       }));
 
     const workSession = sessions.find(session => session.id === objective.workSessionId);

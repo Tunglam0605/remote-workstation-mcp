@@ -154,7 +154,8 @@ export async function createContext() {
     engineeringResources,
     nodeInterlocks,
     engineeringSerial,
-    engineeringDebug
+    engineeringDebug,
+    workerProviders
   );
   const objectiveProgress = new ObjectiveProgressService(
     taskGraphs,
@@ -174,7 +175,7 @@ export async function createContext() {
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
-  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts);
+  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager);
   return {
     config,
     hostsConfig,

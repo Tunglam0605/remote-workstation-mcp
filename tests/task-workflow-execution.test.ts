@@ -9,17 +9,22 @@ import { EngineeringWorkflowExecutionService } from '../src/engineering-workflow
 import { NodeInterlockStore } from '../src/node-interlock.js';
 import { QualityObservationStore } from '../src/quality-learning.js';
 import { runWithWorkSession } from '../src/security/execution-context.js';
+import { SchedulerAwarenessService } from '../src/scheduler-awareness.js';
 import { TaskExecutionCoordinator } from '../src/task-executor.js';
 import { TaskAttemptStore } from '../src/task-attempt-store.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from '../src/task-graph.js';
 import { TaskWorkflowExecutionService } from '../src/task-workflow-execution.js';
 import { WorkflowRunStore } from '../src/workflow-run-store.js';
+import { WorkerProviderRegistry } from '../src/worker-provider.js';
+import { WorkSessionStore } from '../src/work-session.js';
+import type { WorktreeState } from '../src/worktree-manager.js';
 
 const SESSION = '55555555-5555-4555-8555-555555555555';
 
 async function fixture(
   t: test.TestContext,
-  run: (...args: unknown[]) => Promise<unknown>
+  run: (...args: unknown[]) => Promise<unknown>,
+  options: { worktreeStatus?: (sessionId: string) => Promise<WorktreeState> } = {}
 ) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-workflow-'));
   t.after(async () => fs.rm(root, { recursive: true, force: true }));
@@ -38,11 +43,27 @@ async function fixture(
     pid: 5656,
     pidAlive: () => true
   });
-  const taskExecutor = new TaskExecutionCoordinator(taskGraphs, scheduler, resources, interlocks);
   const taskAttempts = new TaskAttemptStore('openai-tunnel', {
     file: path.join(root, 'task-attempts.json'),
     now
   });
+  const workSessions = new WorkSessionStore('openai-tunnel', {
+    file: path.join(root, 'work-sessions.json'),
+    now
+  });
+  const workerProviders = new WorkerProviderRegistry();
+  const awareness = new SchedulerAwarenessService(
+    scheduler,
+    taskGraphs,
+    workSessions,
+    taskAttempts,
+    resources,
+    interlocks,
+    { list: () => [] },
+    { list: () => [] },
+    workerProviders
+  );
+  const taskExecutor = new TaskExecutionCoordinator(taskGraphs, scheduler, resources, interlocks, awareness);
 
   const workflowRuns = new WorkflowRunStore('openai-tunnel', {
     file: path.join(root, 'workflow-runs.json'),
@@ -64,7 +85,10 @@ async function fixture(
     taskGraphs,
     taskExecutor,
     workflowExecution,
-    taskAttempts
+    taskAttempts,
+    workerProviders,
+    workSessions,
+    options.worktreeStatus ? { status: options.worktreeStatus } : undefined
   );
   return {
     taskGraphs,
@@ -72,6 +96,8 @@ async function fixture(
     workflowRuns,
     quality,
     interlocks,
+    workerProviders,
+    workSessions,
     taskWorkflowExecution
   };
 }
@@ -83,6 +109,13 @@ function binding() {
     projectPath: 'firmware/demo',
     workflow: 'firmware.build',
     parameters: { variant: 'debug' }
+  };
+}
+
+function workerBinding(providerId = 'codex-local') {
+  return {
+    kind: 'worker-provider' as const,
+    providerId
   };
 }
 
@@ -111,7 +144,10 @@ test('typed task binding succeeds only after shared workflow execution succeeds'
 
     const persisted = await fx.taskGraphs.get(objective.id);
     assert.equal(persisted.tasks[0]?.status, 'succeeded');
-    assert.equal(persisted.tasks[0]?.execution?.workflow, 'firmware.build');
+    assert.equal(persisted.tasks[0]?.execution?.kind, 'engineering-workflow');
+    if (persisted.tasks[0]?.execution?.kind === 'engineering-workflow') {
+      assert.equal(persisted.tasks[0].execution.workflow, 'firmware.build');
+    }
 
     const runs = await fx.workflowRuns.list();
     assert.equal(runs.length, 1);
@@ -288,5 +324,273 @@ test('running cancellation records intent without falsely claiming provider pree
     assert.equal(completed.task.status, 'succeeded');
     assert.equal(completed.attempt.status, 'succeeded');
     assert.ok(completed.attempt.cancelRequestedAt);
+  });
+});
+
+
+test('worker-provider task dispatches through the coordinator and replays one durable attempt per generation', async t => {
+  let calls = 0;
+  let captured: any;
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local',
+      kind: 'codex',
+      displayName: 'Codex Local',
+      worktreeAssignment: false,
+      progressReporting: true,
+      cancellationIntent: true
+    },
+    status: async () => ({ availability: 'available' as const, detail: 'ready' }),
+    dispatch: async request => {
+      calls += 1;
+      captured = request;
+      return { status: 'succeeded' as const, runId: 'worker-run-1', summary: 'completed' };
+    }
+  });
+  const session = await fx.workSessions.create({
+    name: 'worker-session',
+    workspace: 'projects',
+    projectPath: 'repo',
+    objective: 'delegate bounded work'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Worker objective',
+      objective: 'Delegate one persisted task'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Review source tree',
+      description: 'Inspect the isolated project and report the bounded result.',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding()
+    });
+
+    const first = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+    const replay = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+
+    assert.equal(first.task.status, 'succeeded');
+    assert.equal(first.replayed, false);
+    assert.equal(first.attempt.providerId, 'codex-local');
+    assert.equal(first.attempt.providerRunId, 'worker-run-1');
+    assert.equal((first.output as { status?: string }).status, 'succeeded');
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.attempt.id, first.attempt.id);
+    assert.equal(calls, 1);
+    assert.equal(captured.workSessionId, session.id);
+    assert.equal(captured.objective.id, objective.id);
+    assert.equal(captured.task.id, task.id);
+    assert.equal(captured.task.generation, 1);
+    assert.equal(captured.project.workspace, 'projects');
+    assert.equal(captured.project.projectPath, 'repo');
+    assert.equal((await fx.taskAttempts.list({ taskId: task.id })).length, 1);
+  });
+});
+
+test('worktree-required worker fails closed before provider dispatch and succeeds only after explicit retry with worktree context', async t => {
+  let calls = 0;
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-worktree',
+      kind: 'codex',
+      displayName: 'Codex Worktree',
+      worktreeAssignment: true,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => {
+      calls += 1;
+      return { status: 'succeeded' as const, runId: 'worker-run-worktree' };
+    }
+  });
+  const session = await fx.workSessions.create({
+    name: 'worker-worktree-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Worktree guard',
+      objective: 'Require isolation before worker dispatch'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Edit isolated source',
+      concurrency: { operation: 'source.edit', key: 'repo' },
+      execution: workerBinding('codex-worktree')
+    });
+
+    await assert.rejects(
+      fx.taskWorkflowExecution.execute(objective.id, task.id),
+      /TASK_WAITING_SESSION: WORKER_WORKTREE_REQUIRED/
+    );
+    assert.equal(calls, 0);
+    assert.equal(await fx.taskAttempts.getForGeneration(objective.id, task.id, 1), undefined);
+    assert.equal((await fx.taskGraphs.get(objective.id)).tasks.find(item => item.id === task.id)?.status, 'ready');
+
+    await fx.workSessions.updateProject(session.id, {
+      worktreePath: 'repo.rwmcp-worker',
+      buildDir: 'repo.rwmcp-worker/build',
+      branch: 'rwmcp/session/worker',
+      commit: '0123456789abcdef'
+    });
+
+    const completed = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+    assert.equal(completed.task.status, 'succeeded');
+    assert.equal(completed.attempt.generation, 1);
+    assert.equal(completed.attempt.providerRunId, 'worker-run-worktree');
+    assert.equal(calls, 1);
+  });
+});
+
+test('unavailable or blocked worker providers never produce fake task success', async t => {
+  let unavailableDispatchCalls = 0;
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'offline-worker',
+      kind: 'custom',
+      displayName: 'Offline Worker',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'unavailable' as const, detail: 'offline' }),
+    dispatch: async () => {
+      unavailableDispatchCalls += 1;
+      return { status: 'succeeded' as const };
+    }
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'blocked-worker',
+      kind: 'custom',
+      displayName: 'Blocked Worker',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({ status: 'blocked' as const, runId: 'blocked-run', summary: 'needs owner input' })
+  });
+  const session = await fx.workSessions.create({
+    name: 'worker-failure-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Provider failure isolation',
+      objective: 'Never claim worker success on provider failure'
+    });
+    const offline = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Offline provider task',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('offline-worker')
+    });
+    const blocked = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Blocked provider task',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('blocked-worker')
+    });
+
+    await assert.rejects(
+      fx.taskWorkflowExecution.execute(objective.id, offline.id),
+      /TASK_WAITING_PROVIDER: WORKER_PROVIDER_UNAVAILABLE/
+    );
+    assert.equal(unavailableDispatchCalls, 0);
+    assert.equal(await fx.taskAttempts.getForGeneration(objective.id, offline.id, 1), undefined);
+    assert.equal((await fx.taskGraphs.get(objective.id)).tasks.find(item => item.id === offline.id)?.status, 'ready');
+
+    await assert.rejects(
+      fx.taskWorkflowExecution.execute(objective.id, blocked.id),
+      /TASK_WORKER_NOT_SUCCEEDED: provider=blocked-worker status=blocked/
+    );
+    const blockedAttempt = await fx.taskAttempts.getForGeneration(objective.id, blocked.id, 1);
+    assert.equal(blockedAttempt?.status, 'blocked');
+    assert.equal(blockedAttempt?.providerId, 'blocked-worker');
+    assert.equal(blockedAttempt?.providerRunId, 'blocked-run');
+    assert.equal((await fx.taskGraphs.get(objective.id)).tasks.find(item => item.id === blocked.id)?.status, 'failed');
+  });
+});
+
+
+test('worktree-bound provider receives live WorktreeManager metadata instead of stale capsule commit', async t => {
+  let captured: any;
+  const liveCommit = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const fx = await fixture(
+    t,
+    async () => {
+      throw new Error('engineering workflow path should not run');
+    },
+    {
+      worktreeStatus: async sessionId => ({
+        sessionId,
+        workspace: 'projects',
+        repoPath: 'repo',
+        worktreePath: 'repo.rwmcp-live',
+        branch: 'rwmcp/session/live',
+        commit: liveCommit,
+        buildDir: 'repo.rwmcp-live/build',
+        dirty: false
+      })
+    }
+  );
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'live-worktree-worker',
+      kind: 'custom',
+      displayName: 'Live Worktree Worker',
+      worktreeAssignment: true,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async request => {
+      captured = request;
+      return { status: 'succeeded' as const, runId: 'live-worktree-run' };
+    }
+  });
+  const session = await fx.workSessions.create({
+    name: 'live-worktree-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+  await fx.workSessions.updateProject(session.id, {
+    repoPath: 'repo',
+    worktreePath: 'repo.rwmcp-stale',
+    buildDir: 'repo.rwmcp-stale/build',
+    branch: 'rwmcp/session/stale',
+    commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Live worktree metadata',
+      objective: 'Dispatch against live isolated Git state'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Delegate isolated work',
+      concurrency: { operation: 'source.edit', key: 'repo.rwmcp-live' },
+      execution: workerBinding('live-worktree-worker')
+    });
+
+    const output = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+    assert.equal(output.task.status, 'succeeded');
+    assert.equal(captured.project.worktreePath, 'repo.rwmcp-live');
+    assert.equal(captured.project.buildDir, 'repo.rwmcp-live/build');
+    assert.equal(captured.project.branch, 'rwmcp/session/live');
+    assert.equal(captured.project.commit, liveCommit);
+    assert.notEqual(captured.project.commit, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   });
 });

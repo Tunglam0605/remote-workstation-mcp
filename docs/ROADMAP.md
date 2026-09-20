@@ -624,18 +624,32 @@ v0.18 release gates:
 
 ## v0.19 — Controlled Worker Orchestration
 
-v0.19 may add worker execution only after v0.18 is accepted in production.
+v0.19 adds bounded worker execution only after the v0.18 multi-node/security substrate has been accepted in production.
 
-Planned constraints:
+Implemented scope:
 
-- worker selection/dispatch must reuse Work Session identity, Work Objective Task Graph, deterministic scheduler, Task Attempts, EngineeringResourceManager and NodeInterlockStore;
-- Worker Provider Registry remains the provider discovery/status source, but provider identity never grants workstation authority;
-- no worker may accept arbitrary shell/program/argv payloads through the orchestration contract;
-- dispatch must bind to an explicit caller-owned Work Session and persisted task generation;
-- provider failure/restart/cancellation must reconcile to durable attempts without false success or duplicate execution;
-- direct MCP control must remain usable when every worker provider is unavailable;
+- extend persisted Work Task execution binding with `worker-provider` containing only bounded `providerId`; no arbitrary shell/program/argv/credential payload enters the orchestration contract;
+- keep Worker Provider Registry runtime/extension-owned; MCP may inspect provider status/dispatch capability but cannot register, replace or grant authority to a provider;
+- dispatch only through `work_objective_execute_task`, which accepts Work Session/Object/Task identifiers and routes through deterministic Scheduler Awareness plus `TaskExecutionCoordinator`;
+- expose provider unregistered/offline/disabled state as `waiting-provider` before task start, so availability does not consume a generation or durable Task Attempt;
+- require an isolated caller-owned Work Session worktree before dispatch to providers declaring `worktreeAssignment=true`;
+- preserve EngineeringResourceManager leases, NodeInterlockStore gates and existing session/project containment for delegated tasks;
+- persist at most one Task Attempt per task generation and record bounded `providerId/providerRunId` evidence;
+- provider `blocked/failed` outcomes cannot produce fake task success; explicit retry creates the next generation and previous attempts remain immutable history;
+- restart reconciliation marks incomplete worker attempts interrupted/task failed rather than automatically replaying provider work;
+- running cancellation records cancellation intent without falsely claiming provider preemption that the adapter does not implement;
+- direct MCP control remains usable when zero providers are registered or every provider is unavailable;
 - worker dispatch cannot create scopes, change owner policy, create cross-node grants or bypass hardware/resource leases;
-- v0.19 must pass Linux/Windows regression, provider failure isolation, restart/idempotency and real multi-session acceptance before production rollout.
+- Action Schema 5 carries the new persisted binding while Engineering API remains 4.
+
+v0.19 release gates:
+
+- targeted provider availability/worktree/failure/idempotency/authority tests and full regression/typecheck/build/plugin validation must pass;
+- production dependency audit plus Linux/Windows PR and post-merge CI must pass;
+- release assets, CycloneDX SBOM and SHA-256 manifest must validate before rollout;
+- rollout sequentially to Ubuntu Personal, Windows and Ubuntu Vision with the existing rollback gates;
+- Ubuntu Vision `tunglam-apriltag.service` must keep the same PID/start timestamp throughout rollout;
+- production may expose zero registered workers after rollout; that is a valid safe state and direct MCP control must remain healthy.
 
 ## v0.13 — Daily engineering workflows
 

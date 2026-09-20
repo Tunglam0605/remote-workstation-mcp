@@ -26,6 +26,8 @@ export interface TaskAttemptRecord {
   endedAt?: string;
   cancelRequestedAt?: string;
   workflowRunId?: string;
+  providerId?: string;
+  providerRunId?: string;
   error?: string;
 }
 
@@ -96,6 +98,8 @@ export class TaskAttemptStore {
       (item.endedAt === undefined || typeof item.endedAt === 'string') &&
       (item.cancelRequestedAt === undefined || typeof item.cancelRequestedAt === 'string') &&
       (item.workflowRunId === undefined || typeof item.workflowRunId === 'string') &&
+      (item.providerId === undefined || typeof item.providerId === 'string') &&
+      (item.providerRunId === undefined || typeof item.providerRunId === 'string') &&
       (item.error === undefined || typeof item.error === 'string');
   };
 
@@ -165,7 +169,8 @@ export class TaskAttemptStore {
   async begin(
     objectiveId: string,
     taskId: string,
-    generation: number
+    generation: number,
+    options: { providerId?: string } = {}
   ): Promise<{ attempt: TaskAttemptRecord; created: boolean }> {
     const owner = this.owner();
     const objective = bounded(objectiveId, 'objectiveId', 64);
@@ -193,7 +198,10 @@ export class TaskAttemptStore {
         generation: gen,
         status: 'running',
         startedAt: timestamp,
-        updatedAt: timestamp
+        updatedAt: timestamp,
+        ...(options.providerId?.trim()
+          ? { providerId: bounded(options.providerId, 'providerId', 64) }
+          : {})
       };
       state.attempts.push(attempt);
       await this.save(state);
@@ -266,7 +274,7 @@ export class TaskAttemptStore {
   async finish(
     attemptId: string,
     status: Exclude<TaskAttemptStatus, 'running'>,
-    options: { error?: string; workflowRunId?: string } = {}
+    options: { error?: string; workflowRunId?: string; providerId?: string; providerRunId?: string } = {}
   ): Promise<TaskAttemptRecord> {
     const owner = this.owner();
     const normalizedId = bounded(attemptId, 'attemptId', 64);
@@ -287,6 +295,10 @@ export class TaskAttemptStore {
       if (error) attempt.error = error;
       const workflowRunId = options.workflowRunId?.trim();
       if (workflowRunId) attempt.workflowRunId = bounded(workflowRunId, 'workflowRunId', 64);
+      const providerId = options.providerId?.trim();
+      if (providerId) attempt.providerId = bounded(providerId, 'providerId', 64);
+      const providerRunId = options.providerRunId?.trim();
+      if (providerRunId) attempt.providerRunId = bounded(providerRunId, 'providerRunId', 128);
       await this.save(state);
       return structuredClone(attempt);
     });

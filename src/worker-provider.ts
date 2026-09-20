@@ -14,17 +14,58 @@ export interface WorkerProviderStatus {
   provider: WorkerProviderDescriptor;
   availability: WorkerProviderAvailability;
   detail?: string;
-  executionActive: false;
+  dispatchCapable: boolean;
+  executionActive: boolean;
+  activeDispatches: number;
   authority: 'registry-only';
+}
+
+export interface WorkerDispatchRequest {
+  version: 1;
+  workSessionId: string;
+  objective: {
+    id: string;
+    name: string;
+    objective: string;
+  };
+  task: {
+    id: string;
+    generation: number;
+    title: string;
+    description?: string;
+  };
+  project?: {
+    workspace: string;
+    projectPath: string;
+    worktreePath?: string;
+    buildDir?: string;
+    branch?: string;
+    commit?: string;
+  };
+}
+
+export interface WorkerDispatchResult {
+  status: 'succeeded' | 'failed' | 'blocked';
+  runId?: string;
+  summary?: string;
 }
 
 export interface WorkerProvider {
   descriptor: WorkerProviderDescriptor;
   status(): Promise<{ availability: WorkerProviderAvailability; detail?: string }>;
+  dispatch?(request: WorkerDispatchRequest): Promise<WorkerDispatchResult>;
 }
 
 const PROVIDER_KINDS = new Set<WorkerProviderKind>(['codex', 'claude', 'openhands', 'custom']);
 const PROVIDER_AVAILABILITY = new Set<WorkerProviderAvailability>(['available', 'unavailable', 'disabled']);
+
+function boundedText(value: string, field: string, max: number): string {
+  const normalized = value.trim();
+  if (!normalized || normalized.length > max || normalized.includes('\0')) {
+    throw new Error(field + ' must be non-empty text of at most ' + max + ' characters.');
+  }
+  return normalized;
+}
 
 function safeDetail(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
@@ -42,8 +83,65 @@ function safeDetail(value: string | undefined): string | undefined {
     : normalized;
 }
 
+function normalizeDispatchRequest(request: WorkerDispatchRequest): WorkerDispatchRequest {
+  if (!request || request.version !== 1) throw new Error('Worker dispatch request version must be 1.');
+  if (!Number.isSafeInteger(request.task?.generation) || request.task.generation < 1 || request.task.generation > 1_000_000) {
+    throw new Error('Worker dispatch task generation is invalid.');
+  }
+  const normalized: WorkerDispatchRequest = {
+    version: 1,
+    workSessionId: boundedText(request.workSessionId, 'workSessionId', 64),
+    objective: {
+      id: boundedText(request.objective.id, 'objective.id', 64),
+      name: boundedText(request.objective.name, 'objective.name', 128),
+      objective: boundedText(request.objective.objective, 'objective.objective', 2048)
+    },
+    task: {
+      id: boundedText(request.task.id, 'task.id', 64),
+      generation: request.task.generation,
+      title: boundedText(request.task.title, 'task.title', 256),
+      ...(request.task.description?.trim()
+        ? { description: boundedText(request.task.description, 'task.description', 2048) }
+        : {})
+    }
+  };
+  if (request.project) {
+    normalized.project = {
+      workspace: boundedText(request.project.workspace, 'project.workspace', 128),
+      projectPath: boundedText(request.project.projectPath, 'project.projectPath', 1024),
+      ...(request.project.worktreePath?.trim()
+        ? { worktreePath: boundedText(request.project.worktreePath, 'project.worktreePath', 1024) }
+        : {}),
+      ...(request.project.buildDir?.trim()
+        ? { buildDir: boundedText(request.project.buildDir, 'project.buildDir', 1024) }
+        : {}),
+      ...(request.project.branch?.trim()
+        ? { branch: boundedText(request.project.branch, 'project.branch', 256) }
+        : {}),
+      ...(request.project.commit?.trim()
+        ? { commit: boundedText(request.project.commit, 'project.commit', 128) }
+        : {})
+    };
+  }
+  return normalized;
+}
+
+function normalizeDispatchResult(result: WorkerDispatchResult): WorkerDispatchResult {
+  if (!result || !['succeeded', 'failed', 'blocked'].includes(result.status)) {
+    throw new Error('Worker provider returned an invalid dispatch status.');
+  }
+  const runId = result.runId?.trim();
+  const summary = safeDetail(result.summary);
+  return {
+    status: result.status,
+    ...(runId ? { runId: boundedText(runId, 'worker run id', 128) } : {}),
+    ...(summary ? { summary } : {})
+  };
+}
+
 export class WorkerProviderRegistry {
   private readonly providers = new Map<string, WorkerProvider>();
+  private readonly activeDispatchCounts = new Map<string, number>();
 
   constructor(
     private readonly maxProviders = 16,
@@ -92,7 +190,8 @@ export class WorkerProviderRegistry {
 
     this.providers.set(id, {
       descriptor: normalizedDescriptor,
-      status: () => provider.status()
+      status: () => provider.status(),
+      ...(provider.dispatch ? { dispatch: (request: WorkerDispatchRequest) => provider.dispatch!(request) } : {})
     });
   }
 
@@ -100,6 +199,13 @@ export class WorkerProviderRegistry {
     return [...this.providers.values()]
       .map(provider => structuredClone(provider.descriptor))
       .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  descriptor(providerId: string): WorkerProviderDescriptor | undefined {
+    const id = providerId.trim();
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) return undefined;
+    const provider = this.providers.get(id);
+    return provider ? structuredClone(provider.descriptor) : undefined;
   }
 
   private async probe(provider: WorkerProvider): Promise<{ availability: WorkerProviderAvailability; detail?: string }> {
@@ -130,13 +236,16 @@ export class WorkerProviderRegistry {
   async listStatus(): Promise<WorkerProviderStatus[]> {
     const providers = [...this.providers.values()].sort((a, b) => a.descriptor.id.localeCompare(b.descriptor.id));
     return Promise.all(providers.map(async provider => {
+      const activeDispatches = this.activeDispatchCounts.get(provider.descriptor.id) ?? 0;
       try {
         const status = await this.probe(provider);
         return {
           provider: structuredClone(provider.descriptor),
           availability: status.availability,
           ...(status.detail ? { detail: status.detail } : {}),
-          executionActive: false,
+          dispatchCapable: typeof provider.dispatch === 'function',
+          executionActive: activeDispatches > 0,
+          activeDispatches,
           authority: 'registry-only'
         };
       } catch (error) {
@@ -144,10 +253,39 @@ export class WorkerProviderRegistry {
           provider: structuredClone(provider.descriptor),
           availability: 'unavailable',
           detail: safeDetail(error instanceof Error ? error.message : String(error)) ?? 'status probe failed',
-          executionActive: false,
+          dispatchCapable: typeof provider.dispatch === 'function',
+          executionActive: activeDispatches > 0,
+          activeDispatches,
           authority: 'registry-only'
         };
       }
     }));
+  }
+
+  async dispatch(providerId: string, request: WorkerDispatchRequest): Promise<WorkerDispatchResult> {
+    const id = providerId.trim();
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) {
+      throw new Error('Worker provider id must match [a-z0-9][a-z0-9._-]{0,63}.');
+    }
+    const provider = this.providers.get(id);
+    if (!provider) throw new Error('Unknown worker provider ' + id + '.');
+    if (!provider.dispatch) throw new Error('Worker provider ' + id + ' is not dispatch-capable.');
+    const status = await this.probe(provider);
+    if (status.availability !== 'available') {
+      throw new Error('Worker provider ' + id + ' is not available' + (status.detail ? ': ' + status.detail : '.'));
+    }
+    const normalized = normalizeDispatchRequest(request);
+    if (provider.descriptor.worktreeAssignment && !normalized.project?.worktreePath) {
+      throw new Error('Worker provider ' + id + ' requires an isolated Work Session worktree before dispatch.');
+    }
+    const active = (this.activeDispatchCounts.get(id) ?? 0) + 1;
+    this.activeDispatchCounts.set(id, active);
+    try {
+      return normalizeDispatchResult(await provider.dispatch(normalized));
+    } finally {
+      const remaining = Math.max(0, (this.activeDispatchCounts.get(id) ?? 1) - 1);
+      if (remaining === 0) this.activeDispatchCounts.delete(id);
+      else this.activeDispatchCounts.set(id, remaining);
+    }
   }
 }

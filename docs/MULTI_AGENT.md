@@ -12,12 +12,16 @@ Several AI clients can independently connect to Remote Workstation MCP and invok
 
 ### Agent-to-agent orchestration
 
-One agent delegating work to another remains a higher layer. The v0.17 foundation now provides only two safe prerequisites:
+v0.19 provides **Controlled Worker Orchestration** without making provider identity an authority source:
 
-- Project Session Groups can coordinate multiple caller-owned Work Sessions that already belong to the same project.
-- Worker Provider Registry can report optional provider descriptors/status without exposing dispatch or execution.
+- Project Session Groups coordinate caller-owned Work Sessions that already belong to the same project.
+- Worker Provider Registry reports optional provider descriptors/status and may hold runtime-registered dispatch adapters.
+- MCP cannot register providers. `worker_provider_list` remains read-only.
+- a delegated task must already exist in a caller-owned Work Objective and persist a `worker-provider` binding containing only `providerId`;
+- `work_objective_execute_task` remains the execution entry point and accepts identifiers only;
+- Scheduler Awareness, TaskExecutionCoordinator, resource leases/node interlocks and durable Task Attempts remain mandatory.
 
-There is still no task broker or autonomous worker dispatch surface. Direct MCP control remains the primary path. A future broker may coordinate providers only by consuming existing Work Objective tasks and must route execution back through the deterministic scheduler, TaskExecutionCoordinator, typed workflow binding and local policy/resource boundaries.
+Direct MCP control remains the primary independent path. If every provider is unavailable, normal typed MCP control continues to work; orchestration merely reports `waiting-provider` for affected delegated tasks.
 
 ## Concurrency today
 
@@ -73,7 +77,7 @@ Recommended practice:
 
 ## Worktree isolation today
 
-SHA-256 checks protect individual files but do not solve repository-level conflicts. Writable Work Sessions now use session-owned sibling Git worktrees and isolated build directories; future delegated workers must reuse those same boundaries rather than inventing a second isolation model:
+SHA-256 checks protect individual files but do not solve repository-level conflicts. Writable Work Sessions use session-owned sibling Git worktrees and isolated build directories; worktree-bound v0.19 providers must reuse those same boundaries rather than inventing a second isolation model:
 
 ```text
 repository/
@@ -121,7 +125,7 @@ This is a roadmap contract, not part of the v0.5 policy parser. Authorization mu
 
 ## Agent orchestration boundary
 
-Future orchestration may look like:
+Controlled orchestration may look like:
 
 ```text
 Owner / lead agent

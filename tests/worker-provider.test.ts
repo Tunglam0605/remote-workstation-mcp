@@ -2,12 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WorkerProviderRegistry, type WorkerProvider } from '../src/worker-provider.js';
 
-test('Worker Provider Registry is empty by default and exposes no execution surface', async () => {
+test('Worker Provider Registry is empty by default and dispatch fails closed without a registered provider', async () => {
   const registry = new WorkerProviderRegistry();
   assert.deepEqual(registry.descriptors(), []);
   assert.deepEqual(await registry.listStatus(), []);
   assert.equal('execute' in registry, false);
-  assert.equal('dispatch' in registry, false);
+  await assert.rejects(
+    registry.dispatch('missing-worker', {
+      version: 1,
+      workSessionId: '55555555-5555-4555-8555-555555555555',
+      objective: { id: 'objective-1', name: 'Objective', objective: 'Do bounded work' },
+      task: { id: 'task-1', generation: 1, title: 'Task' }
+    }),
+    /Unknown worker provider missing-worker/
+  );
 });
 
 test('Worker Provider Registry preserves class-instance status methods and returns bounded read-only status', async () => {
@@ -44,9 +52,11 @@ test('Worker Provider Registry preserves class-instance status methods and retur
   assert.deepEqual(statuses.map(item => item.provider.id), ['claude-local', 'codex-local']);
   assert.equal(statuses[0].availability, 'unavailable');
   assert.match(statuses[0].detail ?? '', /provider unavailable/);
+  assert.equal(statuses[0].dispatchCapable, false);
   assert.equal(statuses[0].executionActive, false);
   assert.equal(statuses[0].authority, 'registry-only');
   assert.equal(statuses[1].availability, 'available');
+  assert.equal(statuses[1].dispatchCapable, false);
   assert.equal(statuses[1].provider.displayName, 'Codex Local');
   assert.equal(statuses[1].executionActive, false);
 });
@@ -112,4 +122,49 @@ test('Worker Provider Registry rejects duplicate, invalid and over-limit registr
     ...provider,
     descriptor: { ...provider.descriptor, id: 'bad-kind', kind: 'other' as never }
   }), /Unsupported worker provider kind/);
+});
+
+
+test('Worker Provider Registry reports bounded active dispatch state only for the callback lifetime', async () => {
+  let entered!: () => void;
+  let release!: () => void;
+  const running = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const registry = new WorkerProviderRegistry();
+  registry.register({
+    descriptor: {
+      id: 'active-worker',
+      kind: 'custom',
+      displayName: 'Active Worker',
+      worktreeAssignment: false,
+      progressReporting: true,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => {
+      entered();
+      await gate;
+      return { status: 'succeeded' as const, runId: 'active-run' };
+    }
+  });
+
+  const execution = registry.dispatch('active-worker', {
+    version: 1,
+    workSessionId: '55555555-5555-4555-8555-555555555555',
+    objective: { id: 'objective-1', name: 'Objective', objective: 'Do bounded work' },
+    task: { id: 'task-1', generation: 1, title: 'Task' }
+  });
+  await running;
+
+  const active = (await registry.listStatus())[0]!;
+  assert.equal(active.dispatchCapable, true);
+  assert.equal(active.executionActive, true);
+  assert.equal(active.activeDispatches, 1);
+
+  release();
+  await execution;
+
+  const completed = (await registry.listStatus())[0]!;
+  assert.equal(completed.executionActive, false);
+  assert.equal(completed.activeDispatches, 0);
 });

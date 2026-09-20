@@ -667,7 +667,7 @@ Track A development scope:
 - do not spawn ChatGPT conversations, auto-claim tasks, register autonomous worker providers, or make RWMCP an engineering planner;
 - keep engineering-domain expansion on the separate Track B worktree for integration after both tracks pass acceptance.
 
-Stable production identity is `0.20.0`, channel `stable`, Action Schema 6, Engineering API 4. Track A + Track B integration, release assets and the sequential Ubuntu Personal → Windows → Ubuntu Vision rollout are accepted. Development continues on `0.21.0-dev.0` as a tool-expansion line while keeping Action Schema 6 and Engineering API 4.
+v0.21.0 is the stable source identity for the typed engineering tool-expansion line, preserving Action Schema 6 and Engineering API 4. The release keeps ChatGPT Web as the reasoning/controller layer and RWMCP as deterministic execution; production rollout status is verified operationally on each Direct Node rather than inferred from this roadmap.
 
 Acceptance requires full regression, typecheck/build/plugin validation, production dependency audit, source-level authority regression proving the coordination surfaces remain read-only, and explicit integration review against Track B before merge.
 

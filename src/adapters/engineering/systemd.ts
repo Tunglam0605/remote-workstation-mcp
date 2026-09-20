@@ -24,6 +24,27 @@ function parseProperties(text: string): Record<string, string> {
   return result;
 }
 
+function parseJournalEntries(text: string) {
+  return text.split(/\r?\n/).filter(Boolean).flatMap(line => {
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+      const message = typeof record.MESSAGE === 'string'
+        ? record.MESSAGE.slice(0, 4096)
+        : record.MESSAGE === undefined ? '' : JSON.stringify(record.MESSAGE).slice(0, 4096);
+      return [{
+        realtimeTimestamp: typeof record.__REALTIME_TIMESTAMP === 'string' ? record.__REALTIME_TIMESTAMP : undefined,
+        priority: typeof record.PRIORITY === 'string' ? record.PRIORITY : undefined,
+        identifier: typeof record.SYSLOG_IDENTIFIER === 'string' ? record.SYSLOG_IDENTIFIER : undefined,
+        pid: typeof record._PID === 'string' ? record._PID : undefined,
+        invocationId: typeof record._SYSTEMD_INVOCATION_ID === 'string' ? record._SYSTEMD_INVOCATION_ID : undefined,
+        message
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export class SystemdAdapter {
   constructor(
     private readonly policy: PolicyEngine,
@@ -62,21 +83,30 @@ export class SystemdAdapter {
       'show',
       unit,
       '--no-pager',
-      '--property=LoadState,ActiveState,SubState,UnitFileState,MainPID,ExecMainCode,ExecMainStatus,FragmentPath'
+      '--property=LoadState,ActiveState,SubState,UnitFileState,Result,MainPID,ExecMainCode,ExecMainStatus,NRestarts,MemoryCurrent,CPUUsageNSec,TasksCurrent,InvocationID,ExecMainStartTimestampMonotonic,ActiveEnterTimestampMonotonic,FragmentPath'
     ], cwd, 15_000);
     if (show.exitCode !== 0 || show.timedOut) {
       throw new Error(`systemctl show ${unit} failed: ${show.stderr || show.stdout || `exit=${show.exitCode}`}`);
     }
 
     const journalctl = await resolveFirstExecutable(['journalctl']);
-    let journal: { available: boolean; stdout?: string; stderr?: string; exitCode?: number | null } = { available: false };
+    let journal: {
+      available: boolean;
+      format?: 'json';
+      entries?: ReturnType<typeof parseJournalEntries>;
+      stdout?: string;
+      stderr?: string;
+      exitCode?: number | null;
+    } = { available: false };
     if (journalctl) {
       const journalArgs = user
-        ? ['--user-unit', unit, '-n', String(journalLines), '--no-pager', '--output=short-iso']
-        : ['-u', unit, '-n', String(journalLines), '--no-pager', '--output=short-iso'];
+        ? ['--user-unit', unit, '-n', String(journalLines), '--no-pager', '--output=json']
+        : ['-u', unit, '-n', String(journalLines), '--no-pager', '--output=json'];
       const result = await this.runner.run(journalctl.path, journalArgs, cwd, 15_000);
       journal = {
         available: true,
+        format: 'json',
+        entries: parseJournalEntries(result.stdout),
         stdout: result.stdout,
         stderr: result.stderr,
         exitCode: result.exitCode

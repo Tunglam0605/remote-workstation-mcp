@@ -8,6 +8,7 @@ import { parseBuildDiagnostics } from '../build-diagnostics.js';
 import { PathGuard } from '../../security/path-guard.js';
 import { FirmwareArtifactFinder } from './artifact-finder.js';
 import { EngineeringCommandRunner } from './command-runner.js';
+import { readEspIdfBuildMetadata } from './esp-idf-metadata.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
@@ -337,30 +338,45 @@ export class FirmwareAdapter {
       diagnostic: classifyOpenOcdResult(result)
     };
   }
-  async espIdfDiagnostics(workspace: string, projectPath = '.') {
+  async espIdfDiagnostics(workspace: string, projectPath = '.', buildDir = 'build') {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
     if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
       throw new Error('espidf.diagnostics requires a detected ESP-IDF/ESP32 project.');
     }
     const cwd = await this.paths.resolveExisting(workspace, projectPath);
-    const command = await espIdfCommand(['--version']);
-    const versionResult = await this.runner.run(command.program, command.args, cwd, 10_000);
+    const versionCommand = await espIdfCommand(['--version']);
+    const targetsCommand = await espIdfCommand(['--list-targets']);
+    const [versionResult, targetsResult, artifacts, devices, buildMetadata] = await Promise.all([
+      this.runner.run(versionCommand.program, versionCommand.args, cwd, 10_000),
+      this.runner.run(targetsCommand.program, targetsCommand.args, cwd, 15_000),
+      this.listArtifacts(workspace, projectPath),
+      this.hardware.list(),
+      readEspIdfBuildMetadata(cwd, buildDir)
+    ]);
     if (versionResult.exitCode !== 0 || versionResult.timedOut) {
       throw new Error(`ESP-IDF version probe failed: ${versionResult.stderr || versionResult.stdout || `exit=${versionResult.exitCode}`}`);
     }
-    const [artifacts, devices] = await Promise.all([
-      this.listArtifacts(workspace, projectPath),
-      this.hardware.list()
-    ]);
+    const supportedTargets = targetsResult.exitCode === 0 && !targetsResult.timedOut
+      ? targetsResult.stdout.split(/\r?\n/).map(item => item.trim()).filter(item => /^[a-z0-9_-]+$/.test(item)).slice(0, 64)
+      : [];
+    const warnings = [
+      ...buildMetadata.warnings,
+      ...(targetsResult.exitCode === 0 && !targetsResult.timedOut
+        ? []
+        : [`ESP-IDF target discovery failed: ${targetsResult.stderr || targetsResult.stdout || `exit=${targetsResult.exitCode}`}`])
+    ];
     return {
       provider: 'esp-idf' as const,
       version: versionResult.stdout.trim() || versionResult.stderr.trim(),
+      supportedTargets,
       project,
+      buildMetadata,
       artifacts,
       serialPorts: devices
         .filter(item => item.kind === 'serial')
-        .map(item => ({ id: item.id, path: item.path, name: item.name, serialNumber: item.serialNumber, provider: item.provider }))
+        .map(item => ({ id: item.id, path: item.path, name: item.name, serialNumber: item.serialNumber, provider: item.provider })),
+      warnings
     };
   }
 

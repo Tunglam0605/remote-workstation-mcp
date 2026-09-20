@@ -61,6 +61,30 @@ test('artifact finder returns bounded firmware outputs', async () => {
 });
 
 
+test('project inspector detects KiCad project files without reclassifying firmware family', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-eng-kicad-'));
+  try {
+    await fs.writeFile(path.join(root, 'robot.kicad_pro'), '{}');
+    await fs.writeFile(path.join(root, 'robot.kicad_sch'), '(kicad_sch)');
+    await fs.writeFile(path.join(root, 'robot.kicad_pcb'), '(kicad_pcb)');
+    await fs.writeFile(path.join(root, 'fab.kicad_jobset'), '{}');
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(root))));
+    const info = await inspector.inspect('w', '.');
+    assert.equal(info.family, 'unknown');
+    assert.equal(info.framework, 'unknown');
+    assert.deepEqual(info.kicad, {
+      project: 'robot.kicad_pro',
+      schematic: 'robot.kicad_sch',
+      board: 'robot.kicad_pcb',
+      jobsets: ['fab.kicad_jobset']
+    });
+    assert.ok(info.markers.includes('robot.kicad_pcb'));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
 test('project inspector detects Keil MDK multi-target STM32 projects without guessing across devices', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-eng-keil-'));
   try {

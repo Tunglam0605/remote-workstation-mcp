@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { FirmwareFramework, FirmwareProjectInfo, FirmwareProjectTarget } from '../../engineering/types.js';
+import type { FirmwareFramework, FirmwareProjectInfo, FirmwareProjectTarget, KicadProjectFiles } from '../../engineering/types.js';
 import { PathGuard } from '../../security/path-guard.js';
 
 const MAX_KEIL_PROJECT_BYTES = 8 * 1024 * 1024;
@@ -12,9 +12,29 @@ async function exists(file: string): Promise<boolean> {
 }
 
 async function firstBySuffix(root: string, suffix: string): Promise<string | undefined> {
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  const match = entries.find(entry => entry.isFile() && entry.name.toLowerCase().endsWith(suffix));
+  const entries = (await fs.readdir(root, { withFileTypes: true }))
+    .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith(suffix))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const match = entries[0];
   return match ? path.join(root, match.name) : undefined;
+}
+
+async function discoverKicadProject(root: string): Promise<KicadProjectFiles | undefined> {
+  const entries = (await fs.readdir(root, { withFileTypes: true }))
+    .filter(entry => entry.isFile())
+    .map(entry => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+  const project = entries.find(name => name.toLowerCase().endsWith('.kicad_pro'));
+  const schematic = entries.find(name => name.toLowerCase().endsWith('.kicad_sch'));
+  const board = entries.find(name => name.toLowerCase().endsWith('.kicad_pcb'));
+  const jobsets = entries.filter(name => name.toLowerCase().endsWith('.kicad_jobset')).slice(0, 16);
+  if (!project && !schematic && !board && jobsets.length === 0) return undefined;
+  return {
+    ...(project ? { project } : {}),
+    ...(schematic ? { schematic } : {}),
+    ...(board ? { board } : {}),
+    jobsets
+  };
 }
 
 function parseStm32Ioc(text: string): { target?: string; board?: string } {
@@ -127,6 +147,7 @@ export class FirmwareProjectInspector {
     const compose = path.join(root, 'docker-compose.yml');
     const composeYaml = path.join(root, 'compose.yaml');
     const ioc = await firstBySuffix(root, '.ioc');
+    const kicad = await discoverKicadProject(root);
 
     if (await exists(cmake)) {
       markers.push('CMakeLists.txt');
@@ -185,6 +206,12 @@ export class FirmwareProjectInspector {
       else if (devices.length > 1) target = undefined;
     }
 
+    if (kicad) {
+      for (const marker of [kicad.project, kicad.schematic, kicad.board, ...kicad.jobsets]) {
+        if (marker && !markers.includes(marker)) markers.push(marker);
+      }
+    }
+
     const ros2 = await exists(packageXml);
     if (ros2) markers.push('package.xml');
     const docker = await exists(dockerfile) || await exists(compose) || await exists(composeYaml);
@@ -201,7 +228,8 @@ export class FirmwareProjectInspector {
       ...(targets?.length ? { targets } : {}),
       markers,
       ros2,
-      docker
+      docker,
+      ...(kicad ? { kicad } : {})
     };
   }
 }

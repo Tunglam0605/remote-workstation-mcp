@@ -11,6 +11,7 @@ import { DockerAdapter } from './adapters/engineering/docker.js';
 import { SystemdAdapter } from './adapters/engineering/systemd.js';
 import { FirmwareAdapter } from './adapters/engineering/firmware.js';
 import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
+import { KicadAdapter } from './adapters/engineering/kicad.js';
 import { EngineeringProjectProfileStore } from './adapters/engineering/project-profile.js';
 import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
 import { Ros2Adapter } from './adapters/engineering/ros2.js';
@@ -177,7 +178,8 @@ export async function createContext() {
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd);
+  const engineeringKicad = new KicadAdapter(policy, paths, engineeringRunner);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager);
   return {

@@ -12,6 +12,7 @@ import { DockerAdapter } from './docker.js';
 import { FirmwareAdapter } from './firmware.js';
 import { stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
+import { KicadAdapter } from './kicad.js';
 import {
   EngineeringProjectProfileStore,
   type EngineeringFirmwareProfile,
@@ -48,8 +49,12 @@ export type EngineeringWorkflowId =
   | 'ros2.build'
   | 'ros2.health'
   | 'ros2.diagnostics'
+  | 'ros2.doctor'
   | 'ros2.build_health'
   | 'docker.diagnostics'
+  | 'docker.stats_snapshot'
+  | 'kicad.diagnostics'
+  | 'kicad.validate'
   | 'systemd.service_diagnostics'
   | 'systemd.service_restart';
 
@@ -182,7 +187,8 @@ export class EngineeringWorkflowEngine {
     private readonly debug: DebugSessionManager,
     private readonly ros2: Ros2Adapter,
     private readonly docker?: DockerAdapter,
-    private readonly systemd?: SystemdAdapter
+    private readonly systemd?: SystemdAdapter,
+    private readonly kicad?: KicadAdapter
   ) {}
 
   private transferIntent(
@@ -444,9 +450,10 @@ export class EngineeringWorkflowEngine {
       }
     }
     if (state.project.ros2 || state.profile.ros2) {
-      ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.build_health');
+      ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.doctor', 'ros2.build_health');
     }
-    if (state.project.docker && this.docker) ids.push('docker.diagnostics');
+    if (state.project.docker && this.docker) ids.push('docker.diagnostics', 'docker.stats_snapshot');
+    if (state.project.kicad && this.kicad) ids.push('kicad.diagnostics', 'kicad.validate');
     if (os.platform() === 'linux' && this.systemd) {
       ids.push('systemd.service_diagnostics', 'systemd.service_restart');
     }
@@ -497,8 +504,12 @@ export class EngineeringWorkflowEngine {
           'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
           'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
           'ros2.diagnostics': 'Collect ROS 2 graph health plus installed package inventory through the configured runtime environment.',
+          'ros2.doctor': 'Run the upstream ROS 2 doctor report as bounded opaque diagnostic text without treating human output as a stable structured API.',
           'ros2.build_health': 'Build the ROS 2 workspace, then inspect the configured runtime graph health.',
           'docker.diagnostics': 'Inspect Docker daemon risk and summarize local container runtime state without mutation.',
+          'docker.stats_snapshot': 'Capture one non-streaming JSON Docker resource-usage snapshot without lifecycle mutation.',
+          'kicad.diagnostics': 'Inspect KiCad CLI/version, project file inventory and board statistics through JSON output without modifying design sources.',
+          'kicad.validate': 'Run KiCad ERC/DRC into temporary JSON reports outside the project and return bounded validation findings without saving or upgrading design sources.',
           'systemd.service_diagnostics': 'Read one explicit systemd unit state and bounded journal tail on Linux.',
           'systemd.service_restart': 'Restart one exact owner-allowlisted systemd unit, then collect post-restart diagnostics.'
         }[id]
@@ -815,19 +826,38 @@ export class EngineeringWorkflowEngine {
         manifestPath: state.manifestPath,
         project: state.project,
         profile: state.profile,
-        steps: ['espidf.project.inspect', 'espidf.provider.version', 'espidf.artifacts.list', 'hardware.serial.list'],
-        resolved: { firmware: { provider: 'esp-idf' } }
+        steps: ['espidf.project.inspect', 'espidf.provider.version', 'espidf.targets.list', 'espidf.build_metadata.read', 'espidf.artifacts.list', 'hardware.serial.list'],
+        resolved: { firmware: { provider: 'esp-idf', buildDir: state.profile.firmware?.buildDir ?? 'build' } }
       };
     }
 
-    if (workflow === 'docker.diagnostics') {
+    if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot') {
       return {
         workflow,
         profileFound: state.profileFound,
         manifestPath: state.manifestPath,
         project: state.project,
         profile: state.profile,
-        steps: ['docker.daemon.inspect', 'docker.container.list']
+        steps: workflow === 'docker.stats_snapshot'
+          ? ['docker.daemon.inspect', 'docker.stats.snapshot']
+          : ['docker.daemon.inspect', 'docker.container.list']
+      };
+    }
+
+    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate') {
+      const kicad = state.project.kicad;
+      if (!kicad) throw new Error(`${workflow} requires a detected KiCad project.`);
+      const steps = workflow === 'kicad.validate'
+        ? [...(kicad.schematic ? ['kicad.erc.json'] : []), ...(kicad.board ? ['kicad.drc.json'] : [])]
+        : ['kicad.version', 'kicad.project.files', ...(kicad.board ? ['kicad.board.stats.json'] : [])];
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps,
+        resolved: { kicad }
       };
     }
 
@@ -1073,6 +1103,7 @@ export class EngineeringWorkflowEngine {
       steps.push('ros2.environment.bootstrap', 'ros2.node.list', 'ros2.topic.list', 'ros2.service.list', 'ros2.action.list');
       if (workflow === 'ros2.diagnostics') steps.push('ros2.pkg.list');
     }
+    if (workflow === 'ros2.doctor') steps.push('ros2.environment.bootstrap', 'ros2.doctor.report');
 
     return {
       workflow,
@@ -1434,7 +1465,7 @@ export class EngineeringWorkflowEngine {
     const state = await this.state(workspace, projectPath);
 
     if (workflow === 'espidf.diagnostics') {
-      const diagnostics = await capture('espidf.diagnostics', () => this.firmware.espIdfDiagnostics(workspace, projectPath));
+      const diagnostics = await capture('espidf.diagnostics', () => this.firmware.espIdfDiagnostics(workspace, projectPath, state.profile.firmware?.buildDir ?? 'build'));
       return {
         workflow,
         status: diagnostics.ok ? 'succeeded' : 'failed',
@@ -1444,15 +1475,39 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'docker.diagnostics') {
+    if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot') {
       if (!this.docker) throw new Error('Docker diagnostics adapter is unavailable.');
-      const diagnostics = await capture('docker.diagnostics', () => this.docker!.diagnostics(workspace, projectPath));
+      const diagnostics = await capture<unknown>(
+        workflow === 'docker.stats_snapshot' ? 'docker.stats.snapshot' : 'docker.diagnostics',
+        () => workflow === 'docker.stats_snapshot'
+          ? this.docker!.statsSnapshot(workspace, projectPath)
+          : this.docker!.diagnostics(workspace, projectPath)
+      );
       return {
         workflow,
         status: diagnostics.ok ? 'succeeded' : 'failed',
         plan,
         steps,
         ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
+      };
+    }
+
+    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate') {
+      if (!this.kicad) throw new Error('KiCad adapter is unavailable.');
+      const kicad = state.project.kicad;
+      if (!kicad) throw new Error(`${workflow} requires a detected KiCad project.`);
+      const result = await capture<unknown>(
+        workflow,
+        () => workflow === 'kicad.validate'
+          ? this.kicad!.validate(workspace, projectPath, kicad)
+          : this.kicad!.diagnostics(workspace, projectPath, kicad)
+      );
+      return {
+        workflow,
+        status: result.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(result.ok ? { outputs: { diagnostics: result.value } } : {})
       };
     }
 
@@ -1917,6 +1972,17 @@ export class EngineeringWorkflowEngine {
           outputs: { build: build.value }
         };
       }
+    }
+
+    if (workflow === 'ros2.doctor') {
+      const doctor = await capture('ros2.doctor', () => this.ros2.doctor(workspace, cwd, runtime));
+      return {
+        workflow,
+        status: doctor.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(doctor.ok ? { outputs: { doctor: doctor.value } } : {})
+      };
     }
 
     const health = workflow === 'ros2.diagnostics'

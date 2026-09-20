@@ -205,6 +205,18 @@ export class DockerAdapter {
     });
   }
 
+  async statsSnapshot(workspace: string, cwd = '.') {
+    this.policy.assertEngineeringEnabled();
+    const [daemon, result] = await Promise.all([
+      this.daemonRisk(workspace, cwd),
+      this.run(workspace, cwd, ['stats', '--no-stream', '--no-trunc', '--format', '{{json .}}'], 20_000)
+    ]);
+    const containers = result.stdout.split(/\r?\n/).filter(Boolean).flatMap(line => {
+      try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
+    });
+    return { daemon, count: containers.length, containers };
+  }
+
   async diagnostics(workspace: string, cwd = '.') {
     this.policy.assertEngineeringEnabled();
     const [daemon, containers] = await Promise.all([

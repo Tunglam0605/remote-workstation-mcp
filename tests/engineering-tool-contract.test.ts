@@ -32,12 +32,12 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.21 stable keeps Action Schema v6 and Engineering API v4', async () => {
+test('v0.22 development keeps Action Schema v6 and Engineering API v4', async () => {
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.21\.0';/);
-  assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.22\.0-dev\.0';/);
+  assert.match(capabilities, /export const BUILD_CHANNEL = 'development'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);

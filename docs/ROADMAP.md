@@ -667,7 +667,7 @@ Track A development scope:
 - do not spawn ChatGPT conversations, auto-claim tasks, register autonomous worker providers, or make RWMCP an engineering planner;
 - keep engineering-domain expansion on the separate Track B worktree for integration after both tracks pass acceptance.
 
-Development identity is `0.20.0-dev.0`, Action Schema 6, Engineering API 4. Production remains v0.19.0 until Track A + Track B integration, full regression/CI, release verification and three-node rollout are explicitly accepted.
+Stable release identity is `0.20.0`, channel `stable`, Action Schema 6, Engineering API 4. Track A + Track B integration and CI are accepted; production nodes remain on v0.19.0 until release assets are verified and the sequential three-node rollout is explicitly accepted.
 
 Acceptance requires full regression, typecheck/build/plugin validation, production dependency audit, source-level authority regression proving the coordination surfaces remain read-only, and explicit integration review against Track B before merge.
 

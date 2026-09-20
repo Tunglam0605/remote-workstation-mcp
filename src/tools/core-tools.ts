@@ -156,6 +156,23 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     sessions: await ctx.workSessions.list(includeClosed)
   }))));
 
+  server.registerTool('project_status', {
+    description: 'Return a bounded read-only coordination snapshot for caller-owned Work Sessions on one project, including current task labels, worktree state and mechanical worktree conflicts. It never claims tasks, activates sessions or grants authority.',
+    inputSchema: z.object({
+      workspace: z.string().min(1).max(128),
+      projectPath: z.string().min(1).max(1024),
+      includeClosed: z.boolean().default(false),
+      maxSessions: z.number().int().min(1).max(128).default(32)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, includeClosed, maxSessions }) => result(
+    await audited(ctx.audit, 'project_status', workspace, async () => {
+      ctx.policy.workspace(workspace);
+      await ctx.paths.resolveExisting(workspace, projectPath);
+      return ctx.projectCoordination.status(workspace, projectPath, { includeClosed, maxSessions });
+    })
+  ));
+
   server.registerTool('work_session_checkpoint', {
     description: 'Persist a compact bounded Context Capsule checkpoint for a caller-owned Work Session. Do not store secrets, raw logs, transcripts or duplicated source.',
     inputSchema: z.object({

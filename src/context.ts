@@ -49,6 +49,7 @@ import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
 import { ObjectiveProgressService } from './objective-progress.js';
 import { ProjectSessionGroupService, ProjectSessionGroupStore } from './project-session-group.js';
+import { ProjectCoordinationService } from './project-coordination.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
 import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
@@ -114,6 +115,7 @@ export async function createContext() {
   const paths = new PathGuard(policy);
   const git = new GitAdapter(policy, paths);
   const worktreeManager = new WorktreeManager(git, workSessions);
+  const projectCoordination = new ProjectCoordinationService(workSessions, worktreeManager);
   const concurrencyPolicy = new ConcurrencyPolicy();
   const taskScheduler = new DeterministicTaskScheduler(taskGraphs, concurrencyPolicy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
@@ -190,6 +192,7 @@ export async function createContext() {
     reconciledWorkSessions,
     garbageCollectedWorkSessions,
     projectSessionGroups,
+    projectCoordination,
     garbageCollectedProjectSessionGroups,
     projectSessionGroupMaintenanceFailures,
     workerProviders,

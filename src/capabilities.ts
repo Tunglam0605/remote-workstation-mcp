@@ -1,5 +1,5 @@
-export const SERVER_VERSION = '0.20.0-dev.0';
-export const BUILD_CHANNEL = 'development' as const;
+export const SERVER_VERSION = '0.20.0';
+export const BUILD_CHANNEL = 'stable' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
 export const ACTION_SCHEMA_VERSION = 6;
 export const ENGINEERING_API_VERSION = 4;

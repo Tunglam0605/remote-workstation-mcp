@@ -12,11 +12,19 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.19.0 · channel=stable · Action Schema 5 · Engineering API 4**
+**Stable release: v0.20.0 · channel=stable · Action Schema 6 · Engineering API 4**
 
-**Current development Track A: v0.20.0-dev.0 · channel=development · Action Schema 6 · Engineering API 4**
+v0.20 combines **Human-managed Multi-Chat Workflow** with expanded **Typed Engineering Diagnostics**. ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session coordination, explicit current-task labels, read-only handoff/lifecycle previews, isolated worktrees and typed execution. The engineering workflow envelope now also includes ESP-IDF, ROS 2 and Docker diagnostics plus Linux systemd service diagnostics/restart guarded by Full Control and an exact owner allowlist.
 
-v0.20 development focuses on **human-managed Multi-Chat Workflow**: the human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP only exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. Production nodes remain on v0.19.0 until Track A and the parallel engineering-tools Track B are integrated and accepted.
+**v0.20.0 - Human-managed Multi-Chat + Typed Engineering Expansion**
+
+- `project_status` gives a bounded same-project view of caller-owned Work Sessions, worktrees, stale state and mechanical overlap signals without claiming work;
+- `work_session_resume` remains read-only and returns a bounded handoff package with same-project coordination context;
+- `work_session_lifecycle_preview` reports close/cleanup eligibility without mutating resources, and `currentTask: null` explicitly releases a published task label;
+- ESP-IDF, ROS 2 and Docker diagnostics reuse the existing typed engineering workflow envelope;
+- Linux systemd diagnostics use explicit bounded unit names; restart requires Full Control plus exact `systemd.allowRestartUnits` owner policy and is default-deny;
+- Worker Provider registration remains empty/default-off and RWMCP does not become an autonomous planning brain;
+- Action Schema is 6; Engineering API remains 4.
 
 v0.19 adds **Controlled Worker Orchestration** on top of the accepted v0.18 production baseline. Delegated workers remain optional runtime extensions; task dispatch reuses the existing Work Session, deterministic scheduler, resource lease/node interlock and durable Task Attempt boundaries instead of creating a second authority path.
 

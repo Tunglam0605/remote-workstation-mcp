@@ -651,25 +651,25 @@ v0.19 release gates:
 - Ubuntu Vision `tunglam-apriltag.service` must keep the same PID/start timestamp throughout rollout;
 - production may expose zero registered workers after rollout; that is a valid safe state and direct MCP control must remain healthy.
 
-## v0.20 — Human-managed Multi-Chat Workflow 🚧
+## v0.20 — Human-managed Multi-Chat + Typed Engineering Expansion ✅
 
-v0.20 keeps the reasoning/decision layer in ChatGPT Web or another authorized AI client. RWMCP only supplies deterministic coordination state, lifecycle safety and typed execution primitives.
+v0.20 keeps the reasoning/decision layer in ChatGPT Web or another authorized AI client. RWMCP supplies deterministic coordination state, lifecycle safety and typed execution primitives.
 
-Track A development scope:
+Integrated scope:
 
-- add bounded read-only `project_status` for caller-owned same-project Work Sessions;
-- surface role/currentTask labels, dirty worktrees, idle/recovering sessions and shared-worktree conflicts;
-- surface duplicate `currentTask` labels only as `mechanical-signal-only`, never as an automatic reassignment or cancellation decision;
-- enrich `work_session_resume` into a one-call read-only handoff package with same-project coordination context;
-- allow explicit `currentTask: null` checkpoint updates so a chat can release its published task label without deleting unrelated Context Capsule state;
-- add read-only `work_session_lifecycle_preview` with mechanical close/cleanup eligibility and blockers;
-- keep close, cleanup, task selection, merge/review and engineering strategy as explicit controller/human decisions;
-- do not spawn ChatGPT conversations, auto-claim tasks, register autonomous worker providers, or make RWMCP an engineering planner;
-- keep engineering-domain expansion on the separate Track B worktree for integration after both tracks pass acceptance.
+- bounded read-only `project_status` for caller-owned same-project Work Sessions;
+- role/currentTask labels, dirty worktrees, idle/recovering sessions, shared-worktree conflicts and mechanical duplicate-task overlap signals;
+- one-call read-only `work_session_resume` handoff with same-project coordination context;
+- explicit `currentTask: null` release semantics and read-only `work_session_lifecycle_preview`;
+- ESP-IDF provider/project/artifact/serial diagnostics without flashing;
+- ROS 2 graph health plus package inventory diagnostics;
+- Docker daemon-risk and container-state diagnostics without lifecycle mutation;
+- Linux systemd service diagnostics plus restart guarded by Full Control and exact default-empty owner allowlist;
+- no ChatGPT conversation spawning, auto-task claiming, autonomous engineering planning or worker-provider authority growth.
 
-Development identity is `0.20.0-dev.0`, Action Schema 6, Engineering API 4. Production remains v0.19.0 until Track A + Track B integration, full regression/CI, release verification and three-node rollout are explicitly accepted.
+Release identity is `0.20.0`, Action Schema 6, Engineering API 4.
 
-Acceptance requires full regression, typecheck/build/plugin validation, production dependency audit, source-level authority regression proving the coordination surfaces remain read-only, and explicit integration review against Track B before merge.
+Release gates: integrated Windows full regression 324 pass / 0 fail / 1 Linux-only skip; targeted integration tests, typecheck, build, plugin validation and production dependency audit pass locally. PR Linux/Windows CI, post-merge CI, release asset/SBOM/checksum verification and sequential three-node rollout remain mandatory before production acceptance.
 
 ## v0.13 — Daily engineering workflows
 

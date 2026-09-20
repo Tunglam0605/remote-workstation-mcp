@@ -14,6 +14,8 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 **Stable release: v0.20.0 · channel=stable · Action Schema 6 · Engineering API 4**
 
+**Development line: v0.21.0-dev.0 · channel=development · Action Schema 6 · Engineering API 4** — expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation.
+
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
 
 v0.19 adds **Controlled Worker Orchestration** on top of the accepted v0.18 production baseline. Delegated workers remain optional runtime extensions; task dispatch reuses the existing Work Session, deterministic scheduler, resource lease/node interlock and durable Task Attempt boundaries instead of creating a second authority path.

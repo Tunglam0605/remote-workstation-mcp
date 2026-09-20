@@ -52,6 +52,13 @@ export interface FirmwareProjectTarget {
   createHexFile?: boolean;
 }
 
+export interface KicadProjectFiles {
+  project?: string;
+  schematic?: string;
+  board?: string;
+  jobsets: string[];
+}
+
 export interface FirmwareProjectInfo {
   workspace: string;
   projectPath: string;
@@ -64,6 +71,7 @@ export interface FirmwareProjectInfo {
   markers: string[];
   ros2: boolean;
   docker: boolean;
+  kicad?: KicadProjectFiles;
 }
 
 export interface FirmwareArtifact {

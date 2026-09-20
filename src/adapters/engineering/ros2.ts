@@ -251,6 +251,17 @@ export class Ros2Adapter {
     return lines(result.stdout);
   }
 
+  async doctor(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    this.policy.assertEngineeringExecute();
+    const result = await this.run(workspace, cwd, ['doctor', '--report'], 30_000, runtime);
+    return {
+      format: 'upstream-text' as const,
+      structured: false,
+      report: result.stdout.trim(),
+      stderr: result.stderr.trim()
+    };
+  }
+
   async diagnostics(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {
     const [health, packages] = await Promise.all([
       this.health(workspace, cwd, runtime),

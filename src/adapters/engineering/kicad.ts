@@ -1,0 +1,236 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import type { KicadProjectFiles } from '../../engineering/types.js';
+import { PolicyEngine } from '../../policy.js';
+import { PathGuard } from '../../security/path-guard.js';
+import { EngineeringCommandRunner } from './command-runner.js';
+import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
+import { resolveExistingProjectPath } from './project-path.js';
+
+const MAX_REPORT_BYTES = 2 * 1024 * 1024;
+const MAX_VIOLATIONS = 200;
+const MAX_ITEMS_PER_VIOLATION = 16;
+
+type JsonRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function boundedViolation(value: unknown) {
+  const record = asRecord(value);
+  const items = asArray(record.items).slice(0, MAX_ITEMS_PER_VIOLATION).map(item => {
+    const entry = asRecord(item);
+    return {
+      ...(typeof entry.uuid === 'string' ? { uuid: entry.uuid } : {}),
+      ...(typeof entry.description === 'string' ? { description: entry.description.slice(0, 1024) } : {}),
+      ...(entry.pos && typeof entry.pos === 'object' ? { pos: entry.pos } : {})
+    };
+  });
+  return {
+    ...(typeof record.type === 'string' ? { type: record.type } : {}),
+    ...(typeof record.description === 'string' ? { description: record.description.slice(0, 2048) } : {}),
+    ...(typeof record.severity === 'string' ? { severity: record.severity } : {}),
+    ...(typeof record.excluded === 'boolean' ? { excluded: record.excluded } : {}),
+    itemCount: asArray(record.items).length,
+    items,
+    itemsTruncated: asArray(record.items).length > items.length
+  };
+}
+
+function severitySummary(values: unknown[]) {
+  const summary: Record<string, number> = {};
+  for (const value of values) {
+    const severity = asRecord(value).severity;
+    if (typeof severity !== 'string') continue;
+    summary[severity] = (summary[severity] ?? 0) + 1;
+  }
+  return summary;
+}
+
+function summarizeDrc(value: unknown) {
+  const report = asRecord(value);
+  const violations = asArray(report.violations);
+  const unconnected = asArray(report.unconnected_items);
+  const parity = asArray(report.schematic_parity);
+  const all = [...violations, ...unconnected, ...parity];
+  const bounded = all.slice(0, MAX_VIOLATIONS).map(boundedViolation);
+  return {
+    schema: typeof report.$schema === 'string' ? report.$schema : undefined,
+    source: typeof report.source === 'string' ? path.basename(report.source) : undefined,
+    kicadVersion: typeof report.kicad_version === 'string' ? report.kicad_version : undefined,
+    coordinateUnits: typeof report.coordinate_units === 'string' ? report.coordinate_units : undefined,
+    includedSeverities: asArray(report.included_severities).filter((item): item is string => typeof item === 'string').slice(0, 16),
+    counts: {
+      violations: violations.length,
+      unconnected: unconnected.length,
+      schematicParity: parity.length,
+      total: all.length,
+      excluded: all.filter(item => asRecord(item).excluded === true).length,
+      bySeverity: severitySummary(all),
+      ignoredChecks: asArray(report.ignored_checks).length
+    },
+    violations: bounded,
+    violationsTruncated: all.length > bounded.length
+  };
+}
+
+function summarizeErc(value: unknown) {
+  const report = asRecord(value);
+  const sheets = asArray(report.sheets).map(sheet => asRecord(sheet));
+  const violations: unknown[] = [];
+  const sheetSummary = sheets.slice(0, 128).map(sheet => {
+    const entries = asArray(sheet.violations);
+    violations.push(...entries);
+    return {
+      path: typeof sheet.path === 'string' ? sheet.path : undefined,
+      uuidPath: typeof sheet.uuid_path === 'string' ? sheet.uuid_path : undefined,
+      violations: entries.length
+    };
+  });
+  const bounded = violations.slice(0, MAX_VIOLATIONS).map(boundedViolation);
+  return {
+    schema: typeof report.$schema === 'string' ? report.$schema : undefined,
+    source: typeof report.source === 'string' ? path.basename(report.source) : undefined,
+    kicadVersion: typeof report.kicad_version === 'string' ? report.kicad_version : undefined,
+    coordinateUnits: typeof report.coordinate_units === 'string' ? report.coordinate_units : undefined,
+    counts: {
+      sheets: sheets.length,
+      violations: violations.length,
+      excluded: violations.filter(item => asRecord(item).excluded === true).length,
+      bySeverity: severitySummary(violations)
+    },
+    sheets: sheetSummary,
+    violations: bounded,
+    violationsTruncated: violations.length > bounded.length
+  };
+}
+
+async function readJsonBounded(file: string): Promise<unknown> {
+  const stat = await fs.stat(file);
+  if (!stat.isFile()) throw new Error('KiCad report output is not a regular file.');
+  if (stat.size > MAX_REPORT_BYTES) throw new Error(`KiCad report exceeds the ${MAX_REPORT_BYTES}-byte diagnostics limit.`);
+  return JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+}
+
+async function discoverKicadCli(): Promise<{ path: string; source: 'owner-override' | 'path' | 'known-install' }> {
+  const override = process.env.RWMCP_KICAD_CLI?.trim();
+  if (override) {
+    if (!path.isAbsolute(override)) throw new Error('RWMCP_KICAD_CLI must be an absolute path.');
+    const resolved = await resolveExecutable(override);
+    if (!resolved) throw new Error(`Configured KiCad CLI was not found: ${override}`);
+    return { path: resolved, source: 'owner-override' };
+  }
+  const direct = await resolveFirstExecutable(['kicad-cli', 'kicad-cli.exe']);
+  if (direct) return { path: direct.path, source: 'path' };
+  if (os.platform() === 'win32') {
+    const roots = [
+      process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'KiCad') : undefined,
+      process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'KiCad') : undefined
+    ].filter((item): item is string => Boolean(item));
+    for (const root of roots) {
+      let versions: string[] = [];
+      try {
+        versions = (await fs.readdir(root, { withFileTypes: true }))
+          .filter(entry => entry.isDirectory())
+          .map(entry => entry.name)
+          .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+      } catch {
+        continue;
+      }
+      for (const version of versions) {
+        const candidate = path.join(root, version, 'bin', 'kicad-cli.exe');
+        try {
+          await fs.access(candidate);
+          return { path: candidate, source: 'known-install' };
+        } catch {
+          // Continue searching known installations.
+        }
+      }
+    }
+  }
+  throw new Error('KiCad CLI is unavailable. Install KiCad or configure RWMCP_KICAD_CLI.');
+}
+
+export class KicadAdapter {
+  constructor(
+    private readonly policy: PolicyEngine,
+    private readonly paths: PathGuard,
+    private readonly runner: EngineeringCommandRunner
+  ) {}
+
+  private async runJsonReport(
+    workspace: string,
+    projectPath: string,
+    args: string[],
+    inputFile: string,
+    reportName: string,
+    timeoutMs = 120_000
+  ): Promise<{ command: { program: string; args: string[] }; report: unknown }> {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, inputFile, 'KiCad input file');
+    const cli = await discoverKicadCli();
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-'));
+    const report = path.join(temp, reportName);
+    const commandArgs = [...args, '--output', report, input];
+    try {
+      const result = await this.runner.run(cli.path, commandArgs, cwd, timeoutMs);
+      if (result.exitCode !== 0 || result.timedOut) {
+        throw new Error(`KiCad CLI failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+      }
+      return {
+        command: { program: cli.path, args: commandArgs.map(arg => arg === report ? '<temp-report>' : arg === input ? inputFile : arg) },
+        report: await readJsonBounded(report)
+      };
+    } finally {
+      await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  async version(workspace: string, projectPath = '.') {
+    this.policy.assertEngineeringEnabled();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const cli = await discoverKicadCli();
+    const result = await this.runner.run(cli.path, ['version'], cwd, 10_000);
+    if (result.exitCode !== 0 || result.timedOut) throw new Error(`KiCad version probe failed: ${result.stderr || result.stdout}`);
+    return { version: result.stdout.trim() || result.stderr.trim(), executable: cli.path, executableSource: cli.source };
+  }
+
+  async boardStats(workspace: string, projectPath: string, board: string) {
+    const result = await this.runJsonReport(workspace, projectPath, ['pcb', 'export', 'stats', '--format', 'json'], board, 'board-stats.json');
+    return { board, ...result };
+  }
+
+  async drc(workspace: string, projectPath: string, board: string) {
+    const result = await this.runJsonReport(workspace, projectPath, ['pcb', 'drc', '--format', 'json', '--severity-all'], board, 'drc.json');
+    return { board, command: result.command, report: summarizeDrc(result.report) };
+  }
+
+  async erc(workspace: string, projectPath: string, schematic: string) {
+    const result = await this.runJsonReport(workspace, projectPath, ['sch', 'erc', '--format', 'json', '--severity-all'], schematic, 'erc.json');
+    return { schematic, command: result.command, report: summarizeErc(result.report) };
+  }
+
+  async diagnostics(workspace: string, projectPath: string, files: KicadProjectFiles) {
+    this.policy.assertEngineeringExecute();
+    const provider = await this.version(workspace, projectPath);
+    const boardStats = files.board ? await this.boardStats(workspace, projectPath, files.board) : undefined;
+    return { provider, files, ...(boardStats ? { boardStats } : {}) };
+  }
+
+  async validate(workspace: string, projectPath: string, files: KicadProjectFiles) {
+    this.policy.assertEngineeringExecute();
+    if (!files.board && !files.schematic) throw new Error('KiCad validation requires a .kicad_pcb or .kicad_sch file.');
+    const [drc, erc] = await Promise.all([
+      files.board ? this.drc(workspace, projectPath, files.board) : Promise.resolve(undefined),
+      files.schematic ? this.erc(workspace, projectPath, files.schematic) : Promise.resolve(undefined)
+    ]);
+    return { files, ...(drc ? { drc } : {}), ...(erc ? { erc } : {}) };
+  }
+}

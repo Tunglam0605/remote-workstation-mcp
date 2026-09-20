@@ -178,6 +178,21 @@ v0.15.0 intentionally bumps to `actionSchemaVersion=3` and `engineeringApiVersio
 
 On v0.14.3, inspect both `chatgpt_web_status.nodeHealth.dataPlane` and `nodeHealth.security.multiNode`. Cross-node transfer is default-deny and must have matching local owner grants on source and destination. `chatgptWeb.permissions.crossNodeTransfer` becomes true only for the configured OpenAI Secure MCP Tunnel principal with the dedicated cross-node scope; Full Access alone does not satisfy it. Prefer direct transfer when authorized and reachable, then use bounded relay fallback.
 
+## v0.20 development - human-managed multi-chat workflow
+
+When one project needs several ChatGPT Web conversations in parallel, the human opens the conversations and chooses the work split. RWMCP does not spawn conversations and does not choose engineering strategy.
+
+Recommended flow:
+
+1. Call `project_status(workspace, projectPath)` to see caller-owned Work Sessions, role/current-task labels, worktree state, stale sessions and mechanical overlap signals.
+2. If continuing an existing stream, call `work_session_resume(sessionId)`. Resume is read-only and returns the Context Capsule, owned runtime state, same-project coordination snapshot and a bounded handoff descriptor.
+3. If starting a new writable stream, create a new Work Session and prepare its isolated worktree before editing.
+4. Publish the conversation's current task with `work_session_checkpoint(currentTask: "...")`. Clear it with `currentTask: null` when the chat releases that scope.
+5. Before closing or cleaning an old session, call `work_session_lifecycle_preview(sessionId)`. The preview only reports mechanical blockers such as owned runtime resources or a dirty worktree.
+6. Explicitly invoke close/cleanup only after ChatGPT Web or the human decides that the state is safe.
+
+A duplicate current-task label is only an overlap signal. It does not authorize RWMCP to cancel, reassign, merge or stop either session.
+
 ## Step 6 - First safe verification
 
 Start with a read-only verification prompt:

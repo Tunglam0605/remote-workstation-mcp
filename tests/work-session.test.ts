@@ -108,6 +108,13 @@ test('Context Capsule checkpoint stays bounded and replaces only explicit checkp
   assert.equal(updated.capsule.selectedVariant, 'f407');
   assert.deepEqual(updated.capsule.pendingActions, ['Run Windows CI']);
 
+  const focused = await store.checkpoint(session.id, { currentTask: 'Review OTA safety contract' });
+  assert.equal(focused.capsule.currentTask, 'Review OTA safety contract');
+  const released = await store.checkpoint(session.id, { currentTask: null });
+  assert.equal(released.capsule.currentTask, undefined);
+  assert.equal(released.capsule.currentObjective, 'Validate multi-session isolation');
+  assert.deepEqual(released.capsule.pendingActions, ['Run Windows CI']);
+
   await assert.rejects(
     store.checkpoint(session.id, { validatedFacts: Array.from({ length: 33 }, (_, i) => `fact-${i}`) }),
     /at most 32 items/

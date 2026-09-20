@@ -121,7 +121,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   })));
 
   server.registerTool('work_session_resume', {
-    description: 'Resume one durable caller-owned Work Session and return its compact Context Capsule plus current session-owned runtime resources. The session id identifies state; it is not an authorization credential.',
+    description: 'Resume one durable caller-owned Work Session as a read-only handoff package containing its compact Context Capsule, current session-owned runtime resources and same-project coordination snapshot when available. The session id identifies state; it is not an authorization credential.',
     inputSchema: z.object({ sessionId: z.string().uuid() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ sessionId }) => result(await audited(ctx.audit, 'work_session_resume', undefined, async () => {
@@ -141,9 +141,21 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       nodeInterlocks: await ctx.nodeInterlocks.listOwned(),
       worktree: await ctx.worktreeManager.status(sessionId)
     }));
+    const project = session.capsule.project;
+    const projectStatus = project?.workspace && project.projectPath
+      ? await ctx.projectCoordination.status(project.workspace, project.projectPath, { includeClosed: false, maxSessions: 32 })
+      : undefined;
     return {
       session,
       runtime,
+      ...(projectStatus ? { projectStatus } : {}),
+      handoff: {
+        mode: 'read-only',
+        workSessionId: session.id,
+        currentTask: session.capsule.currentTask ?? null,
+        role: session.capsule.role ?? null,
+        note: 'A new ChatGPT Web conversation may continue by passing this explicit workSessionId on session-aware operations. RWMCP does not choose strategy, claim work, or activate the session during resume.'
+      },
       usage: 'Pass workSessionId on session-aware operations. Omit it only for the backward-compatible implicit session.'
     };
   })));
@@ -156,8 +168,18 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     sessions: await ctx.workSessions.list(includeClosed)
   }))));
 
+  server.registerTool('work_session_lifecycle_preview', {
+    description: 'Return a read-only mechanical preview of Work Session lifecycle state, active owned resources, worktree cleanliness, and whether explicit close or worktree cleanup is currently eligible. It never closes, cleans, stops, releases, or activates anything.',
+    inputSchema: z.object({ sessionId: z.string().uuid() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ sessionId }) => result(
+    await audited(ctx.audit, 'work_session_lifecycle_preview', undefined, () =>
+      ctx.workSessionLifecycle.preview(sessionId)
+    )
+  ));
+
   server.registerTool('project_status', {
-    description: 'Return a bounded read-only coordination snapshot for caller-owned Work Sessions on one project, including current task labels, worktree state and mechanical worktree conflicts. It never claims tasks, activates sessions or grants authority.',
+    description: 'Return a bounded read-only coordination snapshot for caller-owned Work Sessions on one project, including current task labels, worktree state, mechanical worktree conflicts and duplicate-task-label overlap signals. It never claims tasks, activates sessions or grants authority.',
     inputSchema: z.object({
       workspace: z.string().min(1).max(128),
       projectPath: z.string().min(1).max(1024),
@@ -174,7 +196,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   ));
 
   server.registerTool('work_session_checkpoint', {
-    description: 'Persist a compact bounded Context Capsule checkpoint for a caller-owned Work Session. Do not store secrets, raw logs, transcripts or duplicated source.',
+    description: 'Persist a compact bounded Context Capsule checkpoint for a caller-owned Work Session. currentTask is a human/controller-managed coordination label and may be set to null to release it. Do not store secrets, raw logs, transcripts or duplicated source.',
     inputSchema: z.object({
       sessionId: z.string().uuid(),
       currentObjective: z.string().min(1).max(2048).optional(),
@@ -184,7 +206,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       selectedToolchain: z.string().min(1).max(256).optional(),
       selectedVariant: z.string().min(1).max(256).optional(),
       completedTasks: z.array(z.string().min(1).max(512)).max(64).optional(),
-      currentTask: z.string().min(1).max(512).optional(),
+      currentTask: z.string().min(1).max(512).nullable().optional(),
       lastSuccessfulBuild: z.string().min(1).max(1024).optional(),
       lastSuccessfulDeploy: z.string().min(1).max(1024).optional(),
       lastAcceptance: z.string().min(1).max(1024).optional(),

@@ -149,3 +149,23 @@ test('Project Coordination enforces a bounded project snapshot', async t => {
   assert.equal(status.truncated, true);
   await assert.rejects(() => service.status('projects', 'repo', { maxSessions: 0 }), /between 1 and 128/);
 });
+
+
+test('Project Coordination reports duplicate current-task labels as non-authoritative overlap signals', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-project-coordination-task-overlap-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const sessions = new WorkSessionStore('openai-tunnel', { file: path.join(root, 'sessions.json') });
+  const service = new ProjectCoordinationService(sessions, new FakeWorktrees());
+
+  const first = await sessions.create({ workspace: 'projects', projectPath: 'repo', role: 'implementer' });
+  const second = await sessions.create({ workspace: 'projects', projectPath: 'repo', role: 'reviewer' });
+  await sessions.checkpoint(first.id, { currentTask: 'Review OTA safety contract' });
+  await sessions.checkpoint(second.id, { currentTask: '  review   OTA safety contract  ' });
+
+  const status = await service.status('projects', 'repo');
+  assert.equal(status.taskOverlapSignals.length, 1);
+  assert.equal(status.taskOverlapSignals[0]?.kind, 'duplicate-current-task-label');
+  assert.equal(status.taskOverlapSignals[0]?.interpretation, 'mechanical-signal-only');
+  assert.deepEqual(new Set(status.taskOverlapSignals[0]?.sessionIds), new Set([first.id, second.id]));
+  assert.equal(status.conflicts.length, 0);
+});

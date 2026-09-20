@@ -68,6 +68,30 @@ test('v0.20 project_status is read-only coordination and cannot become an execut
   assert.doesNotMatch(coordination, /startTask|finishTask|execute\(|acquire\(|withLease\(/);
 });
 
+test('v0.20 lifecycle preview remains read-only and cannot perform cleanup implicitly', async () => {
+  const coreTools = await read('src/tools/core-tools.ts');
+  const scopes = await read('src/security/request-principal.ts');
+
+  assert.match(scopes, /work_session_lifecycle_preview: 'workstation\.read'/);
+  const start = coreTools.indexOf("server.registerTool('work_session_lifecycle_preview'");
+  const end = coreTools.indexOf("server.registerTool('project_status'", start);
+  assert.ok(start >= 0 && end > start);
+  const tool = coreTools.slice(start, end);
+  assert.match(tool, /readOnlyHint: true/);
+  assert.match(tool, /ctx\.workSessionLifecycle\.preview\(sessionId\)/);
+  assert.doesNotMatch(tool, /ctx\.workSessionLifecycle\.close\(|worktreeManager\.cleanup\(|processes\.stop\(|resources\.release/);
+});
+
+test('v0.20 currentTask ownership label can be explicitly released without auto-claim semantics', async () => {
+  const coreTools = await read('src/tools/core-tools.ts');
+  const workSession = await read('src/work-session.ts');
+
+  assert.match(coreTools, /currentTask: z\.string\(\)\.min\(1\)\.max\(512\)\.nullable\(\)\.optional\(\)/);
+  assert.match(workSession, /currentTask\?: string \| null/);
+  assert.match(workSession, /patch\.currentTask === null \? undefined/);
+  assert.doesNotMatch(coreTools, /task_claim|autoClaim|auto_assign|autoAssign/);
+});
+
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {
   const firmware = await read('src/adapters/engineering/firmware.ts');
   const profile = await read('src/adapters/engineering/project-profile.ts');
@@ -92,6 +116,7 @@ test('v0.20 development retains Work Session routing under Action Schema v6 and 
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
+  assert.match(coreTools, /work_session_lifecycle_preview/);
   assert.match(coreTools, /work_session_close/);
   assert.match(coreTools, /work_session_worktree_prepare/);
 
@@ -102,6 +127,8 @@ test('v0.20 development retains Work Session routing under Action Schema v6 and 
   assert.match(resumeBlock, /readOnlyHint: true/);
   assert.match(resumeBlock, /ctx\.workSessions\.inspect\(sessionId, true\)/);
   assert.match(resumeBlock, /ctx\.scopeWorkSession\(sessionId/);
+  assert.match(resumeBlock, /ctx\.projectCoordination\.status/);
+  assert.match(resumeBlock, /handoff:/);
   assert.doesNotMatch(resumeBlock, /ctx\.runInWorkSession\(sessionId/);
   assert.match(contract, /workSessionId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
   assert.match(engineeringTools, /const \{ workSessionId, \.\.\.runtimeParameters \} = parsed/);

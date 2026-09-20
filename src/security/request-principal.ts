@@ -31,6 +31,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   work_session_create: 'workstation.write',
   work_session_resume: 'workstation.read',
   work_session_list: 'workstation.read',
+  work_session_lifecycle_preview: 'workstation.read',
   project_status: 'workstation.read',
   work_session_checkpoint: 'workstation.write',
   work_session_close: 'workstation.write',

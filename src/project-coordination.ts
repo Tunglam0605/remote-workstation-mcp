@@ -44,6 +44,13 @@ export interface ProjectCoordinationConflict {
   sessionIds: string[];
 }
 
+export interface ProjectCoordinationTaskOverlapSignal {
+  kind: 'duplicate-current-task-label';
+  taskLabel: string;
+  sessionIds: string[];
+  interpretation: 'mechanical-signal-only';
+}
+
 export interface ProjectCoordinationStatus {
   project: {
     workspace: string;
@@ -51,6 +58,7 @@ export interface ProjectCoordinationStatus {
   };
   sessions: ProjectCoordinationSessionView[];
   conflicts: ProjectCoordinationConflict[];
+  taskOverlapSignals: ProjectCoordinationTaskOverlapSignal[];
   dirtyWorktreeSessionIds: string[];
   recoveringSessionIds: string[];
   idleSessionIds: string[];
@@ -75,6 +83,10 @@ function bounded(value: string, field: string, maxLength: number): string {
 function normalizeProjectPath(value: string): string {
   const normalized = path.normalize(value.trim()).replace(/\\/g, '/');
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function normalizeTaskLabel(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function sameProject(session: WorkSession, workspace: string, projectPath: string): boolean {
@@ -172,10 +184,31 @@ export class ProjectCoordinationService {
       }))
       .sort((a, b) => a.key.localeCompare(b.key));
 
+    const byTask = new Map<string, { label: string; sessionIds: string[] }>();
+    for (const view of views) {
+      if (view.status === 'closed' || view.status === 'expired' || !view.currentTask) continue;
+      const key = normalizeTaskLabel(view.currentTask);
+      if (!key) continue;
+      const item = byTask.get(key) ?? { label: view.currentTask.trim(), sessionIds: [] };
+      item.sessionIds.push(view.sessionId);
+      byTask.set(key, item);
+    }
+
+    const taskOverlapSignals = [...byTask.values()]
+      .filter(item => item.sessionIds.length > 1)
+      .map(item => ({
+        kind: 'duplicate-current-task-label' as const,
+        taskLabel: item.label,
+        sessionIds: [...item.sessionIds].sort(),
+        interpretation: 'mechanical-signal-only' as const
+      }))
+      .sort((a, b) => a.taskLabel.localeCompare(b.taskLabel));
+
     return {
       project: { workspace, projectPath: rawProjectPath },
       sessions: views,
       conflicts,
+      taskOverlapSignals,
       dirtyWorktreeSessionIds: views
         .filter(view => view.worktree.state === 'available' && view.worktree.dirty)
         .map(view => view.sessionId),

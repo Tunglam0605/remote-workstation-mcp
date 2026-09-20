@@ -4,12 +4,14 @@ import type { NodeInterlockRecord, NodeInterlockStore } from './node-interlock.j
 import type { TaskAttemptRecord, TaskAttemptStore } from './task-attempt-store.js';
 import type { DeterministicTaskScheduler, ScheduledTask, TaskGraphStore } from './task-graph.js';
 import type { WorkSession, WorkSessionStore } from './work-session.js';
+import type { WorkerProviderStatus } from './worker-provider.js';
 
 export type SchedulerAvailability =
   | 'ready'
   | 'waiting-resource'
   | 'waiting-session'
   | 'waiting-node'
+  | 'waiting-provider'
   | 'blocked';
 
 export interface SchedulerAwareTask extends ScheduledTask {
@@ -38,6 +40,7 @@ export interface SchedulerAwarenessSnapshot {
   serialSessions: SerialSessionSnapshot[];
   debugSessions: DebugSessionSnapshot[];
   nodeInterlocks: NodeInterlockRecord[];
+  workerProviders: WorkerProviderStatus[];
 }
 
 export interface SchedulerSessionProvider {
@@ -46,6 +49,10 @@ export interface SchedulerSessionProvider {
 
 export interface SchedulerSessionListProvider<T> {
   list(): T[];
+}
+
+export interface SchedulerWorkerProviderStatusSource {
+  listStatus(): Promise<WorkerProviderStatus[]>;
 }
 
 function orchestrationResourceId(item: ScheduledTask): string | undefined {
@@ -78,7 +85,8 @@ export class SchedulerAwarenessService {
     private readonly resources: EngineeringResourceManager,
     private readonly nodeInterlocks: NodeInterlockStore,
     private readonly serial: SchedulerSessionListProvider<SerialSessionSnapshot>,
-    private readonly debug: SchedulerSessionListProvider<DebugSessionSnapshot>
+    private readonly debug: SchedulerSessionListProvider<DebugSessionSnapshot>,
+    private readonly workerProviders?: SchedulerWorkerProviderStatusSource
   ) {}
 
   private blockingSessions(
@@ -117,16 +125,19 @@ export class SchedulerAwarenessService {
   }
 
   async snapshot(objectiveId: string, limit = 32): Promise<SchedulerAwarenessSnapshot> {
-    const [objective, plan, sessions, attempts, interlocks] = await Promise.all([
+    const [objective, plan, sessions, attempts, interlocks, workerProviders] = await Promise.all([
       this.taskGraphs.get(objectiveId),
       this.scheduler.plan(objectiveId, limit),
       this.workSessions.list(false),
       this.taskAttempts.list({ objectiveId, limit: 100 }),
-      this.nodeInterlocks.listActive()
+      this.nodeInterlocks.listActive(),
+      this.workerProviders ? this.workerProviders.listStatus() : Promise.resolve([])
     ]);
     const resourceLeases = this.resources.list();
     const serialSessions = this.serial.list().slice(0, 64);
     const debugSessions = this.debug.list().slice(0, 64);
+    const currentSession = sessions.find(session => session.id === objective.workSessionId);
+    const workerStatusById = new Map(workerProviders.map(item => [item.provider.id, item]));
 
     const awarePlan = plan.map((item): SchedulerAwareTask => {
       if (!item.dispatchable) {
@@ -135,6 +146,39 @@ export class SchedulerAwarenessService {
           availability: 'blocked',
           waitReason: item.blocker ?? 'scheduler-blocked'
         };
+      }
+
+      if (item.task.execution?.kind === 'worker-provider') {
+        const providerStatus = workerStatusById.get(item.task.execution.providerId);
+        if (!providerStatus) {
+          return {
+            ...item,
+            availability: 'waiting-provider',
+            waitReason: 'WORKER_PROVIDER_UNREGISTERED'
+          };
+        }
+        if (!providerStatus.dispatchCapable) {
+          return {
+            ...item,
+            availability: 'blocked',
+            waitReason: 'WORKER_PROVIDER_NOT_DISPATCH_CAPABLE'
+          };
+        }
+        if (providerStatus.availability !== 'available') {
+          return {
+            ...item,
+            availability: 'waiting-provider',
+            waitReason: 'WORKER_PROVIDER_' + providerStatus.availability.toUpperCase()
+          };
+        }
+        if (providerStatus.provider.worktreeAssignment && !currentSession?.capsule.project?.worktreePath) {
+          return {
+            ...item,
+            availability: 'waiting-session',
+            waitReason: 'WORKER_WORKTREE_REQUIRED',
+            blockingSessionIds: [objective.workSessionId]
+          };
+        }
       }
 
       if (item.concurrencyDecision?.class === 'node-exclusive' && interlocks.length > 0) {
@@ -179,7 +223,8 @@ export class SchedulerAwarenessService {
       resources: resourceLeases.slice(0, 128),
       serialSessions,
       debugSessions,
-      nodeInterlocks: interlocks.slice(0, 64)
+      nodeInterlocks: interlocks.slice(0, 64),
+      workerProviders: workerProviders.slice(0, 64)
     };
   }
 

@@ -21,13 +21,19 @@ const workObjectiveMutation = z.discriminatedUnion('action', [
     dependencies: z.array(z.string().uuid()).max(64).default([]),
     concurrencyOperation: z.enum(CONCURRENCY_OPERATIONS).optional(),
     concurrencyKey: z.string().min(1).max(512).optional(),
-    execution: z.object({
-      kind: z.literal('engineering-workflow'),
-      workspace: z.string().min(1).max(128),
-      projectPath: z.string().min(1).max(1024).default('.'),
-      workflow: engineeringWorkflowIdSchema,
-      parameters: persistedWorkflowParametersSchema
-    }).strict().optional()
+    execution: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('engineering-workflow'),
+        workspace: z.string().min(1).max(128),
+        projectPath: z.string().min(1).max(1024).default('.'),
+        workflow: engineeringWorkflowIdSchema,
+        parameters: persistedWorkflowParametersSchema
+      }).strict(),
+      z.object({
+        kind: z.literal('worker-provider'),
+        providerId: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
+      }).strict()
+    ]).optional()
   }),
   z.object({
     action: z.literal('replace_dependencies'),
@@ -264,15 +270,18 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   })));
 
   server.registerTool('worker_provider_list', {
-    description: 'List status for optional worker-provider adapters registered by the local runtime. This registry is read-only and has no dispatch/execute surface; direct MCP control remains independent of worker availability.',
+    description: 'List bounded status for optional worker-provider adapters registered by the local runtime. Registration and authority remain local/runtime-owned; this read-only tool cannot dispatch providers.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result(await audited(ctx.audit, 'worker_provider_list', undefined, async () => ({
-    providers: await ctx.workerProviders.listStatus(),
-    executionActive: false,
-    authority: 'registry-only',
-    note: 'Worker-provider dispatch is intentionally not implemented in this foundation. Future delegation must enter through the existing scheduler/executor and local policy boundaries.'
-  }))));
+  }, async () => result(await audited(ctx.audit, 'worker_provider_list', undefined, async () => {
+    const providers = await ctx.workerProviders.listStatus();
+    return {
+      providers,
+      executionActive: providers.some(provider => provider.executionActive),
+      authority: 'registry-only',
+      note: 'Dispatch-capable providers may be used only through persisted worker-provider task bindings and work_objective_execute_task. Provider registration is not exposed through MCP; direct MCP control remains independent of worker availability.'
+    };
+  })));
 
   server.registerTool('work_objective_create', {
     description: 'Create a durable Work Objective inside one explicit caller-owned Work Session. Objective/task identity never grants authority beyond the authenticated principal and local owner policy.',
@@ -383,7 +392,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   )));
 
   server.registerTool('work_objective_execute_task', {
-    description: 'Execute one READY task through its persisted typed engineering-workflow binding. The task cannot inject shell commands or widen authority; Work Session, policy, scheduler concurrency, resource leases, workflow-run durability, lifecycle interlocks and Quality Learning remain authoritative.',
+    description: 'Execute one READY task through its persisted engineering-workflow or worker-provider binding. The call accepts identifiers only; Work Session ownership, scheduler concurrency, resource leases, node interlocks, Task Attempts and local policy remain authoritative. Worker providers must already be registered by the local runtime and cannot be registered or granted authority through MCP.',
     inputSchema: z.object({
       workSessionId: z.string().uuid(),
       objectiveId: z.string().uuid(),

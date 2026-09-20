@@ -11,6 +11,7 @@ import { TaskAttemptStore } from '../src/task-attempt-store.js';
 import { TaskExecutionCoordinator } from '../src/task-executor.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from '../src/task-graph.js';
 import { WorkSessionStore } from '../src/work-session.js';
+import { WorkerProviderRegistry } from '../src/worker-provider.js';
 
 const EXECUTION = {
   kind: 'engineering-workflow' as const,
@@ -49,6 +50,7 @@ async function fixture(t: test.TestContext) {
   const scheduler = new DeterministicTaskScheduler(taskGraphs);
   const serial = { list: () => [{ id: 'serial-own', resourceId: 'serial:COM9', port: 'COM9', baudRate: 115200, status: 'open' as const, startedAt: now().toISOString(), bytesRead: 0, bufferedBytes: 0 }] };
   const debug = { list: () => [{ id: 'debug-own', workspace: 'projects', resourceId: 'debug-probe:OWN', probeSerial: 'OWN', symbols: 'demo.elf', targetConfig: 'target/stm32.cfg', gdbPort: 3333, status: 'connected' as const, startedAt: now().toISOString() }] };
+  const workerProviders = new WorkerProviderRegistry();
   const awareness = new SchedulerAwarenessService(
     scheduler,
     taskGraphs,
@@ -57,7 +59,8 @@ async function fixture(t: test.TestContext) {
     resources,
     interlocks,
     serial,
-    debug
+    debug,
+    workerProviders
   );
   const executor = new TaskExecutionCoordinator(
     taskGraphs,
@@ -66,7 +69,7 @@ async function fixture(t: test.TestContext) {
     interlocks,
     awareness
   );
-  return { root, workSessions, sessionA, sessionB, taskGraphs, attempts, resources, interlocks, scheduler, awareness, executor };
+  return { root, workSessions, sessionA, sessionB, taskGraphs, attempts, resources, interlocks, scheduler, workerProviders, awareness, executor };
 }
 
 test('scheduler awareness marks canonical hardware resource busy across sibling Work Sessions', async t => {
@@ -223,4 +226,90 @@ test('scheduler awareness honors canonical project-variant locks without blockin
   });
 
   await runWithWorkSession(fx.sessionB.id, () => fx.resources.release(lease.id));
+});
+
+
+test('scheduler awareness keeps unavailable worker providers in waiting-provider without consuming task state', async t => {
+  const fx = await fixture(t);
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'offline-worker',
+      kind: 'custom',
+      displayName: 'Offline Worker',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'unavailable' as const, detail: 'offline' }),
+    dispatch: async () => ({ status: 'succeeded' as const })
+  });
+
+  await runWithWorkSession(fx.sessionA.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'worker availability',
+      objective: 'Wait for a registered provider without failing the task'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'delegate inspection',
+      concurrency: { operation: 'project.inspect' },
+      execution: { kind: 'worker-provider', providerId: 'offline-worker' }
+    });
+
+    const snapshot = await fx.awareness.snapshot(objective.id);
+    const aware = snapshot.plan.find(item => item.task.id === task.id);
+    assert.equal(aware?.availability, 'waiting-provider');
+    assert.equal(aware?.waitReason, 'WORKER_PROVIDER_UNAVAILABLE');
+    assert.equal(snapshot.workerProviders.find(item => item.provider.id === 'offline-worker')?.dispatchCapable, true);
+
+    await assert.rejects(
+      fx.executor.execute(objective.id, task.id, async () => 'must-not-run'),
+      /TASK_WAITING_PROVIDER: WORKER_PROVIDER_UNAVAILABLE/
+    );
+    assert.equal((await fx.taskGraphs.get(objective.id)).tasks[0]?.status, 'ready');
+    assert.equal(await fx.attempts.getForGeneration(objective.id, task.id, 1), undefined);
+  });
+});
+
+test('scheduler awareness requires an isolated Work Session worktree for worktree-bound providers', async t => {
+  const fx = await fixture(t);
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'worktree-worker',
+      kind: 'custom',
+      displayName: 'Worktree Worker',
+      worktreeAssignment: true,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({ status: 'succeeded' as const })
+  });
+
+  await runWithWorkSession(fx.sessionA.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'worker isolation',
+      objective: 'Require isolated source state before delegation'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'delegate source edit',
+      concurrency: { operation: 'source.edit', key: 'repo.rwmcp-a' },
+      execution: { kind: 'worker-provider', providerId: 'worktree-worker' }
+    });
+
+    const waiting = await fx.awareness.snapshot(objective.id);
+    const waitingTask = waiting.plan.find(item => item.task.id === task.id);
+    assert.equal(waitingTask?.availability, 'waiting-session');
+    assert.equal(waitingTask?.waitReason, 'WORKER_WORKTREE_REQUIRED');
+    assert.deepEqual(waitingTask?.blockingSessionIds, [fx.sessionA.id]);
+
+    await fx.workSessions.updateProject(fx.sessionA.id, {
+      workspace: 'projects',
+      repoPath: 'repo',
+      worktreePath: 'repo.rwmcp-a',
+      buildDir: 'repo.rwmcp-a/build',
+      branch: 'rwmcp/session/a'
+    });
+    const ready = await fx.awareness.snapshot(objective.id);
+    assert.equal(ready.plan.find(item => item.task.id === task.id)?.availability, 'ready');
+  });
 });

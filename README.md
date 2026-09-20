@@ -12,7 +12,21 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.18.0 · channel=stable · Action Schema 4 · Engineering API 4**
+**Stable release: v0.19.0 · channel=stable · Action Schema 5 · Engineering API 4**
+
+v0.19 adds **Controlled Worker Orchestration** on top of the accepted v0.18 production baseline. Delegated workers remain optional runtime extensions; task dispatch reuses the existing Work Session, deterministic scheduler, resource lease/node interlock and durable Task Attempt boundaries instead of creating a second authority path.
+
+**v0.19.0 - Controlled Worker Orchestration**
+
+- Work Tasks may persist a bounded `worker-provider` execution binding containing only a provider ID; no arbitrary shell, argv, credential or permission payload is accepted by the Task Graph contract;
+- locally registered providers may expose bounded dispatch through `WorkerProviderRegistry`, while MCP retains only the read-only `worker_provider_list` surface and cannot register or mutate providers;
+- `work_objective_execute_task` remains the single execution entry point and accepts only Work Session/Object/Task identifiers;
+- Scheduler Awareness reports `waiting-provider` for unregistered/offline/disabled providers and `WORKER_WORKTREE_REQUIRED` before dispatch when a provider requires isolated source state;
+- unavailable providers do not consume a Task Attempt or task generation; provider `blocked/failed` outcomes can never become fake success;
+- one durable Task Attempt remains authoritative per task generation and now records bounded `providerId/providerRunId` evidence;
+- retry is explicit by generation, runtime restart reconciles incomplete worker attempts rather than auto-replaying them, and running cancellation records intent without claiming unsupported provider preemption;
+- direct MCP control remains fully usable when no worker providers are registered or every provider is unavailable;
+- Action Schema increases to 5 for the new persisted worker-provider binding; Engineering API remains 4.
 
 v0.18 hardens the v0.17 orchestration foundation for multi-node production use without widening autonomous authority. Project Session Groups now detect project drift, and the owner-local Control Center gains explicit management for default-deny directional cross-node grants.
 

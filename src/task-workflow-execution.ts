@@ -2,6 +2,9 @@ import type { EngineeringWorkflowExecutionService } from './engineering-workflow
 import type { TaskAttemptRecord, TaskAttemptStatus, TaskAttemptStore } from './task-attempt-store.js';
 import type { TaskExecutionCoordinator } from './task-executor.js';
 import type { TaskGraphStore, WorkTask } from './task-graph.js';
+import type { WorkerProviderRegistry, WorkerDispatchResult } from './worker-provider.js';
+import type { WorkSessionStore } from './work-session.js';
+import type { WorktreeManager, WorktreeState } from './worktree-manager.js';
 
 class TaskWorkflowOutcomeError extends Error {
   constructor(
@@ -12,12 +15,28 @@ class TaskWorkflowOutcomeError extends Error {
   }
 }
 
+class WorkerProviderOutcomeError extends Error {
+  constructor(
+    readonly providerStatus: 'blocked' | 'failed',
+    readonly providerId: string,
+    readonly providerRunId?: string,
+    readonly providerSummary?: string
+  ) {
+    super(
+      `TASK_WORKER_NOT_SUCCEEDED: provider=${providerId} status=${providerStatus}` +
+      (providerSummary ? ` summary=${providerSummary}` : '') +
+      '.'
+    );
+  }
+}
+
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).trim().slice(0, 1024) || 'task-execution-failed';
 }
 
 function attemptStatus(error: unknown): Exclude<TaskAttemptStatus, 'running'> {
   if (error instanceof TaskWorkflowOutcomeError && error.workflowStatus === 'blocked') return 'blocked';
+  if (error instanceof WorkerProviderOutcomeError && error.providerStatus === 'blocked') return 'blocked';
   return 'failed';
 }
 
@@ -26,7 +45,10 @@ export class TaskWorkflowExecutionService {
     private readonly taskGraphs: TaskGraphStore,
     private readonly taskExecutor: TaskExecutionCoordinator,
     private readonly workflowExecution: EngineeringWorkflowExecutionService,
-    private readonly taskAttempts: TaskAttemptStore
+    private readonly taskAttempts: TaskAttemptStore,
+    private readonly workerProviders?: WorkerProviderRegistry,
+    private readonly workSessions?: WorkSessionStore,
+    private readonly worktreeManager?: Pick<WorktreeManager, 'status'>
   ) {}
 
   private async task(objectiveId: string, taskId: string): Promise<WorkTask> {
@@ -52,10 +74,22 @@ export class TaskWorkflowExecutionService {
       };
     }
 
-    if (!task.execution || task.execution.kind !== 'engineering-workflow') {
-      throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${taskId}' has no typed engineering-workflow binding.`);
+    if (!task.execution) {
+      throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${taskId}' has no persisted execution binding.`);
     }
+    if (task.execution.kind === 'engineering-workflow') {
+      return await this.executeWorkflow(objectiveId, task);
+    }
+    if (task.execution.kind === 'worker-provider') {
+      return await this.executeWorker(objectiveId, task);
+    }
+    throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${taskId}' has an unsupported execution binding.`);
+  }
 
+  private async executeWorkflow(objectiveId: string, task: WorkTask) {
+    if (!task.execution || task.execution.kind !== 'engineering-workflow') {
+      throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${task.id}' has no typed engineering-workflow binding.`);
+    }
     const binding = task.execution;
     let attempt: TaskAttemptRecord | undefined;
     let workflowRunId: string | undefined;
@@ -63,7 +97,7 @@ export class TaskWorkflowExecutionService {
     try {
       const executed = await this.taskExecutor.execute(
         objectiveId,
-        taskId,
+        task.id,
         async () => {
           const output = await this.workflowExecution.run(
             binding.workspace,
@@ -84,10 +118,118 @@ export class TaskWorkflowExecutionService {
         },
         {
           onStarted: async started => {
+            const begun = await this.taskAttempts.begin(objectiveId, task.id, started.generation);
+            if (!begun.created) {
+              throw new Error(
+                `TASK_ATTEMPT_ALREADY_EXISTS: generation=${started.generation} attempt=${begun.attempt.id}.`
+              );
+            }
+            attempt = begun.attempt;
+          }
+        }
+      );
+
+      if (!attempt) throw new Error('TASK_ATTEMPT_MISSING: execution started without durable attempt state.');
+      const finishedAttempt = await this.taskAttempts.finish(attempt.id, 'succeeded', { workflowRunId });
+      return { task: executed.task, attempt: finishedAttempt, replayed: false, output: executed.result };
+    } catch (error) {
+      if (attempt) {
+        await this.taskAttempts.finish(attempt.id, attemptStatus(error), {
+          error: message(error),
+          workflowRunId:
+            error instanceof TaskWorkflowOutcomeError
+              ? error.workflowRunId ?? workflowRunId
+              : workflowRunId
+        }).catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  private async executeWorker(objectiveId: string, task: WorkTask) {
+    if (!task.execution || task.execution.kind !== 'worker-provider') {
+      throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${task.id}' has no worker-provider binding.`);
+    }
+    if (!this.workerProviders || !this.workSessions) {
+      throw new Error('WORKER_PROVIDER_EXECUTION_UNAVAILABLE: runtime did not configure worker orchestration services.');
+    }
+
+    const binding = task.execution;
+    const objective = await this.taskGraphs.get(objectiveId);
+    const session = await this.workSessions.inspect(objective.workSessionId, true);
+    const project = session.capsule.project;
+    const providerDescriptor = this.workerProviders.descriptor(binding.providerId);
+    let liveWorktree: WorktreeState | undefined;
+    if (providerDescriptor?.worktreeAssignment && this.worktreeManager) {
+      try {
+        liveWorktree = await this.worktreeManager.status(objective.workSessionId);
+      } catch {
+        throw new Error('TASK_WAITING_SESSION: WORKER_WORKTREE_UNAVAILABLE.');
+      }
+      if (!liveWorktree.worktreePath) {
+        throw new Error('TASK_WAITING_SESSION: WORKER_WORKTREE_REQUIRED.');
+      }
+    }
+    const dispatchProject = project?.workspace && project.projectPath
+      ? {
+          workspace: project.workspace,
+          projectPath: project.projectPath,
+          ...(liveWorktree?.worktreePath
+            ? {
+                worktreePath: liveWorktree.worktreePath,
+                ...(liveWorktree.buildDir ? { buildDir: liveWorktree.buildDir } : {}),
+                ...(liveWorktree.branch ? { branch: liveWorktree.branch } : {}),
+                ...(liveWorktree.commit ? { commit: liveWorktree.commit } : {})
+              }
+            : {
+                ...(project.worktreePath ? { worktreePath: project.worktreePath } : {}),
+                ...(project.buildDir ? { buildDir: project.buildDir } : {}),
+                ...(project.branch ? { branch: project.branch } : {}),
+                ...(project.commit ? { commit: project.commit } : {})
+              })
+        }
+      : undefined;
+    let attempt: TaskAttemptRecord | undefined;
+    let providerResult: WorkerDispatchResult | undefined;
+
+    try {
+      const executed = await this.taskExecutor.execute(
+        objectiveId,
+        task.id,
+        async () => {
+          providerResult = await this.workerProviders!.dispatch(binding.providerId, {
+            version: 1,
+            workSessionId: objective.workSessionId,
+            objective: {
+              id: objective.id,
+              name: objective.name,
+              objective: objective.objective
+            },
+            task: {
+              id: task.id,
+              generation: task.generation,
+              title: task.title,
+              ...(task.description ? { description: task.description } : {})
+            },
+            ...(dispatchProject ? { project: dispatchProject } : {})
+          });
+          if (providerResult.status === 'blocked' || providerResult.status === 'failed') {
+            throw new WorkerProviderOutcomeError(
+              providerResult.status,
+              binding.providerId,
+              providerResult.runId,
+              providerResult.summary
+            );
+          }
+          return providerResult;
+        },
+        {
+          onStarted: async started => {
             const begun = await this.taskAttempts.begin(
               objectiveId,
-              taskId,
-              started.generation
+              task.id,
+              started.generation,
+              { providerId: binding.providerId }
             );
             if (!begun.created) {
               throw new Error(
@@ -99,26 +241,21 @@ export class TaskWorkflowExecutionService {
         }
       );
 
-      if (!attempt) {
-        throw new Error('TASK_ATTEMPT_MISSING: execution started without durable attempt state.');
-      }
+      if (!attempt) throw new Error('TASK_ATTEMPT_MISSING: worker execution started without durable attempt state.');
       const finishedAttempt = await this.taskAttempts.finish(attempt.id, 'succeeded', {
-        workflowRunId
+        providerId: binding.providerId,
+        providerRunId: providerResult?.runId
       });
-      return {
-        task: executed.task,
-        attempt: finishedAttempt,
-        replayed: false,
-        output: executed.result
-      };
+      return { task: executed.task, attempt: finishedAttempt, replayed: false, output: executed.result };
     } catch (error) {
       if (attempt) {
         await this.taskAttempts.finish(attempt.id, attemptStatus(error), {
           error: message(error),
-          workflowRunId:
-            error instanceof TaskWorkflowOutcomeError
-              ? error.workflowRunId ?? workflowRunId
-              : workflowRunId
+          providerId: binding.providerId,
+          providerRunId:
+            error instanceof WorkerProviderOutcomeError
+              ? error.providerRunId ?? providerResult?.runId
+              : providerResult?.runId
         }).catch(() => undefined);
       }
       throw error;
@@ -146,7 +283,7 @@ export class TaskWorkflowExecutionService {
           attempt,
           cancellationRequested: true,
           preempted: true,
-          note: 'Task was cancelled before typed workflow dispatch.'
+          note: 'Task was cancelled before persisted execution binding dispatch.'
         };
       } catch (error) {
         if (!message(error).startsWith('TASK_RUNNING:')) throw error;
@@ -166,7 +303,7 @@ export class TaskWorkflowExecutionService {
         cancellationRequested: attempt !== undefined,
         preempted: false,
         note: attempt
-          ? 'Cancellation request recorded. The current generic typed-workflow contract does not claim provider preemption; the real workflow outcome remains authoritative.'
+          ? 'Cancellation request recorded. The generic task-execution contract does not claim provider preemption; the real execution outcome remains authoritative.'
           : 'Task is running but its durable attempt has not been created yet; no provider preemption was claimed.'
       };
     }

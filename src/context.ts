@@ -58,6 +58,7 @@ import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
 import { WorkflowRunStore } from './workflow-run-store.js';
 import { WorkerProviderRegistry } from './worker-provider.js';
 import { WorktreeManager } from './worktree-manager.js';
+import { registerConfiguredCodexWorker } from './workers/codex-worker-provider.js';
 
 export async function createContext() {
   const actor = {
@@ -130,6 +131,7 @@ export async function createContext() {
   const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane);
   const engineeringResources = new EngineeringResourceManager(currentClientId);
   const engineeringRunner = new EngineeringCommandRunner(policy);
+  registerConfiguredCodexWorker(workerProviders, policy, paths, engineeringRunner);
   const engineeringHardware = new HardwareDiscoveryAdapter();
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
   const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);

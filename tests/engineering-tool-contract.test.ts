@@ -32,12 +32,12 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.20 development uses Action Schema v6 while Engineering API remains v4', async () => {
+test('v0.20 stable uses Action Schema v6 while Engineering API remains v4', async () => {
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.20\.0-dev\.0';/);
-  assert.match(capabilities, /export const BUILD_CHANNEL = 'development'/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.20\.0';/);
+  assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
@@ -105,7 +105,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('v0.20 development retains Work Session routing under Action Schema v6 and Keil shared outputs remain project-variant exclusive', async () => {
+test('v0.20 stable retains Work Session routing under Action Schema v6 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');

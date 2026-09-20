@@ -70,8 +70,8 @@ test('chatgpt_web_status is classified as read-only', () => {
 test('ChatGPT Web status does not claim an authenticated tunnel for local calls', () => {
   const status = buildChatGptWebStatus(fakeContext()) as any;
   assert.equal(status.ok, true);
-  assert.equal(status.serverVersion, '0.20.0-dev.0');
-  assert.equal(status.channel, 'development');
+  assert.equal(status.serverVersion, '0.20.0');
+  assert.equal(status.channel, 'stable');
   assert.equal(status.gitCommit, null);
   assert.equal(status.chatgptWeb.authenticated, false);
   assert.equal(status.chatgptWeb.directControlPathVerified, false);

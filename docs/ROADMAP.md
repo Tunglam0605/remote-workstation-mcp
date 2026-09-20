@@ -669,6 +669,8 @@ Track A development scope:
 
 v0.21.0 is the stable source identity for the typed engineering tool-expansion line, preserving Action Schema 6 and Engineering API 4. The release keeps ChatGPT Web as the reasoning/controller layer and RWMCP as deterministic execution; production rollout status is verified operationally on each Direct Node rather than inferred from this roadmap.
 
+v0.22.0-dev.0 continues the hands-only expansion: ESP-IDF 5/6 structured-size compatibility, richer PlatformIO JSON diagnostics with a dedicated project kind, ROS 2 test/bag inspection, Docker container evidence, validation-gated KiCad fabrication export with SHA-256 manifests, plus an optional local Codex CLI implementation worker. The Codex provider is runtime opt-in, requires isolated Work Session worktrees, remains absent by default and never becomes a planning/authority source.
+
 Acceptance requires full regression, typecheck/build/plugin validation, production dependency audit, source-level authority regression proving the coordination surfaces remain read-only, and explicit integration review against Track B before merge.
 
 ## v0.13 — Daily engineering workflows

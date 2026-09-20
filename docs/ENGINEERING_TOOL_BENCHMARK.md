@@ -25,7 +25,8 @@ Patterns to adopt:
 
 RWMCP application:
 - Enrich espidf.diagnostics with build metadata and supported-target discovery.
-- Later add bounded size analysis and explicit chip/flash identity inspection.
+- v0.22 adds structured size, component and file memory analysis through idf.py size commands and probes `json2` first with `json` fallback because ESP-IDF 6.x and 5.x expose different structured format names.
+- Explicit chip/flash identity inspection remains a later bounded phase.
 - Keep erase/eFuse/security mutation outside default engineering workflows.
 
 ## ROS 2 / colcon / rosbag2
@@ -44,7 +45,8 @@ Patterns to adopt:
 
 RWMCP application:
 - Add ros2.doctor as a read-only workflow through the existing workflow envelope.
-- Extend bag tooling later with info/playback/lifecycle contracts rather than arbitrary ros2 argv.
+- v0.22 adds colcon test + test-result acceptance and project-local ros2 bag info inspection.
+- Playback remains deferred until an explicit lifecycle/resource-ownership contract exists.
 
 ## Docker
 
@@ -58,7 +60,22 @@ Patterns to adopt:
 
 RWMCP application:
 - Add a bounded one-shot runtime stats snapshot workflow.
+- v0.22 promotes existing inspect/log primitives into explicit high-level workflows with bounded container selectors and log-tail limits.
 - Continue daemon/context and container risk assessment before mutation.
+
+## PlatformIO
+
+Reference:
+- https://github.com/platformio/platformio-core
+
+Patterns to adopt:
+- Prefer `pio project metadata --json-output` for project/environment discovery.
+- Prefer `pio device list --json-output` for bounded serial-device inventory.
+- Treat build/upload/monitor as separate lifecycle operations; do not infer upload authority from project detection.
+
+RWMCP application:
+- v0.22 detects `platformio.ini` and adds project metadata, computed-config lint, system info and device inventory through official JSON outputs.
+- Generic firmware build/flash workflows are intentionally not advertised for PlatformIO yet; a dedicated typed provider must define environment selection, upload port and hardware-resource ownership first.
 
 ## systemd
 
@@ -89,8 +106,9 @@ Patterns to adopt:
 - Prefer kicad-cli/KiBot contracts over GUI clicking when equivalent CLI capability exists.
 
 RWMCP application:
-- Next phase: detect KiCad projects, add read-only diagnostics, DRC/ERC preflight and bounded export plans.
-- Any source-modifying PCB operation must remain explicit and reviewable.
+- KiCad project detection, diagnostics and DRC/ERC preflight are implemented.
+- v0.22 adds validation-gated Gerber/drill/BOM fabrication export into a new isolated project-local output directory plus a bounded per-file SHA-256 manifest.
+- Any source-modifying PCB operation remains excluded unless it becomes an explicit, reviewable future contract.
 
 ## Explicit non-goals
 

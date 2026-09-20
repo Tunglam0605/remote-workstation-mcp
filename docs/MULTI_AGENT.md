@@ -51,6 +51,20 @@ v0.19 provides **Controlled Worker Orchestration** without making provider ident
 
 Direct MCP control remains the primary independent path. If every provider is unavailable, normal typed MCP control continues to work; orchestration merely reports `waiting-provider` for affected delegated tasks.
 
+### Optional local Codex worker
+
+The v0.22 development line can register a local `codex-local` implementation worker only when the workstation owner explicitly sets `RWMCP_CODEX_WORKER_ENABLED=1` (also accepts `true` or `yes`). `RWMCP_CODEX_EXECUTABLE` may point to an absolute Codex CLI path; otherwise RWMCP resolves `codex` from `PATH`.
+
+This provider is intentionally narrow:
+
+- the registry remains empty when opt-in is absent;
+- Codex receives one already-selected Work Objective task, never authority to select the next task;
+- an isolated Work Session Git worktree is mandatory;
+- dispatch requests `workspace-write` sandboxing, approval policy `never`, ephemeral execution and no web search;
+- the provider never pushes, merges, tags, releases, deploys or edits owner policy/security configuration by design;
+- ChatGPT Web reviews the resulting Git evidence and remains responsible for accepting, rejecting or revising the change;
+- if the installed Codex CLI cannot honor the requested write sandbox, the dispatch is reported as blocked rather than widening permissions.
+
 ## Concurrency today
 
 Every `fs_read` returns a SHA-256. `fs_write` and `fs_patch` accept `expectedSha256`. Clients should use it whenever modifying a file they previously read.

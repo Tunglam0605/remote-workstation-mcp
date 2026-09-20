@@ -32,6 +32,25 @@ test('project inspector detects ESP-IDF and target from sdkconfig', async () => 
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
+test('project inspector detects PlatformIO ESP32 projects and board metadata', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-eng-platformio-'));
+  try {
+    await fs.writeFile(path.join(root, 'platformio.ini'), [
+      '[env:esp32s3]',
+      'platform = espressif32',
+      'board = esp32-s3-devkitc-1',
+      'framework = arduino'
+    ].join('\n'));
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(root))));
+    const info = await inspector.inspect('w', '.');
+    assert.equal(info.family, 'esp32');
+    assert.equal(info.framework, 'platformio');
+    assert.equal(info.buildSystem, 'platformio');
+    assert.equal(info.board, 'esp32-s3-devkitc-1');
+    assert.ok(info.markers.includes('platformio.ini'));
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
 test('project inspector detects STM32 Cube project and OpenOCD target mapping', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-eng-stm32-'));
   try {

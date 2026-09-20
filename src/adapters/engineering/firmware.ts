@@ -380,6 +380,53 @@ export class FirmwareAdapter {
     };
   }
 
+  async espIdfSizeAnalysis(workspace: string, projectPath = '.') {
+    this.policy.assertEngineeringExecute();
+    const project = await this.inspect(workspace, projectPath);
+    if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
+      throw new Error('espidf.size_analysis requires a detected ESP-IDF/ESP32 project.');
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const outputs: Record<'summary' | 'components' | 'files', unknown> = {
+      summary: {},
+      components: {},
+      files: {}
+    };
+    const formats: Record<'summary' | 'components' | 'files', 'json2' | 'json'> = {
+      summary: 'json', components: 'json', files: 'json'
+    };
+    const commands = [
+      ['summary', 'size'],
+      ['components', 'size-components'],
+      ['files', 'size-files']
+    ] as const;
+    for (const [key, verb] of commands) {
+      let accepted: { stdout: string; format: 'json2' | 'json' } | undefined;
+      const failures: string[] = [];
+      for (const format of ['json2', 'json'] as const) {
+        const command = await espIdfCommand([verb, '--format', format]);
+        const result = await this.runner.run(command.program, command.args, cwd, 120_000);
+        if (result.exitCode !== 0 || result.timedOut) {
+          failures.push(`${format}: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+          continue;
+        }
+        try {
+          JSON.parse(result.stdout.trim());
+          accepted = { stdout: result.stdout, format };
+          break;
+        } catch {
+          failures.push(`${format}: invalid structured output`);
+        }
+      }
+      if (!accepted) {
+        throw new Error(`ESP-IDF ${verb} failed structured-output compatibility probes: ${failures.join(' | ')}`);
+      }
+      outputs[key] = JSON.parse(accepted.stdout.trim()) as unknown;
+      formats[key] = accepted.format;
+    }
+    return { provider: 'esp-idf' as const, project, formats, ...outputs };
+  }
+
   async build(
     workspace: string,
     projectPath = '.',

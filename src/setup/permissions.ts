@@ -17,7 +17,8 @@ const ALLOWED_SCOPES = new Set([
   'workstation.write',
   'workstation.execute',
   'workstation.admin_request',
-  'workstation.full_control'
+  'workstation.full_control',
+  'workstation.cross_node_transfer'
 ]);
 const ALLOWED_TTLS = new Set([10, 30, 60]);
 
@@ -68,7 +69,8 @@ function normalizeScopes(scopes: readonly string[]): string[] {
     'workstation.write',
     'workstation.execute',
     'workstation.admin_request',
-    'workstation.full_control'
+    'workstation.full_control',
+    'workstation.cross_node_transfer'
   ].filter(scope => requested.has(scope));
 }
 
@@ -130,10 +132,14 @@ export async function applyPermissionConfig(repoRoot: string, input: PermissionC
 
 export async function applyOwnerPermissionMode(repoRoot: string, mode: OwnerPermissionMode): Promise<PermissionState> {
   await revokePermissionLease();
+  const settings = await loadSetupSettings();
+  const multiNodeScope = settings.httpScopes.includes('workstation.cross_node_transfer')
+    ? ['workstation.cross_node_transfer']
+    : [];
   if (mode === 'read_only') {
     return await applyPermissionConfig(repoRoot, {
       mode: 'read_only',
-      httpScopes: ['workstation.read'],
+      httpScopes: ['workstation.read', ...multiNodeScope],
       allowHostFilesystem: false,
       allowRawShell: false
     });
@@ -141,14 +147,14 @@ export async function applyOwnerPermissionMode(repoRoot: string, mode: OwnerPerm
   if (mode === 'workspace') {
     return await applyPermissionConfig(repoRoot, {
       mode: 'workspace',
-      httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request'],
+      httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', ...multiNodeScope],
       allowHostFilesystem: false,
       allowRawShell: false
     });
   }
   return await applyPermissionConfig(repoRoot, {
     mode: 'full_control',
-    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control'],
+    httpScopes: ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control', ...multiNodeScope],
     allowHostFilesystem: true,
     allowRawShell: true
   });

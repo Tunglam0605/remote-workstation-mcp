@@ -598,6 +598,45 @@ Foundation acceptance gates:
 - closed group records are bounded by terminal retention GC;
 - full regression, build, plugin validation, dependency audit and Linux/Windows CI must pass before merge.
 
+## v0.18 — Multi-node owner control + coordination hardening
+
+v0.18 turns the v0.17 coordination foundation into a safer multi-node production substrate without adding autonomous execution authority.
+
+Implemented scope:
+
+- Project Session Group views revalidate every member's live workspace/projectPath and expose `aligned`, `drifted` or `degraded` project alignment;
+- additive group mutation fails closed while project drift or unavailable members exist; remove/close remain explicit reconciliation paths;
+- add an owner-local Control Center Multi-node Grant Manager with local Node identity, enable/disable state and bounded directional grant CRUD;
+- keep cross-node transfer default-deny and require the dedicated `workstation.cross_node_transfer` scope plus matching source/destination policy grants at execution time;
+- synchronize that dedicated scope only from the owner-local multi-node setting and preserve it across Read only / Workspace / Full access mode changes;
+- normalize and validate source prefixes, destination bases, extensions, maximum bytes and direct/relay transports before persisting grants;
+- keep grant creation, deletion and enablement out of the MCP action catalog;
+- retain Action Schema 4 and Engineering API 4.
+
+v0.18 release gates:
+
+- targeted drift and owner multi-node tests plus full regression/typecheck/build/plugin validation must pass;
+- production dependency audit and Linux/Windows CI must pass before merge;
+- release assets, SBOM and SHA-256 manifest must validate before rollout;
+- rollout sequentially to Ubuntu Personal, Windows and Ubuntu Vision with existing rollback gates;
+- Ubuntu Vision `tunglam-apriltag.service` must remain on the same PID/start timestamp throughout rollout;
+- cross-node policy stays disabled by default after rollout until the owner explicitly creates matching directional grants.
+
+## v0.19 — Controlled Worker Orchestration
+
+v0.19 may add worker execution only after v0.18 is accepted in production.
+
+Planned constraints:
+
+- worker selection/dispatch must reuse Work Session identity, Work Objective Task Graph, deterministic scheduler, Task Attempts, EngineeringResourceManager and NodeInterlockStore;
+- Worker Provider Registry remains the provider discovery/status source, but provider identity never grants workstation authority;
+- no worker may accept arbitrary shell/program/argv payloads through the orchestration contract;
+- dispatch must bind to an explicit caller-owned Work Session and persisted task generation;
+- provider failure/restart/cancellation must reconcile to durable attempts without false success or duplicate execution;
+- direct MCP control must remain usable when every worker provider is unavailable;
+- worker dispatch cannot create scopes, change owner policy, create cross-node grants or bypass hardware/resource leases;
+- v0.19 must pass Linux/Windows regression, provider failure isolation, restart/idempotency and real multi-session acceptance before production rollout.
+
 ## v0.13 — Daily engineering workflows
 
 ### v0.14.6 - Docker policy, stable serial identity and Keil diagnostics hardening

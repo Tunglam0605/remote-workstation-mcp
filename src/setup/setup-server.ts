@@ -25,6 +25,12 @@ import {
   revokePermissionLease
 } from './permissions.js';
 import {
+  readOwnerMultiNodeState,
+  removeOwnerMultiNodeGrant,
+  setOwnerMultiNodeEnabled,
+  upsertOwnerMultiNodeGrant
+} from './multi-node.js';
+import {
   ensureDefaultPolicy,
   ensureHostsConfig,
   loadSetupSettings,
@@ -1298,6 +1304,37 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           promotionState: 'not-promoted',
           active: false
         });
+        return;
+      }
+
+      if (url.pathname === '/api/multi-node' && req.method === 'GET') {
+        json(res, 200, await readOwnerMultiNodeState(repoRoot));
+        return;
+      }
+
+      if (url.pathname === '/api/multi-node/enabled' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { enabled?: boolean };
+        if (typeof body.enabled !== 'boolean') throw new Error('enabled must be a boolean.');
+        const state = await setOwnerMultiNodeEnabled(repoRoot, body.enabled);
+        const settings = await loadSetupSettings();
+        process.env.RWMCP_HTTP_SCOPES = settings.httpScopes.join(',');
+        if (process.platform !== 'win32') {
+          await updateEnvFile(linuxOpenAiEnvPath(), { RWMCP_HTTP_SCOPES: settings.httpScopes.join(',') });
+        }
+        json(res, 200, state);
+        return;
+      }
+
+      if (url.pathname === '/api/multi-node/grants' && req.method === 'POST') {
+        const state = await upsertOwnerMultiNodeGrant(repoRoot, await readJsonBody(req));
+        json(res, 200, { ...state, restartRequired: true });
+        return;
+      }
+
+      const multiNodeGrantMatch = url.pathname.match(/^\/api\/multi-node\/grants\/([A-Za-z0-9._-]{1,96})$/);
+      if (multiNodeGrantMatch && req.method === 'DELETE') {
+        const state = await removeOwnerMultiNodeGrant(repoRoot, multiNodeGrantMatch[1]!);
+        json(res, 200, { ...state, restartRequired: true });
         return;
       }
 

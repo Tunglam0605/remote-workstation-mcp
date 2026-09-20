@@ -36,7 +36,7 @@ test('Phase 3 Task Graph bumps Action Schema to v4 while Engineering API remains
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 4;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.17\.1';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.18\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);

@@ -12,9 +12,20 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.17.1 · channel=stable · Action Schema 4 · Engineering API 4**
+**Stable release: v0.18.0 · channel=stable · Action Schema 4 · Engineering API 4**
 
-The v0.17 orchestration core, post-Phase-3 coordination foundation, full Linux/Windows CI and three-node packed sidecar RC smoke have passed. Managed production rollout remains guarded by each node's existing checksum, health, readiness and rollback path.
+v0.18 hardens the v0.17 orchestration foundation for multi-node production use without widening autonomous authority. Project Session Groups now detect project drift, and the owner-local Control Center gains explicit management for default-deny directional cross-node grants.
+
+**v0.18.0 - Multi-node owner control + coordination hardening**
+
+- Project Session Group views revalidate every member's current workspace/projectPath and report `aligned`, `drifted` or `degraded` state;
+- additive group membership changes fail closed while project drift or unavailable members exist, while remove/close remain available for explicit reconciliation;
+- the loopback-only Control Center can enable/disable multi-node transfer and create/update/delete bounded directional grants;
+- enabling multi-node explicitly synchronizes the dedicated `workstation.cross_node_transfer` transport scope and disabling removes it fail-closed;
+- access-mode changes preserve an explicitly enabled cross-node scope instead of silently resetting it;
+- grants bind source/destination node IDs, workspaces, source prefixes, destination bases, extensions, size and direct/relay transports;
+- grant mutation remains owner-local only: no MCP surface can create, widen or enable cross-node authority;
+- Action Schema 4 and Engineering API 4 remain unchanged because v0.18 adds no new MCP authority surface.
 
 **v0.17.1 - Phase 3 orchestration core + Control Center notification-queue hotfix**
 

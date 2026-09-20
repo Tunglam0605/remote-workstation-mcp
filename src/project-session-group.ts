@@ -26,11 +26,16 @@ export interface ProjectSessionGroupMemberView {
   name?: string;
   role?: string;
   currentObjective?: string;
+  projectAlignment: 'aligned' | 'drifted' | 'unavailable';
+  project?: { workspace: string; projectPath: string };
 }
 
 export interface ProjectSessionGroupView {
   group: ProjectSessionGroup;
   members: ProjectSessionGroupMemberView[];
+  projectAlignment: 'aligned' | 'drifted' | 'degraded';
+  driftedMemberSessionIds: string[];
+  unavailableMemberSessionIds: string[];
   authority: 'coordination-only';
   executionActive: false;
 }
@@ -369,27 +374,63 @@ export class ProjectSessionGroupService {
     const members = await Promise.all(group.memberSessionIds.map(async sessionId => {
       try {
         const session = await this.workSessions.inspect(sessionId, true);
+        const workspace = session.capsule.project?.workspace?.trim();
+        const rawProjectPath = session.capsule.project?.projectPath?.trim();
+        const projectPath = rawProjectPath ? normalizeProjectPath(rawProjectPath) : undefined;
+        const aligned = workspace === group.workspace && projectPath === group.projectPath;
         return {
           sessionId,
           status: session.status,
           ...(session.name ? { name: session.name } : {}),
           ...(session.capsule.role ? { role: session.capsule.role } : {}),
-          ...(session.capsule.currentObjective ? { currentObjective: session.capsule.currentObjective } : {})
+          ...(session.capsule.currentObjective ? { currentObjective: session.capsule.currentObjective } : {}),
+          projectAlignment: aligned ? 'aligned' : 'drifted',
+          ...(workspace && projectPath ? { project: { workspace, projectPath } } : {})
         } satisfies ProjectSessionGroupMemberView;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (message.startsWith('Unknown Work Session ')) {
-          return { sessionId, status: 'unavailable' as const };
+          return { sessionId, status: 'unavailable' as const, projectAlignment: 'unavailable' as const };
         }
         throw error;
       }
     }));
+    const driftedMemberSessionIds = members
+      .filter(member => member.projectAlignment === 'drifted')
+      .map(member => member.sessionId);
+    const unavailableMemberSessionIds = members
+      .filter(member => member.projectAlignment === 'unavailable')
+      .map(member => member.sessionId);
     return {
       group,
       members,
+      projectAlignment: driftedMemberSessionIds.length > 0
+        ? 'drifted'
+        : unavailableMemberSessionIds.length > 0
+          ? 'degraded'
+          : 'aligned',
+      driftedMemberSessionIds,
+      unavailableMemberSessionIds,
       authority: 'coordination-only',
       executionActive: false
     };
+  }
+
+  private async assertProjectAligned(group: ProjectSessionGroup): Promise<void> {
+    const current = await this.view(group);
+    if (current.projectAlignment === 'aligned') return;
+    if (current.projectAlignment === 'drifted') {
+      throw new Error(
+        'Project Session Group ' + group.id +
+        ' has project drift in Work Session(s): ' + current.driftedMemberSessionIds.join(', ') +
+        '. Remove or reconcile drifted members before adding another Work Session.'
+      );
+    }
+    throw new Error(
+      'Project Session Group ' + group.id +
+      ' has unavailable Work Session member(s): ' + current.unavailableMemberSessionIds.join(', ') +
+      '. Remove unavailable members before adding another Work Session.'
+    );
   }
 
   async create(input: { name?: string; sessionIds: string[] }): Promise<ProjectSessionGroupView> {
@@ -405,6 +446,7 @@ export class ProjectSessionGroupService {
   async addSession(groupId: string, sessionId: string): Promise<ProjectSessionGroupView> {
     const group = await this.store.get(groupId);
     if (group.status !== 'active') throw new Error('Project Session Group ' + groupId + ' is closed.');
+    await this.assertProjectAligned(group);
     await this.assertSameProject([sessionId], { workspace: group.workspace, projectPath: group.projectPath });
     return this.view(await this.store.addMember(groupId, sessionId));
   }

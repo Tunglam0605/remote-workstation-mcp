@@ -205,6 +205,26 @@ export class DockerAdapter {
     });
   }
 
+  async diagnostics(workspace: string, cwd = '.') {
+    this.policy.assertEngineeringEnabled();
+    const [daemon, containers] = await Promise.all([
+      this.daemonRisk(workspace, cwd),
+      this.list(workspace, true, cwd)
+    ]);
+    const states = containers.map(item => String(item.State ?? '').toLowerCase());
+    const statuses = containers.map(item => String(item.Status ?? '').toLowerCase());
+    return {
+      daemon,
+      summary: {
+        total: containers.length,
+        running: states.filter((value, index) => value === 'running' || statuses[index]?.startsWith('up ')).length,
+        exited: states.filter((value, index) => value === 'exited' || value === 'dead' || statuses[index]?.startsWith('exited')).length,
+        unhealthy: statuses.filter(value => value.includes('unhealthy')).length
+      },
+      containers
+    };
+  }
+
   async inspect(workspace: string, container: string, cwd = '.') {
     this.policy.assertEngineeringEnabled();
     const inspection = await this.inspectRaw(workspace, container, cwd);

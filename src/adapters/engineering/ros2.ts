@@ -246,6 +246,26 @@ export class Ros2Adapter {
     return this.processes.start(workspace, command, ['bag', 'record', '-o', output, ...topics], cwd, true);
   }
 
+  async packageList(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const result = await this.run(workspace, cwd, ['pkg', 'list'], 20_000, runtime);
+    return lines(result.stdout);
+  }
+
+  async diagnostics(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const [health, packages] = await Promise.all([
+      this.health(workspace, cwd, runtime),
+      this.packageList(workspace, cwd, runtime)
+    ]);
+    return {
+      ...health,
+      summary: {
+        ...health.summary,
+        packages: packages.length
+      },
+      packages
+    };
+  }
+
   async health(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {
     this.policy.assertEngineeringExecute();
     const nodes = await this.nodeList(workspace, cwd, runtime);

@@ -337,6 +337,33 @@ export class FirmwareAdapter {
       diagnostic: classifyOpenOcdResult(result)
     };
   }
+  async espIdfDiagnostics(workspace: string, projectPath = '.') {
+    this.policy.assertEngineeringExecute();
+    const project = await this.inspect(workspace, projectPath);
+    if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
+      throw new Error('espidf.diagnostics requires a detected ESP-IDF/ESP32 project.');
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const command = await espIdfCommand(['--version']);
+    const versionResult = await this.runner.run(command.program, command.args, cwd, 10_000);
+    if (versionResult.exitCode !== 0 || versionResult.timedOut) {
+      throw new Error(`ESP-IDF version probe failed: ${versionResult.stderr || versionResult.stdout || `exit=${versionResult.exitCode}`}`);
+    }
+    const [artifacts, devices] = await Promise.all([
+      this.listArtifacts(workspace, projectPath),
+      this.hardware.list()
+    ]);
+    return {
+      provider: 'esp-idf' as const,
+      version: versionResult.stdout.trim() || versionResult.stderr.trim(),
+      project,
+      artifacts,
+      serialPorts: devices
+        .filter(item => item.kind === 'serial')
+        .map(item => ({ id: item.id, path: item.path, name: item.name, serialNumber: item.serialNumber, provider: item.provider }))
+    };
+  }
+
   async build(
     workspace: string,
     projectPath = '.',

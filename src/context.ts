@@ -12,6 +12,7 @@ import { SystemdAdapter } from './adapters/engineering/systemd.js';
 import { FirmwareAdapter } from './adapters/engineering/firmware.js';
 import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
 import { KicadAdapter } from './adapters/engineering/kicad.js';
+import { PlatformioAdapter } from './adapters/engineering/platformio.js';
 import { EngineeringProjectProfileStore } from './adapters/engineering/project-profile.js';
 import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
 import { Ros2Adapter } from './adapters/engineering/ros2.js';
@@ -181,7 +182,8 @@ export async function createContext() {
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
   const engineeringKicad = new KicadAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad);
+  const engineeringPlatformio = new PlatformioAdapter(policy, paths, engineeringRunner);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager);
   return {
@@ -251,7 +253,8 @@ export async function createContext() {
       debug: engineeringDebug,
       ros2: engineeringRos2,
       docker: engineeringDocker,
-      systemd: engineeringSystemd
+      systemd: engineeringSystemd,
+      platformio: engineeringPlatformio
     },
     updates: new UpdateAdapter(SERVER_VERSION)
   };

@@ -13,6 +13,7 @@ import { FirmwareAdapter } from './firmware.js';
 import { stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import { KicadAdapter } from './kicad.js';
+import { PlatformioAdapter } from './platformio.js';
 import {
   EngineeringProjectProfileStore,
   type EngineeringFirmwareProfile,
@@ -44,15 +45,21 @@ export type EngineeringWorkflowId =
   | 'firmware.artifact_receive_offer'
   | 'firmware.artifact_push'
   | 'espidf.diagnostics'
+  | 'espidf.size_analysis'
+  | 'platformio.diagnostics'
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deploy_accept'
   | 'ros2.build'
   | 'ros2.health'
   | 'ros2.diagnostics'
   | 'ros2.doctor'
+  | 'ros2.test'
+  | 'ros2.bag_info'
   | 'ros2.build_health'
   | 'docker.diagnostics'
   | 'docker.stats_snapshot'
+  | 'docker.container_inspect'
+  | 'docker.container_logs'
   | 'kicad.diagnostics'
   | 'kicad.validate'
   | 'systemd.service_diagnostics'
@@ -83,6 +90,9 @@ export interface EngineeringWorkflowOverrides {
   rosPackagesSelect?: string[];
   rosSymlinkInstall?: boolean;
   rosMergeInstall?: boolean;
+  rosBagPath?: string;
+  dockerContainer?: string;
+  dockerLogTail?: number;
   systemdUnit?: string;
   systemdUser?: boolean;
   journalLines?: number;
@@ -188,7 +198,8 @@ export class EngineeringWorkflowEngine {
     private readonly ros2: Ros2Adapter,
     private readonly docker?: DockerAdapter,
     private readonly systemd?: SystemdAdapter,
-    private readonly kicad?: KicadAdapter
+    private readonly kicad?: KicadAdapter,
+    private readonly platformio?: PlatformioAdapter
   ) {}
 
   private transferIntent(
@@ -432,7 +443,7 @@ export class EngineeringWorkflowEngine {
       'platform.relay_finalize',
       'platform.relay_abort'
     ];
-    const firmwareCapable = state.project.family !== 'unknown' || Boolean(state.profile.firmware);
+    const firmwareCapable = state.project.framework !== 'platformio' && (state.project.family !== 'unknown' || Boolean(state.profile.firmware));
     if (firmwareCapable) {
       ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
@@ -447,12 +458,14 @@ export class EngineeringWorkflowEngine {
       }
       if (state.project.family === 'esp32' || state.profile.kind === 'esp-idf') {
         ids.push('espidf.diagnostics');
+        if (state.project.framework === 'esp-idf' || state.profile.kind === 'esp-idf') ids.push('espidf.size_analysis');
       }
     }
+    if (state.project.framework === 'platformio' && this.platformio) ids.push('platformio.diagnostics');
     if (state.project.ros2 || state.profile.ros2) {
-      ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.doctor', 'ros2.build_health');
+      ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.doctor', 'ros2.test', 'ros2.bag_info', 'ros2.build_health');
     }
-    if (state.project.docker && this.docker) ids.push('docker.diagnostics', 'docker.stats_snapshot');
+    if (state.project.docker && this.docker) ids.push('docker.diagnostics', 'docker.stats_snapshot', 'docker.container_inspect', 'docker.container_logs');
     if (state.project.kicad && this.kicad) ids.push('kicad.diagnostics', 'kicad.validate');
     if (os.platform() === 'linux' && this.systemd) {
       ids.push('systemd.service_diagnostics', 'systemd.service_restart');
@@ -494,6 +507,8 @@ export class EngineeringWorkflowEngine {
           'firmware.artifact_receive_offer': 'Create one short-lived, one-shot Tailscale receive ticket for a known SHA-256/size and atomically accept only matching bytes.',
           'firmware.artifact_push': 'Stream one verified local firmware artifact directly to a Tailscale peer receive ticket without routing payload bytes through ChatGPT.',
           'espidf.diagnostics': 'Inspect ESP-IDF provider/version, project metadata, firmware artifacts and discovered serial ports without flashing.',
+          'espidf.size_analysis': 'Collect official ESP-IDF JSON size, component and file memory analysis without flashing or changing project configuration.',
+          'platformio.diagnostics': 'Inspect PlatformIO Core version, project metadata and serial device inventory through official JSON outputs without build/upload mutation.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
           'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
@@ -505,9 +520,13 @@ export class EngineeringWorkflowEngine {
           'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
           'ros2.diagnostics': 'Collect ROS 2 graph health plus installed package inventory through the configured runtime environment.',
           'ros2.doctor': 'Run the upstream ROS 2 doctor report as bounded opaque diagnostic text without treating human output as a stable structured API.',
+          'ros2.test': 'Run colcon test for the selected packages and require colcon test-result to report success.',
+          'ros2.bag_info': 'Inspect one project-local rosbag through ros2 bag info without recording or playback.',
           'ros2.build_health': 'Build the ROS 2 workspace, then inspect the configured runtime graph health.',
           'docker.diagnostics': 'Inspect Docker daemon risk and summarize local container runtime state without mutation.',
           'docker.stats_snapshot': 'Capture one non-streaming JSON Docker resource-usage snapshot without lifecycle mutation.',
+          'docker.container_inspect': 'Inspect one explicit container and return Docker metadata plus RWMCP risk classification without mutation.',
+          'docker.container_logs': 'Read a bounded tail from one explicit container without lifecycle or exec mutation.',
           'kicad.diagnostics': 'Inspect KiCad CLI/version, project file inventory and board statistics through JSON output without modifying design sources.',
           'kicad.validate': 'Run KiCad ERC/DRC into temporary JSON reports outside the project and return bounded validation findings without saving or upgrading design sources.',
           'systemd.service_diagnostics': 'Read one explicit systemd unit state and bounded journal tail on Linux.',
@@ -819,19 +838,35 @@ export class EngineeringWorkflowEngine {
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
 
-    if (workflow === 'espidf.diagnostics') {
+    if (workflow === 'espidf.diagnostics' || workflow === 'espidf.size_analysis') {
       return {
         workflow,
         profileFound: state.profileFound,
         manifestPath: state.manifestPath,
         project: state.project,
         profile: state.profile,
-        steps: ['espidf.project.inspect', 'espidf.provider.version', 'espidf.targets.list', 'espidf.build_metadata.read', 'espidf.artifacts.list', 'hardware.serial.list'],
+        steps: workflow === 'espidf.size_analysis'
+          ? ['espidf.size.json', 'espidf.size-components.json', 'espidf.size-files.json']
+          : ['espidf.project.inspect', 'espidf.provider.version', 'espidf.targets.list', 'espidf.build_metadata.read', 'espidf.artifacts.list', 'hardware.serial.list'],
         resolved: { firmware: { provider: 'esp-idf', buildDir: state.profile.firmware?.buildDir ?? 'build' } }
       };
     }
 
-    if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot') {
+    if (workflow === 'platformio.diagnostics') {
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: ['platformio.version', 'platformio.project.metadata.json', 'platformio.device.list.json']
+      };
+    }
+
+    if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot' || workflow === 'docker.container_inspect' || workflow === 'docker.container_logs') {
+      if ((workflow === 'docker.container_inspect' || workflow === 'docker.container_logs') && !overrides.dockerContainer?.trim()) {
+        throw new Error(`${workflow} requires parameters.dockerContainer.`);
+      }
       return {
         workflow,
         profileFound: state.profileFound,
@@ -840,7 +875,21 @@ export class EngineeringWorkflowEngine {
         profile: state.profile,
         steps: workflow === 'docker.stats_snapshot'
           ? ['docker.daemon.inspect', 'docker.stats.snapshot']
-          : ['docker.daemon.inspect', 'docker.container.list']
+          : workflow === 'docker.container_inspect'
+            ? ['docker.container.inspect', 'docker.container.risk']
+            : workflow === 'docker.container_logs'
+              ? ['docker.container.logs']
+              : ['docker.daemon.inspect', 'docker.container.list'],
+        ...(workflow === 'docker.container_inspect' || workflow === 'docker.container_logs'
+          ? {
+              resolved: {
+                docker: {
+                  container: overrides.dockerContainer?.trim(),
+                  ...(workflow === 'docker.container_logs' ? { tail: overrides.dockerLogTail ?? 200 } : {})
+                }
+              }
+            }
+          : {})
       };
     }
 
@@ -1054,6 +1103,9 @@ export class EngineeringWorkflowEngine {
     if (workflow.startsWith('ros2.') && rosSymlinkInstall && rosMergeInstall) {
       throw new Error('ROS 2 build cannot combine symlinkInstall=true with mergeInstall=true.');
     }
+    if (workflow === 'ros2.bag_info' && !overrides.rosBagPath?.trim()) {
+      throw new Error('ros2.bag_info requires parameters.rosBagPath.');
+    }
 
     if (workflow.startsWith('firmware.build_flash') && flashProvider === 'esp-idf' && !port) {
       throw new Error('ESP-IDF flash workflow requires firmware.portSelector, legacy firmware.port, or an explicit port override.');
@@ -1104,6 +1156,8 @@ export class EngineeringWorkflowEngine {
       if (workflow === 'ros2.diagnostics') steps.push('ros2.pkg.list');
     }
     if (workflow === 'ros2.doctor') steps.push('ros2.environment.bootstrap', 'ros2.doctor.report');
+    if (workflow === 'ros2.test') steps.push('ros2.colcon.test', 'ros2.colcon.test-result');
+    if (workflow === 'ros2.bag_info') steps.push('ros2.environment.bootstrap', 'ros2.bag.info');
 
     return {
       workflow,
@@ -1142,7 +1196,8 @@ export class EngineeringWorkflowEngine {
             symlinkInstall: overrides.rosSymlinkInstall ?? rosBuild.symlinkInstall ?? true,
             mergeInstall: overrides.rosMergeInstall ?? rosBuild.mergeInstall ?? false,
             packagesSelect: overrides.rosPackagesSelect ?? rosBuild.packagesSelect ?? []
-          }
+          },
+          ...(overrides.rosBagPath ? { bagPath: overrides.rosBagPath } : {})
         } : undefined
       }
     };
@@ -1464,8 +1519,13 @@ export class EngineeringWorkflowEngine {
     const plan = await this.plan(workspace, projectPath, workflow, overrides);
     const state = await this.state(workspace, projectPath);
 
-    if (workflow === 'espidf.diagnostics') {
-      const diagnostics = await capture('espidf.diagnostics', () => this.firmware.espIdfDiagnostics(workspace, projectPath, state.profile.firmware?.buildDir ?? 'build'));
+    if (workflow === 'espidf.diagnostics' || workflow === 'espidf.size_analysis') {
+      const diagnostics = await capture<unknown>(
+        workflow,
+        () => workflow === 'espidf.size_analysis'
+          ? this.firmware.espIdfSizeAnalysis(workspace, projectPath)
+          : this.firmware.espIdfDiagnostics(workspace, projectPath, state.profile.firmware?.buildDir ?? 'build')
+      );
       return {
         workflow,
         status: diagnostics.ok ? 'succeeded' : 'failed',
@@ -1475,13 +1535,29 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot') {
+    if (workflow === 'platformio.diagnostics') {
+      if (!this.platformio) throw new Error('PlatformIO diagnostics adapter is unavailable.');
+      const diagnostics = await capture('platformio.diagnostics', () => this.platformio!.diagnostics(workspace, projectPath));
+      return {
+        workflow,
+        status: diagnostics.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
+      };
+    }
+
+    if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot' || workflow === 'docker.container_inspect' || workflow === 'docker.container_logs') {
       if (!this.docker) throw new Error('Docker diagnostics adapter is unavailable.');
       const diagnostics = await capture<unknown>(
-        workflow === 'docker.stats_snapshot' ? 'docker.stats.snapshot' : 'docker.diagnostics',
+        workflow,
         () => workflow === 'docker.stats_snapshot'
           ? this.docker!.statsSnapshot(workspace, projectPath)
-          : this.docker!.diagnostics(workspace, projectPath)
+          : workflow === 'docker.container_inspect'
+            ? this.docker!.inspect(workspace, overrides.dockerContainer!, projectPath)
+            : workflow === 'docker.container_logs'
+              ? this.docker!.logs(workspace, overrides.dockerContainer!, overrides.dockerLogTail ?? 200, projectPath)
+              : this.docker!.diagnostics(workspace, projectPath)
       );
       return {
         workflow,
@@ -1982,6 +2058,30 @@ export class EngineeringWorkflowEngine {
         plan,
         steps,
         ...(doctor.ok ? { outputs: { doctor: doctor.value } } : {})
+      };
+    }
+
+    if (workflow === 'ros2.test') {
+      const testResult = await capture('ros2.test', () => this.ros2.test(workspace, cwd, runtime, {
+        packagesSelect: overrides.rosPackagesSelect ?? rosBuild.packagesSelect ?? []
+      }));
+      return {
+        workflow,
+        status: testResult.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(testResult.ok ? { outputs: { test: testResult.value } } : {})
+      };
+    }
+
+    if (workflow === 'ros2.bag_info') {
+      const bag = await capture('ros2.bag_info', () => this.ros2.bagInfo(workspace, overrides.rosBagPath!, cwd, runtime));
+      return {
+        workflow,
+        status: bag.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(bag.ok ? { outputs: { bag: bag.value } } : {})
       };
     }
 

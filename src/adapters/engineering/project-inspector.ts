@@ -141,6 +141,7 @@ export class FirmwareProjectInspector {
     const cmake = path.join(root, 'CMakeLists.txt');
     const sdkconfig = path.join(root, 'sdkconfig');
     const idfYml = path.join(root, 'idf_component.yml');
+    const platformioIni = path.join(root, 'platformio.ini');
     const makefile = path.join(root, 'Makefile');
     const packageXml = path.join(root, 'package.xml');
     const dockerfile = path.join(root, 'Dockerfile');
@@ -174,6 +175,14 @@ export class FirmwareProjectInspector {
         framework = 'esp-idf';
         buildSystem = 'idf.py';
       }
+    }
+    if (await exists(platformioIni)) {
+      markers.push('platformio.ini');
+      const text = await fs.readFile(platformioIni, 'utf8').catch(() => '');
+      framework = 'platformio';
+      buildSystem = 'platformio';
+      board = text.match(/^\s*board\s*=\s*([^;#\r\n]+)/mi)?.[1]?.trim() ?? board;
+      family = /^\s*platform\s*=\s*espressif32\b/mi.test(text) ? 'esp32' : (family === 'unknown' ? 'generic-embedded' : family);
     }
     if (ioc) {
       markers.push(path.basename(ioc));

@@ -6,6 +6,7 @@ import test from 'node:test';
 import { DockerAdapter } from '../src/adapters/engineering/docker.js';
 import { FirmwareAdapter } from '../src/adapters/engineering/firmware.js';
 import { KicadAdapter } from '../src/adapters/engineering/kicad.js';
+import { PlatformioAdapter } from '../src/adapters/engineering/platformio.js';
 import { Ros2Adapter } from '../src/adapters/engineering/ros2.js';
 import { SystemdAdapter } from '../src/adapters/engineering/systemd.js';
 import { workflowRuntimeParametersSchema } from '../src/engineering-workflow-contract.js';
@@ -280,6 +281,182 @@ test('ESP-IDF diagnostics expose provider, project, artifacts and serial invento
     assert.equal(result.buildMetadata.flash?.files.length, 2);
     assert.equal(result.buildMetadata.config?.partitionTable, 'partitions.csv');
     assert.equal(calls.some(args => args.includes('flash')), false);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('v0.22 workflow parameters bound ROS bag and Docker diagnostics selectors', () => {
+  const parsed = workflowRuntimeParametersSchema.parse({
+    rosBagPath: 'bags/run-001',
+    dockerContainer: 'robot-api_1',
+    dockerLogTail: 350
+  });
+  assert.equal(parsed.rosBagPath, 'bags/run-001');
+  assert.equal(parsed.dockerContainer, 'robot-api_1');
+  assert.equal(parsed.dockerLogTail, 350);
+  assert.throws(() => workflowRuntimeParametersSchema.parse({ dockerContainer: '../escape' }));
+  assert.throws(() => workflowRuntimeParametersSchema.parse({ dockerLogTail: 5001 }));
+});
+
+test('PlatformIO diagnostics use official JSON metadata and device inventory without upload mutation', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-platformio-diagnostics-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fs.writeFile(path.join(root, 'platformio.ini'), [
+    '[env:esp32s3]',
+    'platform = espressif32',
+    'board = esp32-s3-devkitc-1',
+    'framework = arduino'
+  ].join('\n'));
+  await fakeExecutable(bin, 'pio');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      if (args[0] === '--version') return command(program, args, cwd, 'PlatformIO Core, version 6.1.18\n');
+      if (args[0] === 'project') {
+        return command(program, args, cwd, JSON.stringify({
+          env_name: 'esp32s3',
+          platform: 'espressif32',
+          board: 'esp32-s3-devkitc-1',
+          framework: ['arduino']
+        }));
+      }
+      if (args[0] === 'device') {
+        return command(program, args, cwd, JSON.stringify([
+          { port: process.platform === 'win32' ? 'COM8' : '/dev/ttyACM0', description: 'USB JTAG/serial debug unit' }
+        ]));
+      }
+      return command(program, args, cwd);
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new PlatformioAdapter(engine, new PathGuard(engine), runner as never);
+    const result = await adapter.diagnostics('w');
+    assert.match(result.version, /PlatformIO Core/);
+    assert.equal((result.metadata as any).board, 'esp32-s3-devkitc-1');
+    assert.equal(result.serialDevices.length, 1);
+    assert.equal(calls.some(args => ['run', 'upload', 'erase'].includes(args[0] ?? '')), false);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ESP-IDF size analysis consumes official JSON size outputs and never flashes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-size-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+    'cmake_minimum_required(VERSION 3.16)',
+    'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+    'project(size_fixture)'
+  ].join('\n'));
+  await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+  await fakeExecutable(bin, 'idf.py');
+  await fakeExecutable(bin, 'python');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      const joined = args.join(' ');
+      if (joined.includes('size-components')) return command(program, args, cwd, JSON.stringify({ components: [{ name: 'main', total: 1200 }] }));
+      if (joined.includes('size-files')) return command(program, args, cwd, JSON.stringify({ files: [{ name: 'main.c.obj', total: 800 }] }));
+      if (joined.match(/\bsize\b/) && joined.includes('--format') && joined.includes('json')) {
+        return command(program, args, cwd, JSON.stringify({ total_size: 4096, free_space: 8192 }));
+      }
+      return command(program, args, cwd, 'ESP-IDF v5.3.1\n');
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
+    const result = await adapter.espIdfSizeAnalysis('w');
+    assert.equal((result.summary as any).total_size, 4096);
+    assert.equal((result.components as any).components[0].name, 'main');
+    assert.equal((result.files as any).files[0].name, 'main.c.obj');
+    assert.equal(calls.some(args => args.includes('flash') || args.includes('erase-flash')), false);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ROS 2 typed test and rosbag inspection stay bounded and non-mutating', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-ros2-test-bag-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin, 'ros2');
+  await fakeExecutable(bin, 'colcon');
+  await fs.mkdir(path.join(root, 'bags', 'run-001'), { recursive: true });
+  await fs.writeFile(path.join(root, 'bags', 'run-001', 'metadata.yaml'), 'rosbag2_bagfile_information: {}\n');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      if (args[0] === 'test') return command(program, args, cwd, 'Summary: 3 packages finished\n');
+      if (args[0] === 'test-result') return command(program, args, cwd, 'Summary: 12 tests, 0 errors, 0 failures, 0 skipped\n');
+      if (args[0] === 'bag' && args[1] === 'info') return command(program, args, cwd, 'Files:             run-001_0.db3\nDuration:          2.3s\n');
+      return command(program, args, cwd);
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new Ros2Adapter(engine, new PathGuard(engine), runner as never, {} as never);
+    const tested = await adapter.test('w', '.', undefined, { packagesSelect: ['nav_pkg'] });
+    assert.match(tested.result.report, /0 failures/);
+    assert.deepEqual(tested.packagesSelect, ['nav_pkg']);
+    const bag = await adapter.bagInfo('w', 'bags/run-001');
+    assert.match(bag.report, /Duration/);
+    assert.equal(calls.some(args => args[0] === 'bag' && ['record', 'play'].includes(args[1] ?? '')), false);
+    await assert.rejects(() => adapter.bagInfo('w', '../outside'), /project-relative/);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Docker inspect and logs are read-only typed operations with bounded selectors', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-docker-inspect-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin, 'docker');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      if (args[0] === 'context' && args[1] === 'show') return command(program, args, cwd, 'default\n');
+      if (args[0] === 'context' && args[1] === 'inspect') {
+        const endpoint = process.platform === 'win32' ? 'npipe:////./pipe/docker_engine' : 'unix:///var/run/docker.sock';
+        return command(program, args, cwd, JSON.stringify(endpoint));
+      }
+      if (args[0] === 'info') return command(program, args, cwd, JSON.stringify(['name=seccomp']));
+      if (args[0] === 'inspect') return command(program, args, cwd, JSON.stringify([{ Config: { User: '1000' }, HostConfig: {}, Mounts: [] }]));
+      if (args[0] === 'logs') return command(program, args, cwd, 'ready\nhealthy\n');
+      return command(program, args, cwd);
+    }
+  };
+
+  try {
+    const engine = new PolicyEngine(config(root, 'read_only'));
+    const adapter = new DockerAdapter(engine, new PathGuard(engine), runner as never);
+    const inspected = await adapter.inspect('w', 'robot-api');
+    assert.equal(inspected.risk.highRisk, false);
+    const logs = await adapter.logs('w', 'robot-api', 25);
+    assert.match(logs.stdout, /healthy/);
+    assert.ok(calls.some(args => args[0] === 'logs' && args.includes('--tail') && args.includes('25')));
+    assert.equal(calls.some(args => ['start', 'stop', 'exec', 'build'].includes(args[0] ?? '')), false);
+    await assert.rejects(() => adapter.logs('w', '../bad', 10), /Invalid container/);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

@@ -25,7 +25,8 @@ Patterns to adopt:
 
 RWMCP application:
 - Enrich espidf.diagnostics with build metadata and supported-target discovery.
-- Later add bounded size analysis and explicit chip/flash identity inspection.
+- v0.22 adds official JSON size, component and file memory analysis through idf.py size commands.
+- Explicit chip/flash identity inspection remains a later bounded phase.
 - Keep erase/eFuse/security mutation outside default engineering workflows.
 
 ## ROS 2 / colcon / rosbag2
@@ -44,7 +45,8 @@ Patterns to adopt:
 
 RWMCP application:
 - Add ros2.doctor as a read-only workflow through the existing workflow envelope.
-- Extend bag tooling later with info/playback/lifecycle contracts rather than arbitrary ros2 argv.
+- v0.22 adds colcon test + test-result acceptance and project-local ros2 bag info inspection.
+- Playback remains deferred until an explicit lifecycle/resource-ownership contract exists.
 
 ## Docker
 
@@ -58,7 +60,22 @@ Patterns to adopt:
 
 RWMCP application:
 - Add a bounded one-shot runtime stats snapshot workflow.
+- v0.22 promotes existing inspect/log primitives into explicit high-level workflows with bounded container selectors and log-tail limits.
 - Continue daemon/context and container risk assessment before mutation.
+
+## PlatformIO
+
+Reference:
+- https://github.com/platformio/platformio-core
+
+Patterns to adopt:
+- Prefer `pio project metadata --json-output` for project/environment discovery.
+- Prefer `pio device list --json-output` for bounded serial-device inventory.
+- Treat build/upload/monitor as separate lifecycle operations; do not infer upload authority from project detection.
+
+RWMCP application:
+- v0.22 detects `platformio.ini` and adds read-only/diagnostic metadata plus device inventory through official JSON outputs.
+- Generic firmware build/flash workflows are intentionally not advertised for PlatformIO yet; a dedicated typed provider must define environment selection, upload port and hardware-resource ownership first.
 
 ## systemd
 

@@ -109,6 +109,95 @@ export class Ros2Adapter {
     return result;
   }
 
+  private async runColcon(
+    workspace: string,
+    cwd: string,
+    args: string[],
+    runtime?: Ros2RuntimeContext,
+    timeoutMs = 600_000
+  ) {
+    this.policy.assertEngineeringExecute();
+    validateRuntime(runtime);
+    const resolvedCwd = await this.paths.resolveExisting(workspace, cwd);
+    let program: string;
+    let commandArgs: string[];
+    if (runtime?.distro) {
+      if (os.platform() === 'win32') {
+        throw new Error('Profile-driven colcon environment bootstrap is currently supported on POSIX hosts only.');
+      }
+      const distroSetup = `/opt/ros/${runtime.distro}/setup.bash`;
+      try {
+        await fs.access(distroSetup);
+      } catch {
+        throw new Error(`ROS 2 distro setup was not found: ${distroSetup}`);
+      }
+      const bash = await resolveFirstExecutable(['bash']);
+      if (!bash) throw new Error('bash is required for ROS 2 colcon environment bootstrap.');
+      program = bash.path;
+      commandArgs = [
+        helperPath('ros2-colcon-run.sh'),
+        distroSetup,
+        '',
+        runtime.domainId === undefined ? '' : String(runtime.domainId),
+        ...args
+      ];
+    } else {
+      const colcon = await resolveFirstExecutable(['colcon']);
+      if (!colcon) throw new Error('colcon is unavailable in the RWMCP runtime environment.');
+      program = colcon.path;
+      commandArgs = args;
+    }
+    return this.runner.run(program, commandArgs, resolvedCwd, timeoutMs);
+  }
+
+  async test(
+    workspace: string,
+    cwd = '.',
+    runtime?: Ros2RuntimeContext,
+    options: { packagesSelect?: string[] } = {}
+  ) {
+    const packages = options.packagesSelect ?? [];
+    if (packages.length > 50 || packages.some(name => !/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(name))) {
+      throw new Error('ROS 2 packagesSelect must contain at most 50 safe package names.');
+    }
+    const testArgs = ['test', ...(packages.length ? ['--packages-select', ...packages] : [])];
+    const testRun = await this.runColcon(workspace, cwd, testArgs, runtime, 600_000);
+    if (testRun.exitCode !== 0 || testRun.timedOut) {
+      throw new Error(`colcon test failed: ${testRun.stderr || testRun.stdout || `exit=${testRun.exitCode}`}`);
+    }
+    const resultRun = await this.runColcon(workspace, cwd, ['test-result', '--verbose'], runtime, 60_000);
+    if (resultRun.exitCode !== 0 || resultRun.timedOut) {
+      throw new Error(`colcon test-result reported failures: ${resultRun.stderr || resultRun.stdout || `exit=${resultRun.exitCode}`}`);
+    }
+    return {
+      provider: 'colcon' as const,
+      packagesSelect: packages,
+      test: testRun,
+      result: {
+        format: 'upstream-text' as const,
+        structured: false,
+        report: resultRun.stdout.trim(),
+        stderr: resultRun.stderr.trim()
+      }
+    };
+  }
+
+  async bagInfo(workspace: string, bagPath: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const relative = bagPath.trim();
+    if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]+/).includes('..')) {
+      throw new Error('ROS 2 bag path must be a non-empty project-relative path.');
+    }
+    const bag = await this.paths.resolveExisting(workspace, path.join(cwd, relative));
+    const result = await this.run(workspace, cwd, ['bag', 'info', bag], 60_000, runtime);
+    return {
+      path: relative,
+      format: 'upstream-text' as const,
+      structured: false,
+      report: result.stdout.trim(),
+      stderr: result.stderr.trim()
+    };
+  }
+
   async build(
     workspace: string,
     cwd = '.',

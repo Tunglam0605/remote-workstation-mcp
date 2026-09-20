@@ -380,6 +380,38 @@ export class FirmwareAdapter {
     };
   }
 
+  async espIdfSizeAnalysis(workspace: string, projectPath = '.') {
+    this.policy.assertEngineeringExecute();
+    const project = await this.inspect(workspace, projectPath);
+    if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
+      throw new Error('espidf.size_analysis requires a detected ESP-IDF/ESP32 project.');
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const outputs: Record<'summary' | 'components' | 'files', unknown> = {
+      summary: {},
+      components: {},
+      files: {}
+    };
+    const commands = [
+      ['summary', 'size'],
+      ['components', 'size-components'],
+      ['files', 'size-files']
+    ] as const;
+    for (const [key, verb] of commands) {
+      const command = await espIdfCommand([verb, '--format', 'json']);
+      const result = await this.runner.run(command.program, command.args, cwd, 120_000);
+      if (result.exitCode !== 0 || result.timedOut) {
+        throw new Error(`ESP-IDF ${verb} failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+      }
+      try {
+        outputs[key] = JSON.parse(result.stdout.trim()) as unknown;
+      } catch {
+        throw new Error(`ESP-IDF ${verb} did not return valid JSON.`);
+      }
+    }
+    return { provider: 'esp-idf' as const, project, ...outputs };
+  }
+
   async build(
     workspace: string,
     projectPath = '.',

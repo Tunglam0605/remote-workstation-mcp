@@ -39,7 +39,7 @@ export interface SerialDeviceResolution {
 }
 
 export type FirmwareFamily = 'stm32' | 'esp32' | 'generic-embedded' | 'unknown';
-export type FirmwareFramework = 'esp-idf' | 'stm32-cube' | 'keil-mdk' | 'cmake' | 'make' | 'unknown';
+export type FirmwareFramework = 'esp-idf' | 'platformio' | 'stm32-cube' | 'keil-mdk' | 'cmake' | 'make' | 'unknown';
 
 export interface FirmwareProjectTarget {
   id: string;

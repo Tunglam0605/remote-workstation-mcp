@@ -225,7 +225,7 @@ Phase 3G adds `ObjectiveProgressService` as a compact read-only projection over 
 
 `work_objective_summary` is intentionally descriptive rather than prescriptive. `nextActionable` means only that the DAG and current Scheduler Awareness make a task mechanically dispatchable; it is not an engineering recommendation. The summary cannot create tasks, mutate state, acquire a lease or widen authority.
 
-Release identity remains explicit. v0.17.0 reports `serverVersion=0.17.0`, `channel=stable`, optional `gitCommit`, Action Schema 4 and Engineering API 4. Production nodes remain independently managed and may stay on v0.16.0 / Action Schema 3 until their checksum-verified v0.17 rollout, health/readiness verification and rollback gate complete.
+Release identity remains explicit. v0.18.0 reports `serverVersion=0.18.0`, `channel=stable`, optional `gitCommit`, Action Schema 4 and Engineering API 4. v0.18 changes owner-local coordination/policy management without adding a new MCP authority surface; production nodes remain independently managed through checksum, health, readiness and rollback gates.
 
 Phase 3 closes without an autonomous agent provider. The post-Phase-3 v0.17 foundation adds two coordination primitives without adding execution authority:
 
@@ -233,6 +233,8 @@ Phase 3 closes without an autonomous agent provider. The post-Phase-3 v0.17 foun
 - `WorkerProviderRegistry` is a bounded read-only registry for optional Codex/Claude/OpenHands/custom adapters. The registry exposes descriptor/status observation only and deliberately has no execute/dispatch method. Provider status failures are isolated and cannot affect direct MCP control.
 
 A Project Session Group id or worker provider id is therefore a state/coordination identifier, not an authorization credential. Future optional worker dispatch must enter through the existing Work Objective / deterministic scheduler / TaskExecutionCoordinator path and must still satisfy typed workflow binding, Work Session ownership, local policy, workspace containment, resource leases, node interlocks and cross-node authorization.
+
+v0.18 hardens this boundary further. Project Session Group views continuously revalidate member project identity and report drift/degraded membership instead of trusting join-time metadata forever. Separately, cross-node directional grants gain an owner-local Control Center manager. That manager edits local policy and the dedicated transport scope but is not exposed through MCP; transfer execution still requires matching grant contracts on both participating Direct Nodes.
 
 ## Control plane vs data plane
 

@@ -43,6 +43,42 @@ test('Project Session Group binds only caller-owned Work Sessions from one proje
   assert.equal((await sessions.inspect(second.id, true)).status, 'created');
 });
 
+test('Project Session Group reports project drift and blocks additive mutation until reconciled', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-project-group-drift-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const sessions = new WorkSessionStore('openai-tunnel', { file: path.join(root, 'sessions.json') });
+  const groupStore = new ProjectSessionGroupStore('openai-tunnel', { file: path.join(root, 'groups.json') });
+  const service = new ProjectSessionGroupService(groupStore, sessions);
+  const first = await sessions.create({ workspace: 'projects', projectPath: 'repo' });
+  const second = await sessions.create({ workspace: 'projects', projectPath: 'repo' });
+  const third = await sessions.create({ workspace: 'projects', projectPath: 'repo' });
+  const created = await service.create({ sessionIds: [first.id, second.id] });
+
+  assert.equal(created.projectAlignment, 'aligned');
+  assert.deepEqual(created.driftedMemberSessionIds, []);
+  assert.deepEqual(created.unavailableMemberSessionIds, []);
+
+  await sessions.updateProject(second.id, { projectPath: 'other-repo' });
+  const drifted = await service.get(created.group.id);
+  assert.equal(drifted.projectAlignment, 'drifted');
+  assert.deepEqual(drifted.driftedMemberSessionIds, [second.id]);
+  assert.equal(drifted.members.find(member => member.sessionId === second.id)?.projectAlignment, 'drifted');
+  assert.equal(drifted.members.find(member => member.sessionId === second.id)?.project?.projectPath, 'other-repo');
+
+  await assert.rejects(
+    () => service.addSession(created.group.id, third.id),
+    /has project drift/
+  );
+
+  const reconciled = await service.removeSession(created.group.id, second.id);
+  assert.equal(reconciled.projectAlignment, 'aligned');
+  assert.deepEqual(reconciled.driftedMemberSessionIds, []);
+
+  const extended = await service.addSession(created.group.id, third.id);
+  assert.equal(extended.projectAlignment, 'aligned');
+  assert.deepEqual(extended.group.memberSessionIds, [first.id, third.id]);
+});
+
 test('active group membership is unique and group close has no Work Session side effects', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-project-group-membership-'));
   t.after(async () => fs.rm(root, { recursive: true, force: true }));

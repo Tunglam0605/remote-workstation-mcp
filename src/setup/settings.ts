@@ -17,7 +17,8 @@ const workstationScopeSchema = z.enum([
   'workstation.write',
   'workstation.execute',
   'workstation.admin_request',
-  'workstation.full_control'
+  'workstation.full_control',
+  'workstation.cross_node_transfer'
 ]);
 
 export const setupSettingsSchema = z.object({

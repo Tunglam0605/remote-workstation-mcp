@@ -5,7 +5,7 @@ import YAML from 'yaml';
 import * as z from 'zod/v4';
 import type { PolicyConfig } from './model.js';
 
-const multiNodeGrantSchema = z.object({
+export const multiNodeGrantSchema = z.object({
   id: z.string().min(1).max(96).regex(/^[A-Za-z0-9._-]+$/),
   enabled: z.boolean().default(true),
   sourceNodeId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/),

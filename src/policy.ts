@@ -150,6 +150,15 @@ export class PolicyEngine {
     }
   }
 
+  assertSystemdRestart(unit: string): void {
+    this.assertEngineeringExecute();
+    this.assertFullControl();
+    const allowed = this.config.systemd?.allowRestartUnits ?? [];
+    if (!allowed.includes(unit)) {
+      throw new Error(`systemd restart for '${unit}' is denied by local owner policy (systemd.allowRestartUnits).`);
+    }
+  }
+
   assertContainerCapability(capability: 'lifecycle' | 'exec' | 'image_build', highRisk = false): void {
     this.assertEngineeringExecute();
     const mode = this.effectiveMode();

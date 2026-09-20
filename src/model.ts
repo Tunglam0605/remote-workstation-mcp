@@ -93,6 +93,9 @@ export interface PolicyConfig {
     allowImageBuildInWorkspace: boolean;
     allowHighRisk: boolean;
   };
+  systemd?: {
+    allowRestartUnits: string[];
+  };
   multiNode?: {
     enabled: boolean;
     controllerPrincipalId: string;

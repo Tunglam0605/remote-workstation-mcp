@@ -14,6 +14,10 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 **Stable release: v0.19.0 · channel=stable · Action Schema 5 · Engineering API 4**
 
+**Current development Track A: v0.20.0-dev.0 · channel=development · Action Schema 6 · Engineering API 4**
+
+v0.20 development focuses on **human-managed Multi-Chat Workflow**: the human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP only exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. Production nodes remain on v0.19.0 until Track A and the parallel engineering-tools Track B are integrated and accepted.
+
 v0.19 adds **Controlled Worker Orchestration** on top of the accepted v0.18 production baseline. Delegated workers remain optional runtime extensions; task dispatch reuses the existing Work Session, deterministic scheduler, resource lease/node interlock and durable Task Attempt boundaries instead of creating a second authority path.
 
 **v0.19.0 - Controlled Worker Orchestration**

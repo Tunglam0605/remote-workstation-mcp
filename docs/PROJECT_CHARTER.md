@@ -96,6 +96,7 @@ The following rules are product-level invariants:
 13. **Data transfer is not remote control.** A transfer grant authorizes bounded bytes only. It must never authorize remote command execution, arbitrary pull of peer data, hardware mutation or reuse of the peer's credentials.
 14. **Work Session identity is not authority.** A Work Session is durable application-level execution context, not a credential. Session permissions and resource access must remain a subset of the authenticated principal and local owner policy; a session cannot grant Full Control, raw shell, host filesystem access, Administrator/root or cross-node trust.
 15. **Conversation history is not canonical state.** Resumable work must persist only compact, bounded, non-secret project/session facts and lifecycle state. Full transcripts, large raw logs and speculative model narrative must not become control-plane truth.
+16. **Reasoning stays in the controller.** ChatGPT Web or another authorized AI client is responsible for analysis, planning, engineering judgement, task decomposition and review. RWMCP may expose deterministic coordination state, typed execution primitives and safety policy, but it must not become an autonomous strategic planner, choose engineering direction, or silently assign work on behalf of the controller.
 
 ## 5. Multi-Node Direction
 
@@ -129,6 +130,7 @@ RWMCP is **not** intended to become:
 - an ESP32-only development environment;
 - a replacement for an IDE, source-control host or CI system;
 - an unrestricted autonomous root/Administrator agent;
+- an autonomous reasoning/planning brain that replaces the AI client or silently decides engineering strategy;
 - dependent on one AI vendor;
 - dependent on one permanent master workstation;
 - a generic way to bypass local OS security;

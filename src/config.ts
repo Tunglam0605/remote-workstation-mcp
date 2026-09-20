@@ -89,6 +89,11 @@ const schema = z.object({
     allowImageBuildInWorkspace: false,
     allowHighRisk: false
   }),
+  systemd: z.object({
+    allowRestartUnits: z.array(
+      z.string().min(1).max(160).regex(/^[A-Za-z0-9@_.:-]+\.(service|timer|socket|path|target)$/)
+    ).max(128).default([])
+  }).default({ allowRestartUnits: [] }),
   multiNode: z.object({
     enabled: z.boolean().default(false),
     controllerPrincipalId: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/).default('openai-tunnel'),

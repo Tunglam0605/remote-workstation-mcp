@@ -10,6 +10,34 @@ Allow multiple MCP-compatible AI clients to use the same workstation control pla
 
 Several AI clients can independently connect to Remote Workstation MCP and invoke the same typed capabilities. This is supported now through standard MCP transports and dedicated client profiles.
 
+### Human-managed multi-chat workflow (v0.20 development)
+
+The preferred ChatGPT Web scaling model is **multiple user-opened conversations**, each with its own explicit Work Session and isolated worktree when writable work is required.
+
+RWMCP does not spawn ChatGPT conversations and does not decide which conversation should own engineering work. The human/controller chooses the split; RWMCP exposes deterministic state so those conversations do not silently collide.
+
+Typical flow:
+
+```text
+Human
+  +-- Chat A -> Work Session A -> Worktree A
+  +-- Chat B -> Work Session B -> Worktree B
+  +-- Chat C -> read/review session
+                    |
+                    v
+             RWMCP coordination
+```
+
+Use:
+
+1. `project_status(workspace, projectPath)` to inspect caller-owned sessions, current task labels, dirty worktrees, shared-worktree conflicts, stale/idle state and mechanical duplicate-task-label signals.
+2. Explicitly choose an existing session or create a new one. RWMCP does not auto-select a session or task.
+3. `work_session_resume(sessionId)` to receive the bounded Context Capsule, owned runtime state and same-project coordination snapshot in one read-only handoff call.
+4. Use `work_session_checkpoint(..., currentTask: "...")` to publish the task label currently owned by that conversation. Use `currentTask: null` to release the label when finished.
+5. Before closing or cleaning stale work, call `work_session_lifecycle_preview(sessionId)`. The preview reports only mechanical blockers and never stops resources, closes sessions or removes worktrees.
+
+Duplicate task labels are an advisory overlap signal, not proof of a conflict. ChatGPT Web/human judgement decides whether two sessions should continue, coordinate, or change scope.
+
 ### Agent-to-agent orchestration
 
 v0.19 provides **Controlled Worker Orchestration** without making provider identity an authority source:

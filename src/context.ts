@@ -8,6 +8,7 @@ import { ArtifactTransferAdapter } from './adapters/engineering/artifact-transfe
 import { EngineeringCommandRunner } from './adapters/engineering/command-runner.js';
 import { DebugSessionManager } from './adapters/engineering/debug-session.js';
 import { DockerAdapter } from './adapters/engineering/docker.js';
+import { SystemdAdapter } from './adapters/engineering/systemd.js';
 import { FirmwareAdapter } from './adapters/engineering/firmware.js';
 import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
 import { EngineeringProjectProfileStore } from './adapters/engineering/project-profile.js';
@@ -49,6 +50,7 @@ import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
 import { ObjectiveProgressService } from './objective-progress.js';
 import { ProjectSessionGroupService, ProjectSessionGroupStore } from './project-session-group.js';
+import { ProjectCoordinationService } from './project-coordination.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
 import { TaskWorkflowExecutionService } from './task-workflow-execution.js';
 import { DeterministicTaskScheduler, TaskGraphStore } from './task-graph.js';
@@ -114,6 +116,7 @@ export async function createContext() {
   const paths = new PathGuard(policy);
   const git = new GitAdapter(policy, paths);
   const worktreeManager = new WorktreeManager(git, workSessions);
+  const projectCoordination = new ProjectCoordinationService(workSessions, worktreeManager);
   const concurrencyPolicy = new ConcurrencyPolicy();
   const taskScheduler = new DeterministicTaskScheduler(taskGraphs, concurrencyPolicy);
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
@@ -173,7 +176,8 @@ export async function createContext() {
   );
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2);
+  const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
+  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager);
   return {
@@ -190,6 +194,7 @@ export async function createContext() {
     reconciledWorkSessions,
     garbageCollectedWorkSessions,
     projectSessionGroups,
+    projectCoordination,
     garbageCollectedProjectSessionGroups,
     projectSessionGroupMaintenanceFailures,
     workerProviders,
@@ -241,7 +246,8 @@ export async function createContext() {
       execution: engineeringWorkflowExecution,
       debug: engineeringDebug,
       ros2: engineeringRos2,
-      docker: engineeringDocker
+      docker: engineeringDocker,
+      systemd: engineeringSystemd
     },
     updates: new UpdateAdapter(SERVER_VERSION)
   };

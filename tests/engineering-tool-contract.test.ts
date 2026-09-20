@@ -32,16 +32,64 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.19 Controlled Worker Orchestration uses Action Schema v5 while Engineering API remains v4', async () => {
+test('v0.20 development uses Action Schema v6 while Engineering API remains v4', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 5;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.19\.0';/);
-  assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.20\.0-dev\.0';/);
+  assert.match(capabilities, /export const BUILD_CHANNEL = 'development'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
   assert.match(capabilities, /multi_device\.authorization/);
+});
+
+test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
+  const coreTools = await read('src/tools/core-tools.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  const coordination = await read('src/project-coordination.ts');
+
+  assert.match(capabilities, /project\.multichat_status/);
+  assert.match(capabilities, /project_status/);
+  assert.match(scopes, /project_status: 'workstation\.read'/);
+
+  const start = coreTools.indexOf("server.registerTool('project_status'");
+  const end = coreTools.indexOf("server.registerTool('work_session_checkpoint'", start);
+  assert.ok(start >= 0 && end > start);
+  const tool = coreTools.slice(start, end);
+  assert.match(tool, /readOnlyHint: true/);
+  assert.match(tool, /ctx\.projectCoordination\.status/);
+  assert.doesNotMatch(tool, /runInWorkSession|taskExecutor|execute_task|claimTask|task_claim|\.claim\(|acquire|withLease/);
+
+  assert.match(coordination, /authority: 'coordination-only'/);
+  assert.match(coordination, /executionActive: false/);
+  assert.match(coordination, /kind: 'shared-worktree'/);
+  assert.doesNotMatch(coordination, /startTask|finishTask|execute\(|acquire\(|withLease\(/);
+});
+
+test('v0.20 lifecycle preview remains read-only and cannot perform cleanup implicitly', async () => {
+  const coreTools = await read('src/tools/core-tools.ts');
+  const scopes = await read('src/security/request-principal.ts');
+
+  assert.match(scopes, /work_session_lifecycle_preview: 'workstation\.read'/);
+  const start = coreTools.indexOf("server.registerTool('work_session_lifecycle_preview'");
+  const end = coreTools.indexOf("server.registerTool('project_status'", start);
+  assert.ok(start >= 0 && end > start);
+  const tool = coreTools.slice(start, end);
+  assert.match(tool, /readOnlyHint: true/);
+  assert.match(tool, /ctx\.workSessionLifecycle\.preview\(sessionId\)/);
+  assert.doesNotMatch(tool, /ctx\.workSessionLifecycle\.close\(|worktreeManager\.cleanup\(|processes\.stop\(|resources\.release/);
+});
+
+test('v0.20 currentTask ownership label can be explicitly released without auto-claim semantics', async () => {
+  const coreTools = await read('src/tools/core-tools.ts');
+  const workSession = await read('src/work-session.ts');
+
+  assert.match(coreTools, /currentTask: z\.string\(\)\.min\(1\)\.max\(512\)\.nullable\(\)\.optional\(\)/);
+  assert.match(workSession, /currentTask\?: string \| null/);
+  assert.match(workSession, /patch\.currentTask === null \? undefined/);
+  assert.doesNotMatch(coreTools, /task_claim|autoClaim|auto_assign|autoAssign/);
 });
 
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {
@@ -57,7 +105,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('v0.19 retains Work Session routing under Action Schema v5 and Keil shared outputs remain project-variant exclusive', async () => {
+test('v0.20 development retains Work Session routing under Action Schema v6 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -65,9 +113,10 @@ test('v0.19 retains Work Session routing under Action Schema v5 and Keil shared 
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 5;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
+  assert.match(coreTools, /work_session_lifecycle_preview/);
   assert.match(coreTools, /work_session_close/);
   assert.match(coreTools, /work_session_worktree_prepare/);
 
@@ -78,6 +127,8 @@ test('v0.19 retains Work Session routing under Action Schema v5 and Keil shared 
   assert.match(resumeBlock, /readOnlyHint: true/);
   assert.match(resumeBlock, /ctx\.workSessions\.inspect\(sessionId, true\)/);
   assert.match(resumeBlock, /ctx\.scopeWorkSession\(sessionId/);
+  assert.match(resumeBlock, /ctx\.projectCoordination\.status/);
+  assert.match(resumeBlock, /handoff:/);
   assert.doesNotMatch(resumeBlock, /ctx\.runInWorkSession\(sessionId/);
   assert.match(contract, /workSessionId: z\.string\(\)\.uuid\(\)\.optional\(\)/);
   assert.match(engineeringTools, /const \{ workSessionId, \.\.\.runtimeParameters \} = parsed/);

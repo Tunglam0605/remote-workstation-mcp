@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { ControlPlaneRelayAdapter } from '../control-plane-relay.js';
 import { DataPlaneAdapter } from '../data-plane.js';
@@ -7,6 +8,7 @@ import { MultiNodeAuthorization, type CrossNodeTransferIntent } from '../../secu
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
 import { ArtifactTransferAdapter } from './artifact-transfer.js';
 import { DebugSessionManager } from './debug-session.js';
+import { DockerAdapter } from './docker.js';
 import { FirmwareAdapter } from './firmware.js';
 import { stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
@@ -19,6 +21,7 @@ import {
 } from './project-profile.js';
 import { Ros2Adapter, type Ros2RuntimeContext } from './ros2.js';
 import { SerialSessionManager } from './serial-session.js';
+import { SystemdAdapter } from './systemd.js';
 
 export type EngineeringWorkflowId =
   | 'platform.transfer_prepare'
@@ -39,11 +42,16 @@ export type EngineeringWorkflowId =
   | 'firmware.artifact_accept'
   | 'firmware.artifact_receive_offer'
   | 'firmware.artifact_push'
+  | 'espidf.diagnostics'
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deploy_accept'
   | 'ros2.build'
   | 'ros2.health'
-  | 'ros2.build_health';
+  | 'ros2.diagnostics'
+  | 'ros2.build_health'
+  | 'docker.diagnostics'
+  | 'systemd.service_diagnostics'
+  | 'systemd.service_restart';
 
 export interface EngineeringProfileInitOptions {
   id?: string;
@@ -70,6 +78,9 @@ export interface EngineeringWorkflowOverrides {
   rosPackagesSelect?: string[];
   rosSymlinkInstall?: boolean;
   rosMergeInstall?: boolean;
+  systemdUnit?: string;
+  systemdUser?: boolean;
+  journalLines?: number;
   debugMaxFrames?: number;
   variant?: string;
   keilProject?: string;
@@ -169,7 +180,9 @@ export class EngineeringWorkflowEngine {
     private readonly hardware: HardwareDiscoveryAdapter,
     private readonly serial: SerialSessionManager,
     private readonly debug: DebugSessionManager,
-    private readonly ros2: Ros2Adapter
+    private readonly ros2: Ros2Adapter,
+    private readonly docker?: DockerAdapter,
+    private readonly systemd?: SystemdAdapter
   ) {}
 
   private transferIntent(
@@ -426,9 +439,16 @@ export class EngineeringWorkflowEngine {
       ) {
         ids.push('firmware.build_flash_monitor_expect');
       }
+      if (state.project.family === 'esp32' || state.profile.kind === 'esp-idf') {
+        ids.push('espidf.diagnostics');
+      }
     }
     if (state.project.ros2 || state.profile.ros2) {
-      ids.push('ros2.build', 'ros2.health', 'ros2.build_health');
+      ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.build_health');
+    }
+    if (state.project.docker && this.docker) ids.push('docker.diagnostics');
+    if (os.platform() === 'linux' && this.systemd) {
+      ids.push('systemd.service_diagnostics', 'systemd.service_restart');
     }
     return ids;
   }
@@ -450,7 +470,8 @@ export class EngineeringWorkflowEngine {
           id === 'platform.relay_abort' ||
           id.startsWith('firmware.build_flash') ||
           id === 'stm32.debug_fault_snapshot' ||
-          id === 'stm32.deploy_accept',
+          id === 'stm32.deploy_accept' ||
+          id === 'systemd.service_restart',
         description: {
           'platform.transfer_prepare': 'Hash any regular workspace file and emit a generic SHA-256/size manifest without moving or modifying it.',
           'platform.transfer_receive_offer': 'Create one short-lived receive offer on approved direct IPv4 interfaces and atomically accept only matching bytes.',
@@ -465,6 +486,7 @@ export class EngineeringWorkflowEngine {
           'firmware.artifact_accept': 'Verify a staged firmware artifact against an expected SHA-256/size and atomically promote it into the project verified store.',
           'firmware.artifact_receive_offer': 'Create one short-lived, one-shot Tailscale receive ticket for a known SHA-256/size and atomically accept only matching bytes.',
           'firmware.artifact_push': 'Stream one verified local firmware artifact directly to a Tailscale peer receive ticket without routing payload bytes through ChatGPT.',
+          'espidf.diagnostics': 'Inspect ESP-IDF provider/version, project metadata, firmware artifacts and discovered serial ports without flashing.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
           'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
@@ -474,7 +496,11 @@ export class EngineeringWorkflowEngine {
           'stm32.deploy_accept': 'Preflight hardware, build, open serial, atomically flash/verify/reset through one ST-Link lease, then require a readiness marker and release resources.',
           'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
           'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
-          'ros2.build_health': 'Build the ROS 2 workspace, then inspect the configured runtime graph health.'
+          'ros2.diagnostics': 'Collect ROS 2 graph health plus installed package inventory through the configured runtime environment.',
+          'ros2.build_health': 'Build the ROS 2 workspace, then inspect the configured runtime graph health.',
+          'docker.diagnostics': 'Inspect Docker daemon risk and summarize local container runtime state without mutation.',
+          'systemd.service_diagnostics': 'Read one explicit systemd unit state and bounded journal tail on Linux.',
+          'systemd.service_restart': 'Restart one exact owner-allowlisted systemd unit, then collect post-restart diagnostics.'
         }[id]
       }))
     };
@@ -782,6 +808,51 @@ export class EngineeringWorkflowEngine {
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
 
+    if (workflow === 'espidf.diagnostics') {
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: ['espidf.project.inspect', 'espidf.provider.version', 'espidf.artifacts.list', 'hardware.serial.list'],
+        resolved: { firmware: { provider: 'esp-idf' } }
+      };
+    }
+
+    if (workflow === 'docker.diagnostics') {
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: ['docker.daemon.inspect', 'docker.container.list']
+      };
+    }
+
+    if (workflow === 'systemd.service_diagnostics' || workflow === 'systemd.service_restart') {
+      const unit = overrides.systemdUnit?.trim();
+      if (!unit) throw new Error(`${workflow} requires parameters.systemdUnit.`);
+      return {
+        workflow,
+        profileFound: state.profileFound,
+        manifestPath: state.manifestPath,
+        project: state.project,
+        profile: state.profile,
+        steps: workflow === 'systemd.service_restart'
+          ? ['systemd.unit.restart', 'systemd.unit.show', 'systemd.journal.tail']
+          : ['systemd.unit.show', 'systemd.journal.tail'],
+        resolved: {
+          systemd: {
+            unit,
+            user: overrides.systemdUser ?? false,
+            journalLines: overrides.journalLines ?? 100
+          }
+        }
+      };
+    }
+
     if (workflow === 'firmware.artifact_prepare' || workflow === 'firmware.artifact_accept') {
       const artifact = overrides.artifact ?? state.profile.firmware?.artifact;
       if (!artifact) throw new Error(`${workflow} requires parameters.artifact or firmware.artifact in the project profile.`);
@@ -998,8 +1069,9 @@ export class EngineeringWorkflowEngine {
       if (workflow === 'firmware.build_flash_monitor_expect') steps.push('serial.wait_for_text');
     }
     if (workflow === 'ros2.build' || workflow === 'ros2.build_health') steps.push('ros2.colcon.build');
-    if (workflow === 'ros2.health' || workflow === 'ros2.build_health') {
+    if (workflow === 'ros2.health' || workflow === 'ros2.diagnostics' || workflow === 'ros2.build_health') {
       steps.push('ros2.environment.bootstrap', 'ros2.node.list', 'ros2.topic.list', 'ros2.service.list', 'ros2.action.list');
+      if (workflow === 'ros2.diagnostics') steps.push('ros2.pkg.list');
     }
 
     return {
@@ -1360,6 +1432,50 @@ export class EngineeringWorkflowEngine {
     this.policy.assertEngineeringExecute();
     const plan = await this.plan(workspace, projectPath, workflow, overrides);
     const state = await this.state(workspace, projectPath);
+
+    if (workflow === 'espidf.diagnostics') {
+      const diagnostics = await capture('espidf.diagnostics', () => this.firmware.espIdfDiagnostics(workspace, projectPath));
+      return {
+        workflow,
+        status: diagnostics.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
+      };
+    }
+
+    if (workflow === 'docker.diagnostics') {
+      if (!this.docker) throw new Error('Docker diagnostics adapter is unavailable.');
+      const diagnostics = await capture('docker.diagnostics', () => this.docker!.diagnostics(workspace, projectPath));
+      return {
+        workflow,
+        status: diagnostics.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
+      };
+    }
+
+    if (workflow === 'systemd.service_diagnostics' || workflow === 'systemd.service_restart') {
+      if (!this.systemd) throw new Error('systemd adapter is unavailable.');
+      const unit = overrides.systemdUnit?.trim();
+      if (!unit) throw new Error(`${workflow} requires parameters.systemdUnit.`);
+      const user = overrides.systemdUser ?? false;
+      const journalLines = overrides.journalLines ?? 100;
+      const diagnostics = await capture<unknown>(
+        workflow === 'systemd.service_restart' ? 'systemd.service.restart' : 'systemd.service.diagnostics',
+        () => workflow === 'systemd.service_restart'
+          ? this.systemd!.restart(workspace, unit, projectPath, user, journalLines)
+          : this.systemd!.diagnostics(workspace, unit, projectPath, user, journalLines)
+      );
+      return {
+        workflow,
+        status: diagnostics.ok ? 'succeeded' : 'failed',
+        plan,
+        steps,
+        ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
+      };
+    }
 
     if (workflow === 'firmware.artifact_receive_offer') {
       const artifactName = overrides.artifactName?.trim();
@@ -1803,13 +1919,15 @@ export class EngineeringWorkflowEngine {
       }
     }
 
-    const health = await capture('ros2.health', () => this.ros2.health(workspace, cwd, runtime));
+    const health = workflow === 'ros2.diagnostics'
+      ? await capture('ros2.diagnostics', () => this.ros2.diagnostics(workspace, cwd, runtime))
+      : await capture('ros2.health', () => this.ros2.health(workspace, cwd, runtime));
     return {
       workflow,
       status: health.ok ? 'succeeded' : 'failed',
       plan,
       steps,
-      ...(health.ok ? { outputs: { health: health.value } } : {})
+      ...(health.ok ? { outputs: workflow === 'ros2.diagnostics' ? { diagnostics: health.value } : { health: health.value } } : {})
     };
   }
 }

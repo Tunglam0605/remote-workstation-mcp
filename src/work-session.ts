@@ -107,7 +107,7 @@ export interface WorkSessionCheckpointInput {
   selectedToolchain?: string;
   selectedVariant?: string;
   completedTasks?: string[];
-  currentTask?: string;
+  currentTask?: string | null;
   lastSuccessfulBuild?: string;
   lastSuccessfulDeploy?: string;
   lastAcceptance?: string;
@@ -461,7 +461,9 @@ export class WorkSessionStore {
         ...(patch.selectedProvider !== undefined ? { selectedProvider: boundedText(patch.selectedProvider, 'selectedProvider', 256) } : {}),
         ...(patch.selectedToolchain !== undefined ? { selectedToolchain: boundedText(patch.selectedToolchain, 'selectedToolchain', 256) } : {}),
         ...(patch.selectedVariant !== undefined ? { selectedVariant: boundedText(patch.selectedVariant, 'selectedVariant', 256) } : {}),
-        ...(patch.currentTask !== undefined ? { currentTask: boundedText(patch.currentTask, 'currentTask', 512) } : {}),
+        ...(patch.currentTask !== undefined ? {
+          currentTask: patch.currentTask === null ? undefined : boundedText(patch.currentTask, 'currentTask', 512)
+        } : {}),
         ...(patch.lastSuccessfulBuild !== undefined ? { lastSuccessfulBuild: boundedText(patch.lastSuccessfulBuild, 'lastSuccessfulBuild', 1024) } : {}),
         ...(patch.lastSuccessfulDeploy !== undefined ? { lastSuccessfulDeploy: boundedText(patch.lastSuccessfulDeploy, 'lastSuccessfulDeploy', 1024) } : {}),
         ...(patch.lastAcceptance !== undefined ? { lastAcceptance: boundedText(patch.lastAcceptance, 'lastAcceptance', 1024) } : {}),

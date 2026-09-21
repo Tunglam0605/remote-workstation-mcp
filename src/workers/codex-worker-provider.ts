@@ -6,6 +6,7 @@ import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
 import { ProcessTreeSupervisor } from '../adapters/process-tree-supervisor.js';
+import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import type {
   WorkerDispatchRequest,
@@ -100,24 +101,6 @@ function gitEvidence(label: string, status: EngineeringCommandResult, diff: Engi
   const statusText = compact(status.stdout || status.stderr, 180) || 'clean';
   const diffText = compact(diff.stdout || diff.stderr, 180) || 'no-diff-stat';
   return `${label}: status=${statusText}; diff=${diffText}`;
-}
-
-function quoteCmdArg(value: string): string {
-  const escaped = value.replace(/(["^&|<>%!])/g, '^$1');
-  return `"${escaped}"`;
-}
-
-function windowsCommandShim(
-  program: string,
-  args: string[],
-  env: NodeJS.ProcessEnv
-): { program: string; args: string[]; windowsVerbatimArguments: boolean } {
-  if (process.platform !== 'win32' || !/\.(cmd|bat)$/i.test(program)) {
-    return { program, args, windowsVerbatimArguments: false };
-  }
-  const comspec = env.ComSpec?.trim() || process.env.ComSpec?.trim() || 'cmd.exe';
-  const command = [quoteCmdArg(program), ...args.map(quoteCmdArg)].join(' ');
-  return { program: comspec, args: ['/d', '/s', '/c', `\"${command}\"`], windowsVerbatimArguments: true };
 }
 
 async function defaultProcessRunner(

@@ -7,6 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
 import { ExecutionPolicyService } from '../execution-policy.js';
+import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
+import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
 import { loadHosts } from '../hosts.js';
 import { NodeInterlockStore } from '../node-interlock.js';
@@ -148,13 +150,14 @@ async function recommendedMcpPort(configured: number): Promise<number> {
   throw new Error('No free loopback MCP port was found in the setup candidate range.');
 }
 
-function runProcess(program: string, args: string[], options: { cwd: string; stdin?: string; maxBytes?: number; timeoutMs?: number; env?: NodeJS.ProcessEnv }): Promise<{ code: number; output: string }> {
+function runProcess(program: string, args: string[], options: { cwd: string; stdin?: string; maxBytes?: number; timeoutMs?: number; env?: NodeJS.ProcessEnv; windowsVerbatimArguments?: boolean }): Promise<{ code: number; output: string }> {
   const maxBytes = options.maxBytes ?? 128 * 1024;
   return new Promise((resolve, reject) => {
     const child = spawn(program, args, {
       cwd: options.cwd,
       shell: false,
       windowsHide: true,
+      windowsVerbatimArguments: options.windowsVerbatimArguments === true,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: options.env ? { ...process.env, ...options.env } : process.env
     });
@@ -195,27 +198,33 @@ Process timed out after ${options.timeoutMs} ms.`);
   });
 }
 
-async function codexCliStatus(repoRoot: string): Promise<{
+export async function codexCliStatus(repoRoot: string): Promise<{
   installed: boolean;
   authenticated: boolean;
   version?: string;
   detail?: string;
 }> {
   try {
-    const resolver = process.platform === 'win32'
-      ? await runProcess('where.exe', ['codex'], { cwd: repoRoot, timeoutMs: 4_000, maxBytes: 8 * 1024 })
-      : await runProcess('which', ['codex'], { cwd: repoRoot, timeoutMs: 4_000, maxBytes: 8 * 1024 });
-    if (resolver.code !== 0 || !resolver.output.trim()) {
+    const executable = await resolveExecutable('codex');
+    if (!executable) {
       return { installed: false, authenticated: false, detail: 'Codex CLI executable was not found.' };
     }
-    const executable = resolver.output.split(/\r?\n/).map(value => value.trim()).find(Boolean);
-    if (!executable) return { installed: false, authenticated: false, detail: 'Codex CLI executable was not found.' };
 
-    const version = await runProcess(executable, ['--version'], { cwd: repoRoot, timeoutMs: 5_000, maxBytes: 8 * 1024 });
+    const runCodex = async (args: string[], timeoutMs: number) => {
+      const invocation = windowsCommandShim(executable, args, process.env);
+      return await runProcess(invocation.program, invocation.args, {
+        cwd: repoRoot,
+        timeoutMs,
+        maxBytes: 8 * 1024,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments
+      });
+    };
+
+    const version = await runCodex(['--version'], 5_000);
     if (version.code !== 0) {
       return { installed: false, authenticated: false, detail: version.output || 'Codex CLI version probe failed.' };
     }
-    const login = await runProcess(executable, ['login', 'status'], { cwd: repoRoot, timeoutMs: 8_000, maxBytes: 8 * 1024 });
+    const login = await runCodex(['login', 'status'], 8_000);
     const authenticated = login.code === 0 && /logged in/i.test(login.output);
     return {
       installed: true,

@@ -1,6 +1,6 @@
 {
   "name": "remote-workstation",
-  "version": "0.23.3",
+  "version": "0.23.4",
   "description": "Operate an owner-authorized engineering workstation through MCP.",
   "author": {
     "name": "Tunglam0605",

@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.23.3 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? fixes Windows Codex CLI npm-shim execution by routing .cmd/.bat providers through cmd.exe with verbatim arguments, so provider status and bounded worker dispatch can run without spawn EINVAL; retains v0.23.2 restart hardening and v0.23 Execution Policy.
+**Stable release: v0.23.4 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? hardens native-Windows Codex worker execution: retains npm `.cmd` shim support, selects Codex's bounded `windows.sandbox=unelevated` backend while still enforcing `workspace-write` plus `approval=never`, and trusts the CLI sandbox header instead of free-form model wording; retains v0.23.2 restart hardening and v0.23 Execution Policy.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

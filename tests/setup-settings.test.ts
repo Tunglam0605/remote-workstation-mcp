@@ -28,6 +28,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.execution.codexEnabled, false);
   assert.equal(settings.execution.allowChatOverride, true);
   assert.equal(settings.execution.codexFallback, 'rwmcp-only');
+  assert.deepEqual(settings.execution.codexAccountBroker, { enabled: false, mode: 'native' });
   assert.throws(() => normalizeSetupSettings({ mcpPort: 80, workspaceRoot: workspace }), /1024/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: 'relative/path' }), /absolute/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, tunnelId: 'tunnel_bad' }), /tunnelId/);

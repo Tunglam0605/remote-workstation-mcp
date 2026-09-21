@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.24.1 stable exposes typed Ubuntu reboot approval on Action Schema v9 and Engineering API v5', async () => {
+test('v0.25.0 stable exposes Codex Account Broker on Action Schema v10 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 9;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 10;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.24\.1';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.25\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -132,6 +132,26 @@ test('Ubuntu host reboot remains a typed owner-approved action rather than a gen
   assert.match(tuiCli, /CONFIRM HOST REBOOT/);
 });
 
+test('Codex Account Broker is read-only, secret-safe and cannot become an auth-file mutation surface', async () => {
+  const coreTools = await read('src/tools/core-tools.ts');
+  const broker = await read('src/workers/codex-account-broker.ts');
+  const provider = await read('src/workers/codex-worker-provider.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  assert.match(coreTools, /server\.registerTool\('codex_account_broker_status'/);
+  assert.match(coreTools, /readOnlyHint: true/);
+  assert.match(scopes, /codex_account_broker_status: 'workstation\.read'/);
+  assert.match(capabilities, /agent\.codex_account_broker/);
+  assert.match(broker, /codex_accounts\.json/);
+  assert.match(broker, /codex_local_access\.json/);
+  assert.match(broker, /RWMCP_COCKPIT_CODEX_API_KEY/);
+  assert.match(broker, /model_provider="rwmcp_cockpit_pool"/);
+  assert.match(provider, /--ignore-user-config/);
+  assert.doesNotMatch(broker, /auth\.json[^']*write|writeFile[^\n]*auth\.json/i);
+  assert.doesNotMatch(broker, /decrypt|ciphertext.*read/i);
+});
+
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {
   const firmware = await read('src/adapters/engineering/firmware.ts');
   const profile = await read('src/adapters/engineering/project-profile.ts');
@@ -145,7 +165,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v9 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v10 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -153,7 +173,7 @@ test('current runtime retains Work Session routing under Action Schema v9 and Ke
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 9;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 10;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

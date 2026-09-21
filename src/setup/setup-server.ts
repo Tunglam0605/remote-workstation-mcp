@@ -9,6 +9,7 @@ import { setupHtml } from './ui.js';
 import { ExecutionPolicyService } from '../execution-policy.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import { windowsCommandShim } from '../adapters/windows-command-shim.js';
+import { CodexAccountBroker } from '../workers/codex-account-broker.js';
 import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
 import { loadHosts } from '../hosts.js';
 import { NodeInterlockStore } from '../node-interlock.js';
@@ -241,6 +242,11 @@ export async function codexCliStatus(repoRoot: string): Promise<{
       detail: error instanceof Error ? error.message.slice(0, 256) : String(error).slice(0, 256)
     };
   }
+}
+
+async function codexAccountBrokerStatus(settings: SetupSettings, probe = true) {
+  const broker = new CodexAccountBroker(settings.execution.codexAccountBroker);
+  return await broker.status({ probe });
 }
 
 async function storeWindowsRuntimeKey(repoRoot: string, secret: string): Promise<void> {
@@ -1189,6 +1195,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings: settings.execution,
           status: await executionPolicy.status(),
           codex: await codexCliStatus(repoRoot),
+          accountBroker: await codexAccountBrokerStatus(settings),
           authority: 'owner-local-default-with-bounded-work-session-overrides'
         });
         return;
@@ -1202,9 +1209,14 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           codexFallback?: 'rwmcp-only' | 'stop';
           maxCodexTasksPerSession?: number;
           maxCodexTasksPerDay?: number;
+          codexAccountBroker?: {
+            enabled?: boolean;
+            mode?: 'native' | 'cockpit-api-pool';
+          };
         };
         const current = await loadEffectiveSetupSettings(repoRoot);
         const previousCodexEnabled = current.execution.codexEnabled;
+        const previousBroker = current.execution.codexAccountBroker;
         const settings = normalizeSetupSettings({
           ...current,
           execution: {
@@ -1214,16 +1226,37 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
             ...(typeof body.allowChatOverride === 'boolean' ? { allowChatOverride: body.allowChatOverride } : {}),
             ...(body.codexFallback ? { codexFallback: body.codexFallback } : {}),
             ...(body.maxCodexTasksPerSession !== undefined ? { maxCodexTasksPerSession: body.maxCodexTasksPerSession } : {}),
-            ...(body.maxCodexTasksPerDay !== undefined ? { maxCodexTasksPerDay: body.maxCodexTasksPerDay } : {})
+            ...(body.maxCodexTasksPerDay !== undefined ? { maxCodexTasksPerDay: body.maxCodexTasksPerDay } : {}),
+            ...(body.codexAccountBroker ? {
+              codexAccountBroker: {
+                ...current.execution.codexAccountBroker,
+                ...(typeof body.codexAccountBroker.enabled === 'boolean' ? { enabled: body.codexAccountBroker.enabled } : {}),
+                ...(body.codexAccountBroker.mode ? { mode: body.codexAccountBroker.mode } : {})
+              }
+            } : {})
           }
         });
+        if (
+          body.codexAccountBroker &&
+          settings.execution.codexAccountBroker.enabled &&
+          settings.execution.codexAccountBroker.mode === 'cockpit-api-pool'
+        ) {
+          const brokerStatus = await codexAccountBrokerStatus(settings, true);
+          if (brokerStatus.effectiveBackend !== 'cockpit-api-pool') {
+            throw new Error(`Cockpit API pool is not ready: ${brokerStatus.pool.detail}`);
+          }
+        }
         await saveSetupSettings(settings);
         const executionPolicy = new ExecutionPolicyService();
         json(res, 200, {
           settings: settings.execution,
           status: await executionPolicy.status(),
           codex: await codexCliStatus(repoRoot),
-          restartRequired: previousCodexEnabled !== settings.execution.codexEnabled,
+          accountBroker: await codexAccountBrokerStatus(settings),
+          restartRequired:
+            previousCodexEnabled !== settings.execution.codexEnabled ||
+            previousBroker.enabled !== settings.execution.codexAccountBroker.enabled ||
+            previousBroker.mode !== settings.execution.codexAccountBroker.mode,
           authority: 'owner-local-only'
         });
         return;
@@ -1236,6 +1269,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings: settings.execution,
           status: await executionPolicy.resetFallback(),
           codex: await codexCliStatus(repoRoot),
+          accountBroker: await codexAccountBrokerStatus(settings),
           restartRequired: false,
           authority: 'owner-local-only'
         });
@@ -1249,6 +1283,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings: settings.execution,
           status: await executionPolicy.clearSessionOverrides(),
           codex: await codexCliStatus(repoRoot),
+          accountBroker: await codexAccountBrokerStatus(settings),
           restartRequired: false,
           authority: 'owner-local-only'
         });

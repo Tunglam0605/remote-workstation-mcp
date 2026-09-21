@@ -162,6 +162,109 @@ test('Codex provider runs Windows npm cmd shim without spawn EINVAL', { skip: pr
     await fs.rm(temp, { recursive: true, force: true });
   }
 });
+test('Codex provider routes through a healthy broker pool without leaking the pool key into argv', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-pool-provider-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const secret = 'local-pool-secret-that-must-not-leak';
+    const calls: Array<{ args: string[]; env: NodeJS.ProcessEnv }> = [];
+    const broker = {
+      async status() {
+        return {
+          requestedMode: 'cockpit-api-pool',
+          effectiveBackend: 'cockpit-api-pool',
+          pool: { detail: 'HTTP 200', accountIds: ['codex-a', 'codex-b'], routingStrategy: 'auto' }
+        };
+      },
+      async poolLaunch() {
+        return {
+          args: [
+            '-c', 'model_provider="rwmcp_cockpit_pool"',
+            '-c', 'model_providers.rwmcp_cockpit_pool.base_url="http://127.0.0.1:56096/v1"',
+            '-c', 'model_providers.rwmcp_cockpit_pool.env_key="RWMCP_COCKPIT_CODEX_API_KEY"'
+          ],
+          env: { RWMCP_COCKPIT_CODEX_API_KEY: secret }
+        };
+      }
+    } as any;
+    const provider = new CodexWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      { run: async () => commandResult() } as any,
+      {
+        accountBroker: broker,
+        resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
+        processRunner: async (_program, args, _cwd, _input, _timeout, env) => {
+          if (args[0] === '--version') {
+            return { exitCode: 0, stdout: 'codex-cli 0.154.0', stderr: '', timedOut: false, durationMs: 1 };
+          }
+          calls.push({ args, env });
+          return {
+            exitCode: 0,
+            stdout: 'pool-backed implementation completed',
+            stderr: 'sandbox: workspace-write\nsession id: 88888888-8888-4888-8888-888888888888',
+            timedOut: false,
+            durationMs: 5
+          };
+        }
+      }
+    );
+
+    const status = await provider.status();
+    assert.equal(status.availability, 'available');
+    assert.match(status.detail ?? '', /Cockpit API pool healthy/);
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'succeeded');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.env.RWMCP_COCKPIT_CODEX_API_KEY, secret);
+    assert.ok(calls[0]!.args.includes('model_provider="rwmcp_cockpit_pool"'));
+    assert.ok(!calls[0]!.args.some(arg => arg.includes(secret)));
+    assert.doesNotMatch(result.summary ?? '', /local-pool-secret/);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+test('Codex provider blocks pool dispatch when broker health is not ready instead of silently using native auth', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-pool-blocked-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    let dispatched = false;
+    const provider = new CodexWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      { run: async () => commandResult() } as any,
+      {
+        accountBroker: {
+          async status() {
+            return {
+              requestedMode: 'cockpit-api-pool',
+              effectiveBackend: 'blocked',
+              pool: { detail: 'Cockpit API Service account pool is empty.', accountIds: [], routingStrategy: 'auto' }
+            };
+          }
+        } as any,
+        resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
+        processRunner: async (_program, args) => {
+          if (args[0] === '--version') {
+            return { exitCode: 0, stdout: 'codex-cli 0.154.0', stderr: '', timedOut: false, durationMs: 1 };
+          }
+          dispatched = true;
+          return { exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 1 };
+        }
+      }
+    );
+    const status = await provider.status();
+    assert.equal(status.availability, 'unavailable');
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'blocked');
+    assert.match(result.summary ?? '', /CODEX_ACCOUNT_POOL_UNAVAILABLE/);
+    assert.equal(dispatched, false);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
 test('Codex dispatch requires an isolated Git worktree and never escapes PathGuard', async () => {
   const policy = fakePolicy();
   const runner = { run: async () => commandResult() } as any;

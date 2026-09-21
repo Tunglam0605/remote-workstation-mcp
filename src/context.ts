@@ -61,6 +61,7 @@ import { WorkflowRunStore } from './workflow-run-store.js';
 import { WorkerProviderRegistry } from './worker-provider.js';
 import { WorktreeManager } from './worktree-manager.js';
 import { registerConfiguredCodexWorker } from './workers/codex-worker-provider.js';
+import { CodexAccountBroker } from './workers/codex-account-broker.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
 import { DesktopNotificationService } from './desktop-notification.js';
@@ -94,6 +95,7 @@ export async function createContext() {
   const executionPolicy = new ExecutionPolicyService();
   const desktopNotifications = new DesktopNotificationService(SERVER_VERSION);
   const setupSettings = await loadSetupSettings();
+  const codexAccountBroker = new CodexAccountBroker(setupSettings.execution.codexAccountBroker);
   const workflowRuns = new WorkflowRunStore(currentClientId);
   const qualityObservations = new QualityObservationStore(currentClientId);
   const interruptedWorkflowRuns = await workflowRuns.reconcileInterruptedRecords();
@@ -145,7 +147,7 @@ export async function createContext() {
     paths,
     engineeringRunner,
     process.env,
-    {},
+    { accountBroker: codexAccountBroker },
     setupSettings.execution.codexEnabled
   );
   const engineeringHardware = new HardwareDiscoveryAdapter();
@@ -221,6 +223,7 @@ export async function createContext() {
     projectSessionGroupMaintenanceFailures,
     workerProviders,
     executionPolicy,
+    codexAccountBroker,
     desktopNotifications,
     workflowRuns,
     qualityObservations,

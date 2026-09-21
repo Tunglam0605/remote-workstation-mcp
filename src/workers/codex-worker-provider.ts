@@ -88,6 +88,14 @@ function parseRunId(stderr: string): string | undefined {
   return match?.[1];
 }
 
+function parseSandboxMode(stderr: string): string | undefined {
+  for (const line of stderr.split(/\r?\n/)) {
+    const match = /^\s*sandbox:\s*([a-z0-9-]+)/i.exec(line);
+    if (match?.[1]) return match[1].toLowerCase();
+  }
+  return undefined;
+}
+
 function gitEvidence(label: string, status: EngineeringCommandResult, diff: EngineeringCommandResult): string {
   const statusText = compact(status.stdout || status.stderr, 180) || 'clean';
   const diffText = compact(diff.stdout || diff.stderr, 180) || 'no-diff-stat';
@@ -307,11 +315,12 @@ export class CodexWorkerProvider implements WorkerProvider {
       }
       return { status: 'failed', ...(runId ? { runId } : {}), summary };
     }
-    if (/sandbox:\s*read-only/i.test(result.stderr)) {
+    const sandboxMode = parseSandboxMode(result.stderr);
+    if (sandboxMode !== 'workspace-write') {
       return {
         status: 'blocked',
         ...(runId ? { runId } : {}),
-        summary: `Codex CLI did not honor workspace-write sandbox; ${evidence}`
+        summary: `Codex CLI did not confirm workspace-write sandbox (reported=${sandboxMode ?? 'missing'}); ${evidence}`
       };
     }
     return { status: 'succeeded', ...(runId ? { runId } : {}), summary };

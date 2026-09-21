@@ -65,6 +65,9 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /notificationCodexUnavailableTitle/);
     assert.match(pageText, /notificationUpdateTitle/);
     assert.match(pageText, /renderControlNotifications/);
+    assert.match(pageText, /NOTIFICATION_READ_KEY/);
+    assert.match(pageText, /markCurrentNotificationsRead/);
+    assert.match(pageText, /select\{width:100%;min-height:44px/);
     assert.doesNotMatch(pageText, /id="adminApprovalCard"/);
     assert.match(pageText, /r=>r\.state==='pending'/);
     assert.doesNotMatch(pageText, /\['pending','approved','running'\]/);

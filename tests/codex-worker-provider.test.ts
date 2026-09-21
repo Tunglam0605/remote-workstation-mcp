@@ -261,6 +261,60 @@ test('Codex dispatch trusts the CLI sandbox header over free-form model wording'
   }
 });
 
+test('Codex sandbox parser uses the first CLI header and ignores later source/log text', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-sandbox-first-header-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const provider = new CodexWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      { run: async () => commandResult() } as any,
+      {
+        resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
+        processRunner: async () => ({
+          exitCode: 0,
+          stdout: 'Edited the regression test successfully.',
+          stderr: 'OpenAI Codex\nsandbox: workspace-write\nmodel output follows\nsandbox: read-only\nsession id: 66666666-6666-4666-8666-666666666666',
+          timedOut: false,
+          durationMs: 5
+        })
+      }
+    );
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.runId, '66666666-6666-4666-8666-666666666666');
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+test('Codex dispatch fails closed when the CLI sandbox header is missing', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-sandbox-missing-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const provider = new CodexWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      { run: async () => commandResult() } as any,
+      {
+        resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
+        processRunner: async () => ({
+          exitCode: 0,
+          stdout: 'No sandbox header was emitted.',
+          stderr: 'session id: 77777777-7777-4777-8777-777777777777',
+          timedOut: false,
+          durationMs: 5
+        })
+      }
+    );
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'blocked');
+    assert.match(result.summary ?? '', /reported=missing/);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
 test('Worker registry redacts secret-like Codex summaries', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-redaction-'));
   try {

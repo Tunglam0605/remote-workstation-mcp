@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.23.4 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? completes Windows Codex worker integration with an explicit writable sandbox override, native bottom-right Windows desktop notifications for Codex/admin/update events, and a visible Control Center version badge while preserving owner-controlled execution policy and fail-closed task isolation.
+**Stable release: v0.23.5 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? fixes Control Center notification unread semantics and execution-policy select styling, hardens Codex sandbox-header parsing against false positives from later source/log text, and keeps native Windows desktop notifications plus owner-controlled Codex execution policy.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

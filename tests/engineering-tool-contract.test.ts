@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.26.0 stable exposes Codex Account Broker on Action Schema v10 and Engineering API v5', async () => {
+test('v0.27.0 stable exposes Antigravity worker integration on Action Schema v11 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 10;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 11;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.26\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.27\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -152,6 +152,25 @@ test('Codex Account Broker is read-only, secret-safe and cannot become an auth-f
   assert.doesNotMatch(broker, /decrypt|ciphertext.*read/i);
 });
 
+test('Antigravity worker uses official headless interfaces without credential extraction or global auto-approval', async () => {
+  const provider = await read('src/workers/antigravity-worker-provider.ts');
+  const coreTools = await read('src/tools/core-tools.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  const settings = await read('src/setup/settings.ts');
+
+  assert.match(coreTools, /server\.registerTool\('antigravity_status'/);
+  assert.match(scopes, /antigravity_status: 'workstation\.read'/);
+  assert.match(capabilities, /agent\.antigravity_worker/);
+  assert.match(settings, /antigravityEnabled: z\.boolean\(\)\.default\(false\)/);
+  assert.match(provider, /--input-format', 'stream-json'/);
+  assert.match(provider, /--output-format', 'stream-json'/);
+  assert.match(provider, /'--sandbox'/);
+  assert.match(provider, /event: 'user', message: \{ content: prompt \}/);
+  assert.doesNotMatch(provider, /--dangerously-skip-permissions/);
+  assert.doesNotMatch(provider, /keyring.*read|oauth.*token.*read|decrypt.*credential/i);
+});
+
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {
   const firmware = await read('src/adapters/engineering/firmware.ts');
   const profile = await read('src/adapters/engineering/project-profile.ts');
@@ -165,7 +184,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v10 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v11 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -173,7 +192,7 @@ test('current runtime retains Work Session routing under Action Schema v10 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 10;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 11;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

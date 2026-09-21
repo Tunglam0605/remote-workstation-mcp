@@ -1,4 +1,4 @@
-export type WorkerProviderKind = 'codex' | 'claude' | 'openhands' | 'custom';
+export type WorkerProviderKind = 'codex' | 'antigravity' | 'claude' | 'openhands' | 'custom';
 export type WorkerProviderAvailability = 'available' | 'unavailable' | 'disabled';
 
 export interface WorkerProviderDescriptor {
@@ -56,7 +56,7 @@ export interface WorkerProvider {
   dispatch?(request: WorkerDispatchRequest): Promise<WorkerDispatchResult>;
 }
 
-const PROVIDER_KINDS = new Set<WorkerProviderKind>(['codex', 'claude', 'openhands', 'custom']);
+const PROVIDER_KINDS = new Set<WorkerProviderKind>(['codex', 'antigravity', 'claude', 'openhands', 'custom']);
 const PROVIDER_AVAILABILITY = new Set<WorkerProviderAvailability>(['available', 'unavailable', 'disabled']);
 
 function boundedText(value: string, field: string, max: number): string {

@@ -8,6 +8,7 @@ import { buildSafeEnvironment } from '../security/env-filter.js';
 import { ProcessTreeSupervisor } from '../adapters/process-tree-supervisor.js';
 import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
+import type { CodexAccountBroker } from './codex-account-broker.js';
 import type {
   WorkerDispatchRequest,
   WorkerDispatchResult,
@@ -35,6 +36,7 @@ interface CodexExecResult {
 
 interface CodexWorkerOptions {
   env?: NodeJS.ProcessEnv;
+  accountBroker?: CodexAccountBroker;
   resolveExecutable?: (command: string) => Promise<string | undefined>;
   processRunner?: (
     program: string,
@@ -172,6 +174,7 @@ export class CodexWorkerProvider implements WorkerProvider {
   private readonly env: NodeJS.ProcessEnv;
   private readonly executableResolver: (command: string) => Promise<string | undefined>;
   private readonly processRunner: NonNullable<CodexWorkerOptions['processRunner']>;
+  private readonly accountBroker?: CodexAccountBroker;
 
   constructor(
     private readonly policy: PolicyEngine,
@@ -182,6 +185,7 @@ export class CodexWorkerProvider implements WorkerProvider {
     this.env = options.env ?? process.env;
     this.executableResolver = options.resolveExecutable ?? resolveExecutable;
     this.processRunner = options.processRunner ?? defaultProcessRunner;
+    this.accountBroker = options.accountBroker;
   }
 
   private async executable(): Promise<string | undefined> {
@@ -209,17 +213,33 @@ export class CodexWorkerProvider implements WorkerProvider {
       if (version.exitCode !== 0 || version.timedOut) {
         return { availability: 'unavailable' as const, detail: 'Codex CLI version probe failed.' };
       }
+      const versionText = compact(version.stdout || version.stderr, 96);
+      if (this.accountBroker) {
+        const broker = await this.accountBroker.status({ probe: true });
+        if (broker.requestedMode === 'cockpit-api-pool') {
+          if (broker.effectiveBackend !== 'cockpit-api-pool') {
+            return {
+              availability: 'unavailable' as const,
+              detail: `${versionText}; Cockpit API pool unavailable: ${compact(broker.pool.detail, 180)}`
+            };
+          }
+          return {
+            availability: 'available' as const,
+            detail: `${versionText}; Cockpit API pool healthy; accounts=${broker.pool.accountIds.length}; routing=${broker.pool.routingStrategy ?? 'unknown'}`
+          };
+        }
+      }
       const login = await this.processRunner(executable, ['login', 'status'], cwd, '', 8_000, childEnv);
       const loginText = `${login.stdout}\n${login.stderr}`;
       if (login.exitCode !== 0 || login.timedOut || !/logged in/i.test(loginText)) {
         return {
           availability: 'unavailable' as const,
-          detail: `${compact(version.stdout || version.stderr, 96)}; authentication unavailable`
+          detail: `${versionText}; authentication unavailable`
         };
       }
       return {
         availability: 'available' as const,
-        detail: `${compact(version.stdout || version.stderr, 96)}; authenticated`
+        detail: `${versionText}; authenticated; backend=native`
       };
     } catch (error) {
       return {
@@ -259,7 +279,28 @@ export class CodexWorkerProvider implements WorkerProvider {
       this.policy.config.engineering?.maxCommandRuntimeMs ?? DEFAULT_TIMEOUT_MS,
       DEFAULT_TIMEOUT_MS
     ));
+    let brokerArgs: string[] = [];
+    let brokerEnv: Record<string, string> = {};
+    if (this.accountBroker) {
+      const broker = await this.accountBroker.status({ probe: true });
+      if (broker.requestedMode === 'cockpit-api-pool') {
+        if (broker.effectiveBackend !== 'cockpit-api-pool') {
+          return { status: 'blocked', summary: `CODEX_ACCOUNT_POOL_UNAVAILABLE; ${compact(broker.pool.detail, 300)}` };
+        }
+        try {
+          const launch = await this.accountBroker.poolLaunch();
+          brokerArgs = launch.args;
+          brokerEnv = launch.env;
+        } catch (error) {
+          return {
+            status: 'blocked',
+            summary: `CODEX_ACCOUNT_POOL_UNAVAILABLE; ${compact(error instanceof Error ? error.message : String(error), 300)}`
+          };
+        }
+      }
+    }
     const args = [
+      ...brokerArgs,
       ...(process.platform === 'win32'
         ? ['-c', 'windows.sandbox=unelevated']
         : []),
@@ -272,7 +313,10 @@ export class CodexWorkerProvider implements WorkerProvider {
       '--color', 'never',
       '-'
     ];
-    const childEnv = buildSafeEnvironment(this.policy.config.process.inheritEnv, this.env);
+    const childEnv = {
+      ...buildSafeEnvironment(this.policy.config.process.inheritEnv, this.env),
+      ...brokerEnv
+    };
     const result = await this.processRunner(executable, args, cwd, prompt, timeoutLimit, childEnv);
     const afterStatus = await this.runner.run(git, ['status', '--short'], cwd, 10_000);
     const afterDiff = await this.runner.run(git, ['diff', '--stat', '--'], cwd, 10_000);

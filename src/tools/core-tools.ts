@@ -329,6 +329,14 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     ctx.runInWorkSession(workSessionId, () => ctx.executionPolicy.setSessionOverride(workSessionId, mode))
   )));
 
+  server.registerTool('codex_account_broker_status', {
+    description: 'Read safe Codex account-broker status. Reports masked Cockpit account metadata and local API-pool readiness without exposing access tokens, refresh tokens, API keys or encrypted credential payloads.',
+    inputSchema: z.object({ probe: z.boolean().default(true) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ probe }) => result(await audited(ctx.audit, 'codex_account_broker_status', undefined, () =>
+    ctx.codexAccountBroker.status({ probe })
+  )));
+
   server.registerTool('worker_provider_list', {
     description: 'List bounded status for optional worker-provider adapters registered by the local runtime. Registration and authority remain local/runtime-owned; this read-only tool cannot dispatch providers.',
     inputSchema: z.object({}),

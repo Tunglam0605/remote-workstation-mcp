@@ -14,13 +14,22 @@ export const DEFAULT_HTTP_SCOPES = [
   'workstation.admin_request'
 ] as const;
 
+const codexAccountBrokerSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  mode: z.enum(['native', 'cockpit-api-pool']).default('native')
+});
+
 export const executionSettingsSchema = z.object({
   codexEnabled: z.boolean().default(false),
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
   allowChatOverride: z.boolean().default(true),
   codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
   maxCodexTasksPerSession: z.number().int().min(0).max(10000).default(0),
-  maxCodexTasksPerDay: z.number().int().min(0).max(100000).default(0)
+  maxCodexTasksPerDay: z.number().int().min(0).max(100000).default(0),
+  codexAccountBroker: codexAccountBrokerSettingsSchema.default({
+    enabled: false,
+    mode: 'native'
+  })
 });
 
 const workstationScopeSchema = z.enum([
@@ -49,7 +58,8 @@ export const setupSettingsSchema = z.object({
     allowChatOverride: true,
     codexFallback: 'rwmcp-only',
     maxCodexTasksPerSession: 0,
-    maxCodexTasksPerDay: 0
+    maxCodexTasksPerDay: 0,
+    codexAccountBroker: { enabled: false, mode: 'native' }
   })
 });
 
@@ -114,7 +124,8 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',
       maxCodexTasksPerSession: 0,
-      maxCodexTasksPerDay: 0
+      maxCodexTasksPerDay: 0,
+      codexAccountBroker: { enabled: false, mode: 'native' }
     }
   });
 

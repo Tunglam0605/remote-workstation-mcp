@@ -301,6 +301,7 @@ export class CodexAccountBroker {
     return {
       args: [
         '-c', 'model_provider="rwmcp_cockpit_pool"',
+        '-c', 'model_providers.rwmcp_cockpit_pool.name="CockpitPool"',
         '-c', `model_providers.rwmcp_cockpit_pool.base_url="${baseUrl}"`,
         '-c', `model_providers.rwmcp_cockpit_pool.env_key="${API_KEY_ENV}"`,
         '-c', 'model_providers.rwmcp_cockpit_pool.wire_api="responses"',

@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.24.0 ? channel=stable ? Action Schema 8 ? Engineering API 5** ? starts Engineering Tool Depth with bounded STM32 CubeMX `.ioc` introspection: MCU/package, project/toolchain, clock frequencies, pin/signal/labels and peripheral parameters are available as typed read-only evidence without executing CubeMX or project code; v0.23.8 Codex/control-plane behavior remains intact.
+**Stable release: v0.24.1 ? channel=stable ? Action Schema 9 ? Engineering API 5** ? adds owner-approved Ubuntu host reboot through the local TUI: ChatGPT can only create a typed `node_reboot_request`, the TUI rechecks active Work Session interlocks, shows the exact fixed command, requires Allow once + confirmation, and invokes `sudo -k -- /usr/bin/systemctl --no-block reboot` without opening a generic Linux root shell. v0.24.0 STM32 `.ioc` engineering depth remains unchanged.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
@@ -625,14 +625,18 @@ RWMCP exposes exactly three owner-selected access modes:
 
 **Full Access is not Administrator.**
 
-Administrator execution is a separate one-shot path:
+Privileged execution is a separate one-shot path. Windows generic Administrator actions remain Control Center + RunAs/UAC. Ubuntu host reboot is deliberately narrower:
 
 ```text
-AI request
-   -> local owner approval in Control Center
-   -> Windows RunAs / UAC
-   -> one approved privileged execution
+ChatGPT node_reboot_request
+   -> pending typed request
+   -> local Ubuntu TUI review
+   -> Work Session interlock re-check
+   -> Allow once + explicit host-reboot confirmation
+   -> sudo -k -- /usr/bin/systemctl --no-block reboot
 ```
+
+The Ubuntu TUI does **not** expose a generic root shell. `Restart runtime` restarts only RWMCP and is never presented as a host reboot.
 
 ![Full access confirmation](docs/images/v0.8.1/06-full-access-confirm-v081.png)
 

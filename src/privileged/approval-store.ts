@@ -155,3 +155,33 @@ export async function denyAdminRequest(id: string): Promise<AdminRequest> {
   await atomicWrite(adminRequestPath(id), denied);
   return denied;
 }
+
+export async function markAdminRequestRunning(id: string): Promise<AdminRequest> {
+  const current = await readAdminRequest(id);
+  if (current.state !== 'approved') throw new Error(`Admin request is ${current.state}; only approved requests can start.`);
+  const running: AdminRequest = { ...current, state: 'running', startedAt: new Date().toISOString() };
+  await atomicWrite(adminRequestPath(id), running);
+  return running;
+}
+
+export async function finishAdminRequest(
+  id: string,
+  result: { exitCode: number | null; output?: string; error?: string }
+): Promise<AdminRequest> {
+  const current = await readAdminRequest(id);
+  if (current.state !== 'running') throw new Error(`Admin request is ${current.state}; only running requests can finish.`);
+  const exitCode = result.exitCode;
+  const succeeded = exitCode === 0 && !result.error;
+  const finished: AdminRequest = {
+    ...current,
+    state: succeeded ? 'succeeded' : 'failed',
+    result: {
+      exitCode,
+      output: (result.output ?? '').slice(-262144),
+      finishedAt: new Date().toISOString(),
+      ...(result.error ? { error: result.error.slice(0, 4096) } : {})
+    }
+  };
+  await atomicWrite(adminRequestPath(id), finished);
+  return finished;
+}

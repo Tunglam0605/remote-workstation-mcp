@@ -226,6 +226,8 @@ test('Antigravity dispatch uses sandboxed stream-json stdin and filters secret-l
     assert.ok(call.args.includes('--input-format'));
     assert.ok(call.args.includes('stream-json'));
     assert.ok(call.args.includes('--output-format'));
+    assert.ok(call.args.includes('--mode'));
+    assert.ok(call.args.includes('accept-edits'));
     assert.ok(call.args.includes('--sandbox'));
     assert.ok(call.args.includes('--model'));
     assert.ok(call.args.includes('gemini-3.8-flash-high'));

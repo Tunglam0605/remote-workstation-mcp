@@ -4,7 +4,7 @@ RWMCP keeps domain engineering tools typed and project-aware. Starting in v0.14,
 
 v0.15 adds Work Session attribution around the engineering framework without turning the session into a permission source. Session-aware process/PT​Y/serial/debug/resource/workflow operations are owned by `principalId + workSessionId`; callers that omit the ID use an implicit compatibility session. Writable repository sessions should prepare an isolated worktree/build directory first. Keil shared-output builds additionally take a project/variant-exclusive `building` lease. `engineering_workflow_run` persists only bounded run metadata and reconciles interrupted runs after runtime restart.
 
-Action Schema v3 adds the explicit Work Session lifecycle tools; Engineering API v4 adds session attribution/concurrency semantics. The workflow ID + generic `parameters` envelope itself remains the preferred extension point for new workflow/provider features.
+Action Schema v8 / Engineering API v5 add the first Phase-E engineering-depth surface: `stm32_ioc_inspect` is a dedicated bounded read-only STM32 CubeMX metadata tool. Existing Work Session attribution, workflow/resource ownership and typed mutation boundaries remain unchanged. The workflow ID + generic `parameters` envelope remains the preferred extension point for high-level executable workflows.
 
 For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` first. When direct peer routing is unavailable, use the `platform.relay_*` workflows as the bounded fallback; see [DATA_PLANE.md](DATA_PLANE.md). Firmware keeps local artifact integrity prepare/accept workflows, but peer byte movement uses only the secured generic platform data plane.
 
@@ -32,11 +32,14 @@ The older firmware-specific peer-transfer workflow IDs are intentionally not adv
 
 ### STM32
 
+- `stm32_ioc_inspect` (read-only CubeMX metadata)
 - `firmware.build`
 - `firmware.build_flash`
 - `firmware.build_flash_verify`
 - `stm32.debug_fault_snapshot`
 - `stm32.deploy_accept`
+
+`stm32_ioc_inspect` reads one project-root `.ioc` file without launching CubeMX or project code. It returns bounded typed evidence for MCU/family/package/part number, project/toolchain metadata, RCC frequency values, CubeMX-declared pins/signals/labels and enabled peripherals with bounded `IPParameters`. Multiple `.ioc` files require explicit `iocFile`; oversized files and workspace/path escapes fail closed.
 
 `firmware.build_flash_verify` performs a normal constrained flash transaction and then a separate OpenOCD `verify_image` acceptance pass. `stm32.debug_fault_snapshot` requires an explicit/persisted ST-Link serial and one unambiguous ELF/AXF symbols artifact, opens a loopback-only OpenOCD/GDB-MI session, halts the core, captures Cortex-M fault state and stack frames, then closes the session and releases the probe.
 

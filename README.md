@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.23.8 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? unifies Windows Codex CLI readiness probing across the worker provider and Control Center, correctly handles npm `.cmd/.bat` shims through `ComSpec`, and prevents false "Codex unavailable" notifications while preserving the existing execution-policy and unread-notification semantics.
+**Stable release: v0.24.0 ? channel=stable ? Action Schema 8 ? Engineering API 5** ? starts Engineering Tool Depth with bounded STM32 CubeMX `.ioc` introspection: MCU/package, project/toolchain, clock frequencies, pin/signal/labels and peripheral parameters are available as typed read-only evidence without executing CubeMX or project code; v0.23.8 Codex/control-plane behavior remains intact.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

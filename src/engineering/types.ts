@@ -74,6 +74,56 @@ export interface FirmwareProjectInfo {
   kicad?: KicadProjectFiles;
 }
 
+export interface Stm32IocPin {
+  pin: string;
+  kind: 'physical' | 'virtual';
+  signal?: string;
+  label?: string;
+  mode?: string;
+  pull?: string;
+  speed?: string;
+  locked?: boolean;
+}
+
+export interface Stm32IocPeripheral {
+  instance: string;
+  parameterCount: number;
+  parameters: Record<string, string>;
+  parametersTruncated: boolean;
+}
+
+export interface Stm32IocInspection {
+  file: string;
+  size: number;
+  formatVersion?: string;
+  mcu: {
+    name?: string;
+    family?: string;
+    package?: string;
+    partNumber?: string;
+  };
+  board?: string;
+  project: {
+    name?: string;
+    toolchain?: string;
+    targetToolchain?: string;
+    firmwarePackage?: string;
+  };
+  clocks: {
+    frequenciesHz: Record<string, number>;
+    frequenciesTruncated: boolean;
+  };
+  pins: Stm32IocPin[];
+  peripherals: Stm32IocPeripheral[];
+  counts: {
+    declaredPins?: number;
+    parsedPins: number;
+    declaredPeripherals?: number;
+    parsedPeripherals: number;
+  };
+  warnings: string[];
+}
+
 export interface FirmwareArtifact {
   path: string;
   kind: 'elf' | 'axf' | 'hex' | 'bin' | 'map';

@@ -61,8 +61,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="notificationPanel"/);
     assert.match(pageText, /id="notificationList"/);
     assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.23\.8/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.23\.8/);
+    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.24\.0/);
+    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.24\.0/);
     assert.match(pageText, /\.brand-mark\{width:66px;height:66px;object-fit:contain;border-radius:0;padding:0;background:transparent;border:0;box-shadow:none/);
     assert.match(pageText, /\.brand-signature\{display:block;width:min\(320px,66vw\).*opacity:1/);
     assert.match(pageText, /notificationCodexFallbackTitle/);

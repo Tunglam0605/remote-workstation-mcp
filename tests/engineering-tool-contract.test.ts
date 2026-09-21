@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.22 stable keeps Action Schema v6 and Engineering API v4', async () => {
+test('v0.23 stable exposes Execution Policy on Action Schema v7 and keeps Engineering API v4', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 7;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.22\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.23\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -105,7 +105,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('v0.20 stable retains Work Session routing under Action Schema v6 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v7 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -113,7 +113,7 @@ test('v0.20 stable retains Work Session routing under Action Schema v6 and Keil 
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 6;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 7;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

@@ -53,17 +53,19 @@ Direct MCP control remains the primary independent path. If every provider is un
 
 ### Optional local Codex worker
 
-The v0.22 development line can register a local `codex-local` implementation worker only when the workstation owner explicitly sets `RWMCP_CODEX_WORKER_ENABLED=1` (also accepts `true` or `yes`). `RWMCP_CODEX_EXECUTABLE` may point to an absolute Codex CLI path; otherwise RWMCP resolves `codex` from `PATH`.
+From v0.23, a local `codex-local` implementation worker is enabled only by the workstation owner through the loopback Control Center Execution Policy. Legacy `RWMCP_CODEX_WORKER_ENABLED` environment flags are intentionally ignored so a background/runtime environment cannot silently consume Codex quota. `RWMCP_CODEX_EXECUTABLE` may still point to an absolute Codex CLI path; otherwise RWMCP resolves `codex` from `PATH`.
 
 This provider is intentionally narrow:
 
-- the registry remains empty when opt-in is absent;
+- the registry remains empty when owner-local Control Center enablement is off;
 - Codex receives one already-selected Work Objective task, never authority to select the next task;
 - an isolated Work Session Git worktree is mandatory;
 - dispatch requests `workspace-write` sandboxing, approval policy `never`, ephemeral execution and no web search;
 - the provider never pushes, merges, tags, releases, deploys or edits owner policy/security configuration by design;
 - ChatGPT Web reviews the resulting Git evidence and remains responsible for accepting, rejecting or revising the change;
-- if the installed Codex CLI cannot honor the requested write sandbox, the dispatch is reported as blocked rather than widening permissions.
+- if the installed Codex CLI cannot honor the requested write sandbox, the dispatch is reported as blocked rather than widening permissions;
+- the Control Center owns the default RWMCP-only / Codex-only / Both policy and budgets; an explicitly allowed Work Session override cannot enable Codex globally or change owner budgets;
+- provider quota/rate-limit failures can latch the effective policy to RWMCP-only with an auditable reason, while a per-Work-Session task budget affects only that Work Session.
 
 ## Concurrency today
 

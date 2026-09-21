@@ -24,6 +24,10 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.controlPort, 8684);
   assert.deepEqual(settings.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
+  assert.equal(settings.execution.defaultMode, 'rwmcp-only');
+  assert.equal(settings.execution.codexEnabled, false);
+  assert.equal(settings.execution.allowChatOverride, true);
+  assert.equal(settings.execution.codexFallback, 'rwmcp-only');
   assert.throws(() => normalizeSetupSettings({ mcpPort: 80, workspaceRoot: workspace }), /1024/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: 'relative/path' }), /absolute/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, tunnelId: 'tunnel_bad' }), /tunnelId/);

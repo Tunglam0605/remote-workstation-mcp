@@ -5,6 +5,7 @@ import type { TaskGraphStore, WorkTask } from './task-graph.js';
 import type { WorkerProviderRegistry, WorkerDispatchResult } from './worker-provider.js';
 import type { WorkSessionStore } from './work-session.js';
 import type { WorktreeManager, WorktreeState } from './worktree-manager.js';
+import { isCodexLimitSignal, type ExecutionPolicyService } from './execution-policy.js';
 
 class TaskWorkflowOutcomeError extends Error {
   constructor(
@@ -48,7 +49,8 @@ export class TaskWorkflowExecutionService {
     private readonly taskAttempts: TaskAttemptStore,
     private readonly workerProviders?: WorkerProviderRegistry,
     private readonly workSessions?: WorkSessionStore,
-    private readonly worktreeManager?: Pick<WorktreeManager, 'status'>
+    private readonly worktreeManager?: Pick<WorktreeManager, 'status'>,
+    private readonly executionPolicy?: ExecutionPolicyService
   ) {}
 
   private async task(objectiveId: string, taskId: string): Promise<WorkTask> {
@@ -197,6 +199,9 @@ export class TaskWorkflowExecutionService {
         objectiveId,
         task.id,
         async () => {
+          if (binding.providerId === 'codex-local' && this.executionPolicy) {
+            await this.executionPolicy.beforeCodexDispatch(objective.workSessionId);
+          }
           providerResult = await this.workerProviders!.dispatch(binding.providerId, {
             version: 1,
             workSessionId: objective.workSessionId,
@@ -214,6 +219,25 @@ export class TaskWorkflowExecutionService {
             ...(dispatchProject ? { project: dispatchProject } : {})
           });
           if (providerResult.status === 'blocked' || providerResult.status === 'failed') {
+            if (
+              binding.providerId === 'codex-local' &&
+              this.executionPolicy &&
+              isCodexLimitSignal(providerResult.summary)
+            ) {
+              await this.executionPolicy.activateFallback(
+                'provider-limit',
+                providerResult.summary ?? 'Codex provider reported a usage or rate limit.'
+              );
+              const policyStatus = await this.executionPolicy.status(objective.workSessionId);
+              throw new WorkerProviderOutcomeError(
+                'blocked',
+                binding.providerId,
+                providerResult.runId,
+                policyStatus.fallbackActive
+                  ? 'CODEX_FALLBACK_ACTIVE: Codex limit detected; effective execution mode switched to rwmcp-only.'
+                  : 'CODEX_LIMIT_REACHED: Codex limit detected; owner fallback policy is stop.'
+              );
+            }
             throw new WorkerProviderOutcomeError(
               providerResult.status,
               binding.providerId,

@@ -42,6 +42,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   project_session_group_inspect: 'workstation.read',
   project_session_group_mutate: 'workstation.write',
   worker_provider_list: 'workstation.read',
+  execution_policy_status: 'workstation.read',
+  execution_policy_set_override: 'workstation.write',
   work_objective_create: 'workstation.write',
   work_objective_inspect: 'workstation.read',
   work_objective_mutate: 'workstation.write',

@@ -5,12 +5,23 @@ import { z } from 'zod';
 
 export const SETUP_SETTINGS_VERSION = 1 as const;
 export const DEFAULT_CONTROL_PORT = 8684 as const;
+export type ExecutionMode = 'rwmcp-only' | 'codex-only' | 'both';
+
 export const DEFAULT_HTTP_SCOPES = [
   'workstation.read',
   'workstation.write',
   'workstation.execute',
   'workstation.admin_request'
 ] as const;
+
+export const executionSettingsSchema = z.object({
+  codexEnabled: z.boolean().default(false),
+  defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
+  allowChatOverride: z.boolean().default(true),
+  codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
+  maxCodexTasksPerSession: z.number().int().min(0).max(10000).default(0),
+  maxCodexTasksPerDay: z.number().int().min(0).max(100000).default(0)
+});
 
 const workstationScopeSchema = z.enum([
   'workstation.read',
@@ -31,7 +42,15 @@ export const setupSettingsSchema = z.object({
   controlPort: z.number().int().min(1024).max(65535).default(DEFAULT_CONTROL_PORT),
   httpScopes: z.array(workstationScopeSchema).min(1).default([...DEFAULT_HTTP_SCOPES])
     .refine(scopes => scopes.includes('workstation.read'), { message: 'httpScopes must include workstation.read.' })
-    .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' })
+    .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' }),
+  execution: executionSettingsSchema.default({
+    codexEnabled: false,
+    defaultMode: 'rwmcp-only',
+    allowChatOverride: true,
+    codexFallback: 'rwmcp-only',
+    maxCodexTasksPerSession: 0,
+    maxCodexTasksPerDay: 0
+  })
 });
 
 export type SetupSettings = z.infer<typeof setupSettingsSchema>;
@@ -88,7 +107,15 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     organizationId: raw.organizationId ?? '',
     cloudflaredManaged: raw.cloudflaredManaged ?? false,
     controlPort: migratedControlPort,
-    httpScopes: migratedScopes
+    httpScopes: migratedScopes,
+    execution: raw.execution ?? {
+      codexEnabled: false,
+      defaultMode: 'rwmcp-only',
+      allowChatOverride: true,
+      codexFallback: 'rwmcp-only',
+      maxCodexTasksPerSession: 0,
+      maxCodexTasksPerDay: 0
+    }
   });
 
   if (!path.isAbsolute(parsed.workspaceRoot)) {

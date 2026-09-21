@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
+import { ExecutionPolicyService } from '../execution-policy.js';
 import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
 import { loadHosts } from '../hosts.js';
 import { NodeInterlockStore } from '../node-interlock.js';
@@ -192,6 +193,45 @@ Process timed out after ${options.timeoutMs} ms.`);
     if (options.stdin !== undefined) child.stdin?.end(options.stdin);
     else child.stdin?.end();
   });
+}
+
+async function codexCliStatus(repoRoot: string): Promise<{
+  installed: boolean;
+  authenticated: boolean;
+  version?: string;
+  detail?: string;
+}> {
+  try {
+    const resolver = process.platform === 'win32'
+      ? await runProcess('where.exe', ['codex'], { cwd: repoRoot, timeoutMs: 4_000, maxBytes: 8 * 1024 })
+      : await runProcess('which', ['codex'], { cwd: repoRoot, timeoutMs: 4_000, maxBytes: 8 * 1024 });
+    if (resolver.code !== 0 || !resolver.output.trim()) {
+      return { installed: false, authenticated: false, detail: 'Codex CLI executable was not found.' };
+    }
+    const executable = resolver.output.split(/\r?\n/).map(value => value.trim()).find(Boolean);
+    if (!executable) return { installed: false, authenticated: false, detail: 'Codex CLI executable was not found.' };
+
+    const version = await runProcess(executable, ['--version'], { cwd: repoRoot, timeoutMs: 5_000, maxBytes: 8 * 1024 });
+    if (version.code !== 0) {
+      return { installed: false, authenticated: false, detail: version.output || 'Codex CLI version probe failed.' };
+    }
+    const login = await runProcess(executable, ['login', 'status'], { cwd: repoRoot, timeoutMs: 8_000, maxBytes: 8 * 1024 });
+    const authenticated = login.code === 0 && /logged in/i.test(login.output);
+    return {
+      installed: true,
+      authenticated,
+      version: version.output.trim().replace(/\s+/g, ' ').slice(0, 128),
+      detail: authenticated
+        ? 'authenticated'
+        : (login.output || 'authentication unavailable').trim().replace(/\s+/g, ' ').slice(0, 256)
+    };
+  } catch (error) {
+    return {
+      installed: false,
+      authenticated: false,
+      detail: error instanceof Error ? error.message.slice(0, 256) : String(error).slice(0, 256)
+    };
+  }
 }
 
 async function storeWindowsRuntimeKey(repoRoot: string, secret: string): Promise<void> {
@@ -1096,6 +1136,79 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         json(res, 200, await pairing.revoke(revokeDevice[1]!));
         return;
       }
+      if (url.pathname === '/api/execution-policy' && req.method === 'GET') {
+        const settings = await loadEffectiveSetupSettings(repoRoot);
+        const executionPolicy = new ExecutionPolicyService();
+        json(res, 200, {
+          settings: settings.execution,
+          status: await executionPolicy.status(),
+          codex: await codexCliStatus(repoRoot),
+          authority: 'owner-local-default-with-bounded-work-session-overrides'
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/execution-policy' && req.method === 'POST') {
+        const body = await readJsonBody(req) as {
+          codexEnabled?: boolean;
+          defaultMode?: 'rwmcp-only' | 'codex-only' | 'both';
+          allowChatOverride?: boolean;
+          codexFallback?: 'rwmcp-only' | 'stop';
+          maxCodexTasksPerSession?: number;
+          maxCodexTasksPerDay?: number;
+        };
+        const current = await loadEffectiveSetupSettings(repoRoot);
+        const previousCodexEnabled = current.execution.codexEnabled;
+        const settings = normalizeSetupSettings({
+          ...current,
+          execution: {
+            ...current.execution,
+            ...(typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
+            ...(body.defaultMode ? { defaultMode: body.defaultMode } : {}),
+            ...(typeof body.allowChatOverride === 'boolean' ? { allowChatOverride: body.allowChatOverride } : {}),
+            ...(body.codexFallback ? { codexFallback: body.codexFallback } : {}),
+            ...(body.maxCodexTasksPerSession !== undefined ? { maxCodexTasksPerSession: body.maxCodexTasksPerSession } : {}),
+            ...(body.maxCodexTasksPerDay !== undefined ? { maxCodexTasksPerDay: body.maxCodexTasksPerDay } : {})
+          }
+        });
+        await saveSetupSettings(settings);
+        const executionPolicy = new ExecutionPolicyService();
+        json(res, 200, {
+          settings: settings.execution,
+          status: await executionPolicy.status(),
+          codex: await codexCliStatus(repoRoot),
+          restartRequired: previousCodexEnabled !== settings.execution.codexEnabled,
+          authority: 'owner-local-only'
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/execution-policy/fallback-reset' && req.method === 'POST') {
+        const settings = await loadEffectiveSetupSettings(repoRoot);
+        const executionPolicy = new ExecutionPolicyService();
+        json(res, 200, {
+          settings: settings.execution,
+          status: await executionPolicy.resetFallback(),
+          codex: await codexCliStatus(repoRoot),
+          restartRequired: false,
+          authority: 'owner-local-only'
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/execution-policy/clear-overrides' && req.method === 'POST') {
+        const settings = await loadEffectiveSetupSettings(repoRoot);
+        const executionPolicy = new ExecutionPolicyService();
+        json(res, 200, {
+          settings: settings.execution,
+          status: await executionPolicy.clearSessionOverrides(),
+          codex: await codexCliStatus(repoRoot),
+          restartRequired: false,
+          authority: 'owner-local-only'
+        });
+        return;
+      }
+
       if (url.pathname === '/api/update/status' && req.method === 'GET') {
         json(res, 200, await updateControl(repoRoot, 'Status'));
         return;

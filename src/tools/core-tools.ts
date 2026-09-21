@@ -308,6 +308,27 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     return { group: await ctx.projectSessionGroups.close(groupId) };
   })));
 
+  server.registerTool('execution_policy_status', {
+    description: 'Read the owner-managed execution policy and effective mode. With workSessionId, includes that Work Session override and Codex task counters. This tool never changes owner settings or activates Codex.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid().optional()
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId }) => result(await audited(ctx.audit, 'execution_policy_status', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.executionPolicy.status(workSessionId))
+  )));
+
+  server.registerTool('execution_policy_set_override', {
+    description: 'Set or clear the execution mode override for one caller-owned Work Session when the local owner has enabled chat overrides in Control Center. It cannot enable Codex globally, clear fallback, change budgets or mutate owner defaults.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      mode: z.enum(['rwmcp-only', 'codex-only', 'both']).nullable()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, mode }) => result(await audited(ctx.audit, 'execution_policy_set_override', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.executionPolicy.setSessionOverride(workSessionId, mode))
+  )));
+
   server.registerTool('worker_provider_list', {
     description: 'List bounded status for optional worker-provider adapters registered by the local runtime. Registration and authority remain local/runtime-owned; this read-only tool cannot dispatch providers.',
     inputSchema: z.object({}),
@@ -316,6 +337,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     const providers = await ctx.workerProviders.listStatus();
     return {
       providers,
+      executionPolicy: await ctx.executionPolicy.status(),
       executionActive: providers.some(provider => provider.executionActive),
       authority: 'registry-only',
       note: 'Dispatch-capable providers may be used only through persisted worker-provider task bindings and work_objective_execute_task. Provider registration is not exposed through MCP; direct MCP control remains independent of worker availability.'

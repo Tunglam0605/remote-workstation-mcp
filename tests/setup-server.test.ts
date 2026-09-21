@@ -41,6 +41,15 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="codexBrokerMode"/);
     assert.match(pageText, /id="codexBrokerEnabled"/);
     assert.match(pageText, /id="codexBrokerStatus"/);
+    assert.match(pageText, /sidebar\.className='cc-sidebar'/);
+    assert.match(pageText, /pages\.id='controlCenterPages'/);
+    assert.match(pageText, /function buildControlCenterLayout\(\)/);
+    assert.match(pageText, /navOverview:'Tổng quan'/);
+    assert.match(pageText, /broker-account-grid/);
+    assert.match(pageText, /updatesCardTitle:'Cập nhật phần mềm'/);
+    assert.match(pageText, /controlCenterShort:'Trung tâm điều khiển'/);
+    assert.match(pageText, /const configCard=pageCardFor\('updateStatus'\)/);
+    assert.doesNotMatch(pageText, /var\(--(?:bg|surface-2|primary|success)\)/);
     assert.match(pageText, /id="allowChatOverride"/);
     assert.match(pageText, /\/api\/execution-policy/);
     assert.match(pageText, /id="toggleMultiNode"/);
@@ -64,8 +73,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="notificationPanel"/);
     assert.match(pageText, /id="notificationList"/);
     assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.25\.3/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.25\.3/);
+    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.26\.0/);
+    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.26\.0/);
     assert.match(pageText, /function executionModeLabel\(mode\)/);
     assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
     assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);

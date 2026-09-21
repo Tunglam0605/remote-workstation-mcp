@@ -32,16 +32,17 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.23.8 stable exposes Execution Policy on Action Schema v7 and keeps Engineering API v4', async () => {
+test('v0.24.0 stable exposes STM32 IOC depth on Action Schema v8 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 7;/);
-  assert.match(capabilities, /export const ENGINEERING_API_VERSION = 4;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.23\.8';/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 8;/);
+  assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.24\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
   assert.match(capabilities, /multi_device\.authorization/);
+  assert.match(capabilities, /stm32_ioc_inspect/);
 });
 
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
@@ -92,6 +93,24 @@ test('v0.20 currentTask ownership label can be explicitly released without auto-
   assert.doesNotMatch(coreTools, /task_claim|autoClaim|auto_assign|autoAssign/);
 });
 
+test('STM32 IOC inspection is a bounded read-only typed surface', async () => {
+  const tools = await read('src/tools/engineering-tools.ts');
+  const adapter = await read('src/adapters/engineering/stm32-ioc.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  const start = tools.indexOf("server.registerTool('stm32_ioc_inspect'");
+  const end = tools.indexOf("server.registerTool('firmware_project_inspect'", start);
+  assert.ok(start >= 0 && end > start);
+  const block = tools.slice(start, end);
+  assert.match(block, /readOnlyHint: true/);
+  assert.match(block, /ctx\.engineering\.stm32Ioc\.inspect/);
+  assert.doesNotMatch(block, /runInWorkSession|runner|process|shell|write|flash|reset/);
+  assert.match(adapter, /MAX_IOC_BYTES = 4 \* 1024 \* 1024/);
+  assert.match(adapter, /Multiple STM32 CubeMX \.ioc files/);
+  assert.match(adapter, /iocFile must be a project-root \.ioc basename/);
+  assert.match(capabilities, /'stm32_ioc_inspect'/);
+});
+
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {
   const firmware = await read('src/adapters/engineering/firmware.ts');
   const profile = await read('src/adapters/engineering/project-profile.ts');
@@ -105,7 +124,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v7 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v8 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -113,7 +132,7 @@ test('current runtime retains Work Session routing under Action Schema v7 and Ke
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 7;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 8;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

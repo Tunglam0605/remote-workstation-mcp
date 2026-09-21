@@ -25,7 +25,7 @@ test('Windows desktop notifications use a packaged PowerShell helper without she
     once() { return this; },
     unref() {}
   };
-  const service = new DesktopNotificationService('0.23.8', {
+  const service = new DesktopNotificationService('0.24.0', {
     platform: 'win32',
     scriptPath: 'C:\\Program Files\\RWMCP\\show-windows-notification.ps1',
     spawnProcess: ((program: string, args: string[], options: Record<string, unknown>) => {
@@ -53,7 +53,7 @@ test('Windows desktop notifications use a packaged PowerShell helper without she
   assert.ok(payloadIndex >= 0);
   const payload = JSON.parse(Buffer.from(captured.args![payloadIndex + 1]!, 'base64').toString('utf8'));
   assert.deepEqual(payload, {
-    app: 'Remote Workstation MCP v0.23.8',
+    app: 'Remote Workstation MCP v0.24.0',
     title: 'Codex task completed',
     body: 'Regression test passed & no production was touched.',
     kind: 'success'
@@ -62,7 +62,7 @@ test('Windows desktop notifications use a packaged PowerShell helper without she
 
 test('desktop notification payloads are bounded before dispatch', async () => {
   let encoded = '';
-  const service = new DesktopNotificationService('0.23.8', {
+  const service = new DesktopNotificationService('0.24.0', {
     platform: 'win32',
     spawnProcess: ((_program: string, args: string[]) => {
       encoded = args[args.indexOf('-PayloadBase64') + 1]!;

@@ -197,6 +197,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'terminal_stop', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.stop(id)))));
 
+  server.registerTool('stm32_ioc_inspect', {
+    description: 'Read a bounded STM32 CubeMX .ioc file and return typed MCU/package, project/toolchain, clock-frequency, pin/signal/label and peripheral-parameter metadata without running CubeMX or project code.',
+    inputSchema: workspacePath.extend({ iocFile: z.string().min(1).max(255).regex(/^[^\\/]+\.ioc$/i).optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, iocFile }) => result(await audited(ctx.audit, 'stm32_ioc_inspect', workspace, () => ctx.engineering.stm32Ioc.inspect(workspace, projectPath, iocFile))));
+
   server.registerTool('firmware_project_inspect', {
     description: 'Detect firmware/project family and build framework from project markers without executing project code.',
     inputSchema: workspacePath,

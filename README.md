@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.25.1 ? channel=stable ? Action Schema 10 ? Engineering API 5** ? hardens the v0.25 Codex Account Broker after real Cockpit-pool acceptance: runtime Codex provider overrides no longer include a whitespace-bearing display-name value, and the Linux updater resolves `npm` beside the managed Node runtime before relying on a systemd `PATH`. The broker still keeps Cockpit credentials out of RWMCP state/argv and requires a healthy loopback pool before activation.
+**Stable release: v0.25.2 ? channel=stable ? Action Schema 10 ? Engineering API 5** ? completes the Cockpit account-pool acceptance path with a Codex-compatible custom-provider name (`CockpitPool`) and fully localizes dynamic Execution Policy mode/status text in Vietnamese instead of rendering raw values such as `both`, `Task`, `override`, or `Reset fallback`. v0.25.1 Linux updater PATH hardening remains intact.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

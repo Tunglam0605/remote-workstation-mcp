@@ -21,6 +21,8 @@ const codexAccountBrokerSettingsSchema = z.object({
 
 export const executionSettingsSchema = z.object({
   codexEnabled: z.boolean().default(false),
+  antigravityEnabled: z.boolean().default(false),
+  antigravityModel: z.string().trim().max(128).default(''),
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
   allowChatOverride: z.boolean().default(true),
   codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
@@ -54,6 +56,8 @@ export const setupSettingsSchema = z.object({
     .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' }),
   execution: executionSettingsSchema.default({
     codexEnabled: false,
+    antigravityEnabled: false,
+    antigravityModel: '',
     defaultMode: 'rwmcp-only',
     allowChatOverride: true,
     codexFallback: 'rwmcp-only',
@@ -120,6 +124,8 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     httpScopes: migratedScopes,
     execution: raw.execution ?? {
       codexEnabled: false,
+      antigravityEnabled: false,
+      antigravityModel: '',
       defaultMode: 'rwmcp-only',
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',

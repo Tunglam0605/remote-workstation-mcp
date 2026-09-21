@@ -26,6 +26,8 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.equal(settings.execution.defaultMode, 'rwmcp-only');
   assert.equal(settings.execution.codexEnabled, false);
+  assert.equal(settings.execution.antigravityEnabled, false);
+  assert.equal(settings.execution.antigravityModel, '');
   assert.equal(settings.execution.allowChatOverride, true);
   assert.equal(settings.execution.codexFallback, 'rwmcp-only');
   assert.deepEqual(settings.execution.codexAccountBroker, { enabled: false, mode: 'native' });

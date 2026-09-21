@@ -337,6 +337,14 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     ctx.codexAccountBroker.status({ probe })
   )));
 
+  server.registerTool('antigravity_status', {
+    description: 'Read safe local Google Antigravity CLI status, current model and model-quota summary. This tool never exposes Google OAuth/keyring credentials and never starts an agent turn.',
+    inputSchema: z.object({ includeQuota: z.boolean().default(true) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ includeQuota }) => result(await audited(ctx.audit, 'antigravity_status', undefined, () =>
+    ctx.antigravityWorker.inspect(includeQuota)
+  )));
+
   server.registerTool('worker_provider_list', {
     description: 'List bounded status for optional worker-provider adapters registered by the local runtime. Registration and authority remain local/runtime-owned; this read-only tool cannot dispatch providers.',
     inputSchema: z.object({}),

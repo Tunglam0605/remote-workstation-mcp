@@ -10,6 +10,7 @@ import { ExecutionPolicyService } from '../execution-policy.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { CodexAccountBroker } from '../workers/codex-account-broker.js';
+import { probeAntigravityCli } from '../workers/antigravity-worker-provider.js';
 import { loadOrCreateDeviceIdentity, recommendedChatGptAppName } from '../device-identity.js';
 import { loadHosts } from '../hosts.js';
 import { NodeInterlockStore } from '../node-interlock.js';
@@ -247,6 +248,10 @@ export async function codexCliStatus(repoRoot: string): Promise<{
 async function codexAccountBrokerStatus(settings: SetupSettings, probe = true) {
   const broker = new CodexAccountBroker(settings.execution.codexAccountBroker);
   return await broker.status({ probe });
+}
+
+async function antigravityCliStatus(repoRoot: string, includeQuota = true) {
+  return await probeAntigravityCli({ cwd: repoRoot, includeQuota });
 }
 
 async function storeWindowsRuntimeKey(repoRoot: string, secret: string): Promise<void> {
@@ -1188,6 +1193,11 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         json(res, 200, await pairing.revoke(revokeDevice[1]!));
         return;
       }
+      if (url.pathname === '/api/antigravity/status' && req.method === 'GET') {
+        json(res, 200, await antigravityCliStatus(repoRoot, true));
+        return;
+      }
+
       if (url.pathname === '/api/execution-policy' && req.method === 'GET') {
         const settings = await loadEffectiveSetupSettings(repoRoot);
         const executionPolicy = new ExecutionPolicyService();
@@ -1204,6 +1214,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       if (url.pathname === '/api/execution-policy' && req.method === 'POST') {
         const body = await readJsonBody(req) as {
           codexEnabled?: boolean;
+          antigravityEnabled?: boolean;
+          antigravityModel?: string;
           defaultMode?: 'rwmcp-only' | 'codex-only' | 'both';
           allowChatOverride?: boolean;
           codexFallback?: 'rwmcp-only' | 'stop';
@@ -1216,12 +1228,16 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         };
         const current = await loadEffectiveSetupSettings(repoRoot);
         const previousCodexEnabled = current.execution.codexEnabled;
+        const previousAntigravityEnabled = current.execution.antigravityEnabled;
+        const previousAntigravityModel = current.execution.antigravityModel;
         const previousBroker = current.execution.codexAccountBroker;
         const settings = normalizeSetupSettings({
           ...current,
           execution: {
             ...current.execution,
             ...(typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
+            ...(typeof body.antigravityEnabled === 'boolean' ? { antigravityEnabled: body.antigravityEnabled } : {}),
+            ...(typeof body.antigravityModel === 'string' ? { antigravityModel: body.antigravityModel } : {}),
             ...(body.defaultMode ? { defaultMode: body.defaultMode } : {}),
             ...(typeof body.allowChatOverride === 'boolean' ? { allowChatOverride: body.allowChatOverride } : {}),
             ...(body.codexFallback ? { codexFallback: body.codexFallback } : {}),
@@ -1246,6 +1262,12 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
             throw new Error(`Cockpit API pool is not ready: ${brokerStatus.pool.detail}`);
           }
         }
+        if (body.antigravityEnabled === true) {
+          const agy = await antigravityCliStatus(repoRoot, false);
+          if (!agy.available || !agy.authenticated) {
+            throw new Error(`Antigravity CLI is not ready: ${agy.detail}`);
+          }
+        }
         await saveSetupSettings(settings);
         const executionPolicy = new ExecutionPolicyService();
         json(res, 200, {
@@ -1255,6 +1277,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           accountBroker: await codexAccountBrokerStatus(settings),
           restartRequired:
             previousCodexEnabled !== settings.execution.codexEnabled ||
+            previousAntigravityEnabled !== settings.execution.antigravityEnabled ||
+            previousAntigravityModel !== settings.execution.antigravityModel ||
             previousBroker.enabled !== settings.execution.codexAccountBroker.enabled ||
             previousBroker.mode !== settings.execution.codexAccountBroker.mode,
           authority: 'owner-local-only'

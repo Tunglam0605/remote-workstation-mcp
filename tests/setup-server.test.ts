@@ -41,6 +41,9 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="codexBrokerMode"/);
     assert.match(pageText, /id="codexBrokerEnabled"/);
     assert.match(pageText, /id="codexBrokerStatus"/);
+    assert.match(pageText, /id="antigravityEnabled"/);
+    assert.match(pageText, /id="antigravityModel"/);
+    assert.match(pageText, /id="antigravityStatus"/);
     assert.match(pageText, /sidebar\.className='cc-sidebar'/);
     assert.match(pageText, /pages\.id='controlCenterPages'/);
     assert.match(pageText, /function buildControlCenterLayout\(\)/);
@@ -73,8 +76,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="notificationPanel"/);
     assert.match(pageText, /id="notificationList"/);
     assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.26\.0/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.26\.0/);
+    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.27\.0/);
+    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.27\.0/);
     assert.match(pageText, /function executionModeLabel\(mode\)/);
     assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
     assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);

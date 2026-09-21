@@ -61,6 +61,7 @@ import { WorkflowRunStore } from './workflow-run-store.js';
 import { WorkerProviderRegistry } from './worker-provider.js';
 import { WorktreeManager } from './worktree-manager.js';
 import { registerConfiguredCodexWorker } from './workers/codex-worker-provider.js';
+import { AntigravityWorkerProvider } from './workers/antigravity-worker-provider.js';
 import { CodexAccountBroker } from './workers/codex-account-broker.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
@@ -150,6 +151,11 @@ export async function createContext() {
     { accountBroker: codexAccountBroker },
     setupSettings.execution.codexEnabled
   );
+  const antigravityWorker = new AntigravityWorkerProvider(policy, paths, engineeringRunner, {
+    env: process.env,
+    model: setupSettings.execution.antigravityModel
+  });
+  if (setupSettings.execution.antigravityEnabled) workerProviders.register(antigravityWorker);
   const engineeringHardware = new HardwareDiscoveryAdapter();
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
   const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);
@@ -224,6 +230,7 @@ export async function createContext() {
     workerProviders,
     executionPolicy,
     codexAccountBroker,
+    antigravityWorker,
     desktopNotifications,
     workflowRuns,
     qualityObservations,

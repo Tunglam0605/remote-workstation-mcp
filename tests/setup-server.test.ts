@@ -76,8 +76,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="notificationPanel"/);
     assert.match(pageText, /id="notificationList"/);
     assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.27\.1/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.27\.1/);
+    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.27\.2/);
+    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.27\.2/);
     assert.match(pageText, /function executionModeLabel\(mode\)/);
     assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
     assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);

@@ -610,6 +610,7 @@ export class AntigravityWorkerProvider implements WorkerProvider {
     const args = [
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
+      '--mode', 'accept-edits',
       '--sandbox',
       '--print-timeout', `${Math.max(10, Math.ceil(timeoutLimit / 1000))}s`,
       ...(this.model ? ['--model', this.model] : [])

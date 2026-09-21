@@ -176,6 +176,7 @@ A new feature or architectural change should answer all of these questions befor
 8. **How is its state observed and cleaned up?**
 9. **Does it require a public action/schema change, or can it fit the stable generic contract?**
 10. **What regression or real acceptance proves it without redefining the product around the test workload?**
+11. **Which authoritative vendor/specification/upstream sources were reviewed, and what concrete design decision came from them?** Domain-depth work should prefer official manuals, standards/specifications, vendor-maintained repositories and upstream tool documentation over ad-hoc reimplementation. Community sources may inform investigation but are not the authority for safety, protocol or tool semantics.
 
 A feature that cannot answer these questions should not advance simply because it is technically possible.
 

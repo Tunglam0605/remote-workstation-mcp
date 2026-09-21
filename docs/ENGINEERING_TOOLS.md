@@ -8,6 +8,12 @@ Action Schema v8 / Engineering API v5 add the first Phase-E engineering-depth su
 
 For generic Direct-Node file transfer, use `platform.transfer_prepare`, `platform.transfer_receive_offer`, and `platform.transfer_push` first. When direct peer routing is unavailable, use the `platform.relay_*` workflows as the bounded fallback; see [DATA_PLANE.md](DATA_PLANE.md). Firmware keeps local artifact integrity prepare/accept workflows, but peer byte movement uses only the secured generic platform data plane.
 
+## Vendor-reference gate for engineering depth
+
+Phase-E domain extensions are evidence-driven. Before changing a typed engineering surface, review the relevant official vendor manual/specification, vendor-maintained repository/release notes, and upstream tool documentation. Record the concrete decision the source justifies; do not copy implementation complexity that does not improve the RWMCP control-plane contract. Community posts/issues may be used to discover edge cases, but safety, protocol and CLI semantics must be anchored in authoritative sources where available.
+
+For STM32 E1, the initial source set is ST UM1718 (STM32CubeMX project/.ioc behavior), ST-maintained STM32Cube firmware repositories and release notes, OpenOCD's ST-LINK adapter documentation, Arm CMSIS upstream releases, and Keil µVision command-line documentation. This review confirms the current fail-closed single-.ioc selection, retaining firmware-package identity from project metadata, use of the modern `interface/stlink.cfg` path rather than deprecated HLA, and typed Keil `-b`/`-t`/`-o` batch semantics.
+
 ## Tool families
 
 - `engineering_*`: inspect a project, create/load `.rwmcp/project.yaml`, list/plan/run approved high-level workflows.

@@ -646,6 +646,13 @@ export class AntigravityWorkerProvider implements WorkerProvider {
         summary: boundedTail(`ANTIGRAVITY_LIMIT_REACHED; ${summary}`, MAX_EVIDENCE_BYTES)
       };
     }
+    if (/auto[- ]denied|headless mode cannot prompt for|required the ["']?[a-z0-9._-]+["']? permission|permission(?:\s+\w+){0,4}\s+(?:was\s+)?denied/i.test(failureText)) {
+      return {
+        status: 'blocked',
+        ...(stream.conversationId ? { runId: stream.conversationId } : {}),
+        summary: boundedTail(`ANTIGRAVITY_PERMISSION_REQUIRED; ${summary}`, MAX_EVIDENCE_BYTES)
+      };
+    }
     if (result.timedOut || result.exitCode !== 0 || stream.status !== 'SUCCESS') {
       return {
         status: 'failed',

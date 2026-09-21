@@ -240,6 +240,45 @@ test('Antigravity dispatch uses sandboxed stream-json stdin and filters secret-l
   }
 });
 
+test('Antigravity explicit headless permission denial fails closed even when agy reports SUCCESS', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-agy-permission-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const provider = new AntigravityWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      { run: async () => commandResult() } as any,
+      {
+        resolveExecutable: async command => command === 'git' ? 'git' : 'agy',
+        processRunner: async () => ({
+          exitCode: 0,
+          stdout: [
+            JSON.stringify({ event: 'init', conversation_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', init: { permission_mode: 'request-review' } }),
+            JSON.stringify({
+              event: 'result',
+              result: {
+                conversation_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+                status: 'SUCCESS',
+                response: 'no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.',
+                usage: { total_tokens: 321 }
+              }
+            })
+          ].join('\n') + '\n',
+          stderr: '',
+          timedOut: false,
+          durationMs: 3
+        })
+      }
+    );
+
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'blocked');
+    assert.match(result.summary ?? '', /ANTIGRAVITY_PERMISSION_REQUIRED/);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
 test('Antigravity quota/rate-limit errors fail closed as blocked work', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-agy-limit-'));
   try {

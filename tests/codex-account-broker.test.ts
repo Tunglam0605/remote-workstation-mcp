@@ -118,6 +118,7 @@ test('Codex account broker requires explicit healthy loopback sidecar pool befor
   assert.equal(launch.env[CODEX_COCKPIT_API_KEY_ENV], apiKey);
   assert.equal(launch.env.NO_PROXY, '127.0.0.1,localhost,::1');
   assert.ok(launch.args.includes('model_provider="rwmcp_cockpit_pool"'));
+  assert.ok(!launch.args.some(arg => arg.includes('model_providers.rwmcp_cockpit_pool.name=')), 'runtime -c overrides must not carry a display name with whitespace');
   assert.ok(launch.args.some(arg => arg.includes('base_url="http://127.0.0.1:')));
   assert.ok(launch.args.some(arg => arg.includes(`env_key="${CODEX_COCKPIT_API_KEY_ENV}"`)));
   assert.ok(!launch.args.some(arg => arg.includes(apiKey)), 'secret must never appear in argv');

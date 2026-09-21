@@ -121,6 +121,15 @@ test('Linux updater reconstructs the user-systemd bus for non-interactive restar
   assert.match(updater, /env: linuxUserSystemdEnv\(\)/);
 });
 
+test('Linux updater resolves npm independently of a sparse systemd PATH', async () => {
+  const updater = await fs.readFile('scripts/update-user.mjs', 'utf8');
+  assert.match(updater, /async function resolveNpmExecutable\(\)/);
+  assert.match(updater, /path\.dirname\(process\.execPath\)/);
+  assert.match(updater, /path\.join\(home, '\.local', 'bin', name\)/);
+  assert.match(updater, /const npm = await resolveNpmExecutable\(\)/);
+  assert.match(updater, /await exec\(npm, \['install'/);
+});
+
 test('Ubuntu TUI distinguishes runtime restart from owner-approved host reboot', async () => {
   const tui = await fs.readFile('src/tui-cli.ts', 'utf8');
   const approvals = await fs.readFile('src/tui/admin-requests.ts', 'utf8');

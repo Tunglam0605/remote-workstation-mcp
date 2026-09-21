@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.23.6 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? polishes Control Center branding by improving header-logo contrast and removing the residual white halo from the footer signature asset, while retaining v0.23.5 unread-notification semantics, aligned execution-policy selects, Codex sandbox hardening, and native Windows desktop notifications.
+**Stable release: v0.23.7 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? replaces the inset circular header badge with a transparent standalone gear/TL mark cropped from the canonical horizontal brand asset, removes the surrounding header box treatment, and enlarges/brightens the footer wordmark for clear dark-theme branding while retaining v0.23.6 runtime behavior.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

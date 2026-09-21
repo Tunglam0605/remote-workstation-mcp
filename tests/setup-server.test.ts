@@ -82,15 +82,15 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
     assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);
     assert.match(pageText, /executionTasksToday:'Số tác vụ Codex hôm nay'/);
-    assert.match(pageText, /\.brand-mark\{width:66px;height:66px;object-fit:contain;border-radius:0;padding:0;background:transparent;border:0;box-shadow:none/);
-    assert.match(pageText, /\.brand-signature\{display:block;width:min\(320px,66vw\).*opacity:1/);
+    assert.match(pageText, /\.brand-mark\{width:56px;height:56px;object-fit:contain;border-radius:0;padding:0;background:transparent;border:0;box-shadow:none/);
+    assert.match(pageText, /\.brand-signature\{display:block;width:min\(300px,60vw\).*opacity:\.95/);
     assert.match(pageText, /notificationCodexFallbackTitle/);
     assert.match(pageText, /notificationCodexUnavailableTitle/);
     assert.match(pageText, /notificationUpdateTitle/);
     assert.match(pageText, /renderControlNotifications/);
     assert.match(pageText, /NOTIFICATION_READ_KEY/);
     assert.match(pageText, /markCurrentNotificationsRead/);
-    assert.match(pageText, /select\{width:100%;min-height:44px/);
+    assert.match(pageText, /select\{width:100%;min-height:38px/);
     assert.doesNotMatch(pageText, /id="adminApprovalCard"/);
     assert.match(pageText, /r=>r\.state==='pending'/);
     assert.doesNotMatch(pageText, /\['pending','approved','running'\]/);

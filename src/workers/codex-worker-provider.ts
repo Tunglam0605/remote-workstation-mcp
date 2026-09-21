@@ -94,6 +94,24 @@ function gitEvidence(label: string, status: EngineeringCommandResult, diff: Engi
   return `${label}: status=${statusText}; diff=${diffText}`;
 }
 
+function quoteCmdArg(value: string): string {
+  const escaped = value.replace(/(["^&|<>%!])/g, '^$1');
+  return `"${escaped}"`;
+}
+
+function windowsCommandShim(
+  program: string,
+  args: string[],
+  env: NodeJS.ProcessEnv
+): { program: string; args: string[]; windowsVerbatimArguments: boolean } {
+  if (process.platform !== 'win32' || !/\.(cmd|bat)$/i.test(program)) {
+    return { program, args, windowsVerbatimArguments: false };
+  }
+  const comspec = env.ComSpec?.trim() || process.env.ComSpec?.trim() || 'cmd.exe';
+  const command = [quoteCmdArg(program), ...args.map(quoteCmdArg)].join(' ');
+  return { program: comspec, args: ['/d', '/s', '/c', `\"${command}\"`], windowsVerbatimArguments: true };
+}
+
 async function defaultProcessRunner(
   program: string,
   args: string[],
@@ -104,6 +122,7 @@ async function defaultProcessRunner(
 ): Promise<CodexExecResult> {
   const tree = new ProcessTreeSupervisor();
   const started = Date.now();
+  const invocation = windowsCommandShim(program, args, env);
   return await new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
@@ -111,10 +130,11 @@ async function defaultProcessRunner(
     let settled = false;
     let child;
     try {
-      child = spawn(program, args, {
+      child = spawn(invocation.program, invocation.args, {
         cwd,
         shell: false,
         windowsHide: true,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
         detached: tree.spawnDetached(),
         env,
         stdio: ['pipe', 'pipe', 'pipe']
@@ -192,22 +212,30 @@ export class CodexWorkerProvider implements WorkerProvider {
     const executable = await this.executable();
     if (!executable) return { availability: 'unavailable' as const, detail: 'Codex CLI executable was not found.' };
     const cwd = process.cwd();
-    const version = await this.runner.run(executable, ['--version'], cwd, 5_000);
-    if (version.exitCode !== 0 || version.timedOut) {
-      return { availability: 'unavailable' as const, detail: 'Codex CLI version probe failed.' };
-    }
-    const login = await this.runner.run(executable, ['login', 'status'], cwd, 8_000);
-    const loginText = `${login.stdout}\n${login.stderr}`;
-    if (login.exitCode !== 0 || login.timedOut || !/logged in/i.test(loginText)) {
+    const childEnv = buildSafeEnvironment(this.policy.config.process.inheritEnv, this.env);
+    try {
+      const version = await this.processRunner(executable, ['--version'], cwd, '', 5_000, childEnv);
+      if (version.exitCode !== 0 || version.timedOut) {
+        return { availability: 'unavailable' as const, detail: 'Codex CLI version probe failed.' };
+      }
+      const login = await this.processRunner(executable, ['login', 'status'], cwd, '', 8_000, childEnv);
+      const loginText = `${login.stdout}\n${login.stderr}`;
+      if (login.exitCode !== 0 || login.timedOut || !/logged in/i.test(loginText)) {
+        return {
+          availability: 'unavailable' as const,
+          detail: `${compact(version.stdout || version.stderr, 96)}; authentication unavailable`
+        };
+      }
+      return {
+        availability: 'available' as const,
+        detail: `${compact(version.stdout || version.stderr, 96)}; authenticated`
+      };
+    } catch (error) {
       return {
         availability: 'unavailable' as const,
-        detail: `${compact(version.stdout || version.stderr, 96)}; authentication unavailable`
+        detail: compact(error instanceof Error ? error.message : String(error), 160)
       };
     }
-    return {
-      availability: 'available' as const,
-      detail: `${compact(version.stdout || version.stderr, 96)}; authenticated`
-    };
   }
 
   async dispatch(request: WorkerDispatchRequest): Promise<WorkerDispatchResult> {

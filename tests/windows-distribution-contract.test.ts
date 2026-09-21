@@ -41,6 +41,22 @@ test('Windows updater defaults to stable automatic startup checks with failed-re
   assert.match(updater, /\$state\.failedVersion = \$null/);
   assert.match(updater, /\$state\.failedAt = \$null/);
   assert.match(updater, /\$state\.retryAfter = \$null/);
+  assert.match(updater, /lastNotifiedVersion/);
+  assert.match(updater, /Show-UpdateDesktopNotification/);
+  assert.match(updater, /show-windows-notification\.ps1/);
+});
+
+test('Windows desktop notification helper is packaged, bounded and CI-validated', async () => {
+  const helper = await read('scripts/show-windows-notification.ps1');
+  const ci = await read('.github/workflows/ci.yml');
+
+  assert.match(helper, /PayloadBase64/);
+  assert.match(helper, /ConvertFrom-Json/);
+  assert.match(helper, /System\.Windows\.Forms\.NotifyIcon/);
+  assert.match(helper, /ShowBalloonTip/);
+  assert.match(helper, /DryRun/);
+  assert.match(ci, /show-windows-notification\.ps1/);
+  assert.match(ci, /Test Windows desktop notification helper/);
 });
 
 test('automatic boot update and manual update are distinct operations', async () => {

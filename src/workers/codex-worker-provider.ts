@@ -269,6 +269,9 @@ export class CodexWorkerProvider implements WorkerProvider {
       DEFAULT_TIMEOUT_MS
     ));
     const args = [
+      ...(process.platform === 'win32'
+        ? ['-c', 'windows.sandbox=unelevated']
+        : []),
       '-s', 'workspace-write',
       '-a', 'never',
       '-C', cwd,
@@ -304,7 +307,7 @@ export class CodexWorkerProvider implements WorkerProvider {
       }
       return { status: 'failed', ...(runId ? { runId } : {}), summary };
     }
-    if (/sandbox:\s*read-only/i.test(result.stderr) || /workspace is \*\*read-only\*\*/i.test(result.stdout)) {
+    if (/sandbox:\s*read-only/i.test(result.stderr)) {
       return {
         status: 'blocked',
         ...(runId ? { runId } : {}),

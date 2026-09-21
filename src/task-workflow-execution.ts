@@ -6,6 +6,7 @@ import type { WorkerProviderRegistry, WorkerDispatchResult } from './worker-prov
 import type { WorkSessionStore } from './work-session.js';
 import type { WorktreeManager, WorktreeState } from './worktree-manager.js';
 import { isCodexLimitSignal, type ExecutionPolicyService } from './execution-policy.js';
+import type { DesktopNotificationService } from './desktop-notification.js';
 
 class TaskWorkflowOutcomeError extends Error {
   constructor(
@@ -50,7 +51,8 @@ export class TaskWorkflowExecutionService {
     private readonly workerProviders?: WorkerProviderRegistry,
     private readonly workSessions?: WorkSessionStore,
     private readonly worktreeManager?: Pick<WorktreeManager, 'status'>,
-    private readonly executionPolicy?: ExecutionPolicyService
+    private readonly executionPolicy?: ExecutionPolicyService,
+    private readonly desktopNotifications?: Pick<DesktopNotificationService, 'notify'>
   ) {}
 
   private async task(objectiveId: string, taskId: string): Promise<WorkTask> {
@@ -270,6 +272,13 @@ export class TaskWorkflowExecutionService {
         providerId: binding.providerId,
         providerRunId: providerResult?.runId
       });
+      if (binding.providerId === 'codex-local' && this.desktopNotifications) {
+        await this.desktopNotifications.notify({
+          title: 'Codex task hoàn tất',
+          body: `${task.title} — ${session.name}`,
+          kind: 'success'
+        }).catch(() => undefined);
+      }
       return { task: executed.task, attempt: finishedAttempt, replayed: false, output: executed.result };
     } catch (error) {
       if (attempt) {
@@ -280,6 +289,16 @@ export class TaskWorkflowExecutionService {
             error instanceof WorkerProviderOutcomeError
               ? error.providerRunId ?? providerResult?.runId
               : providerResult?.runId
+        }).catch(() => undefined);
+      }
+      if (binding.providerId === 'codex-local' && this.desktopNotifications) {
+        const errorText = message(error);
+        const fallback = errorText.includes('CODEX_FALLBACK_ACTIVE');
+        const blocked = attemptStatus(error) === 'blocked';
+        await this.desktopNotifications.notify({
+          title: fallback ? 'Codex đã chuyển sang RWMCP' : blocked ? 'Codex task bị chặn' : 'Codex task thất bại',
+          body: `${task.title}: ${errorText}`,
+          kind: blocked || fallback ? 'warning' : 'error'
         }).catch(() => undefined);
       }
       throw error;

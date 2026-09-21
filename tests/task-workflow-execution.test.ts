@@ -27,6 +27,7 @@ async function fixture(
   options: {
     worktreeStatus?: (sessionId: string) => Promise<WorktreeState>;
     executionPolicy?: any;
+    desktopNotifications?: any;
   } = {}
 ) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-workflow-'));
@@ -92,7 +93,8 @@ async function fixture(
     workerProviders,
     workSessions,
     options.worktreeStatus ? { status: options.worktreeStatus } : undefined,
-    options.executionPolicy
+    options.executionPolicy,
+    options.desktopNotifications
   );
   return {
     taskGraphs,
@@ -394,6 +396,65 @@ test('worker-provider task dispatches through the coordinator and replays one du
   });
 });
 
+
+
+test('Codex worker terminal outcomes emit bounded desktop notifications without affecting task authority', async t => {
+  const notices: any[] = [];
+  const desktopNotifications = {
+    async notify(notification: any) {
+      notices.push(notification);
+      return { delivered: true };
+    }
+  };
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  }, { desktopNotifications });
+  let nextStatus: 'succeeded' | 'blocked' = 'succeeded';
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local',
+      kind: 'codex',
+      displayName: 'Codex Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => nextStatus === 'succeeded'
+      ? ({ status: 'succeeded' as const, runId: 'notify-success' })
+      : ({ status: 'blocked' as const, runId: 'notify-blocked', summary: 'workspace is read-only' })
+  });
+  const session = await fx.workSessions.create({
+    name: 'desktop-notification-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const successObjective = await fx.taskGraphs.create({ name: 'Notify success', objective: 'Complete one task' });
+    const successTask = await fx.taskGraphs.addTask(successObjective.id, {
+      title: 'Small safe edit',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('codex-local')
+    });
+    const success = await fx.taskWorkflowExecution.execute(successObjective.id, successTask.id);
+    assert.equal(success.attempt.status, 'succeeded');
+    assert.equal(notices[0]?.title, 'Codex task hoàn tất');
+    assert.match(notices[0]?.body ?? '', /Small safe edit/);
+
+    nextStatus = 'blocked';
+    const blockedObjective = await fx.taskGraphs.create({ name: 'Notify blocked', objective: 'Block safely' });
+    const blockedTask = await fx.taskGraphs.addTask(blockedObjective.id, {
+      title: 'Read-only edit',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('codex-local')
+    });
+    await assert.rejects(fx.taskWorkflowExecution.execute(blockedObjective.id, blockedTask.id), /TASK_WORKER_NOT_SUCCEEDED/);
+    assert.equal(notices[1]?.title, 'Codex task bị chặn');
+    assert.equal(notices[1]?.kind, 'warning');
+  });
+});
+
 test('worktree-required worker fails closed before provider dispatch and succeeds only after explicit retry with worktree context', async t => {
   let calls = 0;
   const fx = await fixture(t, async () => {
@@ -614,9 +675,13 @@ test('Codex provider limit activates audited execution-policy fallback before fa
       return { fallbackActive: true };
     }
   };
+  const notices: any[] = [];
+  const desktopNotifications = {
+    async notify(notification: any) { notices.push(notification); return { delivered: true }; }
+  };
   const fx = await fixture(t, async () => {
     throw new Error('engineering workflow path should not run');
-  }, { executionPolicy });
+  }, { executionPolicy, desktopNotifications });
 
   fx.workerProviders.register({
     descriptor: {
@@ -661,5 +726,7 @@ test('Codex provider limit activates audited execution-policy fallback before fa
     assert.equal(persisted.tasks.find(item => item.id === task.id)?.status, 'failed');
     const attempts = await fx.taskAttempts.list({ taskId: task.id });
     assert.equal(attempts[0]?.status, 'blocked');
+    assert.equal(notices[0]?.title, 'Codex đã chuyển sang RWMCP');
+    assert.equal(notices[0]?.kind, 'warning');
   });
 });

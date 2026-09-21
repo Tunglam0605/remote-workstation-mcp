@@ -33,6 +33,7 @@ function New-DefaultState {
     failedVersion = $null
     failedAt = $null
     retryAfter = $null
+    lastNotifiedVersion = $null
   }
 }
 
@@ -157,6 +158,7 @@ function Get-StatusObject($State, $Latest = $null) {
     failedVersion = $State.failedVersion
     failedAt = $State.failedAt
     retryAfter = $State.retryAfter
+    lastNotifiedVersion = $State.lastNotifiedVersion
     settingsPath = $UpdatePath
   }
 }
@@ -164,6 +166,37 @@ function Get-StatusObject($State, $Latest = $null) {
 function Emit($Value) {
   if ($Json) { $Value | ConvertTo-Json -Depth 6 -Compress }
   elseif (-not $Quiet) { $Value | Format-List }
+}
+
+
+function Show-UpdateDesktopNotification($State, $Status) {
+  if (-not $Status.updateAvailable -or -not $Status.latestVersion) { return }
+  if ([string]$State.lastNotifiedVersion -eq [string]$Status.latestVersion) { return }
+  $helper = Join-Path $PSScriptRoot 'show-windows-notification.ps1'
+  if (-not (Test-Path $helper)) { return }
+
+  $body = if ($Status.automaticInstallAllowed) {
+    "RWMCP v$($Status.latestVersion) đã sẵn sàng và sẽ được cập nhật tự động."
+  } else {
+    "RWMCP v$($Status.latestVersion) đã sẵn sàng. Mở Control Center khi bạn muốn cập nhật."
+  }
+  $payloadJson = @{
+    app = "Remote Workstation MCP v$($Status.installedVersion)"
+    title = 'Có bản cập nhật RWMCP'
+    body = $body
+    kind = 'info'
+  } | ConvertTo-Json -Compress
+  $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payloadJson))
+  try {
+    Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+      '-NoLogo','-NoProfile','-NonInteractive','-Sta','-ExecutionPolicy','Bypass',
+      '-File',$helper,'-PayloadBase64',$payload
+    ) | Out-Null
+    $State.lastNotifiedVersion = [string]$Status.latestVersion
+    Write-State $State
+  } catch {
+    # Desktop notification is advisory and must never block update checks/install.
+  }
 }
 
 $state = Read-State
@@ -235,6 +268,7 @@ $latest = Get-LatestStableRelease
 $state.lastCheckAt = [DateTimeOffset]::UtcNow.ToString('o')
 Write-State $state
 $status = Get-StatusObject $state $latest
+if ($Action -eq 'InstallAuto') { Show-UpdateDesktopNotification $state $status }
 
 if ($Action -eq 'Check') {
   Emit $status

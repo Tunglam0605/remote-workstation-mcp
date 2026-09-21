@@ -22,6 +22,11 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, async ({ program, args, cwd, reason }) => result(await audited(ctx.audit, 'admin_request', undefined, async () => {
     const request = await createAdminRequest({ program, args, cwd, reason });
+    await ctx.desktopNotifications.notify({
+      title: 'RWMCP cần quyền Administrator',
+      body: reason,
+      kind: 'approval'
+    }).catch(() => undefined);
     return {
       requestId: request.id,
       state: request.state,

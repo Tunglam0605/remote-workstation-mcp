@@ -132,6 +132,7 @@ jobs:
             'scripts/windows-secret.ps1',
             'scripts/lib/tunnel-health-windows.ps1',
             'scripts/test-tunnel-health-windows.ps1',
+            'scripts/show-windows-notification.ps1',
             'scripts/setup-web-windows.ps1',
             'scripts/start-windows.ps1',
             'scripts/start-openai-windows.ps1'
@@ -158,6 +159,14 @@ jobs:
       - name: Test Windows tunnel control-plane health parser
         shell: pwsh
         run: .\scripts\test-tunnel-health-windows.ps1
+      - name: Test Windows desktop notification helper
+        shell: pwsh
+        run: |
+          $payloadJson = @{ app = 'Remote Workstation MCP CI'; title = 'Notification test'; body = 'Dry-run only'; kind = 'info' } | ConvertTo-Json -Compress
+          $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payloadJson))
+          $result = .\scripts\show-windows-notification.ps1 -PayloadBase64 $payload -DryRun | ConvertFrom-Json
+          if (-not $result.ok -or $result.title -ne 'Notification test') { throw 'Desktop notification helper dry-run failed.' }
+
       - name: Test durable Windows restart handoff
         shell: pwsh
         run: .\scripts\test-restart-handoff-windows.ps1

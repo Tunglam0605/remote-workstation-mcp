@@ -62,6 +62,7 @@ import { WorktreeManager } from './worktree-manager.js';
 import { registerConfiguredCodexWorker } from './workers/codex-worker-provider.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
+import { DesktopNotificationService } from './desktop-notification.js';
 
 export async function createContext() {
   const actor = {
@@ -90,6 +91,7 @@ export async function createContext() {
   const projectSessionGroups = new ProjectSessionGroupService(projectSessionGroupStore, workSessions);
   const workerProviders = new WorkerProviderRegistry();
   const executionPolicy = new ExecutionPolicyService();
+  const desktopNotifications = new DesktopNotificationService(SERVER_VERSION);
   const setupSettings = await loadSetupSettings();
   const workflowRuns = new WorkflowRunStore(currentClientId);
   const qualityObservations = new QualityObservationStore(currentClientId);
@@ -197,7 +199,7 @@ export async function createContext() {
   const engineeringPlatformio = new PlatformioAdapter(policy, paths, engineeringRunner);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
-  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy);
+  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy, desktopNotifications);
   return {
     config,
     hostsConfig,
@@ -217,6 +219,7 @@ export async function createContext() {
     projectSessionGroupMaintenanceFailures,
     workerProviders,
     executionPolicy,
+    desktopNotifications,
     workflowRuns,
     qualityObservations,
     reconciledWorkflowRuns,

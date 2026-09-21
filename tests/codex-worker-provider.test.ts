@@ -205,7 +205,7 @@ test('Codex dispatch uses safe CLI flags and blocks a read-only effective sandbo
           calls.push({ args, input });
           return {
             exitCode: 0,
-            stdout: 'Implementation is blocked because the workspace is **read-only**.',
+            stdout: 'Implementation could not continue.',
             stderr: 'sandbox: read-only\nsession id: 44444444-4444-4444-8444-444444444444',
             timedOut: false,
             durationMs: 10
@@ -218,13 +218,44 @@ test('Codex dispatch uses safe CLI flags and blocks a read-only effective sandbo
     assert.equal(result.runId, '44444444-4444-4444-8444-444444444444');
     assert.equal(calls.length, 1);
     const args = calls[0]!.args;
-    assert.deepEqual(args.slice(0, 7), ['-s', 'workspace-write', '-a', 'never', '-C', temp, 'exec']);
+    const expectedPrefix = process.platform === 'win32'
+      ? ['-c', 'windows.sandbox=unelevated', '-s', 'workspace-write', '-a', 'never', '-C', temp, 'exec']
+      : ['-s', 'workspace-write', '-a', 'never', '-C', temp, 'exec'];
+    assert.deepEqual(args.slice(0, expectedPrefix.length), expectedPrefix);
     assert.ok(args.includes('--ephemeral'));
     assert.ok(args.includes('--ignore-user-config'));
     assert.ok(!args.includes('--search'));
     assert.ok(!args.some(arg => /dangerously-bypass/i.test(arg)));
     assert.match(calls[0]!.input, /Do not push, merge, tag, release, deploy/);
     assert.match(calls[0]!.input, /ChatGPT Web owns planning/);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+test('Codex dispatch trusts the CLI sandbox header over free-form model wording', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-sandbox-header-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const runner = { run: async () => commandResult() } as any;
+    const provider = new CodexWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      runner,
+      {
+        resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
+        processRunner: async () => ({
+          exitCode: 0,
+          stdout: 'Verification note: a dependency cache is read-only, but the assigned workspace edit succeeded.',
+          stderr: 'sandbox: workspace-write\\nsession id: 55555555-5555-4555-8555-555555555555',
+          timedOut: false,
+          durationMs: 5
+        })
+      }
+    );
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.runId, '55555555-5555-4555-8555-555555555555');
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }

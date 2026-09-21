@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.23.2 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? hardens Windows runtime restart handoff with a CIM-created durable starter, fixing Control Center restart acknowledgement failures while retaining the v0.23 Execution Policy and Vietnamese UI localization hotfix.
+**Stable release: v0.23.3 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? fixes Windows Codex CLI npm-shim execution by routing .cmd/.bat providers through cmd.exe with verbatim arguments, so provider status and bounded worker dispatch can run without spawn EINVAL; retains v0.23.2 restart hardening and v0.23 Execution Policy.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

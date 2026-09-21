@@ -118,20 +118,50 @@ test('Codex provider reports unavailable for missing CLI or missing authenticati
     detail: 'Codex CLI executable was not found.'
   });
 
-  const unauth = new CodexWorkerProvider(policy, paths, {
-    async run(_program: string, args: string[]) {
-      return args[0] === '--version'
-        ? commandResult({ stdout: 'codex-cli 0.153.4' })
-        : commandResult({ exitCode: 1, stderr: 'Not logged in' });
-    }
-  } as any, {
-    resolveExecutable: async () => 'codex'
+  const unauth = new CodexWorkerProvider(policy, paths, {} as any, {
+    resolveExecutable: async () => 'codex',
+    processRunner: async (_program, args) => args[0] === '--version'
+      ? { exitCode: 0, stdout: 'codex-cli 0.153.4', stderr: '', timedOut: false, durationMs: 1 }
+      : { exitCode: 1, stdout: '', stderr: 'Not logged in', timedOut: false, durationMs: 1 }
   });
   const status = await unauth.status();
   assert.equal(status.availability, 'unavailable');
   assert.match(status.detail ?? '', /authentication unavailable/);
 });
 
+
+
+test('Codex provider runs Windows npm cmd shim without spawn EINVAL', { skip: process.platform !== 'win32' }, async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-cmd-'));
+  try {
+    const shim = path.join(temp, 'codex.cmd');
+    await fs.writeFile(shim, [
+      '@echo off',
+      'if "%~1"=="--version" echo codex-cli 0.153.4 & exit /b 0',
+      'if "%~1"=="login" echo Logged in using ChatGPT & exit /b 0',
+      'exit /b 2',
+      ''
+    ].join('\r\n'), 'utf8');
+    const provider = new CodexWorkerProvider(fakePolicy(), {} as any, {} as any, {
+      env: {
+        PATH: process.env.PATH,
+        ComSpec: process.env.ComSpec,
+        SYSTEMROOT: process.env.SYSTEMROOT,
+        TEMP: process.env.TEMP,
+        TMP: process.env.TMP,
+        USERPROFILE: process.env.USERPROFILE,
+        APPDATA: process.env.APPDATA,
+        LOCALAPPDATA: process.env.LOCALAPPDATA
+      },
+      resolveExecutable: async () => shim
+    });
+    const status = await provider.status();
+    assert.equal(status.availability, 'available');
+    assert.match(status.detail ?? '', /codex-cli 0\.153\.4; authenticated/);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
 test('Codex dispatch requires an isolated Git worktree and never escapes PathGuard', async () => {
   const policy = fakePolicy();
   const runner = { run: async () => commandResult() } as any;
@@ -217,13 +247,21 @@ test('Worker registry redacts secret-like Codex summaries', async () => {
       runner,
       {
         resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
-        processRunner: async () => ({
-          exitCode: 0,
-          stdout: 'finished api_key=super-secret-value-123456789',
-          stderr: 'sandbox: workspace-write',
-          timedOut: false,
-          durationMs: 5
-        })
+        processRunner: async (_program, args) => {
+          if (args[0] === '--version') {
+            return { exitCode: 0, stdout: 'codex-cli 0.153.4', stderr: '', timedOut: false, durationMs: 1 };
+          }
+          if (args[0] === 'login') {
+            return { exitCode: 0, stdout: '', stderr: 'Logged in using ChatGPT', timedOut: false, durationMs: 1 };
+          }
+          return {
+            exitCode: 0,
+            stdout: 'finished api_key=super-secret-value-123456789',
+            stderr: 'sandbox: workspace-write',
+            timedOut: false,
+            durationMs: 5
+          };
+        }
       }
     );
     const registry = new WorkerProviderRegistry();

@@ -179,9 +179,9 @@ test('Codex provider routes through a healthy broker pool without leaking the po
       async poolLaunch() {
         return {
           args: [
-            '-c', 'model_provider="rwmcp_cockpit_pool"',
-            '-c', 'model_providers.rwmcp_cockpit_pool.base_url="http://127.0.0.1:56096/v1"',
-            '-c', 'model_providers.rwmcp_cockpit_pool.env_key="RWMCP_COCKPIT_CODEX_API_KEY"'
+            '-c', 'model_provider=rwmcp_cockpit_pool',
+            '-c', 'model_providers.rwmcp_cockpit_pool.base_url=http://127.0.0.1:56096/v1',
+            '-c', 'model_providers.rwmcp_cockpit_pool.env_key=RWMCP_COCKPIT_CODEX_API_KEY'
           ],
           env: { RWMCP_COCKPIT_CODEX_API_KEY: secret }
         };
@@ -217,7 +217,7 @@ test('Codex provider routes through a healthy broker pool without leaking the po
     assert.equal(result.status, 'succeeded');
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.env.RWMCP_COCKPIT_CODEX_API_KEY, secret);
-    assert.ok(calls[0]!.args.includes('model_provider="rwmcp_cockpit_pool"'));
+    assert.ok(calls[0]!.args.includes('model_provider=rwmcp_cockpit_pool'));
     assert.ok(!calls[0]!.args.some(arg => arg.includes(secret)));
     assert.doesNotMatch(result.summary ?? '', /local-pool-secret/);
   } finally {

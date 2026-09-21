@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.25.2 stable exposes Codex Account Broker on Action Schema v10 and Engineering API v5', async () => {
+test('v0.25.3 stable exposes Codex Account Broker on Action Schema v10 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 10;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.25\.2';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.25\.3';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -146,7 +146,7 @@ test('Codex Account Broker is read-only, secret-safe and cannot become an auth-f
   assert.match(broker, /codex_accounts\.json/);
   assert.match(broker, /codex_local_access\.json/);
   assert.match(broker, /RWMCP_COCKPIT_CODEX_API_KEY/);
-  assert.match(broker, /model_provider="rwmcp_cockpit_pool"/);
+  assert.match(broker, /model_provider=rwmcp_cockpit_pool/);
   assert.match(provider, /--ignore-user-config/);
   assert.doesNotMatch(broker, /auth\.json[^']*write|writeFile[^\n]*auth\.json/i);
   assert.doesNotMatch(broker, /decrypt|ciphertext.*read/i);

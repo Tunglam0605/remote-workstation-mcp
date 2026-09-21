@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.25.2 ? channel=stable ? Action Schema 10 ? Engineering API 5** ? completes the Cockpit account-pool acceptance path with a Codex-compatible custom-provider name (`CockpitPool`) and fully localizes dynamic Execution Policy mode/status text in Vietnamese instead of rendering raw values such as `both`, `Task`, `override`, or `Reset fallback`. v0.25.1 Linux updater PATH hardening remains intact.
+**Stable release: v0.25.3 ? channel=stable ? Action Schema 10 ? Engineering API 5** ? fixes Windows Codex account-pool dispatch by emitting cmd-safe `-c key=value` provider overrides without embedded quotes, preventing `cmd.exe` caret escaping from corrupting the custom provider id. The v0.25.2 Vietnamese Execution Policy localization and v0.25.1 Linux updater PATH hardening remain intact.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

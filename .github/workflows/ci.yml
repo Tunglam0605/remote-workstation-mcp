@@ -161,6 +161,9 @@ jobs:
       - name: Test durable Windows restart handoff
         shell: pwsh
         run: .\scripts\test-restart-handoff-windows.ps1
+      - name: Test CIM durable Windows restart starter
+        shell: pwsh
+        run: .\scripts\test-restart-starter-windows.ps1
       - name: Test concurrent Windows runtime start serialization
         shell: pwsh
         run: .\scripts\test-runtime-start-concurrency-windows.ps1

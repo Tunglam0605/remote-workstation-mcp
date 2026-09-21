@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { createAdminRequest, readAdminRequest } from '../privileged/approval-store.js';
+import { notifyOwnerApprovalRequest } from '../privileged/owner-notification.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal } from '../security/request-principal.js';
 
@@ -22,6 +23,7 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, async ({ program, args, cwd, reason }) => result(await audited(ctx.audit, 'admin_request', undefined, async () => {
     const request = await createAdminRequest({ program, args, cwd, reason });
+    notifyOwnerApprovalRequest(request);
     return {
       requestId: request.id,
       state: request.state,

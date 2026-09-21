@@ -30,6 +30,12 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="checkUpdate"/);
     assert.match(pageText, /id="devicePairingCard"/);
     assert.match(pageText, /id="multiNodeCard"/);
+    assert.match(pageText, /id="versionUpdateCard"/);
+    assert.match(pageText, /id="currentVersionValue"/);
+    assert.match(pageText, /id="latestVersionValue"/);
+    assert.match(pageText, /id="checkUpdate"/);
+    assert.match(pageText, /id="installUpdate"/);
+    assert.match(pageText, /#approvals/);
     assert.match(pageText, /id="executionPolicyCard"/);
     assert.match(pageText, /Ch\u00ednh s\u00e1ch th\u1ef1c thi/);
     assert.match(pageText, /Ch\u1ebf \u0111\u1ed9 m\u1eb7c \u0111\u1ecbnh/);

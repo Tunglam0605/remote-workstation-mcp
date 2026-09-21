@@ -239,12 +239,33 @@ test('Windows update install is handed off to a durable worker and activation wa
 
 test('Windows restart handoff is durable, observable, and self-recovers after restart failure', async () => {
   const setupServer = await read('src/setup/setup-server.ts');
+  const starter = await read('scripts/start-restart-handoff-windows.ps1');
   const worker = await read('scripts/runtime-restart-handoff-windows.ps1');
   const ci = await read('.github/workflows/ci.yml');
 
   assert.match(setupServer, /restart-transaction\.json/);
   assert.match(setupServer, /await scheduleWindowsRuntimeRestart/);
-  assert.match(setupServer, /waitForWindowsRestartWorker/);
+  assert.match(setupServer, /start-restart-handoff-windows\.ps1/);
+  assert.match(setupServer, /AckTimeoutSeconds/);
+  assert.match(setupServer, /acknowledged/);
+
+  const restartSchedule = setupServer.slice(
+    setupServer.indexOf('async function scheduleWindowsRuntimeRestart'),
+    setupServer.indexOf('type UpdateAction')
+  );
+  assert.ok(
+    restartSchedule.indexOf("state: 'STARTING'") < restartSchedule.indexOf("await runProcess('powershell.exe'"),
+    'STARTING must be persisted before executing the durable Windows restart starter'
+  );
+  assert.doesNotMatch(restartSchedule, /detached:\s*true/);
+  assert.doesNotMatch(restartSchedule, /child\.unref\(\)/);
+  assert.match(restartSchedule, /readWindowsRestartTransaction[\s\S]*RUNNING[\s\S]*SUCCEEDED/);
+
+  assert.match(starter, /Invoke-CimMethod[\s\S]*Win32_Process[\s\S]*Create/);
+  assert.match(starter, /acknowledged/);
+  assert.match(starter, /Get-Process -Id \$workerPid/);
+  assert.match(starter, /Stop-Process -Id \$workerPid -Force/);
+
   assert.match(worker, /RemoteWorkstationMCP\.RestartHandoff/);
   assert.match(worker, /restart-transaction\.json/);
   assert.match(worker, /restart-worker\.log/);
@@ -253,6 +274,7 @@ test('Windows restart handoff is durable, observable, and self-recovers after re
   assert.match(worker, /Invoke-RuntimeAction 'Start'/);
   assert.match(worker, /recovery/);
   assert.match(ci, /test-restart-handoff-windows\.ps1/);
+  assert.match(ci, /test-restart-starter-windows\.ps1/);
 });
 
 

@@ -627,19 +627,14 @@ async function readWindowsRestartTransaction(): Promise<WindowsRestartTransactio
 }
 
 function activeWindowsRestartTransaction(transaction: WindowsRestartTransaction | null): boolean {
-  return Boolean(transaction && (transaction.state === 'RUNNING' || transaction.state === 'STARTING'));
-}
-
-async function waitForWindowsRestartWorker(workerPid: number, timeoutMs = 1500): Promise<WindowsRestartTransaction | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const transaction = await readWindowsRestartTransaction();
-    if (transaction && Number(transaction.workerPid) === workerPid && ['RUNNING', 'SUCCEEDED', 'FAILED'].includes(String(transaction.state ?? ''))) {
-      return transaction;
-    }
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  return null;
+  if (!transaction) return false;
+  const state = String(transaction.state ?? '');
+  if (state !== 'RUNNING' && state !== 'STARTING') return false;
+  const updatedAt = Date.parse(String(transaction.updatedAt ?? ''));
+  const ageMs = Number.isFinite(updatedAt) ? Date.now() - updatedAt : Number.POSITIVE_INFINITY;
+  if (state === 'STARTING' && !Number.isInteger(transaction.workerPid) && ageMs > 30_000) return false;
+  if (ageMs > 15 * 60 * 1000) return false;
+  return true;
 }
 
 async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode = 'OpenAI'): Promise<Record<string, unknown>> {
@@ -650,30 +645,72 @@ async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode
   if (activeWindowsRestartTransaction(existing)) {
     return { accepted: true, action: 'Restart', mode, alreadyRunning: true, transaction: existing };
   }
+
   const base = windowsManagedBase();
   if (!base) throw new Error('LOCALAPPDATA is unavailable; durable Windows restart handoff cannot be scheduled.');
-  const script = path.join(repoRoot, 'scripts', 'runtime-restart-handoff-windows.ps1');
-  if (!(await pathExists(script))) throw new Error(`Windows restart handoff helper is missing: ${script}`);
-  const child = spawn('powershell.exe', [
-    '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script,
-    '-Root', repoRoot, '-Mode', mode, '-Base', base
+  const worker = path.join(repoRoot, 'scripts', 'runtime-restart-handoff-windows.ps1');
+  const starter = path.join(repoRoot, 'scripts', 'start-restart-handoff-windows.ps1');
+  if (!(await pathExists(worker))) throw new Error(`Windows restart handoff helper is missing: ${worker}`);
+  if (!(await pathExists(starter))) throw new Error(`Windows durable restart starter is missing: ${starter}`);
+
+  const transactionPath = windowsRestartTransactionPath();
+  const transaction = {
+    version: 1,
+    state: 'STARTING',
+    workerPid: null,
+    root: repoRoot,
+    mode,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  if (transactionPath) {
+    await fs.mkdir(path.dirname(transactionPath), { recursive: true });
+    await fs.writeFile(transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  }
+
+  const started = await runProcess('powershell.exe', [
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', starter,
+    '-Root', repoRoot,
+    '-Base', base,
+    '-Mode', mode,
+    '-AckTimeoutSeconds', '10'
   ], {
     cwd: repoRoot,
-    shell: false,
-    windowsHide: true,
-    detached: true,
-    stdio: 'ignore'
+    maxBytes: 64 * 1024,
+    timeoutMs: 15_000
   });
-  await new Promise<void>((resolve, reject) => {
-    child.once('spawn', resolve);
-    child.once('error', reject);
-  });
-  const workerPid = child.pid;
-  child.unref();
-  if (!workerPid) throw new Error('Windows restart worker started without a process id.');
-  const transaction = await waitForWindowsRestartWorker(workerPid);
-  if (!transaction) throw new Error('Windows restart worker did not acknowledge startup.');
-  return { accepted: true, action: 'Restart', mode, alreadyRunning: false, transaction };
+
+  if (started.code !== 0) {
+    const current = await readWindowsRestartTransaction();
+    if (transactionPath && (!current || current.state === 'STARTING')) {
+      const failed = {
+        ...transaction,
+        state: 'FAILED',
+        updatedAt: new Date().toISOString(),
+        message: started.output || `Durable Windows restart starter failed with exit code ${started.code}.`
+      };
+      await fs.writeFile(transactionPath, `${JSON.stringify(failed, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    }
+    throw new Error(started.output || `Durable Windows restart starter failed with exit code ${started.code}.`);
+  }
+
+  const starterStatus = parseJsonOutput(started.output) as { workerPid?: number; acknowledged?: boolean; state?: string };
+  if (starterStatus.acknowledged !== true || !Number.isInteger(starterStatus.workerPid) || Number(starterStatus.workerPid) <= 0) {
+    throw new Error('Durable Windows restart starter returned without a valid worker acknowledgement.');
+  }
+
+  const acknowledged = await readWindowsRestartTransaction();
+  if (!acknowledged || !['RUNNING', 'SUCCEEDED'].includes(String(acknowledged.state))) {
+    throw new Error(`Durable Windows restart worker did not reach RUNNING/SUCCEEDED; transaction state is '${String(acknowledged?.state ?? 'missing')}'.`);
+  }
+
+  return {
+    accepted: true,
+    action: 'Restart',
+    mode,
+    alreadyRunning: false,
+    transaction: acknowledged
+  };
 }
 
 type UpdateAction = 'Status' | 'Check' | 'Enable' | 'Disable' | 'Install';

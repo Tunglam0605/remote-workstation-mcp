@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.23.0 · channel=stable · Action Schema 7 · Engineering API 4** — adds owner-managed Execution Policy in the local Control Center: RWMCP-only / Codex-only / Both defaults, bounded per-Work-Session chat overrides, Codex task budgets, explicit provider status, and audited Codex quota/rate-limit fallback to RWMCP-only. ChatGPT Web remains the reasoning/controller layer; Codex remains an implementation worker behind RWMCP policy/worktree boundaries.
+**Stable release: v0.23.2 ? channel=stable ? Action Schema 7 ? Engineering API 4** ? hardens Windows runtime restart handoff with a CIM-created durable starter, fixing Control Center restart acknowledgement failures while retaining the v0.23 Execution Policy and Vietnamese UI localization hotfix.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

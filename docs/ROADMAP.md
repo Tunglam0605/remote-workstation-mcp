@@ -671,6 +671,8 @@ v0.21.0 is the stable source identity for the typed engineering tool-expansion l
 
 v0.22.0 is the stable hands-only expansion baseline: ESP-IDF 5/6 structured-size compatibility, richer PlatformIO JSON diagnostics with a dedicated project kind, ROS 2 test/bag inspection, Docker container evidence, validation-gated KiCad fabrication export with SHA-256 manifests, plus an optional local Codex CLI implementation worker. The Codex provider is runtime opt-in, requires isolated Work Session worktrees, remains absent by default and never becomes a planning/authority source.
 
+v0.23.0 adds owner-managed Execution Policy without changing the architectural authority model. The loopback Control Center is the single activation/default/budget/fallback authority for Codex. ChatGPT Web may apply an explicit Work Session override only when the owner allows it; otherwise the Control Center default applies. Provider quota/rate-limit failures latch RWMCP-only fallback, session budgets affect only their Work Session, and direct RWMCP control remains available independently of Codex.
+
 Acceptance requires full regression, typecheck/build/plugin validation, production dependency audit, source-level authority regression proving the coordination surfaces remain read-only, and explicit integration review against Track B before merge.
 
 ## v0.13 — Daily engineering workflows

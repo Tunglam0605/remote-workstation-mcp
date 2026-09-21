@@ -12,9 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.21.0 · channel=stable · Action Schema 6 · Engineering API 4**
-
-**Stable release: v0.22.0 · channel=stable · Action Schema 6 · Engineering API 4** — expands typed engineering inspection/test workflows, adds ESP-IDF 5/6 structured-size compatibility, richer PlatformIO diagnostics and validation-gated KiCad fabrication export with SHA-256 manifests, plus an optional owner-opt-in Codex CLI implementation worker while keeping ChatGPT Web as the reasoning/controller layer and the Worker Provider Registry empty by default.
+**Stable release: v0.23.0 · channel=stable · Action Schema 7 · Engineering API 4** — adds owner-managed Execution Policy in the local Control Center: RWMCP-only / Codex-only / Both defaults, bounded per-Work-Session chat overrides, Codex task budgets, explicit provider status, and audited Codex quota/rate-limit fallback to RWMCP-only. ChatGPT Web remains the reasoning/controller layer; Codex remains an implementation worker behind RWMCP policy/worktree boundaries.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

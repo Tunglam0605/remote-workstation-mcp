@@ -60,6 +60,8 @@ import { WorkflowRunStore } from './workflow-run-store.js';
 import { WorkerProviderRegistry } from './worker-provider.js';
 import { WorktreeManager } from './worktree-manager.js';
 import { registerConfiguredCodexWorker } from './workers/codex-worker-provider.js';
+import { ExecutionPolicyService } from './execution-policy.js';
+import { loadSetupSettings } from './setup/settings.js';
 
 export async function createContext() {
   const actor = {
@@ -87,6 +89,8 @@ export async function createContext() {
   }
   const projectSessionGroups = new ProjectSessionGroupService(projectSessionGroupStore, workSessions);
   const workerProviders = new WorkerProviderRegistry();
+  const executionPolicy = new ExecutionPolicyService();
+  const setupSettings = await loadSetupSettings();
   const workflowRuns = new WorkflowRunStore(currentClientId);
   const qualityObservations = new QualityObservationStore(currentClientId);
   const interruptedWorkflowRuns = await workflowRuns.reconcileInterruptedRecords();
@@ -132,7 +136,15 @@ export async function createContext() {
   const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane);
   const engineeringResources = new EngineeringResourceManager(currentClientId);
   const engineeringRunner = new EngineeringCommandRunner(policy);
-  registerConfiguredCodexWorker(workerProviders, policy, paths, engineeringRunner);
+  registerConfiguredCodexWorker(
+    workerProviders,
+    policy,
+    paths,
+    engineeringRunner,
+    process.env,
+    {},
+    setupSettings.execution.codexEnabled
+  );
   const engineeringHardware = new HardwareDiscoveryAdapter();
   const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
   const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);
@@ -185,7 +197,7 @@ export async function createContext() {
   const engineeringPlatformio = new PlatformioAdapter(policy, paths, engineeringRunner);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
-  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager);
+  const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy);
   return {
     config,
     hostsConfig,
@@ -204,6 +216,7 @@ export async function createContext() {
     garbageCollectedProjectSessionGroups,
     projectSessionGroupMaintenanceFailures,
     workerProviders,
+    executionPolicy,
     workflowRuns,
     qualityObservations,
     reconciledWorkflowRuns,

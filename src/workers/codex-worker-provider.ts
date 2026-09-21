@@ -45,10 +45,6 @@ interface CodexWorkerOptions {
   ) => Promise<CodexExecResult>;
 }
 
-function enabled(value: string | undefined): boolean {
-  return /^(1|true|yes)$/i.test(value?.trim() ?? '');
-}
-
 function boundedTail(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
   const buffer = Buffer.from(value, 'utf8');
@@ -270,6 +266,14 @@ export class CodexWorkerProvider implements WorkerProvider {
     );
 
     if (result.timedOut || result.exitCode !== 0) {
+      const failureText = `${result.stdout}\n${result.stderr}`;
+      if (/\b429\b|rate[ -]?limit|usage[ -]?limit|quota|limit reached|reached (?:your|the) .*limit|too many requests|usage cap/i.test(failureText)) {
+        return {
+          status: 'blocked',
+          ...(runId ? { runId } : {}),
+          summary: boundedTail(`CODEX_LIMIT_REACHED; ${summary}`, MAX_EVIDENCE_BYTES)
+        };
+      }
       return { status: 'failed', ...(runId ? { runId } : {}), summary };
     }
     if (/sandbox:\s*read-only/i.test(result.stderr) || /workspace is \*\*read-only\*\*/i.test(result.stdout)) {
@@ -289,9 +293,10 @@ export function registerConfiguredCodexWorker(
   paths: PathGuard,
   runner: RunnerLike,
   env: NodeJS.ProcessEnv = process.env,
-  options: Omit<CodexWorkerOptions, 'env'> = {}
+  options: Omit<CodexWorkerOptions, 'env'> = {},
+  ownerEnabled = false
 ): boolean {
-  if (!enabled(env.RWMCP_CODEX_WORKER_ENABLED)) return false;
+  if (!ownerEnabled) return false;
   registry.register(new CodexWorkerProvider(policy, paths, runner, { ...options, env }));
   return true;
 }

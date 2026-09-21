@@ -24,7 +24,10 @@ const SESSION = '55555555-5555-4555-8555-555555555555';
 async function fixture(
   t: test.TestContext,
   run: (...args: unknown[]) => Promise<unknown>,
-  options: { worktreeStatus?: (sessionId: string) => Promise<WorktreeState> } = {}
+  options: {
+    worktreeStatus?: (sessionId: string) => Promise<WorktreeState>;
+    executionPolicy?: any;
+  } = {}
 ) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-workflow-'));
   t.after(async () => fs.rm(root, { recursive: true, force: true }));
@@ -88,7 +91,8 @@ async function fixture(
     taskAttempts,
     workerProviders,
     workSessions,
-    options.worktreeStatus ? { status: options.worktreeStatus } : undefined
+    options.worktreeStatus ? { status: options.worktreeStatus } : undefined,
+    options.executionPolicy
   );
   return {
     taskGraphs,
@@ -592,5 +596,70 @@ test('worktree-bound provider receives live WorktreeManager metadata instead of 
     assert.equal(captured.project.branch, 'rwmcp/session/live');
     assert.equal(captured.project.commit, liveCommit);
     assert.notEqual(captured.project.commit, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  });
+});
+
+
+test('Codex provider limit activates audited execution-policy fallback before fake success can be reported', async t => {
+  const events: string[] = [];
+  const executionPolicy = {
+    async beforeCodexDispatch(sessionId: string) {
+      events.push(`before:${sessionId}`);
+      return {};
+    },
+    async activateFallback(reason: string) {
+      events.push(`fallback:${reason}`);
+    },
+    async status() {
+      return { fallbackActive: true };
+    }
+  };
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  }, { executionPolicy });
+
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local',
+      kind: 'codex',
+      displayName: 'Codex Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'blocked' as const,
+      runId: 'limit-run',
+      summary: 'CODEX_LIMIT_REACHED; HTTP 429 usage limit reached'
+    })
+  });
+
+  const session = await fx.workSessions.create({
+    name: 'codex-limit-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Codex limit objective',
+      objective: 'Fallback safely'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Bounded implementation',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('codex-local')
+    });
+
+    await assert.rejects(
+      fx.taskWorkflowExecution.execute(objective.id, task.id),
+      /CODEX_FALLBACK_ACTIVE/
+    );
+    assert.deepEqual(events, [`before:${session.id}`, 'fallback:provider-limit']);
+    const persisted = await fx.taskGraphs.get(objective.id);
+    assert.equal(persisted.tasks.find(item => item.id === task.id)?.status, 'failed');
+    const attempts = await fx.taskAttempts.list({ taskId: task.id });
+    assert.equal(attempts[0]?.status, 'blocked');
   });
 });

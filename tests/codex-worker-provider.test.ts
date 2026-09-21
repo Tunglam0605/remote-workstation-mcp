@@ -82,6 +82,19 @@ test('Codex registration is default-empty and explicit opt-in only', () => {
       { RWMCP_CODEX_WORKER_ENABLED: 'true' },
       { resolveExecutable: async () => 'codex' }
     ),
+    false,
+    'legacy environment flag alone must not bypass Control Center owner policy'
+  );
+  assert.equal(
+    registerConfiguredCodexWorker(
+      registry,
+      policy,
+      paths,
+      runner,
+      {},
+      { resolveExecutable: async () => 'codex' },
+      true
+    ),
     true
   );
   assert.deepEqual(registry.descriptors(), [{
@@ -218,6 +231,40 @@ test('Worker registry redacts secret-like Codex summaries', async () => {
     const result = await registry.dispatch('codex-local', request());
     assert.equal(result.status, 'succeeded');
     assert.equal(result.summary, '[redacted provider detail]');
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+
+test('Codex provider classifies quota and rate limits as bounded blocked outcomes for policy fallback', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-limit-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const runner = {
+      async run(_program: string, args: string[]) {
+        if (args[0] === 'status' || args[0] === 'diff') return commandResult();
+        return commandResult();
+      }
+    } as any;
+    const provider = new CodexWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      runner,
+      {
+        resolveExecutable: async command => command === 'git' ? 'git' : 'codex',
+        processRunner: async () => ({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'HTTP 429: usage limit reached',
+          timedOut: false,
+          durationMs: 5
+        })
+      }
+    );
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'blocked');
+    assert.match(result.summary ?? '', /CODEX_LIMIT_REACHED/);
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }

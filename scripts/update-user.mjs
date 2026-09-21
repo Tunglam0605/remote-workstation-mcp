@@ -16,6 +16,21 @@ const checkOnly = process.argv.includes('--check');
 const scheduled = process.argv.includes('--scheduled');
 const updateMode = process.env.RWMCP_UPDATE_MODE ?? 'notify';
 const validModes = new Set(['off', 'notify', 'auto_patch', 'auto']);
+
+async function resolveNpmExecutable() {
+  const name = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const candidates = [
+    path.join(path.dirname(process.execPath), name),
+    path.join(home, '.local', 'bin', name)
+  ];
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {}
+  }
+  return name;
+}
 if (!validModes.has(updateMode)) throw new Error(`Invalid RWMCP_UPDATE_MODE '${updateMode}'.`);
 if (scheduled && updateMode === 'off') process.exit(0);
 
@@ -199,7 +214,8 @@ try {
   await fs.rm(versionDir, { recursive: true, force: true });
   await fs.mkdir(versionDir, { recursive: true });
   await exec('tar', ['-xzf', tgzPath, '--strip-components=1', '-C', versionDir]);
-  await exec('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: versionDir });
+  const npm = await resolveNpmExecutable();
+  await exec(npm, ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: versionDir });
 
   const current = path.join(dataHome, 'current');
   const previous = path.join(dataHome, 'previous');

@@ -157,7 +157,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   host_fs_write: 'workstation.full_control',
   shell_exec: 'workstation.full_control',
   admin_request: 'workstation.admin_request',
-  admin_request_status: 'workstation.admin_request'
+  admin_request_status: 'workstation.admin_request',
+  node_reboot_request: 'workstation.admin_request'
 };
 
 export function runAsPrincipal<T>(principal: RequestPrincipal, fn: () => T): T {

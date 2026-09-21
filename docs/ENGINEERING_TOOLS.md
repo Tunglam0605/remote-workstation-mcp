@@ -14,6 +14,12 @@ Phase-E domain extensions are evidence-driven. Before changing a typed engineeri
 
 For STM32 E1, the initial source set is ST UM1718 (STM32CubeMX project/.ioc behavior), ST-maintained STM32Cube firmware repositories and release notes, OpenOCD's ST-LINK adapter documentation, Arm CMSIS upstream releases, and Keil µVision command-line documentation. This review confirms the current fail-closed single-.ioc selection, retaining firmware-package identity from project metadata, use of the modern `interface/stlink.cfg` path rather than deprecated HLA, and typed Keil `-b`/`-t`/`-o` batch semantics.
 
+## Owner-approved Ubuntu host reboot
+
+`node_reboot_request` is a control-plane action, not a generic engineering shell. On Linux it creates a pending request fixed to `/usr/bin/systemctl --no-block reboot`. The managed MCP service never runs sudo. The owner must open the local TUI, review the requester/reason/exact command, choose **Allow once**, pass a second reboot confirmation, and then let sudo interact directly with the terminal. Active Work Session workflow interlocks block approval. Other Linux admin requests may be denied in TUI but cannot be elevated there.
+
+`Restart runtime` is intentionally separate: it only restarts the managed RWMCP service/tunnel runtime and does not reload the Ubuntu kernel or NVIDIA modules.
+
 ## Tool families
 
 - `engineering_*`: inspect a project, create/load `.rwmcp/project.yaml`, list/plan/run approved high-level workflows.

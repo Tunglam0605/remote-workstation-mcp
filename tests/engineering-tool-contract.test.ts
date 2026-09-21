@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.24.0 stable exposes STM32 IOC depth on Action Schema v8 and Engineering API v5', async () => {
+test('v0.24.1 stable exposes typed Ubuntu reboot approval on Action Schema v9 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 8;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 9;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.24\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.24\.1';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -111,6 +111,27 @@ test('STM32 IOC inspection is a bounded read-only typed surface', async () => {
   assert.match(capabilities, /'stm32_ioc_inspect'/);
 });
 
+test('Ubuntu host reboot remains a typed owner-approved action rather than a generic Linux root shell', async () => {
+  const privileged = await read('src/tools/privileged-tools.ts');
+  const tuiAdmin = await read('src/tui/admin-requests.ts');
+  const tuiCli = await read('src/tui-cli.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  assert.match(privileged, /server\.registerTool\('node_reboot_request'/);
+  assert.match(privileged, /linuxHostRebootCommand\(\)/);
+  assert.match(scopes, /node_reboot_request: 'workstation\.admin_request'/);
+  assert.match(capabilities, /'node_reboot_request'/);
+  assert.match(tuiAdmin, /'\/usr\/bin\/systemctl'/);
+  assert.match(tuiAdmin, /\['--no-block', 'reboot'\]/);
+  assert.match(tuiAdmin, /\['-k', '--', LINUX_SYSTEMCTL/);
+  assert.doesNotMatch(tuiAdmin, /shell:\s*true/);
+  assert.match(tuiAdmin, /NODE_BUSY/);
+  assert.match(tuiCli, /Admin requests/);
+  assert.match(tuiCli, /RWMCP only/);
+  assert.match(tuiCli, /CONFIRM HOST REBOOT/);
+});
+
 test('Keil remains a typed provider rather than an arbitrary command surface', async () => {
   const firmware = await read('src/adapters/engineering/firmware.ts');
   const profile = await read('src/adapters/engineering/project-profile.ts');
@@ -124,7 +145,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v8 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v9 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -132,7 +153,7 @@ test('current runtime retains Work Session routing under Action Schema v8 and Ke
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 8;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 9;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

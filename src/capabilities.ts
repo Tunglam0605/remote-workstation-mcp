@@ -1,7 +1,7 @@
-export const SERVER_VERSION = '0.24.0';
+export const SERVER_VERSION = '0.24.1';
 export const BUILD_CHANNEL = 'stable' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
-export const ACTION_SCHEMA_VERSION = 8;
+export const ACTION_SCHEMA_VERSION = 9;
 export const ENGINEERING_API_VERSION = 5;
 
 export type CapabilityStatus = 'available' | 'planned';
@@ -18,7 +18,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
   { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update remains owner-controlled.' },
   { id: 'setup.local_web', status: 'available', tools: [], note: 'Owner-operated loopback-only Setup & Control Center persists non-secret workstation settings outside the repository, can protect the OpenAI runtime key with Windows DPAPI, manages approval notifications, and in v0.18 manages default-deny cross-node directional grants without exposing owner policy mutation through MCP.' },
-  { id: 'setup.local_tui', status: 'available', tools: [], note: 'Owner-local terminal control surface for status, access mode, MCP port, device name, tunnel binding and hidden Runtime API key rotation without exposing configuration mutation through MCP.' },
+  { id: 'setup.local_tui', status: 'available', tools: [], note: 'Owner-local terminal control surface for status, access mode, MCP port, device name, tunnel binding, hidden Runtime API key rotation, and review of typed Ubuntu host-reboot approval requests. Runtime restart and host reboot remain distinct actions.' },
   { id: 'installation.windows_managed', status: 'available', tools: [], note: 'Checksum-verified Windows release installer uses versioned per-user runtime slots, a stable launcher, optional start-at-logon, and one-step rollback without requiring a Git checkout for production use.' },
   { id: 'transport.providers', status: 'available', tools: [], note: 'The CLI selects a provider behind a common contract. Current providers are local stdio and loopback Streamable HTTP.' },
   { id: 'connection.openai_secure_tunnel', status: 'available', tools: [], note: 'Optional outbound-only OpenAI Secure MCP Tunnel supervisor keeps the workstation MCP bound to loopback, injects an ephemeral bearer into tunnel runtime headers, and does not forward the OpenAI runtime API key into the MCP child process.' },
@@ -52,7 +52,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'permission.elevation', status: 'available', tools: ['permission_status'], note: 'Grant/revoke is local-owner-only and never exposed as an MCP tool. Client-bound leases use the authenticated request principal when present.' },
   { id: 'full_control.host_filesystem', status: 'available', tools: ['host_fs_list', 'host_fs_read', 'host_fs_write'], note: 'Requires full-control scope, effective Full Access and the explicit local policy gate when HTTP authentication is enabled.' },
   { id: 'full_control.shell', status: 'available', tools: ['shell_exec'], note: 'Requires full-control scope, effective Full Access and the explicit raw-shell policy gate when HTTP authentication is enabled.' },
-  { id: 'full_control.admin', status: 'available', tools: ['admin_request', 'admin_request_status'], note: 'Administrator execution is owner-approved only. The MCP tool can create a pending request, but execution requires local Control Center approval; elevation then uses Windows RunAs/UAC under the machine policy through a separate privileged helper.' },
+  { id: 'full_control.admin', status: 'available', tools: ['admin_request', 'admin_request_status', 'node_reboot_request'], note: 'Privileged execution is owner-approved only. Generic admin_request remains Windows RunAs/UAC. Linux host reboot uses the typed node_reboot_request and can only be approved in the owner-local Ubuntu TUI, which rechecks Work Session interlocks and invokes the fixed systemctl reboot action via sudo without exposing a generic root shell.' },
   { id: 'engineering.workflows', status: 'available', tools: ['engineering_project_inspect', 'engineering_profile_init', 'engineering_workflow_list', 'engineering_workflow_plan', 'engineering_workflow_run'], note: 'Project-local .rwmcp/project.yaml profiles collapse repeated engineering operations into typed high-level workflows without arbitrary shell recipes. v0.22 adds ESP-IDF structured size analysis, PlatformIO JSON diagnostics, ROS 2 colcon test/rosbag inspection, bounded Docker container inspect/log workflows and validation-gated KiCad fabrication export while retaining Action Schema v6 and Engineering API v4.' },
   { id: 'engineering.hardware', status: 'available', tools: ['hardware_list', 'hardware_inspect', 'hardware_session_status'], note: 'Cross-platform serial/debug-probe discovery plus exclusive resource leases. v0.14.6 adds stable serial identity resolution by device ID, USB serial, or VID/PID with fail-closed ambiguity handling.' },
   { id: 'engineering.serial', status: 'available', tools: ['serial_open', 'serial_read', 'serial_wait_for_text', 'serial_write', 'serial_close'], note: 'Caller-owned serial sessions use bounded buffers and separately gated writes. High-level project workflows may resolve stable selectors to the current COM/tty path on every run while low-level serial_open remains explicit-path based.' },

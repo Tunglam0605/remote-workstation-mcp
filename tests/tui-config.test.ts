@@ -120,3 +120,14 @@ test('Linux updater reconstructs the user-systemd bus for non-interactive restar
   assert.match(updater, /DBUS_SESSION_BUS_ADDRESS/);
   assert.match(updater, /env: linuxUserSystemdEnv\(\)/);
 });
+
+test('Ubuntu TUI distinguishes runtime restart from owner-approved host reboot', async () => {
+  const tui = await fs.readFile('src/tui-cli.ts', 'utf8');
+  const approvals = await fs.readFile('src/tui/admin-requests.ts', 'utf8');
+  assert.match(tui, /label: 'Admin requests'/);
+  assert.match(tui, /RWMCP only/);
+  assert.match(tui, /CONFIRM HOST REBOOT/);
+  assert.match(approvals, /sudo/);
+  assert.match(approvals, /--no-block/);
+  assert.match(approvals, /restricted to the typed host reboot request/);
+});

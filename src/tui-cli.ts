@@ -13,6 +13,12 @@ import {
   setRuntimeApiKey,
   setTunnelId
 } from './tui/config.js';
+import {
+  approveLinuxHostRebootRequest,
+  denyTuiAdminRequest,
+  isLinuxHostRebootRequest,
+  listPendingTuiAdminRequests
+} from './tui/admin-requests.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const stdin = process.stdin;
@@ -145,6 +151,58 @@ async function chooseAccessMode(current: string): Promise<'read_only' | 'workspa
   }
 }
 
+async function reviewAdminRequests(): Promise<string> {
+  let index = 0;
+  while (true) {
+    const pending = await listPendingTuiAdminRequests();
+    if (pending.length === 0) return 'No pending Administrator requests.';
+    index = Math.min(index, pending.length - 1);
+    const request = pending[index]!;
+    clear();
+    console.log(bold('Administrator requests'));
+    console.log(dim('These are owner-local approvals. Generic Linux root execution is not enabled.\n'));
+    pending.forEach((item, itemIndex) => {
+      const marker = itemIndex === index ? cyan('›') : ' ';
+      const label = isLinuxHostRebootRequest(item) ? 'Linux host reboot' : `${item.program} ${item.args.join(' ')}`;
+      console.log(`${marker} ${label.slice(0, 72)}`);
+    });
+    console.log('');
+    console.log(line('Requester', `${request.clientType}:${request.clientId}`));
+    console.log(line('Reason', request.reason.slice(0, 120)));
+    console.log(line('Command', [request.program, ...request.args].join(' ').slice(0, 160)));
+    console.log(line('Expires', request.expiresAt));
+    console.log(line('Hash', request.commandHash.slice(0, 20) + '…'));
+    if (process.platform === 'linux' && isLinuxHostRebootRequest(request)) {
+      console.log(yellow('\nAllow once will reboot the Ubuntu host, not only RWMCP. Active Work Session interlocks block approval.'));
+      console.log(dim('↑/↓ select   a Allow once   d Deny   Esc back'));
+    } else {
+      console.log(yellow('\nThis TUI can only approve the typed Linux host reboot action. Other admin requests can be denied here.'));
+      console.log(dim('↑/↓ select   d Deny   Esc back'));
+    }
+    const key = await readKey();
+    if (key === 'up') index = (index + pending.length - 1) % pending.length;
+    else if (key === 'down') index = (index + 1) % pending.length;
+    else if (key === 'escape' || key === 'q') return 'Administrator request review closed.';
+    else if (key === 'd') {
+      await denyTuiAdminRequest(request.id);
+      return `Denied Administrator request ${request.id}.`;
+    } else if (key === 'a' && process.platform === 'linux' && isLinuxHostRebootRequest(request)) {
+      console.log(yellow('\nCONFIRM HOST REBOOT: press y to approve once, any other key to cancel.'));
+      const confirm = await readKey();
+      if (confirm !== 'y') continue;
+      stdin.setRawMode(false);
+      try {
+        console.log('\nOS authorization may be requested by sudo. RWMCP does not read or store the password.');
+        const finished = await approveLinuxHostRebootRequest(request.id, request.commandHash);
+        return `Host reboot accepted (${finished.id}); Ubuntu is shutting down and will reconnect after boot.`;
+      } finally {
+        stdin.setRawMode(true);
+        stdin.resume();
+      }
+    }
+  }
+}
+
 async function runConnectionSetup(state: Awaited<ReturnType<typeof readTuiRuntimeState>>): Promise<string> {
   clear();
   console.log(bold('Connect this workstation to ChatGPT'));
@@ -178,6 +236,7 @@ try {
   }
   while (running) {
     const state = await readTuiRuntimeState(repoRoot);
+    const pendingAdminRequests = await listPendingTuiAdminRequests();
     const items: MenuItem[] = [
       {
         label: 'Connection setup',
@@ -216,8 +275,13 @@ try {
         }
       },
       {
+        label: 'Admin requests',
+        hint: `${pendingAdminRequests.length} pending`,
+        action: async () => await reviewAdminRequests()
+      },
+      {
         label: 'Restart runtime',
-        hint: state.service,
+        hint: `${state.service}; RWMCP only`,
         action: async () => await restartManagedRuntime(repoRoot)
       },
       {
@@ -243,6 +307,7 @@ try {
     console.log(line('Tunnel', state.tunnelReady === true ? green('READY') : state.tunnelReady === false ? yellow('NOT READY') : 'n/a'));
     console.log(line('MCP', `127.0.0.1:${state.mcpPort}`));
     console.log(line('Access', state.accessMode));
+    console.log(line('Admin req', String(pendingAdminRequests.length)));
     console.log(line('Workspace', `${state.workspaceLabel} → ${state.workspaceRoot}`));
     console.log('');
     console.log(dim('↑/↓ select   Enter edit/run   r refresh   q quit'));

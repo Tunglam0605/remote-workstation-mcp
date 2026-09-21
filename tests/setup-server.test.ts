@@ -31,6 +31,10 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="devicePairingCard"/);
     assert.match(pageText, /id="multiNodeCard"/);
     assert.match(pageText, /id="executionPolicyCard"/);
+    assert.match(pageText, /Ch\u00ednh s\u00e1ch th\u1ef1c thi/);
+    assert.match(pageText, /Ch\u1ebf \u0111\u1ed9 m\u1eb7c \u0111\u1ecbnh/);
+    assert.match(pageText, /Khi Codex \u0111\u1ea1t gi\u1edbi h\u1ea1n/);
+    assert.match(pageText, /kh\u00f4ng gi\u1edbi h\u1ea1n/);
     assert.match(pageText, /id="executionDefault"/);
     assert.match(pageText, /id="codexFallback"/);
     assert.match(pageText, /id="codexEnabled"/);

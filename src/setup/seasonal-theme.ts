@@ -1,30 +1,32 @@
 export const seasonalThemeCss = String.raw`
 /* Seasonal/event presentation layer. Core control IDs, APIs and security behavior remain authoritative. */
 
-/* Base hero container with cinematic depth and Vietnamese luxury styling */
+/* Base hero container with cinematic depth and Vietnamese luxury engineering cockpit styling */
 .cc-seasonal-hero{
   position:relative;
-  min-height:268px;
-  margin:0 0 16px;
-  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 38%,var(--border));
-  border-radius:18px;
+  grid-column:1/-1;
+  width:100%;
+  min-height:280px;
+  margin:0 0 18px;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 44%,var(--border));
+  border-radius:20px;
   overflow:hidden;
   background:
-    radial-gradient(ellipse 75% 55% at 65% 25%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 28%,transparent) 0%,transparent 65%),
-    radial-gradient(ellipse 60% 50% at 15% 85%,color-mix(in srgb,var(--cc-season-mid,#112c52) 40%,transparent) 0%,transparent 70%),
-    linear-gradient(125deg,color-mix(in srgb,var(--cc-season-deep,#07152c) 98%,#020617) 0%,color-mix(in srgb,var(--cc-season-mid,#112c52) 90%,#020617) 60%,color-mix(in srgb,var(--cc-season-deep,#07152c) 96%,#020617) 100%);
-  box-shadow:0 24px 60px -12px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.05) inset,0 1px 0 0 color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent) inset;
+    radial-gradient(ellipse 80% 60% at 70% 20%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 32%,transparent) 0%,transparent 70%),
+    radial-gradient(ellipse 65% 55% at 15% 85%,color-mix(in srgb,var(--cc-season-mid,#112c52) 48%,transparent) 0%,transparent 75%),
+    linear-gradient(130deg,color-mix(in srgb,var(--cc-season-deep,#07152c) 98%,#020617) 0%,color-mix(in srgb,var(--cc-season-mid,#112c52) 88%,#020617) 55%,color-mix(in srgb,var(--cc-season-deep,#07152c) 98%,#020617) 100%);
+  box-shadow:0 28px 68px -14px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.07) inset,0 1px 0 0 color-mix(in srgb,var(--cc-season-accent,#f7c96b) 50%,transparent) inset;
   isolation:isolate;
 }
 
-/* Atmospheric rim light and vignette */
+/* Atmospheric rim light, subtle cockpit grid vignette and depth layers */
 .cc-seasonal-hero:before{
   content:"";
   position:absolute;
   inset:0;
   background:
-    linear-gradient(90deg,rgba(2,6,23,.92) 0%,rgba(2,6,23,.68) 38%,rgba(2,6,23,.12) 68%,rgba(2,6,23,.55) 100%),
-    radial-gradient(circle at 76% 32%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,transparent),transparent 36%);
+    linear-gradient(90deg,rgba(2,6,23,.94) 0%,rgba(2,6,23,.72) 36%,rgba(2,6,23,.15) 68%,rgba(2,6,23,.6) 100%),
+    radial-gradient(circle at 76% 32%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 24%,transparent),transparent 38%);
   z-index:-2;
 }
 
@@ -32,62 +34,103 @@ export const seasonalThemeCss = String.raw`
   content:"";
   position:absolute;
   inset:auto -5% -40% 20%;
-  height:85%;
-  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 24%,transparent),transparent 68%);
-  filter:blur(20px);
+  height:90%;
+  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 28%,transparent),transparent 68%);
+  filter:blur(24px);
   z-index:-1;
 }
 
-/* Tasteful decorative Vietnamese architectural rail at the top */
+/* Tasteful Vietnamese architectural frieze and decorative rail at the top */
 .cc-seasonal-rail{
   position:absolute;
   top:0;
   left:0;
   right:0;
-  height:2px;
+  height:3px;
   display:flex;
   align-items:center;
   justify-content:center;
   pointer-events:none;
-  z-index:3;
-  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent) 15%,var(--cc-season-accent,#f7c96b) 50%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent) 85%,transparent 100%);
+  z-index:4;
+  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,transparent) 12%,var(--cc-season-accent,#f7c96b) 50%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,transparent) 88%,transparent 100%);
 }
+.cc-seasonal-rail:before,.cc-seasonal-rail:after{
+  content:"";
+  position:absolute;
+  top:0;
+  height:1px;
+  width:28%;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 60%,transparent));
+}
+.cc-seasonal-rail:before{left:18%}
+.cc-seasonal-rail:after{right:18%;transform:scaleX(-1)}
 .cc-seasonal-rail-diamond{
   display:inline-grid;
   place-items:center;
-  width:13px;
-  height:13px;
-  border-radius:2.5px;
+  width:15px;
+  height:15px;
+  border-radius:3px;
   transform:rotate(45deg);
-  background:color-mix(in srgb,var(--cc-season-deep,#07152c) 92%,#000);
+  background:color-mix(in srgb,var(--cc-season-deep,#07152c) 94%,#000);
   border:1px solid var(--cc-season-accent,#f7c96b);
   color:var(--cc-season-accent,#f7c96b);
-  font-size:7px;
+  font-size:8px;
   line-height:1;
-  box-shadow:0 0 10px var(--cc-season-accent,#f7c96b);
+  box-shadow:0 0 12px var(--cc-season-accent,#f7c96b),inset 0 0 4px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 50%,transparent);
 }
 
 /* Sky layer: celestial orb, clouds, sparks, horizons */
 .cc-seasonal-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
 
+/* Dong Son bronze drum celestial pattern */
+.cc-seasonal-drum-motif{
+  position:absolute;
+  width:360px;
+  height:360px;
+  right:calc(24% - 94px);
+  top:-94px;
+  pointer-events:none;
+  opacity:.26;
+  color:var(--cc-season-accent,#f7c96b);
+  transition:opacity .4s ease;
+  animation:cc-season-drum-spin 140s linear infinite;
+  filter:drop-shadow(0 0 16px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 40%,transparent));
+}
+@keyframes cc-season-drum-spin{
+  from{transform:rotate(0deg)}
+  to{transform:rotate(360deg)}
+}
+
+/* Celestial orb with coronal ring */
 .cc-seasonal-orb{
   position:absolute;
-  width:164px;
-  height:164px;
+  width:172px;
+  height:172px;
   border-radius:50%;
   right:24%;
-  top:18px;
+  top:16px;
   background:radial-gradient(circle at 36% 34%,#ffffff 0%,#fff7dd 12%,var(--cc-season-accent,#f7c96b) 44%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 65%,var(--cc-season-mid,#112c52)) 72%,transparent 78%);
-  box-shadow:0 0 50px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 60%,transparent),0 0 100px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 30%,transparent),inset -10px -10px 24px rgba(0,0,0,.35);
+  box-shadow:
+    0 0 54px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 62%,transparent),
+    0 0 110px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 32%,transparent),
+    inset -12px -12px 26px rgba(0,0,0,.4);
   opacity:.96;
-  transition:transform .4s ease;
+  transition:transform .4s ease,background .4s ease,box-shadow .4s ease;
 }
 .cc-seasonal-orb-inner{
   position:absolute;
-  inset:-14px;
+  inset:-16px;
   border-radius:50%;
-  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,transparent);
-  opacity:.7;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 40%,transparent);
+  box-shadow:0 0 20px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent);
+  opacity:.75;
+}
+.cc-seasonal-orb-ring{
+  position:absolute;
+  inset:-28px;
+  border-radius:50%;
+  border:1px dashed color-mix(in srgb,var(--cc-season-accent,#f7c96b) 24%,transparent);
+  opacity:.5;
 }
 
 /* Vietnamese stylized cloud motifs */
@@ -95,27 +138,27 @@ export const seasonalThemeCss = String.raw`
 .cc-seasonal-cloud{
   position:absolute;
   border-radius:999px;
-  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,transparent),transparent 72%);
+  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 18%,transparent),transparent 72%);
   filter:blur(14px);
-  opacity:.75;
+  opacity:.78;
 }
 .cc-seasonal-cloud.c1{
-  width:290px;
-  height:65px;
+  width:310px;
+  height:70px;
   right:16%;
-  top:55px;
+  top:52px;
   animation:cc-season-drift 14s ease-in-out infinite alternate;
 }
 .cc-seasonal-cloud.c2{
-  width:380px;
-  height:75px;
+  width:390px;
+  height:80px;
   right:4%;
   bottom:35px;
   animation:cc-season-drift 18s ease-in-out infinite alternate-reverse;
 }
 @keyframes cc-season-drift{
   0%{transform:translateX(0) translateY(0)}
-  100%{transform:translateX(22px) translateY(-5px)}
+  100%{transform:translateX(24px) translateY(-6px)}
 }
 
 /* Celebratory fireworks / sparks motifs */
@@ -129,37 +172,45 @@ export const seasonalThemeCss = String.raw`
   box-shadow:0 0 10px 2px var(--cc-season-accent,#ffd166),0 0 20px 4px color-mix(in srgb,var(--cc-season-accent,#ffd166) 55%,transparent);
   animation:cc-season-sparkle 3.5s ease-in-out infinite;
 }
-.cc-spark.s1{right:28%;top:42px;animation-delay:0s}
-.cc-spark.s2{right:12%;top:26px;animation-delay:-1.2s}
-.cc-spark.s3{right:36%;top:115px;animation-delay:-2.4s}
-.cc-spark.s4{right:6%;top:130px;animation-delay:-0.8s}
+.cc-spark.s1{right:28%;top:40px;animation-delay:0s}
+.cc-spark.s2{right:12%;top:24px;animation-delay:-1.2s}
+.cc-spark.s3{right:37%;top:115px;animation-delay:-2.4s}
+.cc-spark.s4{right:6%;top:132px;animation-delay:-0.8s}
 @keyframes cc-season-sparkle{
   0%,100%{opacity:.18;transform:scale(.7)}
-  50%{opacity:1;transform:scale(1.35)}
+  50%{opacity:1;transform:scale(1.4)}
 }
 
 /* Layered horizon silhouettes and atmospheric mist */
 .cc-seasonal-horizon{
   position:absolute;
-  left:22%;
-  right:-3%;
-  bottom:-6px;
-  height:118px;
-  background:
-    linear-gradient(to top,color-mix(in srgb,var(--cc-season-deep,#07152c) 98%,transparent) 0%,transparent 100%),
-    radial-gradient(ellipse at 12% 100%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 20%,transparent) 0 14%,transparent 15%),
-    radial-gradient(ellipse at 34% 100%,rgba(1,8,22,.94) 0 26%,transparent 27%),
-    radial-gradient(ellipse at 62% 100%,rgba(1,8,22,.96) 0 32%,transparent 33%),
-    radial-gradient(ellipse at 88% 100%,rgba(1,8,22,.95) 0 36%,transparent 37%);
-  opacity:.96;
+  left:0;
+  right:0;
+  bottom:0;
+  height:125px;
+  pointer-events:none;
+  z-index:-1;
+}
+.cc-horizon-svg{width:100%;height:100%;display:block}
+.cc-horizon-distant{
+  fill:color-mix(in srgb,var(--cc-season-mid,#112c52) 40%,transparent);
+  opacity:.45;
+}
+.cc-horizon-mid{
+  fill:color-mix(in srgb,var(--cc-season-deep,#07152c) 75%,#010614);
+  opacity:.75;
+}
+.cc-horizon-near{
+  fill:color-mix(in srgb,var(--cc-season-deep,#07152c) 96%,#020617);
+  opacity:.98;
 }
 .cc-seasonal-mist{
   position:absolute;
   left:-5%;
   right:-5%;
   bottom:0;
-  height:85px;
-  background:radial-gradient(ellipse 65% 100% at 50% 100%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,transparent),transparent 75%);
+  height:90px;
+  background:radial-gradient(ellipse 65% 100% at 50% 100%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 18%,transparent),transparent 75%);
   pointer-events:none;
   z-index:-1;
 }
@@ -167,51 +218,128 @@ export const seasonalThemeCss = String.raw`
 /* Floating cultural motifs with natural sway and luminous glow */
 .cc-seasonal-float{
   position:absolute;
-  font-size:24px;
+  font-size:26px;
   user-select:none;
   pointer-events:none;
-  filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)) drop-shadow(0 0 16px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent));
-  animation:cc-season-float 7s ease-in-out infinite;
-  z-index:1;
+  filter:drop-shadow(0 4px 14px rgba(0,0,0,.6)) drop-shadow(0 0 18px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 50%,transparent));
+  animation:cc-season-float 7.5s ease-in-out infinite;
+  z-index:2;
 }
-.cc-seasonal-float.f1{right:8%;top:26px;font-size:26px}
-.cc-seasonal-float.f2{right:15%;top:98px;font-size:22px;animation-delay:-2.2s}
-.cc-seasonal-float.f3{right:38%;top:34px;font-size:23px;animation-delay:-4.5s}
-.cc-seasonal-float.f4{right:4%;bottom:24px;font-size:20px;animation-delay:-1.2s}
+.cc-seasonal-float.f1{right:9%;top:28px;font-size:28px}
+.cc-seasonal-float.f2{right:16%;top:105px;font-size:24px;animation-delay:-2.4s}
+.cc-seasonal-float.f3{right:39%;top:38px;font-size:25px;animation-delay:-4.8s}
+.cc-seasonal-float.f4{right:5%;bottom:26px;font-size:22px;animation-delay:-1.4s}
 @keyframes cc-season-float{
   0%,100%{transform:translateY(0) rotate(-3deg) scale(1)}
-  50%{transform:translateY(-11px) rotate(4deg) scale(1.04)}
+  50%{transform:translateY(-12px) rotate(5deg) scale(1.06)}
 }
 
 /* Theme-specific motif variants */
+/* Mid-Autumn */
 .cc-theme-mid-autumn .cc-seasonal-orb{
-  background:radial-gradient(circle at 35% 32%,#fffdf2 0%,#ffe89c 18%,#f5b041 52%,#b86918 80%,transparent 84%);
-  box-shadow:0 0 38px rgba(255,211,106,.58),0 0 95px rgba(255,180,50,.3),inset -8px -8px 20px rgba(70,30,0,.4);
+  background:radial-gradient(circle at 35% 32%,#fffdf4 0%,#ffeaa8 18%,#f5b041 52%,#a85a12 78%,transparent 84%);
+  box-shadow:0 0 48px rgba(255,211,106,.68),0 0 115px rgba(245,176,65,.35),inset -10px -10px 22px rgba(80,35,0,.45);
 }
+.cc-theme-mid-autumn .cc-seasonal-drum-motif{color:#ffd36a;opacity:.3}
+
+/* Tết Nguyên Đán */
 .cc-theme-tet .cc-seasonal-orb{
   background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#ffd166 22%,#ea580c 58%,#b91c1c 82%,transparent 85%);
-  box-shadow:0 0 45px rgba(255,209,102,.62),0 0 105px rgba(239,68,68,.35);
+  box-shadow:0 0 54px rgba(255,209,102,.7),0 0 125px rgba(220,38,38,.42),inset -10px -10px 24px rgba(80,10,15,.5);
 }
-.cc-theme-winter .cc-seasonal-orb{
-  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#e0f2fe 20%,#60a5fa 58%,#1e3a8a 82%,transparent 85%);
-  box-shadow:0 0 40px rgba(139,200,255,.5),0 0 90px rgba(96,165,250,.25);
-}
-.cc-theme-summer .cc-seasonal-orb{
-  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#cffafe 20%,#38bdf8 55%,#0369a1 82%,transparent 85%);
-  box-shadow:0 0 50px rgba(88,216,255,.55),0 0 110px rgba(56,189,248,.3);
-}
-.cc-theme-spring .cc-seasonal-orb{
-  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fce7f3 20%,#f472b6 55%,#be185d 82%,transparent 85%);
-  box-shadow:0 0 45px rgba(248,164,198,.55),0 0 100px rgba(244,114,182,.28);
-}
+.cc-theme-tet .cc-seasonal-drum-motif{color:#ffd166;opacity:.36}
+.cc-theme-tet .cc-spark{box-shadow:0 0 10px 2px #ffd166,0 0 20px 4px #dc2626}
+
+/* Giỗ Tổ Hùng Vương */
 .cc-theme-hung-kings .cc-seasonal-orb{
   background:radial-gradient(circle at 35% 32%,#fffbeb 0%,#fde68a 22%,#d97706 58%,#78350f 82%,transparent 85%);
-  box-shadow:0 0 45px rgba(233,183,95,.55),0 0 100px rgba(180,83,9,.3);
+  box-shadow:0 0 50px rgba(233,183,95,.65),0 0 120px rgba(180,83,9,.38),inset -10px -10px 22px rgba(50,20,5,.5);
 }
-.cc-theme-national-day .cc-seasonal-orb,.cc-theme-liberation-day .cc-seasonal-orb{
-  background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#fde047 22%,#ea580c 60%,#991b1b 82%,transparent 85%);
-  box-shadow:0 0 45px rgba(255,211,77,.6),0 0 100px rgba(220,38,38,.35);
+.cc-theme-hung-kings .cc-seasonal-drum-motif{color:#e9b75f;opacity:.38}
+
+/* Ngày 30/4 */
+.cc-theme-liberation-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#fde047 22%,#ea580c 58%,#991b1b 82%,transparent 85%);
+  box-shadow:0 0 52px rgba(255,211,77,.68),0 0 120px rgba(220,38,38,.4),inset -10px -10px 24px rgba(80,10,15,.5);
 }
+.cc-theme-liberation-day .cc-seasonal-drum-motif{color:#ffd34d;opacity:.35}
+
+/* Quốc tế Lao động 1/5 */
+.cc-theme-labour-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fef08a 18%,#f97316 56%,#9a3412 82%,transparent 85%);
+  box-shadow:0 0 52px rgba(255,189,89,.62),0 0 120px rgba(249,115,22,.38),inset -10px -10px 22px rgba(70,20,5,.45);
+}
+.cc-theme-labour-day .cc-seasonal-drum-motif{color:#ffbd59;opacity:.32}
+
+/* Quốc Khánh 2/9 */
+.cc-theme-national-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#fde047 22%,#dc2626 58%,#7f1d1d 82%,transparent 85%);
+  box-shadow:0 0 56px rgba(255,211,77,.72),0 0 130px rgba(220,38,38,.45),inset -10px -10px 24px rgba(80,10,15,.5);
+}
+.cc-theme-national-day .cc-seasonal-drum-motif{color:#ffd34d;opacity:.4}
+.cc-theme-national-day .cc-spark{box-shadow:0 0 10px 2px #ffd34d,0 0 20px 4px #dc2626}
+
+/* 4 Seasons */
+.cc-theme-spring .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fce7f3 20%,#f472b6 55%,#9d174d 82%,transparent 85%);
+  box-shadow:0 0 50px rgba(248,164,198,.6),0 0 110px rgba(244,114,182,.3),inset -10px -10px 22px rgba(80,10,40,.35);
+}
+.cc-theme-spring .cc-seasonal-drum-motif{color:#f8a4c6;opacity:.24}
+
+.cc-theme-summer .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#cffafe 20%,#38bdf8 55%,#0369a1 82%,transparent 85%);
+  box-shadow:0 0 54px rgba(88,216,255,.62),0 0 120px rgba(56,189,248,.35),inset -10px -10px 22px rgba(3,50,90,.4);
+}
+.cc-theme-summer .cc-seasonal-drum-motif{color:#58d8ff;opacity:.22}
+
+.cc-theme-autumn .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffdf2 0%,#fed7aa 20%,#f59e0b 55%,#9a3412 82%,transparent 85%);
+  box-shadow:0 0 50px rgba(245,164,71,.62),0 0 110px rgba(217,119,6,.32),inset -10px -10px 22px rgba(70,25,0,.45);
+}
+.cc-theme-autumn .cc-seasonal-drum-motif{color:#f5a447;opacity:.26}
+
+.cc-theme-winter .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#e0f2fe 20%,#60a5fa 58%,#1e3a8a 82%,transparent 85%);
+  box-shadow:0 0 46px rgba(139,200,255,.55),0 0 105px rgba(96,165,250,.28),inset -10px -10px 22px rgba(15,30,80,.4);
+}
+.cc-theme-winter .cc-seasonal-drum-motif{color:#8bc8ff;opacity:.22}
+
+/* Other Vietnam calendar events */
+.cc-theme-womens-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fdf2f8 20%,#ec4899 55%,#831843 82%,transparent 85%);
+  box-shadow:0 0 48px rgba(245,154,195,.6),0 0 105px rgba(236,72,153,.3);
+}
+.cc-theme-womens-day .cc-seasonal-drum-motif{color:#f59ac3;opacity:.24}
+
+.cc-theme-children-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#ecfeff 20%,#06b6d4 55%,#164e63 82%,transparent 85%);
+  box-shadow:0 0 48px rgba(103,232,249,.6),0 0 105px rgba(6,182,212,.3);
+}
+.cc-theme-children-day .cc-seasonal-drum-motif{color:#67e8f9;opacity:.24}
+
+.cc-theme-family-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fefce8 20%,#84cc16 55%,#365314 82%,transparent 85%);
+  box-shadow:0 0 48px rgba(246,200,108,.6),0 0 105px rgba(132,204,22,.3);
+}
+.cc-theme-family-day .cc-seasonal-drum-motif{color:#f6c86c;opacity:.24}
+
+.cc-theme-vietnam-women .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fff1f2 20%,#f43f5e 55%,#881337 82%,transparent 85%);
+  box-shadow:0 0 48px rgba(251,159,186,.6),0 0 105px rgba(244,63,94,.3);
+}
+.cc-theme-vietnam-women .cc-seasonal-drum-motif{color:#fb9fba;opacity:.24}
+
+.cc-theme-teachers-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#eff6ff 20%,#3b82f6 55%,#1e3a8a 82%,transparent 85%);
+  box-shadow:0 0 48px rgba(245,208,111,.6),0 0 105px rgba(59,130,246,.3);
+}
+.cc-theme-teachers-day .cc-seasonal-drum-motif{color:#f5d06f;opacity:.24}
+
+.cc-theme-culture-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffbeb 0%,#fde68a 22%,#d97706 58%,#713f12 82%,transparent 85%);
+  box-shadow:0 0 48px rgba(232,184,102,.6),0 0 105px rgba(217,119,6,.3);
+}
+.cc-theme-culture-day .cc-seasonal-drum-motif{color:#e8b866;opacity:.3}
 
 /* Content grid */
 .cc-seasonal-content{
@@ -219,8 +347,8 @@ export const seasonalThemeCss = String.raw`
   display:grid;
   grid-template-columns:minmax(0,1.38fr) minmax(280px,.62fr);
   gap:28px;
-  min-height:268px;
-  padding:30px 32px;
+  min-height:280px;
+  padding:32px 34px;
   align-items:end;
 }
 
@@ -229,75 +357,85 @@ export const seasonalThemeCss = String.raw`
   display:inline-flex;
   align-items:center;
   gap:8px;
-  padding:4px 12px 4px 9px;
+  padding:5px 14px 5px 10px;
   border-radius:999px;
-  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,rgba(3,10,26,.6));
-  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 36%,transparent);
+  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,rgba(3,10,26,.68));
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 42%,transparent);
   color:var(--cc-season-accent,#f7c96b);
   font-size:11.5px;
   font-weight:800;
-  letter-spacing:.08em;
+  letter-spacing:.09em;
   text-transform:uppercase;
-  margin-bottom:10px;
-  backdrop-filter:blur(10px);
-  box-shadow:0 2px 10px rgba(0,0,0,.25);
+  margin-bottom:12px;
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  box-shadow:0 2px 12px rgba(0,0,0,.3);
 }
 .cc-seasonal-kicker-dot{
-  width:6px;
-  height:6px;
+  width:7px;
+  height:7px;
   border-radius:50%;
   background:currentColor;
-  box-shadow:0 0 8px currentColor;
+  box-shadow:0 0 10px currentColor;
+  animation:cc-season-dot-pulse 2.2s ease-in-out infinite;
+}
+@keyframes cc-season-dot-pulse{
+  0%,100%{transform:scale(1);opacity:.85}
+  50%{transform:scale(1.35);opacity:1;box-shadow:0 0 14px currentColor}
 }
 
 /* Cinematic typography */
 .cc-seasonal-title{
   margin:0;
   color:#ffffff;
-  font-size:clamp(30px,4.2vw,48px);
-  line-height:1.04;
+  font-size:clamp(32px,4.5vw,50px);
+  line-height:1.05;
   letter-spacing:-.035em;
-  font-weight:800;
-  text-shadow:0 2px 22px rgba(0,0,0,.5),0 0 35px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent);
+  font-weight:850;
+  text-shadow:0 3px 26px rgba(0,0,0,.6),0 0 40px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 30%,transparent);
 }
 .cc-seasonal-subtitle{
-  max-width:620px;
+  max-width:640px;
   margin:10px 0 0;
-  color:#e2e8f0;
-  font-size:14px;
+  color:#f1f5f9;
+  font-size:14.5px;
   line-height:1.6;
-  text-shadow:0 1px 8px rgba(0,0,0,.55);
+  text-shadow:0 1px 10px rgba(0,0,0,.65);
 }
 .cc-seasonal-quote{
   margin-top:16px;
   display:inline-flex;
   align-items:center;
   gap:10px;
-  max-width:580px;
-  padding:9px 15px;
-  border-left:3px solid var(--cc-season-accent,#f7c96b);
-  background:linear-gradient(90deg,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 12%,rgba(3,10,26,.65)),rgba(3,10,26,.4));
-  backdrop-filter:blur(14px);
+  max-width:600px;
+  padding:10px 16px;
+  border-left:3.5px solid var(--cc-season-accent,#f7c96b);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,rgba(3,10,26,.7)),rgba(3,10,26,.45));
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
   color:#f8fafc;
   font-size:13px;
   font-style:italic;
-  border-radius:0 10px 10px 0;
-  border-top:1px solid rgba(255,255,255,.06);
-  border-bottom:1px solid rgba(0,0,0,.25);
-  box-shadow:0 6px 18px rgba(0,0,0,.22);
+  border-radius:0 12px 12px 0;
+  border-top:1px solid rgba(255,255,255,.08);
+  border-bottom:1px solid rgba(0,0,0,.3);
+  box-shadow:0 8px 22px rgba(0,0,0,.26);
 }
 
 /* Right side glass event card */
-.cc-seasonal-side{display:grid;gap:10px;align-self:end}
+.cc-seasonal-side{display:grid;gap:12px;align-self:end}
 .cc-seasonal-event-card{
   position:relative;
-  padding:15px 16px;
-  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 48%,rgba(255,255,255,.12));
-  border-radius:14px;
-  background:linear-gradient(145deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,.015) 100%),rgba(3,10,24,.7);
-  backdrop-filter:blur(18px) saturate(180%);
-  -webkit-backdrop-filter:blur(18px) saturate(180%);
-  box-shadow:0 18px 42px -10px rgba(0,0,0,.55),inset 0 1px 1px 0 rgba(255,255,255,.2),0 0 24px -6px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,transparent);
+  padding:18px 20px;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 52%,rgba(255,255,255,.14));
+  border-radius:16px;
+  background:linear-gradient(145deg,rgba(255,255,255,.1) 0%,rgba(255,255,255,.02) 100%),rgba(3,10,24,.75);
+  backdrop-filter:blur(22px) saturate(190%);
+  -webkit-backdrop-filter:blur(22px) saturate(190%);
+  box-shadow:
+    0 22px 50px -12px rgba(0,0,0,.65),
+    inset 0 1px 1px 0 rgba(255,255,255,.25),
+    0 0 30px -8px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 26%,transparent);
   overflow:hidden;
 }
 .cc-seasonal-event-card:before{
@@ -306,52 +444,98 @@ export const seasonalThemeCss = String.raw`
   top:0;
   left:0;
   right:0;
-  height:1px;
-  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 60%,#fff),transparent);
+  height:1.5px;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 75%,#fff),transparent);
 }
 .cc-seasonal-event-head{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:10px;
+  gap:12px;
   color:#fff;
   font-weight:800;
-  font-size:12.5px;
+  font-size:13px;
   letter-spacing:-.01em;
 }
-.cc-seasonal-event-head span:first-child{display:flex;align-items:center;gap:8px}
-.cc-seasonal-symbol{font-size:20px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+.cc-seasonal-event-head span:first-child{display:flex;align-items:center;gap:9px}
+.cc-seasonal-symbol{font-size:22px;filter:drop-shadow(0 2px 8px rgba(0,0,0,.45))}
 
 /* Live countdown presentation */
-.cc-seasonal-countdown{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:11px}
+.cc-seasonal-countdown{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:13px}
 .cc-seasonal-countdown div{
-  padding:7px 5px;
-  border-radius:8px;
-  background:linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.02) 100%),rgba(2,6,18,.55);
-  border:1px solid rgba(255,255,255,.08);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 4px 10px rgba(0,0,0,.25);
+  padding:8px 6px;
+  border-radius:9px;
+  background:linear-gradient(180deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,.025) 100%),rgba(2,6,18,.62);
+  border:1px solid rgba(255,255,255,.1);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 4px 12px rgba(0,0,0,.3);
   text-align:center;
-  transition:border-color .2s ease;
+  transition:all .2s ease;
 }
-.cc-seasonal-countdown div:hover{border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,rgba(255,255,255,.1))}
+.cc-seasonal-countdown div:hover{
+  border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 55%,rgba(255,255,255,.2));
+  transform:translateY(-1px);
+}
 .cc-seasonal-countdown b{
   display:block;
   color:#ffffff;
-  font-size:19px;
+  font-size:20px;
   line-height:1.05;
   font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
-  font-weight:800;
+  font-weight:850;
   letter-spacing:-.02em;
-  text-shadow:0 0 12px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,transparent);
+  text-shadow:0 0 14px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent);
 }
 .cc-seasonal-countdown span{
   display:block;
   color:#94a3b8;
   margin-top:4px;
-  font-size:8.5px;
-  font-weight:750;
+  font-size:9px;
+  font-weight:800;
   text-transform:uppercase;
-  letter-spacing:.08em;
+  letter-spacing:.09em;
+}
+
+/* Seasonal status card when countdown is not active */
+.cc-seasonal-status-panel{
+  margin-top:12px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:rgba(2,6,18,.5);
+  border:1px solid rgba(255,255,255,.08);
+}
+.cc-seasonal-status-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.cc-seasonal-status-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  font-weight:750;
+  color:var(--cc-season-accent,#f7c96b);
+}
+.cc-status-pulse{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:currentColor;
+  box-shadow:0 0 8px currentColor;
+}
+.cc-seasonal-phase-label{
+  font-size:10px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  font-weight:700;
+}
+.cc-seasonal-status-desc{
+  margin-top:6px;
+  font-size:11.5px;
+  color:#cbd5e1;
+  line-height:1.45;
 }
 
 /* Theme chip badge */
@@ -373,42 +557,46 @@ export const seasonalThemeCss = String.raw`
 
 /* Settings card with clear operational controls */
 .cc-seasonal-settings{
-  padding:18px 20px;
-  border:1px solid var(--border);
+  padding:20px 22px;
+  border:1px solid color-mix(in srgb,var(--border) 85%,var(--cc-season-accent,#f7c96b));
   border-radius:var(--radius);
-  background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 96%,var(--cc-season-mid,#112c52) 4%),var(--surface));
+  background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 95%,var(--cc-season-mid,#112c52) 5%),var(--surface));
   box-shadow:var(--shadow);
-  transition:border-color .2s ease;
+  transition:border-color .22s ease;
 }
-.cc-seasonal-settings:hover{border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,var(--border))}
-.cc-seasonal-settings-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}
-.cc-seasonal-settings h3{margin:0;color:var(--text-strong);font-size:16px;font-weight:750;letter-spacing:-.015em}
-.cc-seasonal-settings p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
-.cc-seasonal-settings-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.cc-seasonal-settings:hover{border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,var(--border))}
+.cc-seasonal-settings-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.cc-seasonal-settings h3{margin:0;color:var(--text-strong);font-size:16.5px;font-weight:750;letter-spacing:-.015em}
+.cc-seasonal-settings p{margin:4px 0 0;color:var(--muted);font-size:12.5px;line-height:1.5}
+.cc-seasonal-settings-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .cc-seasonal-settings label{margin:0;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-.cc-seasonal-settings select{margin-top:6px;width:100%;font-size:12.5px;font-weight:600}
-.cc-theme-preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px}
+.cc-seasonal-settings select{margin-top:6px;width:100%;font-size:12.5px;font-weight:650}
+.cc-theme-preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin-top:16px}
 .cc-theme-preview button{
-  min-height:44px;
-  padding:8px 10px;
+  min-height:46px;
+  padding:8px 11px;
   justify-content:flex-start;
   background:var(--surface-soft);
   border:1px solid var(--border-soft);
   border-radius:var(--radius-sm);
-  font-size:11.5px;
+  font-size:12px;
   font-weight:650;
   transition:all .18s ease;
   cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
 }
 .cc-theme-preview button:hover{
   border-color:var(--cc-season-accent,#f7c96b);
   background:var(--surface-strong);
-  transform:translateY(-1px);
+  transform:translateY(-2px);
+  box-shadow:0 6px 16px rgba(0,0,0,.2);
 }
 .cc-theme-preview button.active{
   border-color:var(--cc-season-accent,#f7c96b);
-  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,var(--surface-soft));
-  box-shadow:0 0 16px -2px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 30%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent);
+  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,var(--surface-soft));
+  box-shadow:0 0 18px -2px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 32%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 50%,transparent);
   color:var(--cc-season-accent,#f7c96b);
   font-weight:800;
 }
@@ -421,14 +609,14 @@ body[data-cc-theme]{
 }
 body[data-cc-theme] .cc-layout{
   background:
-    radial-gradient(ellipse 900px 450px at 85% 0%,color-mix(in srgb,var(--cc-season-accent,#38bdf8) 8%,transparent),transparent 70%),
-    radial-gradient(ellipse 600px 300px at 15% 100%,color-mix(in srgb,var(--cc-season-deep,#07152c) 40%,transparent),transparent 70%),
+    radial-gradient(ellipse 1000px 500px at 85% 0%,color-mix(in srgb,var(--cc-season-accent,#38bdf8) 9%,transparent),transparent 72%),
+    radial-gradient(ellipse 700px 350px at 15% 100%,color-mix(in srgb,var(--cc-season-deep,#07152c) 42%,transparent),transparent 72%),
     var(--bg0);
   background-attachment:fixed;
 }
 body[data-cc-theme] .cc-sidebar{
-  background:color-mix(in srgb,var(--surface) 93%,var(--cc-season-deep,#07152c));
-  border-right-color:color-mix(in srgb,var(--cc-season-accent,#38bdf8) 18%,var(--border));
+  background:color-mix(in srgb,var(--surface) 92%,var(--cc-season-deep,#07152c));
+  border-right-color:color-mix(in srgb,var(--cc-season-accent,#38bdf8) 20%,var(--border));
 }
 body[data-cc-theme] .card,
 body[data-cc-theme] .metric,
@@ -437,7 +625,10 @@ body[data-cc-theme] .exec-summary-card{
   -webkit-backdrop-filter:blur(14px);
 }
 body[data-cc-theme] .cc-section-card{
-  background:color-mix(in srgb,var(--surface) 94%,var(--cc-season-deep,#07152c));
+  background:color-mix(in srgb,var(--surface) 93%,var(--cc-season-deep,#07152c));
+}
+body[data-cc-theme] .metric:hover{
+  border-color:color-mix(in srgb,var(--cc-season-accent,#38bdf8) 60%,var(--border));
 }
 
 /* Decoration density rules */
@@ -445,41 +636,54 @@ body[data-cc-decor="minimal"] .cc-seasonal-float,
 body[data-cc-decor="minimal"] .cc-seasonal-horizon,
 body[data-cc-decor="minimal"] .cc-seasonal-clouds,
 body[data-cc-decor="minimal"] .cc-seasonal-sparks,
-body[data-cc-decor="minimal"] .cc-seasonal-mist{display:none}
+body[data-cc-decor="minimal"] .cc-seasonal-mist,
+body[data-cc-decor="minimal"] .cc-seasonal-drum-motif{display:none}
+
 body[data-cc-decor="balanced"] .cc-seasonal-float.f3,
 body[data-cc-decor="balanced"] .cc-seasonal-float.f4,
-body[data-cc-decor="balanced"] .cc-seasonal-sparks{display:none}
+body[data-cc-decor="balanced"] .cc-spark.s3,
+body[data-cc-decor="balanced"] .cc-spark.s4{display:none}
 
 /* Motion accessibility */
 body[data-cc-motion="off"] .cc-seasonal-float,
 body[data-cc-motion="off"] .cc-seasonal-cloud,
 body[data-cc-motion="off"] .cc-spark,
+body[data-cc-motion="off"] .cc-seasonal-kicker-dot,
+body[data-cc-motion="off"] .cc-seasonal-drum-motif{animation:none!important}
+
 body[data-cc-motion="reduced"] .cc-seasonal-float,
 body[data-cc-motion="reduced"] .cc-seasonal-cloud,
-body[data-cc-motion="reduced"] .cc-spark{animation:none}
+body[data-cc-motion="reduced"] .cc-spark,
+body[data-cc-motion="reduced"] .cc-seasonal-drum-motif{animation-duration:0.01ms!important;animation-iteration-count:1!important}
+
 @media(prefers-reduced-motion:reduce){
-  .cc-seasonal-float,.cc-seasonal-cloud,.cc-spark{animation:none}
+  .cc-seasonal-float,.cc-seasonal-cloud,.cc-spark,.cc-seasonal-drum-motif,.cc-seasonal-kicker-dot{animation:none!important}
 }
 
 /* Responsive adjustments */
 @media(max-width:1080px){
   .cc-seasonal-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cc-theme-preview{grid-template-columns:repeat(5,minmax(0,1fr))}
 }
 @media(max-width:900px){
   .cc-seasonal-content{grid-template-columns:1fr;padding:24px}
-  .cc-seasonal-side{max-width:460px}
-  .cc-seasonal-orb{right:8%;opacity:.65}
+  .cc-seasonal-side{max-width:480px;width:100%}
+  .cc-seasonal-orb{right:8%;top:20px;opacity:.7}
+  .cc-seasonal-drum-motif{right:calc(8% - 90px);top:-80px;opacity:.2}
   .cc-theme-preview{grid-template-columns:repeat(3,minmax(0,1fr))}
   .cc-seasonal-settings-grid{grid-template-columns:1fr}
 }
 @media(max-width:620px){
-  .cc-seasonal-hero{min-height:330px}
-  .cc-seasonal-content{padding:20px;min-height:330px}
+  .cc-seasonal-hero{min-height:340px}
+  .cc-seasonal-content{padding:20px 16px;min-height:340px}
   .cc-seasonal-title{font-size:28px}
-  .cc-seasonal-orb{width:120px;height:120px;top:16px;right:-10px}
+  .cc-seasonal-subtitle{font-size:13px}
+  .cc-seasonal-orb{width:120px;height:120px;top:16px;right:-10px;opacity:.55}
+  .cc-seasonal-drum-motif{width:260px;height:260px;top:-60px;right:-50px;opacity:.15}
   .cc-theme-preview{grid-template-columns:1fr 1fr}
   .cc-seasonal-countdown b{font-size:16px}
   .cc-seasonal-quote{font-size:12px;padding:8px 12px}
+  .cc-seasonal-float.f2,.cc-seasonal-float.f3{display:none}
 }
 `;
 
@@ -579,20 +783,30 @@ function ccRemainingTime(target,now=new Date()){
  };
 }
 
-function ccCountdownHtml(days,target){
- if(days===null)return '';
+function ccCountdownHtml(days,target,copy){
+ const vi=typeof document!=='undefined'&&document.documentElement&&document.documentElement.lang==='vi';
+ if(days===null||!target){
+  return '<div class="cc-seasonal-status-panel">'+
+   '<div class="cc-seasonal-status-row">'+
+    '<span class="cc-seasonal-status-badge"><span class="cc-status-pulse"></span>'+(vi?'Mùa đang kích hoạt':'Active Season')+'</span>'+
+    '<span class="cc-seasonal-phase-label">'+(vi?'Không gian điều hành':'Console Ambiance')+'</span>'+
+   '</div>'+
+   '<div class="cc-seasonal-status-desc">'+(copy?copy.tag:'')+'</div>'+
+  '</div>';
+ }
  const rem=target?ccRemainingTime(target):null;
  const d=String(rem?rem.days:days).padStart(2,'0');
  const h=String(rem?rem.hours:0).padStart(2,'0');
  const m=String(rem?rem.minutes:0).padStart(2,'0');
  const s=String(rem?rem.seconds:0).padStart(2,'0');
- const vi=typeof document!=='undefined'&&document.documentElement&&document.documentElement.lang==='vi';
- return '<div class="cc-seasonal-countdown" id="ccSeasonalCountdown"'+(target?' data-target="'+ccYmdString(target)+'"':'')+'>'+
+ const isToday=rem&&rem.today;
+ return '<div class="cc-seasonal-countdown" id="ccSeasonalCountdown" data-target="'+ccYmdString(target)+'">'+
   '<div><b data-cd="d">'+d+'</b><span>'+(vi?'ngày':'days')+'</span></div>'+
   '<div><b data-cd="h">'+h+'</b><span>'+(vi?'giờ':'hours')+'</span></div>'+
   '<div><b data-cd="m">'+m+'</b><span>'+(vi?'phút':'minutes')+'</span></div>'+
   '<div><b data-cd="s">'+s+'</b><span>'+(vi?'giây':'seconds')+'</span></div>'+
- '</div>';
+ '</div>'+
+ (isToday?'<div class="cc-seasonal-status-panel" style="margin-top:8px"><div class="cc-seasonal-status-badge"><span class="cc-status-pulse"></span>'+(vi?'🎉 Đang diễn ra hôm nay!':'🎉 Celebrating today!')+'</div></div>':'');
 }
 
 function ccTickCountdown(){
@@ -632,13 +846,29 @@ function ccRenderSeasonalHero(){
  hero.className='cc-seasonal-hero cc-theme-'+resolved.id;
  const decor=theme.decor||[];
  const eventDays=ccThemeDays(resolved.target,resolved.parts);
+ const vi=document.documentElement.lang==='vi';
+ const modeBadge=resolved.mode==='manual'?(vi?'THỦ CÔNG':'MANUAL'):(theme.kind==='event'?(vi?'SỰ KIỆN':'EVENT'):(vi?'MÙA':'SEASON'));
  hero.innerHTML=
   '<div class="cc-seasonal-rail" aria-hidden="true"><span class="cc-seasonal-rail-diamond">❖</span></div>'+
   '<div class="cc-seasonal-sky">'+
-   '<div class="cc-seasonal-orb"><div class="cc-seasonal-orb-inner"></div></div>'+
+   '<svg class="cc-seasonal-drum-motif" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">'+
+    '<circle cx="100" cy="100" r="92" stroke-dasharray="2 3" opacity="0.45"/>'+
+    '<circle cx="100" cy="100" r="82" stroke-width="1" opacity="0.6"/>'+
+    '<circle cx="100" cy="100" r="70" stroke-dasharray="4 2" stroke-width="1.4" opacity="0.75"/>'+
+    '<circle cx="100" cy="100" r="54" stroke-width="1" opacity="0.6"/>'+
+    '<polygon points="100,68 103,90 122,78 111,94 131,92 114,103 128,118 109,112 114,131 99,115 88,131 91,111 72,119 86,104 69,92 89,94 78,78 97,90" fill="currentColor" fill-opacity="0.22" stroke="currentColor" stroke-width="1.2"/>'+
+    '<circle cx="100" cy="100" r="8" fill="currentColor" fill-opacity="0.6"/>'+
+   '</svg>'+
+   '<div class="cc-seasonal-orb"><div class="cc-seasonal-orb-inner"></div><div class="cc-seasonal-orb-ring"></div></div>'+
    '<div class="cc-seasonal-clouds" aria-hidden="true"><div class="cc-seasonal-cloud c1"></div><div class="cc-seasonal-cloud c2"></div></div>'+
    '<div class="cc-seasonal-sparks" aria-hidden="true"><span class="cc-spark s1"></span><span class="cc-spark s2"></span><span class="cc-spark s3"></span><span class="cc-spark s4"></span></div>'+
-   '<div class="cc-seasonal-horizon"></div>'+
+   '<div class="cc-seasonal-horizon" aria-hidden="true">'+
+    '<svg viewBox="0 0 1200 120" preserveAspectRatio="none" class="cc-horizon-svg">'+
+     '<path d="M0,120 L0,72 Q120,40 240,65 Q380,30 520,70 Q660,35 800,60 Q960,25 1100,55 Q1160,65 1200,60 L1200,120 Z" class="cc-horizon-distant"/>'+
+     '<path d="M0,120 L0,84 Q140,55 300,82 Q440,48 580,78 Q720,52 880,82 Q1020,50 1200,75 L1200,120 Z" class="cc-horizon-mid"/>'+
+     '<path d="M0,120 L0,96 Q160,82 340,98 Q500,80 680,95 Q860,78 1040,94 Q1140,88 1200,92 L1200,120 Z" class="cc-horizon-near"/>'+
+    '</svg>'+
+   '</div>'+
    '<div class="cc-seasonal-mist" aria-hidden="true"></div>'+
    decor.map((x,i)=>'<span class="cc-seasonal-float f'+(i+1)+'" aria-hidden="true">'+x+'</span>').join('')+
   '</div>'+
@@ -653,9 +883,9 @@ function ccRenderSeasonalHero(){
     '<div class="cc-seasonal-event-card">'+
      '<div class="cc-seasonal-event-head">'+
       '<span><span class="cc-seasonal-symbol">'+theme.symbol+'</span>'+copy.name+'</span>'+
-      '<span class="cc-theme-chip">'+(resolved.mode==='manual'?'MANUAL':(theme.kind==='event'?'EVENT':'SEASON'))+'</span>'+
+      '<span class="cc-theme-chip">'+modeBadge+'</span>'+
      '</div>'+
-     ccCountdownHtml(eventDays,resolved.target)+
+     ccCountdownHtml(eventDays,resolved.target,copy)+
     '</div>'+
    '</div>'+
   '</div>';

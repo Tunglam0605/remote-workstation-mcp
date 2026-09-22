@@ -35,6 +35,11 @@ test('seasonal theme assets are injected into Control Center HTML', () => {
   assert.match(html, /hung-kings/);
   assert.match(html, /national-day/);
   assert.ok(seasonalThemeCss.includes('prefers-reduced-motion'));
+  assert.ok(seasonalThemeCss.includes('cc-seasonal-drum-motif'));
+  assert.ok(seasonalThemeCss.includes('cc-horizon-svg'));
+  assert.ok(seasonalThemeCss.includes('cc-seasonal-status-panel'));
+  assert.ok(seasonalThemeScript.includes('cc-seasonal-orb-ring'));
+  assert.ok(seasonalThemeScript.includes("vi?'SỰ KIỆN':'EVENT'"));
 });
 
 test('event-first resolver activates Vietnamese event themes before seasonal fallback', () => {

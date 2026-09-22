@@ -1,56 +1,486 @@
 export const seasonalThemeCss = String.raw`
 /* Seasonal/event presentation layer. Core control IDs, APIs and security behavior remain authoritative. */
-.cc-seasonal-hero{position:relative;min-height:262px;margin:0 0 14px;border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 42%,var(--border));border-radius:18px;overflow:hidden;background:
-radial-gradient(circle at 62% 30%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 42%,transparent) 0 5%,transparent 17%),
-linear-gradient(115deg,color-mix(in srgb,var(--cc-season-deep,#07152c) 96%,transparent),color-mix(in srgb,var(--cc-season-mid,#112c52) 90%,transparent));
-box-shadow:0 18px 48px rgba(0,0,0,.28);isolation:isolate}
-.cc-seasonal-hero:before{content:"";position:absolute;inset:0;background:
-linear-gradient(90deg,rgba(2,6,23,.9) 0%,rgba(2,6,23,.55) 42%,rgba(2,6,23,.08) 72%,rgba(2,6,23,.45) 100%),
-radial-gradient(circle at 78% 36%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 20%,transparent),transparent 28%);z-index:-2}
-.cc-seasonal-hero:after{content:"";position:absolute;inset:auto -3% -42% 25%;height:78%;background:
-radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 20%,transparent),transparent 68%);filter:blur(14px);z-index:-1}
+
+/* Base hero container with cinematic depth and Vietnamese luxury styling */
+.cc-seasonal-hero{
+  position:relative;
+  min-height:268px;
+  margin:0 0 16px;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 38%,var(--border));
+  border-radius:18px;
+  overflow:hidden;
+  background:
+    radial-gradient(ellipse 75% 55% at 65% 25%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 28%,transparent) 0%,transparent 65%),
+    radial-gradient(ellipse 60% 50% at 15% 85%,color-mix(in srgb,var(--cc-season-mid,#112c52) 40%,transparent) 0%,transparent 70%),
+    linear-gradient(125deg,color-mix(in srgb,var(--cc-season-deep,#07152c) 98%,#020617) 0%,color-mix(in srgb,var(--cc-season-mid,#112c52) 90%,#020617) 60%,color-mix(in srgb,var(--cc-season-deep,#07152c) 96%,#020617) 100%);
+  box-shadow:0 24px 60px -12px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.05) inset,0 1px 0 0 color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent) inset;
+  isolation:isolate;
+}
+
+/* Atmospheric rim light and vignette */
+.cc-seasonal-hero:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(90deg,rgba(2,6,23,.92) 0%,rgba(2,6,23,.68) 38%,rgba(2,6,23,.12) 68%,rgba(2,6,23,.55) 100%),
+    radial-gradient(circle at 76% 32%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,transparent),transparent 36%);
+  z-index:-2;
+}
+
+.cc-seasonal-hero:after{
+  content:"";
+  position:absolute;
+  inset:auto -5% -40% 20%;
+  height:85%;
+  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 24%,transparent),transparent 68%);
+  filter:blur(20px);
+  z-index:-1;
+}
+
+/* Tasteful decorative Vietnamese architectural rail at the top */
+.cc-seasonal-rail{
+  position:absolute;
+  top:0;
+  left:0;
+  right:0;
+  height:2px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  pointer-events:none;
+  z-index:3;
+  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent) 15%,var(--cc-season-accent,#f7c96b) 50%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent) 85%,transparent 100%);
+}
+.cc-seasonal-rail-diamond{
+  display:inline-grid;
+  place-items:center;
+  width:13px;
+  height:13px;
+  border-radius:2.5px;
+  transform:rotate(45deg);
+  background:color-mix(in srgb,var(--cc-season-deep,#07152c) 92%,#000);
+  border:1px solid var(--cc-season-accent,#f7c96b);
+  color:var(--cc-season-accent,#f7c96b);
+  font-size:7px;
+  line-height:1;
+  box-shadow:0 0 10px var(--cc-season-accent,#f7c96b);
+}
+
+/* Sky layer: celestial orb, clouds, sparks, horizons */
 .cc-seasonal-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:-1}
-.cc-seasonal-orb{position:absolute;width:150px;height:150px;border-radius:50%;right:25%;top:18px;background:
-radial-gradient(circle at 38% 34%,#fff9d4 0 5%,var(--cc-season-accent,#f7c96b) 32%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 62%,transparent) 63%,transparent 70%);
-box-shadow:0 0 55px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 52%,transparent);opacity:.95}
-.cc-seasonal-horizon{position:absolute;left:28%;right:-2%;bottom:-6px;height:112px;background:
-linear-gradient(to top,color-mix(in srgb,var(--cc-season-deep,#07152c) 96%,transparent),transparent),
-radial-gradient(ellipse at 14% 100%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,transparent) 0 12%,transparent 13%),
-radial-gradient(ellipse at 35% 100%,rgba(1,8,20,.92) 0 24%,transparent 25%),
-radial-gradient(ellipse at 63% 100%,rgba(1,8,20,.96) 0 29%,transparent 30%),
-radial-gradient(ellipse at 88% 100%,rgba(1,8,20,.94) 0 34%,transparent 35%);opacity:.95}
-.cc-seasonal-float{position:absolute;font-size:22px;filter:drop-shadow(0 3px 8px rgba(0,0,0,.45));animation:cc-season-float 6s ease-in-out infinite}
-.cc-seasonal-float.f1{right:8%;top:28px}.cc-seasonal-float.f2{right:14%;top:94px;animation-delay:-2s}.cc-seasonal-float.f3{right:38%;top:32px;animation-delay:-4s}.cc-seasonal-float.f4{right:4%;bottom:22px;animation-delay:-1s}
-@keyframes cc-season-float{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-9px) rotate(3deg)}}
-.cc-seasonal-content{position:relative;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(260px,.65fr);gap:26px;min-height:262px;padding:28px 30px;align-items:end}
-.cc-seasonal-kicker{display:inline-flex;align-items:center;gap:8px;color:var(--cc-season-accent,#f7c96b);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
-.cc-seasonal-title{margin:0;color:#fff;font-size:clamp(28px,4vw,48px);line-height:1.02;letter-spacing:-.035em;text-shadow:0 2px 18px rgba(0,0,0,.45)}
-.cc-seasonal-subtitle{max-width:620px;margin:10px 0 0;color:#dbeafe;font-size:14px;line-height:1.55}
-.cc-seasonal-quote{margin-top:16px;display:inline-flex;max-width:560px;padding:8px 12px;border-left:2px solid var(--cc-season-accent,#f7c96b);background:rgba(3,10,26,.28);backdrop-filter:blur(10px);color:#f8fafc;font-size:12.5px;font-style:italic;border-radius:0 8px 8px 0}
+
+.cc-seasonal-orb{
+  position:absolute;
+  width:164px;
+  height:164px;
+  border-radius:50%;
+  right:24%;
+  top:18px;
+  background:radial-gradient(circle at 36% 34%,#ffffff 0%,#fff7dd 12%,var(--cc-season-accent,#f7c96b) 44%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 65%,var(--cc-season-mid,#112c52)) 72%,transparent 78%);
+  box-shadow:0 0 50px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 60%,transparent),0 0 100px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 30%,transparent),inset -10px -10px 24px rgba(0,0,0,.35);
+  opacity:.96;
+  transition:transform .4s ease;
+}
+.cc-seasonal-orb-inner{
+  position:absolute;
+  inset:-14px;
+  border-radius:50%;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,transparent);
+  opacity:.7;
+}
+
+/* Vietnamese stylized cloud motifs */
+.cc-seasonal-clouds{position:absolute;inset:0;pointer-events:none;z-index:-1}
+.cc-seasonal-cloud{
+  position:absolute;
+  border-radius:999px;
+  background:radial-gradient(ellipse at center,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,transparent),transparent 72%);
+  filter:blur(14px);
+  opacity:.75;
+}
+.cc-seasonal-cloud.c1{
+  width:290px;
+  height:65px;
+  right:16%;
+  top:55px;
+  animation:cc-season-drift 14s ease-in-out infinite alternate;
+}
+.cc-seasonal-cloud.c2{
+  width:380px;
+  height:75px;
+  right:4%;
+  bottom:35px;
+  animation:cc-season-drift 18s ease-in-out infinite alternate-reverse;
+}
+@keyframes cc-season-drift{
+  0%{transform:translateX(0) translateY(0)}
+  100%{transform:translateX(22px) translateY(-5px)}
+}
+
+/* Celebratory fireworks / sparks motifs */
+.cc-seasonal-sparks{position:absolute;inset:0;pointer-events:none;z-index:-1}
+.cc-spark{
+  position:absolute;
+  width:4px;
+  height:4px;
+  border-radius:50%;
+  background:#ffffff;
+  box-shadow:0 0 10px 2px var(--cc-season-accent,#ffd166),0 0 20px 4px color-mix(in srgb,var(--cc-season-accent,#ffd166) 55%,transparent);
+  animation:cc-season-sparkle 3.5s ease-in-out infinite;
+}
+.cc-spark.s1{right:28%;top:42px;animation-delay:0s}
+.cc-spark.s2{right:12%;top:26px;animation-delay:-1.2s}
+.cc-spark.s3{right:36%;top:115px;animation-delay:-2.4s}
+.cc-spark.s4{right:6%;top:130px;animation-delay:-0.8s}
+@keyframes cc-season-sparkle{
+  0%,100%{opacity:.18;transform:scale(.7)}
+  50%{opacity:1;transform:scale(1.35)}
+}
+
+/* Layered horizon silhouettes and atmospheric mist */
+.cc-seasonal-horizon{
+  position:absolute;
+  left:22%;
+  right:-3%;
+  bottom:-6px;
+  height:118px;
+  background:
+    linear-gradient(to top,color-mix(in srgb,var(--cc-season-deep,#07152c) 98%,transparent) 0%,transparent 100%),
+    radial-gradient(ellipse at 12% 100%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 20%,transparent) 0 14%,transparent 15%),
+    radial-gradient(ellipse at 34% 100%,rgba(1,8,22,.94) 0 26%,transparent 27%),
+    radial-gradient(ellipse at 62% 100%,rgba(1,8,22,.96) 0 32%,transparent 33%),
+    radial-gradient(ellipse at 88% 100%,rgba(1,8,22,.95) 0 36%,transparent 37%);
+  opacity:.96;
+}
+.cc-seasonal-mist{
+  position:absolute;
+  left:-5%;
+  right:-5%;
+  bottom:0;
+  height:85px;
+  background:radial-gradient(ellipse 65% 100% at 50% 100%,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 16%,transparent),transparent 75%);
+  pointer-events:none;
+  z-index:-1;
+}
+
+/* Floating cultural motifs with natural sway and luminous glow */
+.cc-seasonal-float{
+  position:absolute;
+  font-size:24px;
+  user-select:none;
+  pointer-events:none;
+  filter:drop-shadow(0 4px 12px rgba(0,0,0,.55)) drop-shadow(0 0 16px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent));
+  animation:cc-season-float 7s ease-in-out infinite;
+  z-index:1;
+}
+.cc-seasonal-float.f1{right:8%;top:26px;font-size:26px}
+.cc-seasonal-float.f2{right:15%;top:98px;font-size:22px;animation-delay:-2.2s}
+.cc-seasonal-float.f3{right:38%;top:34px;font-size:23px;animation-delay:-4.5s}
+.cc-seasonal-float.f4{right:4%;bottom:24px;font-size:20px;animation-delay:-1.2s}
+@keyframes cc-season-float{
+  0%,100%{transform:translateY(0) rotate(-3deg) scale(1)}
+  50%{transform:translateY(-11px) rotate(4deg) scale(1.04)}
+}
+
+/* Theme-specific motif variants */
+.cc-theme-mid-autumn .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffdf2 0%,#ffe89c 18%,#f5b041 52%,#b86918 80%,transparent 84%);
+  box-shadow:0 0 38px rgba(255,211,106,.58),0 0 95px rgba(255,180,50,.3),inset -8px -8px 20px rgba(70,30,0,.4);
+}
+.cc-theme-tet .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#ffd166 22%,#ea580c 58%,#b91c1c 82%,transparent 85%);
+  box-shadow:0 0 45px rgba(255,209,102,.62),0 0 105px rgba(239,68,68,.35);
+}
+.cc-theme-winter .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#e0f2fe 20%,#60a5fa 58%,#1e3a8a 82%,transparent 85%);
+  box-shadow:0 0 40px rgba(139,200,255,.5),0 0 90px rgba(96,165,250,.25);
+}
+.cc-theme-summer .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#cffafe 20%,#38bdf8 55%,#0369a1 82%,transparent 85%);
+  box-shadow:0 0 50px rgba(88,216,255,.55),0 0 110px rgba(56,189,248,.3);
+}
+.cc-theme-spring .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#ffffff 0%,#fce7f3 20%,#f472b6 55%,#be185d 82%,transparent 85%);
+  box-shadow:0 0 45px rgba(248,164,198,.55),0 0 100px rgba(244,114,182,.28);
+}
+.cc-theme-hung-kings .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffbeb 0%,#fde68a 22%,#d97706 58%,#78350f 82%,transparent 85%);
+  box-shadow:0 0 45px rgba(233,183,95,.55),0 0 100px rgba(180,83,9,.3);
+}
+.cc-theme-national-day .cc-seasonal-orb,.cc-theme-liberation-day .cc-seasonal-orb{
+  background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#fde047 22%,#ea580c 60%,#991b1b 82%,transparent 85%);
+  box-shadow:0 0 45px rgba(255,211,77,.6),0 0 100px rgba(220,38,38,.35);
+}
+
+/* Content grid */
+.cc-seasonal-content{
+  position:relative;
+  display:grid;
+  grid-template-columns:minmax(0,1.38fr) minmax(280px,.62fr);
+  gap:28px;
+  min-height:268px;
+  padding:30px 32px;
+  align-items:end;
+}
+
+/* Kicker pill */
+.cc-seasonal-kicker{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:4px 12px 4px 9px;
+  border-radius:999px;
+  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,rgba(3,10,26,.6));
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 36%,transparent);
+  color:var(--cc-season-accent,#f7c96b);
+  font-size:11.5px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  margin-bottom:10px;
+  backdrop-filter:blur(10px);
+  box-shadow:0 2px 10px rgba(0,0,0,.25);
+}
+.cc-seasonal-kicker-dot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:currentColor;
+  box-shadow:0 0 8px currentColor;
+}
+
+/* Cinematic typography */
+.cc-seasonal-title{
+  margin:0;
+  color:#ffffff;
+  font-size:clamp(30px,4.2vw,48px);
+  line-height:1.04;
+  letter-spacing:-.035em;
+  font-weight:800;
+  text-shadow:0 2px 22px rgba(0,0,0,.5),0 0 35px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent);
+}
+.cc-seasonal-subtitle{
+  max-width:620px;
+  margin:10px 0 0;
+  color:#e2e8f0;
+  font-size:14px;
+  line-height:1.6;
+  text-shadow:0 1px 8px rgba(0,0,0,.55);
+}
+.cc-seasonal-quote{
+  margin-top:16px;
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  max-width:580px;
+  padding:9px 15px;
+  border-left:3px solid var(--cc-season-accent,#f7c96b);
+  background:linear-gradient(90deg,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 12%,rgba(3,10,26,.65)),rgba(3,10,26,.4));
+  backdrop-filter:blur(14px);
+  color:#f8fafc;
+  font-size:13px;
+  font-style:italic;
+  border-radius:0 10px 10px 0;
+  border-top:1px solid rgba(255,255,255,.06);
+  border-bottom:1px solid rgba(0,0,0,.25);
+  box-shadow:0 6px 18px rgba(0,0,0,.22);
+}
+
+/* Right side glass event card */
 .cc-seasonal-side{display:grid;gap:10px;align-self:end}
-.cc-seasonal-event-card{padding:13px 14px;border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 50%,transparent);border-radius:12px;background:rgba(3,10,26,.58);backdrop-filter:blur(14px);box-shadow:0 10px 30px rgba(0,0,0,.22)}
-.cc-seasonal-event-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#fff;font-weight:800;font-size:12px}
-.cc-seasonal-event-head span:first-child{display:flex;align-items:center;gap:8px}.cc-seasonal-symbol{font-size:19px}
-.cc-seasonal-countdown{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:9px}
-.cc-seasonal-countdown div{padding:6px 4px;border-radius:7px;background:rgba(255,255,255,.055);text-align:center}.cc-seasonal-countdown b{display:block;color:#fff;font-size:18px;line-height:1}.cc-seasonal-countdown span{display:block;color:#aebfd6;margin-top:4px;font-size:8px;text-transform:uppercase;letter-spacing:.07em}
-.cc-theme-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,transparent);background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 10%,transparent);color:var(--cc-season-accent,#f7c96b);font-size:10px;font-weight:800}
-.cc-seasonal-settings{padding:16px 18px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow)}
-.cc-seasonal-settings-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px}.cc-seasonal-settings h3{margin:0;color:var(--text-strong);font-size:16px}.cc-seasonal-settings p{margin:4px 0 0;color:var(--muted);font-size:12px}
-.cc-seasonal-settings-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.cc-seasonal-settings label{margin:0}.cc-seasonal-settings select{margin-top:5px}
-.cc-theme-preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin-top:12px}.cc-theme-preview button{min-height:44px;padding:7px 8px;justify-content:flex-start;background:var(--surface-soft);font-size:11px}.cc-theme-preview button.active{border-color:var(--cc-season-accent,#f7c96b);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 25%,transparent);color:var(--cc-season-accent,#f7c96b)}
-body[data-cc-theme]{--accent:var(--cc-season-ui-accent,#10b981);--accent-strong:var(--cc-season-ui-accent-strong,#059669);--cyan:var(--cc-season-accent,#38bdf8)}
-body[data-cc-theme] .cc-layout{background:
-radial-gradient(circle at 84% 4%,color-mix(in srgb,var(--cc-season-accent,#38bdf8) 10%,transparent),transparent 24%),
-var(--bg0)}
-body[data-cc-theme] .cc-sidebar{background:color-mix(in srgb,var(--surface) 91%,var(--cc-season-deep,#07152c));border-right-color:color-mix(in srgb,var(--cc-season-accent,#38bdf8) 18%,var(--border))}
-body[data-cc-theme] .card,body[data-cc-theme] .metric,body[data-cc-theme] .exec-summary-card{backdrop-filter:blur(14px)}
-body[data-cc-theme] .cc-section-card{background:color-mix(in srgb,var(--surface) 94%,var(--cc-season-deep,#07152c))}
-body[data-cc-decor="minimal"] .cc-seasonal-float,body[data-cc-decor="minimal"] .cc-seasonal-horizon{display:none}
-body[data-cc-decor="balanced"] .cc-seasonal-float.f3,body[data-cc-decor="balanced"] .cc-seasonal-float.f4{display:none}
-body[data-cc-motion="off"] .cc-seasonal-float,body[data-cc-motion="reduced"] .cc-seasonal-float{animation:none}
-@media(prefers-reduced-motion:reduce){.cc-seasonal-float{animation:none}}
-@media(max-width:900px){.cc-seasonal-content{grid-template-columns:1fr;padding:24px}.cc-seasonal-side{max-width:460px}.cc-seasonal-orb{right:8%;opacity:.55}.cc-theme-preview{grid-template-columns:repeat(3,minmax(0,1fr))}.cc-seasonal-settings-grid{grid-template-columns:1fr}}
-@media(max-width:620px){.cc-seasonal-hero{min-height:320px}.cc-seasonal-content{padding:20px;min-height:320px}.cc-seasonal-title{font-size:30px}.cc-seasonal-orb{width:118px;height:118px;top:18px;right:-12px}.cc-theme-preview{grid-template-columns:1fr 1fr}.cc-seasonal-countdown b{font-size:15px}}
+.cc-seasonal-event-card{
+  position:relative;
+  padding:15px 16px;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 48%,rgba(255,255,255,.12));
+  border-radius:14px;
+  background:linear-gradient(145deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,.015) 100%),rgba(3,10,24,.7);
+  backdrop-filter:blur(18px) saturate(180%);
+  -webkit-backdrop-filter:blur(18px) saturate(180%);
+  box-shadow:0 18px 42px -10px rgba(0,0,0,.55),inset 0 1px 1px 0 rgba(255,255,255,.2),0 0 24px -6px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,transparent);
+  overflow:hidden;
+}
+.cc-seasonal-event-card:before{
+  content:"";
+  position:absolute;
+  top:0;
+  left:0;
+  right:0;
+  height:1px;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--cc-season-accent,#f7c96b) 60%,#fff),transparent);
+}
+.cc-seasonal-event-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  color:#fff;
+  font-weight:800;
+  font-size:12.5px;
+  letter-spacing:-.01em;
+}
+.cc-seasonal-event-head span:first-child{display:flex;align-items:center;gap:8px}
+.cc-seasonal-symbol{font-size:20px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+
+/* Live countdown presentation */
+.cc-seasonal-countdown{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:11px}
+.cc-seasonal-countdown div{
+  padding:7px 5px;
+  border-radius:8px;
+  background:linear-gradient(180deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,.02) 100%),rgba(2,6,18,.55);
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 4px 10px rgba(0,0,0,.25);
+  text-align:center;
+  transition:border-color .2s ease;
+}
+.cc-seasonal-countdown div:hover{border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,rgba(255,255,255,.1))}
+.cc-seasonal-countdown b{
+  display:block;
+  color:#ffffff;
+  font-size:19px;
+  line-height:1.05;
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-weight:800;
+  letter-spacing:-.02em;
+  text-shadow:0 0 12px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,transparent);
+}
+.cc-seasonal-countdown span{
+  display:block;
+  color:#94a3b8;
+  margin-top:4px;
+  font-size:8.5px;
+  font-weight:750;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+
+/* Theme chip badge */
+.cc-theme-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb,var(--cc-season-accent,#f7c96b) 40%,transparent);
+  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,transparent);
+  color:var(--cc-season-accent,#f7c96b);
+  font-size:10px;
+  font-weight:850;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  box-shadow:0 0 12px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 20%,transparent);
+}
+
+/* Settings card with clear operational controls */
+.cc-seasonal-settings{
+  padding:18px 20px;
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 96%,var(--cc-season-mid,#112c52) 4%),var(--surface));
+  box-shadow:var(--shadow);
+  transition:border-color .2s ease;
+}
+.cc-seasonal-settings:hover{border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 35%,var(--border))}
+.cc-seasonal-settings-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}
+.cc-seasonal-settings h3{margin:0;color:var(--text-strong);font-size:16px;font-weight:750;letter-spacing:-.015em}
+.cc-seasonal-settings p{margin:4px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+.cc-seasonal-settings-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.cc-seasonal-settings label{margin:0;font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.cc-seasonal-settings select{margin-top:6px;width:100%;font-size:12.5px;font-weight:600}
+.cc-theme-preview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px}
+.cc-theme-preview button{
+  min-height:44px;
+  padding:8px 10px;
+  justify-content:flex-start;
+  background:var(--surface-soft);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  font-size:11.5px;
+  font-weight:650;
+  transition:all .18s ease;
+  cursor:pointer;
+}
+.cc-theme-preview button:hover{
+  border-color:var(--cc-season-accent,#f7c96b);
+  background:var(--surface-strong);
+  transform:translateY(-1px);
+}
+.cc-theme-preview button.active{
+  border-color:var(--cc-season-accent,#f7c96b);
+  background:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,var(--surface-soft));
+  box-shadow:0 0 16px -2px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 30%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 45%,transparent);
+  color:var(--cc-season-accent,#f7c96b);
+  font-weight:800;
+}
+
+/* Global dashboard shell ambiance while keeping operational clarity */
+body[data-cc-theme]{
+  --accent:var(--cc-season-ui-accent,#10b981);
+  --accent-strong:var(--cc-season-ui-accent-strong,#059669);
+  --cyan:var(--cc-season-accent,#38bdf8);
+}
+body[data-cc-theme] .cc-layout{
+  background:
+    radial-gradient(ellipse 900px 450px at 85% 0%,color-mix(in srgb,var(--cc-season-accent,#38bdf8) 8%,transparent),transparent 70%),
+    radial-gradient(ellipse 600px 300px at 15% 100%,color-mix(in srgb,var(--cc-season-deep,#07152c) 40%,transparent),transparent 70%),
+    var(--bg0);
+  background-attachment:fixed;
+}
+body[data-cc-theme] .cc-sidebar{
+  background:color-mix(in srgb,var(--surface) 93%,var(--cc-season-deep,#07152c));
+  border-right-color:color-mix(in srgb,var(--cc-season-accent,#38bdf8) 18%,var(--border));
+}
+body[data-cc-theme] .card,
+body[data-cc-theme] .metric,
+body[data-cc-theme] .exec-summary-card{
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+}
+body[data-cc-theme] .cc-section-card{
+  background:color-mix(in srgb,var(--surface) 94%,var(--cc-season-deep,#07152c));
+}
+
+/* Decoration density rules */
+body[data-cc-decor="minimal"] .cc-seasonal-float,
+body[data-cc-decor="minimal"] .cc-seasonal-horizon,
+body[data-cc-decor="minimal"] .cc-seasonal-clouds,
+body[data-cc-decor="minimal"] .cc-seasonal-sparks,
+body[data-cc-decor="minimal"] .cc-seasonal-mist{display:none}
+body[data-cc-decor="balanced"] .cc-seasonal-float.f3,
+body[data-cc-decor="balanced"] .cc-seasonal-float.f4,
+body[data-cc-decor="balanced"] .cc-seasonal-sparks{display:none}
+
+/* Motion accessibility */
+body[data-cc-motion="off"] .cc-seasonal-float,
+body[data-cc-motion="off"] .cc-seasonal-cloud,
+body[data-cc-motion="off"] .cc-spark,
+body[data-cc-motion="reduced"] .cc-seasonal-float,
+body[data-cc-motion="reduced"] .cc-seasonal-cloud,
+body[data-cc-motion="reduced"] .cc-spark{animation:none}
+@media(prefers-reduced-motion:reduce){
+  .cc-seasonal-float,.cc-seasonal-cloud,.cc-spark{animation:none}
+}
+
+/* Responsive adjustments */
+@media(max-width:1080px){
+  .cc-seasonal-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:900px){
+  .cc-seasonal-content{grid-template-columns:1fr;padding:24px}
+  .cc-seasonal-side{max-width:460px}
+  .cc-seasonal-orb{right:8%;opacity:.65}
+  .cc-theme-preview{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cc-seasonal-settings-grid{grid-template-columns:1fr}
+}
+@media(max-width:620px){
+  .cc-seasonal-hero{min-height:330px}
+  .cc-seasonal-content{padding:20px;min-height:330px}
+  .cc-seasonal-title{font-size:28px}
+  .cc-seasonal-orb{width:120px;height:120px;top:16px;right:-10px}
+  .cc-theme-preview{grid-template-columns:1fr 1fr}
+  .cc-seasonal-countdown b{font-size:16px}
+  .cc-seasonal-quote{font-size:12px;padding:8px 12px}
+}
 `;
 
 export const seasonalThemeScript = String.raw`
@@ -131,44 +561,151 @@ function ccResolveTheme(now=new Date()){
  else if(mode==='event-first'&&event){id=event.id;target=event.target;}
  return {id,theme:CC_THEME_CATALOG[id]||CC_THEME_CATALOG.autumn,parts,event,target,mode};
 }
-function ccThemeCopy(theme){const vi=document.documentElement.lang==='vi';return {name:vi?theme.vi:theme.en,tag:vi?theme.tagVi:theme.tagEn,quote:vi?theme.quoteVi:theme.quoteEn};}
+function ccThemeCopy(theme){const vi=typeof document!=='undefined'&&document.documentElement&&document.documentElement.lang==='vi';return {name:vi?theme.vi:theme.en,tag:vi?theme.tagVi:theme.tagEn,quote:vi?theme.quoteVi:theme.quoteEn};}
 function ccThemeDays(target,parts){if(!target)return null;return Math.max(0,ccDaysFrom(parts,target));}
-function ccCountdownHtml(days){
- if(days===null)return '';
- const d=String(days).padStart(2,'0');
- return '<div class="cc-seasonal-countdown"><div><b>'+d+'</b><span>days</span></div><div><b>00</b><span>hours</span></div><div><b>00</b><span>minutes</span></div><div><b>00</b><span>seconds</span></div></div>';
+
+function ccRemainingTime(target,now=new Date()){
+ if(!target)return null;
+ const targetMs=Date.UTC(target.year,target.month-1,target.day)-7*3600000;
+ const diff=targetMs-now.getTime();
+ if(diff<=0)return {days:0,hours:0,minutes:0,seconds:0,today:true};
+ const totalSec=Math.floor(diff/1000);
+ return {
+  days:Math.floor(totalSec/86400),
+  hours:Math.floor((totalSec%86400)/3600),
+  minutes:Math.floor((totalSec%3600)/60),
+  seconds:totalSec%60,
+  today:false
+ };
 }
+
+function ccCountdownHtml(days,target){
+ if(days===null)return '';
+ const rem=target?ccRemainingTime(target):null;
+ const d=String(rem?rem.days:days).padStart(2,'0');
+ const h=String(rem?rem.hours:0).padStart(2,'0');
+ const m=String(rem?rem.minutes:0).padStart(2,'0');
+ const s=String(rem?rem.seconds:0).padStart(2,'0');
+ const vi=typeof document!=='undefined'&&document.documentElement&&document.documentElement.lang==='vi';
+ return '<div class="cc-seasonal-countdown" id="ccSeasonalCountdown"'+(target?' data-target="'+ccYmdString(target)+'"':'')+'>'+
+  '<div><b data-cd="d">'+d+'</b><span>'+(vi?'ngày':'days')+'</span></div>'+
+  '<div><b data-cd="h">'+h+'</b><span>'+(vi?'giờ':'hours')+'</span></div>'+
+  '<div><b data-cd="m">'+m+'</b><span>'+(vi?'phút':'minutes')+'</span></div>'+
+  '<div><b data-cd="s">'+s+'</b><span>'+(vi?'giây':'seconds')+'</span></div>'+
+ '</div>';
+}
+
+function ccTickCountdown(){
+ const root=typeof document!=='undefined'&&document.getElementById('ccSeasonalCountdown');
+ if(!root||!root.dataset.target)return;
+ const target=ccParseYmd(root.dataset.target);
+ const rem=ccRemainingTime(target);
+ if(!rem)return;
+ const d=root.querySelector('[data-cd="d"]');
+ const h=root.querySelector('[data-cd="h"]');
+ const m=root.querySelector('[data-cd="m"]');
+ const s=root.querySelector('[data-cd="s"]');
+ if(d)d.textContent=String(rem.days).padStart(2,'0');
+ if(h)h.textContent=String(rem.hours).padStart(2,'0');
+ if(m)m.textContent=String(rem.minutes).padStart(2,'0');
+ if(s)s.textContent=String(rem.seconds).padStart(2,'0');
+}
+
 function ccRenderSeasonalHero(){
- const resolved=ccResolveTheme(),theme=resolved.theme,copy=ccThemeCopy(theme),overview=document.querySelector('.cc-page[data-page="overview"] .cc-page-grid');if(!overview)return;
- document.body.dataset.ccTheme=resolved.id;document.body.dataset.ccMotion=ccReadSeasonSetting(CC_SEASON_MOTION_KEY,'reduced');document.body.dataset.ccDecor=ccReadSeasonSetting(CC_SEASON_DECOR_KEY,'balanced');
- document.body.style.setProperty('--cc-season-accent',theme.accent);document.body.style.setProperty('--cc-season-deep',theme.deep);document.body.style.setProperty('--cc-season-mid',theme.mid);document.body.style.setProperty('--cc-season-ui-accent',theme.ui);document.body.style.setProperty('--cc-season-ui-accent-strong',theme.uiStrong);
- let hero=document.getElementById('ccSeasonalHero');if(!hero){hero=document.createElement('section');hero.id='ccSeasonalHero';hero.className='cc-seasonal-hero';overview.insertBefore(hero,overview.firstChild);}
+ if(typeof document==='undefined')return;
+ const resolved=ccResolveTheme(),theme=resolved.theme,copy=ccThemeCopy(theme),overview=document.querySelector('.cc-page[data-page="overview"] .cc-page-grid');
+ if(!overview)return;
+ document.body.dataset.ccTheme=resolved.id;
+ document.body.dataset.ccMotion=ccReadSeasonSetting(CC_SEASON_MOTION_KEY,'reduced');
+ document.body.dataset.ccDecor=ccReadSeasonSetting(CC_SEASON_DECOR_KEY,'balanced');
+ document.body.style.setProperty('--cc-season-accent',theme.accent);
+ document.body.style.setProperty('--cc-season-deep',theme.deep);
+ document.body.style.setProperty('--cc-season-mid',theme.mid);
+ document.body.style.setProperty('--cc-season-ui-accent',theme.ui);
+ document.body.style.setProperty('--cc-season-ui-accent-strong',theme.uiStrong);
+ let hero=document.getElementById('ccSeasonalHero');
+ if(!hero){
+  hero=document.createElement('section');
+  hero.id='ccSeasonalHero';
+  overview.insertBefore(hero,overview.firstChild);
+ }
+ hero.className='cc-seasonal-hero cc-theme-'+resolved.id;
  const decor=theme.decor||[];
  const eventDays=ccThemeDays(resolved.target,resolved.parts);
- hero.innerHTML='<div class="cc-seasonal-sky"><div class="cc-seasonal-orb"></div><div class="cc-seasonal-horizon"></div>'+
- decor.map((x,i)=>'<span class="cc-seasonal-float f'+(i+1)+'">'+x+'</span>').join('')+
- '</div><div class="cc-seasonal-content"><div><div class="cc-seasonal-kicker"><span>'+theme.symbol+'</span><span>'+copy.name+'</span></div><h1 class="cc-seasonal-title">'+copy.name+'</h1><p class="cc-seasonal-subtitle">'+copy.tag+'</p><div class="cc-seasonal-quote">“'+copy.quote+'”</div></div><div class="cc-seasonal-side"><div class="cc-seasonal-event-card"><div class="cc-seasonal-event-head"><span><span class="cc-seasonal-symbol">'+theme.symbol+'</span>'+copy.name+'</span><span class="cc-theme-chip">'+(resolved.mode==='manual'?'MANUAL':(theme.kind==='event'?'EVENT':'SEASON'))+'</span></div>'+ccCountdownHtml(eventDays)+'</div></div></div>';
+ hero.innerHTML=
+  '<div class="cc-seasonal-rail" aria-hidden="true"><span class="cc-seasonal-rail-diamond">❖</span></div>'+
+  '<div class="cc-seasonal-sky">'+
+   '<div class="cc-seasonal-orb"><div class="cc-seasonal-orb-inner"></div></div>'+
+   '<div class="cc-seasonal-clouds" aria-hidden="true"><div class="cc-seasonal-cloud c1"></div><div class="cc-seasonal-cloud c2"></div></div>'+
+   '<div class="cc-seasonal-sparks" aria-hidden="true"><span class="cc-spark s1"></span><span class="cc-spark s2"></span><span class="cc-spark s3"></span><span class="cc-spark s4"></span></div>'+
+   '<div class="cc-seasonal-horizon"></div>'+
+   '<div class="cc-seasonal-mist" aria-hidden="true"></div>'+
+   decor.map((x,i)=>'<span class="cc-seasonal-float f'+(i+1)+'" aria-hidden="true">'+x+'</span>').join('')+
+  '</div>'+
+  '<div class="cc-seasonal-content">'+
+   '<div>'+
+    '<div class="cc-seasonal-kicker"><span class="cc-seasonal-kicker-dot"></span><span>'+theme.symbol+'</span><span>'+copy.name+'</span></div>'+
+    '<h1 class="cc-seasonal-title">'+copy.name+'</h1>'+
+    '<p class="cc-seasonal-subtitle">'+copy.tag+'</p>'+
+    '<div class="cc-seasonal-quote">“'+copy.quote+'”</div>'+
+   '</div>'+
+   '<div class="cc-seasonal-side">'+
+    '<div class="cc-seasonal-event-card">'+
+     '<div class="cc-seasonal-event-head">'+
+      '<span><span class="cc-seasonal-symbol">'+theme.symbol+'</span>'+copy.name+'</span>'+
+      '<span class="cc-theme-chip">'+(resolved.mode==='manual'?'MANUAL':(theme.kind==='event'?'EVENT':'SEASON'))+'</span>'+
+     '</div>'+
+     ccCountdownHtml(eventDays,resolved.target)+
+    '</div>'+
+   '</div>'+
+  '</div>';
 }
+
 function ccThemeOptions(){
  const groups=[['Season',['spring','summer','autumn','winter']],['Vietnam events',['tet','mid-autumn','hung-kings','liberation-day','labour-day','national-day','womens-day','children-day','family-day','vietnam-women','teachers-day','culture-day']]];
  return groups.map(g=>'<optgroup label="'+g[0]+'">'+g[1].map(id=>'<option value="'+id+'">'+CC_THEME_CATALOG[id].symbol+' '+CC_THEME_CATALOG[id].vi+' / '+CC_THEME_CATALOG[id].en+'</option>').join('')+'</optgroup>').join('');
 }
+
 function ccRenderSeasonalSettings(){
- const grid=document.querySelector('.cc-page[data-page="settings"] .cc-page-grid');if(!grid)return;
- let card=document.getElementById('ccSeasonalSettings');if(!card){card=document.createElement('section');card.id='ccSeasonalSettings';card.className='cc-seasonal-settings';grid.insertBefore(card,grid.firstChild);}
+ if(typeof document==='undefined')return;
+ const grid=document.querySelector('.cc-page[data-page="settings"] .cc-page-grid');
+ if(!grid)return;
+ let card=document.getElementById('ccSeasonalSettings');
+ if(!card){
+  card=document.createElement('section');
+  card.id='ccSeasonalSettings';
+  card.className='cc-seasonal-settings';
+  grid.insertBefore(card,grid.firstChild);
+ }
+ const resolved=ccResolveTheme();
  const mode=ccReadSeasonSetting(CC_SEASON_MODE_KEY,'event-first'),manual=ccReadSeasonSetting(CC_SEASON_THEME_KEY,'mid-autumn'),motion=ccReadSeasonSetting(CC_SEASON_MOTION_KEY,'reduced'),decor=ccReadSeasonSetting(CC_SEASON_DECOR_KEY,'balanced');
  const vi=document.documentElement.lang==='vi';
- card.innerHTML='<div class="cc-seasonal-settings-head"><div><h3>'+(vi?'Giao diện theo mùa & sự kiện':'Seasonal & event appearance')+'</h3><p>'+(vi?'Ưu tiên sự kiện Việt Nam, sau đó tự trở về Xuân · Hạ · Thu · Đông.':'Vietnam events take priority, then fall back to Spring · Summer · Autumn · Winter.')+'</p></div><span class="cc-theme-chip">'+(CC_THEME_CATALOG[ccResolveTheme().id].symbol)+' '+ccResolveTheme().id+'</span></div>'+
- '<div class="cc-seasonal-settings-grid"><label>'+(vi?'Chế độ':'Mode')+'<select id="ccSeasonMode"><option value="event-first">Event first</option><option value="seasonal">Seasonal only</option><option value="manual">Manual</option></select></label><label>'+(vi?'Chủ đề thủ công':'Manual theme')+'<select id="ccSeasonManual">'+ccThemeOptions()+'</select></label><label>'+(vi?'Chuyển động':'Motion')+'<select id="ccSeasonMotion"><option value="reduced">Reduced</option><option value="full">Full</option><option value="off">Off</option></select></label><label>'+(vi?'Mật độ trang trí':'Decoration density')+'<select id="ccSeasonDecor"><option value="balanced">Balanced</option><option value="rich">Rich</option><option value="minimal">Minimal</option></select></label></div>'+
- '<div class="cc-theme-preview">'+['spring','summer','autumn','winter','tet','mid-autumn','hung-kings','liberation-day','labour-day','national-day'].map(id=>'<button type="button" data-cc-preview="'+id+'">'+CC_THEME_CATALOG[id].symbol+' '+(vi?CC_THEME_CATALOG[id].vi:CC_THEME_CATALOG[id].en)+'</button>').join('')+'</div>';
- const m=document.getElementById('ccSeasonMode'),t=document.getElementById('ccSeasonManual'),mo=document.getElementById('ccSeasonMotion'),de=document.getElementById('ccSeasonDecor');m.value=mode;t.value=manual;mo.value=motion;de.value=decor;
- const refresh=()=>{ccRenderSeasonalHero();ccRenderSeasonalSettings();};
- m.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_MODE_KEY,m.value);refresh();};t.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_THEME_KEY,t.value);if(m.value!=='manual'){ccWriteSeasonSetting(CC_SEASON_MODE_KEY,'manual');}refresh();};mo.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_MOTION_KEY,mo.value);refresh();};de.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_DECOR_KEY,de.value);refresh();};
- card.querySelectorAll('[data-cc-preview]').forEach(btn=>btn.onclick=()=>{ccWriteSeasonSetting(CC_SEASON_THEME_KEY,btn.dataset.ccPreview);ccWriteSeasonSetting(CC_SEASON_MODE_KEY,'manual');refresh();});
+ card.innerHTML='<div class="cc-seasonal-settings-head"><div><h3>'+(vi?'Giao diện theo mùa & sự kiện':'Seasonal & event appearance')+'</h3><p>'+(vi?'Ưu tiên sự kiện Việt Nam, sau đó tự trở về Xuân · Hạ · Thu · Đông.':'Vietnam events take priority, then fall back to Spring · Summer · Autumn · Winter.')+'</p></div><span class="cc-theme-chip">'+(CC_THEME_CATALOG[resolved.id]?CC_THEME_CATALOG[resolved.id].symbol:'🌸')+' '+resolved.id+'</span></div>'+
+ '<div class="cc-seasonal-settings-grid">'+
+  '<label>'+(vi?'Chế độ':'Mode')+'<select id="ccSeasonMode"><option value="event-first">'+(vi?'Ưu tiên sự kiện':'Event first')+'</option><option value="seasonal">'+(vi?'Chỉ theo 4 mùa':'Seasonal only')+'</option><option value="manual">'+(vi?'Thủ công':'Manual')+'</option></select></label>'+
+  '<label>'+(vi?'Chủ đề thủ công':'Manual theme')+'<select id="ccSeasonManual">'+ccThemeOptions()+'</select></label>'+
+  '<label>'+(vi?'Chuyển động':'Motion')+'<select id="ccSeasonMotion"><option value="reduced">'+(vi?'Giảm bớt':'Reduced')+'</option><option value="full">'+(vi?'Đầy đủ':'Full')+'</option><option value="off">'+(vi?'Tắt':'Off')+'</option></select></label>'+
+  '<label>'+(vi?'Mật độ trang trí':'Decoration density')+'<select id="ccSeasonDecor"><option value="balanced">'+(vi?'Cân bằng':'Balanced')+'</option><option value="rich">'+(vi?'Phong phú':'Rich')+'</option><option value="minimal">'+(vi?'Tối giản':'Minimal')+'</option></select></label>'+
+ '</div>'+
+ '<div class="cc-theme-preview">'+['spring','summer','autumn','winter','tet','mid-autumn','hung-kings','liberation-day','labour-day','national-day'].map(id=>'<button type="button" data-cc-preview="'+id+'" class="'+(id===resolved.id?'active':'')+'">'+CC_THEME_CATALOG[id].symbol+' '+(vi?CC_THEME_CATALOG[id].vi:CC_THEME_CATALOG[id].en)+'</button>').join('')+'</div>';
+ const m=document.getElementById('ccSeasonMode'),t=document.getElementById('ccSeasonManual'),mo=document.getElementById('ccSeasonMotion'),de=document.getElementById('ccSeasonDecor');
+ if(m&&t&&mo&&de){
+  m.value=mode;t.value=manual;mo.value=motion;de.value=decor;
+  const refresh=()=>{ccRenderSeasonalHero();ccRenderSeasonalSettings();};
+  m.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_MODE_KEY,m.value);refresh();};
+  t.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_THEME_KEY,t.value);if(m.value!=='manual'){ccWriteSeasonSetting(CC_SEASON_MODE_KEY,'manual');}refresh();};
+  mo.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_MOTION_KEY,mo.value);refresh();};
+  de.onchange=()=>{ccWriteSeasonSetting(CC_SEASON_DECOR_KEY,de.value);refresh();};
+  card.querySelectorAll('[data-cc-preview]').forEach(btn=>btn.onclick=()=>{ccWriteSeasonSetting(CC_SEASON_THEME_KEY,btn.dataset.ccPreview);ccWriteSeasonSetting(CC_SEASON_MODE_KEY,'manual');refresh();});
+ }
 }
+
 function initSeasonalThemeSystem(){
+ if(typeof document==='undefined')return;
  ccRenderSeasonalHero();ccRenderSeasonalSettings();
- const obs=new MutationObserver(muts=>{if(muts.some(m=>m.type==='attributes'&&m.attributeName==='lang')){ccRenderSeasonalHero();ccRenderSeasonalSettings();}});obs.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+ const obs=new MutationObserver(muts=>{if(muts.some(m=>m.type==='attributes'&&m.attributeName==='lang')){ccRenderSeasonalHero();ccRenderSeasonalSettings();}});
+ obs.observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
  setInterval(()=>ccRenderSeasonalHero(),60000);
+ setInterval(ccTickCountdown,1000);
 }
 `;

@@ -1,4 +1,5 @@
 import { SERVER_VERSION } from '../capabilities.js';
+import { seasonalThemeCss, seasonalThemeScript } from './seasonal-theme.js';
 
 export function setupHtml(token: string): string {
   return `<!doctype html>
@@ -100,6 +101,7 @@ export function setupHtml(token: string): string {
   .exec-summary-grid{grid-template-columns:1fr 1fr}
   .broker-account-grid{grid-template-columns:1fr}
 }
+${seasonalThemeCss}
 </style>
 </head>
 <body>
@@ -549,7 +551,8 @@ $('clearKey').onclick=async()=>{try{await api('/api/runtime-key',{method:'DELETE
 $('copyTunnel').onclick=async()=>{const v=$('tunnel').value.trim();if(!v)return;$('quickMessage').textContent=t('tunnelCopied');await navigator.clipboard.writeText(v);};
 $('langEn').onclick=()=>applyLanguage('en');$('langVi').onclick=()=>applyLanguage('vi');$('themeToggle').onclick=()=>applyTheme(currentTheme==='dark'?'light':'dark');$('notificationToggle').onclick=event=>{event.stopPropagation();toggleNotifications();};$('notificationPanel').onclick=event=>event.stopPropagation();document.addEventListener('click',()=>toggleNotifications(false));$('openSetup').onclick=()=>setControlCenterPage('settings');$('closeSetup').onclick=()=>setControlCenterPage('overview');$('confirmFullAccess').onclick=()=>finishFullAccessDecision(true);$('cancelFullAccess').onclick=()=>finishFullAccessDecision(false);$('closeFullAccessConfirm').onclick=()=>finishFullAccessDecision(false);$('fullAccessConfirmModal').addEventListener('cancel',event=>{event.preventDefault();finishFullAccessDecision(false);});installBackdropClose('setupModal');
 $('bootstrapConnect').onclick=bootstrapConnection;$('bootstrapKey').addEventListener('keydown',event=>{if(event.key==='Enter')bootstrapConnection();});$('testConnection').onclick=testConnection;$('saveReconnect').onclick=saveAndReconnect;$('createPairingCode').onclick=createPairCode;$('pairSelectedHost').onclick=pairSelectedHost;$('refreshDevices').onclick=refreshDevices;$('startOpenAI').onclick=()=>runtimeAction('Start');$('restart').onclick=()=>runtimeAction('Restart');$('stop').onclick=()=>runtimeAction('Stop');$('autostartOn').onclick=()=>runtimeAction('RegisterStartup');$('autostartOff').onclick=()=>runtimeAction('UnregisterStartup');$('refreshRuntime').onclick=refreshRuntime;$('accessMode').onchange=()=>setPermissionMode($('accessMode').value);$('autoUpdate').onchange=()=>setAutoUpdate($('autoUpdate').checked);$('checkUpdate').onclick=checkForUpdates;$('installUpdate').onclick=installAvailableUpdate;$('toggleMultiNode').onclick=toggleMultiNodeEnabled;$('refreshMultiNode').onclick=refreshMultiNode;$('saveMultiNodeGrant').onclick=saveMultiNodeGrant;$('saveExecutionPolicy').onclick=saveExecutionPolicy;$('resetCodexFallback').onclick=resetCodexFallback;$('clearChatOverrides').onclick=clearChatOverrides;
-buildControlCenterLayout();applyTheme(currentTheme,false);applyLanguage(currentLanguage,false);refresh();refreshRuntime();refreshPermissions();refreshUpdate();refreshDevices();refreshMultiNode();refreshExecutionPolicy();refreshAdminRequests();setInterval(refreshAdminRequests,2000);
+${seasonalThemeScript}
+buildControlCenterLayout();initSeasonalThemeSystem();applyTheme(currentTheme,false);applyLanguage(currentLanguage,false);refresh();refreshRuntime();refreshPermissions();refreshUpdate();refreshDevices();refreshMultiNode();refreshExecutionPolicy();refreshAdminRequests();setInterval(refreshAdminRequests,2000);
 </script>
 </body></html>`;
 }

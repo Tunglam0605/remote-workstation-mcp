@@ -76,8 +76,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="notificationPanel"/);
     assert.match(pageText, /id="notificationList"/);
     assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.30\.0/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.30\.0/);
+    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.31\.0/);
+    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.31\.0/);
     assert.match(pageText, /function executionModeLabel\(mode\)/);
     assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
     assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);
@@ -116,6 +116,15 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     const signature = await fetch(`${base}/assets/brand/logo-background.png`);
     assert.equal(signature.status, 200);
     assert.equal(signature.headers.get('content-type'), 'image/png');
+    const artworkThemes = ['spring','summer','autumn','winter','tet','mid-autumn','hung-kings','liberation-day','labour-day','national-day'];
+    for (const themeId of artworkThemes) {
+      for (const assetName of ['hero.webp','rail-left.webp','rail-right.webp']) {
+        const asset = await fetch(`${base}/assets/themes/${themeId}/${assetName}`);
+        assert.equal(asset.status, 200, `${themeId}/${assetName} should be served`);
+        assert.equal(asset.headers.get('content-type'), 'image/webp');
+        assert.ok((await asset.arrayBuffer()).byteLength > 1_000);
+      }
+    }
     const tokenMatch = pageText.match(/const token = ("[^"]+");/);
     assert.ok(tokenMatch, 'Control Center page should embed an ephemeral CSRF token.');
     const token = JSON.parse(tokenMatch[1]!) as string;

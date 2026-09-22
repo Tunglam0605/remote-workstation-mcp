@@ -234,15 +234,79 @@ export const seasonalThemeCss = String.raw`
   50%{transform:translateY(-12px) rotate(5deg) scale(1.06)}
 }
 
-/* Theme-specific motif variants */
-/* Mid-Autumn */
-.cc-theme-mid-autumn .cc-seasonal-orb{
-  background:radial-gradient(circle at 35% 32%,#fffdf4 0%,#ffeaa8 18%,#f5b041 52%,#a85a12 78%,transparent 84%);
-  box-shadow:0 0 48px rgba(255,211,106,.68),0 0 115px rgba(245,176,65,.35),inset -10px -10px 22px rgba(80,35,0,.45);
+/* Artwork-backed presentation shared by approved seasonal/event themes. */
+.cc-theme-artwork{
+  min-height:318px;
+  background-image:
+    linear-gradient(90deg,rgba(2,8,23,.58) 0%,rgba(2,8,23,.18) 31%,rgba(2,8,23,.02) 66%,rgba(2,8,23,.18) 100%),
+    linear-gradient(180deg,rgba(2,6,23,.01) 0%,rgba(2,6,23,.03) 58%,rgba(2,6,23,.60) 100%),
+    var(--cc-season-artwork);
+  background-size:cover;
+  background-position:center center;
+  border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 62%,transparent);
+  box-shadow:0 30px 82px -18px rgba(0,0,0,.82),0 0 0 1px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 18%,transparent) inset,0 0 48px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 14%,transparent);
 }
-.cc-theme-mid-autumn .cc-seasonal-drum-motif{color:#ffd36a;opacity:.3}
+.cc-theme-artwork:before{background:linear-gradient(90deg,rgba(2,6,23,.42) 0%,rgba(2,6,23,.16) 30%,rgba(2,6,23,.01) 67%,rgba(2,6,23,.14) 100%)}
+.cc-theme-artwork:after{background:linear-gradient(180deg,transparent 44%,rgba(2,6,23,.68) 100%);filter:none;height:100%;inset:0;z-index:-1}
+.cc-theme-artwork .cc-seasonal-sky{opacity:.08}
+.cc-theme-artwork .cc-seasonal-content{min-height:318px;padding:28px 28px 24px;align-items:end;grid-template-columns:minmax(0,1fr) minmax(300px,360px)}
+.cc-theme-artwork .cc-seasonal-content>div:first-child{opacity:0;pointer-events:none;user-select:none}
+.cc-theme-artwork .cc-seasonal-side{align-self:end;justify-self:end;width:min(360px,100%)}
+.cc-theme-artwork .cc-seasonal-event-head{color:#fff8e6;text-shadow:0 2px 14px rgba(0,0,0,.72)}
+.cc-theme-artwork .cc-seasonal-countdown{color:#fff}
+.cc-theme-artwork .cc-seasonal-countdown b{color:#fff6cf;text-shadow:0 0 18px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 28%,transparent)}
+.cc-theme-artwork .cc-seasonal-event-card{
+  background:linear-gradient(145deg,rgba(3,11,30,.90),rgba(7,25,52,.78));
+  backdrop-filter:blur(18px) saturate(155%);
+  -webkit-backdrop-filter:blur(18px) saturate(155%);
+  border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 68%,transparent);
+  box-shadow:0 18px 45px rgba(0,0,0,.48),0 0 34px color-mix(in srgb,var(--cc-season-accent,#f7c96b) 13%,transparent),inset 0 1px rgba(255,255,255,.16);
+}
+body[data-cc-artwork='1'] .cc-page[data-page='overview']{position:relative;background-image:linear-gradient(90deg,transparent 72%,rgba(2,8,23,.42)),var(--cc-season-rail-right);background-repeat:no-repeat;background-position:center,right bottom;background-size:auto,210px auto}
+body[data-cc-artwork='1'] .cc-page[data-page='overview'] .cc-page-grid:before{
+  content:'';position:fixed;inset:58px 0 0 220px;pointer-events:none;z-index:-1;opacity:.16;
+  background:var(--cc-season-artwork) center top/cover fixed no-repeat;
+  filter:saturate(1.16) contrast(1.04);
+}
+body[data-cc-artwork='1'] .card,
+body[data-cc-artwork='1'] .metric,
+body[data-cc-artwork='1'] .exec-summary-card{
+  background:linear-gradient(145deg,rgba(5,17,38,.91),rgba(4,13,30,.84));
+  backdrop-filter:blur(16px) saturate(145%);
+  -webkit-backdrop-filter:blur(16px) saturate(145%);
+  border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 20%,var(--border));
+  box-shadow:0 12px 30px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.035);
+}
+body[data-cc-artwork='1'] .cc-sidebar{
+  background-image:linear-gradient(180deg,rgba(3,12,28,.97) 0%,rgba(3,13,30,.91) 45%,rgba(3,13,30,.54) 100%),var(--cc-season-rail-left);
+  background-repeat:no-repeat;
+  background-position:center,center bottom;
+  background-size:auto,100% auto;
+  border-right-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 22%,var(--border));
+  box-shadow:18px 0 55px rgba(0,0,0,.20);
+}
+body[data-cc-artwork='1'] .cc-workspace>.topbar{
+  background:rgba(3,11,27,.84);
+  border-bottom-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 18%,var(--border));
+  backdrop-filter:blur(18px) saturate(150%);
+  -webkit-backdrop-filter:blur(18px) saturate(150%);
+}
+@media(max-width:900px){
+  .cc-theme-artwork{min-height:260px;background-position:center center}
+  .cc-theme-artwork .cc-seasonal-content{min-height:260px;padding:18px;grid-template-columns:1fr}
+  .cc-theme-artwork .cc-seasonal-content>div:first-child{display:none}
+  .cc-theme-artwork .cc-seasonal-side{width:min(420px,100%);justify-self:end}
+  body[data-cc-artwork='1'] .cc-page[data-page='overview']{background-image:none}
+  body[data-cc-artwork='1'] .cc-page[data-page='overview'] .cc-page-grid:before{inset:50px 0 0 0;opacity:.10}
+  body[data-cc-artwork='1'] .cc-sidebar{background-image:linear-gradient(180deg,rgba(3,12,28,.98),rgba(3,13,30,.96))}
+}
+@media(max-width:620px){
+  .cc-theme-artwork{min-height:230px}
+  .cc-theme-artwork .cc-seasonal-content{min-height:230px;padding:14px}
+  .cc-theme-artwork .cc-seasonal-event-card{padding:12px 14px}
+}
 
-/* Tết Nguyên Đán */
+/* Theme-specific tone refinements remain below. */
 .cc-theme-tet .cc-seasonal-orb{
   background:radial-gradient(circle at 35% 32%,#fffbe6 0%,#ffd166 22%,#ea580c 58%,#b91c1c 82%,transparent 85%);
   box-shadow:0 0 54px rgba(255,209,102,.7),0 0 125px rgba(220,38,38,.42),inset -10px -10px 24px rgba(80,10,15,.5);
@@ -712,6 +776,8 @@ const CC_THEME_CATALOG={
  'culture-day':{kind:'event',symbol:'🎭',vi:'Ngày Văn hóa Việt Nam 24/11',en:'Vietnam Culture Day',tagVi:'Bản sắc Việt · Sáng tạo mới',tagEn:'Vietnamese identity. New creativity.',quoteVi:'Giữ bản sắc để đi xa hơn trong một thế giới luôn đổi mới.',quoteEn:'Rooted in identity, ready for what comes next.',accent:'#e8b866',deep:'#1a0e13',mid:'#57222d',ui:'#d97706',uiStrong:'#92400e',decor:['🎭','🥁','☁️','🏮']}
 };
 
+const CC_ARTWORK_THEME_IDS=new Set(['spring','summer','autumn','winter','tet','mid-autumn','hung-kings','liberation-day','labour-day','national-day']);
+
 const CC_LUNAR_EVENT_DATES={
  2026:{tet:'2026-02-17','hung-kings':'2026-04-26','mid-autumn':'2026-09-25'},
  2027:{tet:'2027-02-06','hung-kings':'2027-04-16','mid-autumn':'2027-09-15'},
@@ -827,9 +893,20 @@ function ccTickCountdown(){
 
 function ccRenderSeasonalHero(){
  if(typeof document==='undefined')return;
- const resolved=ccResolveTheme(),theme=resolved.theme,copy=ccThemeCopy(theme),overview=document.querySelector('.cc-page[data-page="overview"] .cc-page-grid');
+ const resolved=ccResolveTheme(),theme=resolved.theme,copy=ccThemeCopy(theme),overview=document.querySelector('.cc-page[data-page="overview"] .cc-page-grid'),hasArtwork=CC_ARTWORK_THEME_IDS.has(resolved.id);
  if(!overview)return;
  document.body.dataset.ccTheme=resolved.id;
+ document.body.dataset.ccArtwork=hasArtwork?'1':'0';
+ if(hasArtwork){
+  const base='/assets/themes/'+resolved.id;
+  document.body.style.setProperty('--cc-season-artwork',"url('"+base+"/hero.webp')");
+  document.body.style.setProperty('--cc-season-rail-left',"url('"+base+"/rail-left.webp')");
+  document.body.style.setProperty('--cc-season-rail-right',"url('"+base+"/rail-right.webp')");
+ }else{
+  document.body.style.removeProperty('--cc-season-artwork');
+  document.body.style.removeProperty('--cc-season-rail-left');
+  document.body.style.removeProperty('--cc-season-rail-right');
+ }
  document.body.dataset.ccMotion=ccReadSeasonSetting(CC_SEASON_MOTION_KEY,'reduced');
  document.body.dataset.ccDecor=ccReadSeasonSetting(CC_SEASON_DECOR_KEY,'balanced');
  document.body.style.setProperty('--cc-season-accent',theme.accent);
@@ -843,7 +920,7 @@ function ccRenderSeasonalHero(){
   hero.id='ccSeasonalHero';
   overview.insertBefore(hero,overview.firstChild);
  }
- hero.className='cc-seasonal-hero cc-theme-'+resolved.id;
+ hero.className='cc-seasonal-hero cc-theme-'+resolved.id+(hasArtwork?' cc-theme-artwork':'');
  const decor=theme.decor||[];
  const eventDays=ccThemeDays(resolved.target,resolved.parts);
  const vi=document.documentElement.lang==='vi';

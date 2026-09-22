@@ -1044,6 +1044,21 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         res.end(data);
         return;
       }
+      const themeAssetMatch = req.method === 'GET' ? url.pathname.match(/^\/assets\/themes\/([a-z0-9-]+)\/([a-z0-9-]+\.webp)$/) : null;
+      if (themeAssetMatch) {
+        const [, themeId, fileName] = themeAssetMatch;
+        const file = path.join(repoRoot, 'assets', 'themes', themeId!, fileName!);
+        const data = await fs.readFile(file);
+        res.writeHead(200, {
+          'content-type': 'image/webp',
+          'content-length': data.byteLength,
+          'cache-control': 'public, max-age=86400',
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer'
+        });
+        res.end(data);
+        return;
+      }
       if (req.headers['x-rwmcp-setup-token'] !== token) {
         json(res, 403, { error: 'Invalid or missing setup token.' });
         return;

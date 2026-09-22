@@ -39,6 +39,11 @@ test('seasonal theme assets are injected into Control Center HTML', () => {
   assert.ok(seasonalThemeCss.includes('cc-horizon-svg'));
   assert.ok(seasonalThemeCss.includes('cc-seasonal-status-panel'));
   assert.ok(seasonalThemeScript.includes('cc-seasonal-orb-ring'));
+  assert.ok(seasonalThemeCss.includes('cc-seasonal-artwork'));
+  assert.ok(seasonalThemeCss.includes('data-cc-artwork'));
+  assert.ok(seasonalThemeScript.includes('CC_THEME_ARTWORK'));
+  assert.ok(seasonalThemeScript.includes('/assets/themes/mid-autumn/hero-scene.webp'));
+  assert.ok(seasonalThemeScript.includes('/assets/themes/mid-autumn/backdrop.webp'));
   assert.ok(seasonalThemeScript.includes("vi?'SỰ KIỆN':'EVENT'"));
 });
 

@@ -76,8 +76,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.match(pageText, /id="notificationPanel"/);
     assert.match(pageText, /id="notificationList"/);
     assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.30\.0/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.30\.0/);
+    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.31\.0/);
+    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.31\.0/);
     assert.match(pageText, /function executionModeLabel\(mode\)/);
     assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
     assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);
@@ -116,6 +116,13 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     const signature = await fetch(`${base}/assets/brand/logo-background.png`);
     assert.equal(signature.status, 200);
     assert.equal(signature.headers.get('content-type'), 'image/png');
+    const midAutumnHero = await fetch(`${base}/assets/themes/mid-autumn/hero-scene.webp`);
+    assert.equal(midAutumnHero.status, 200);
+    assert.equal(midAutumnHero.headers.get('content-type'), 'image/webp');
+    assert.ok((await midAutumnHero.arrayBuffer()).byteLength > 10_000);
+    const midAutumnBackdrop = await fetch(`${base}/assets/themes/mid-autumn/backdrop.webp`);
+    assert.equal(midAutumnBackdrop.status, 200);
+    assert.equal(midAutumnBackdrop.headers.get('content-type'), 'image/webp');
     const tokenMatch = pageText.match(/const token = ("[^"]+");/);
     assert.ok(tokenMatch, 'Control Center page should embed an ephemeral CSRF token.');
     const token = JSON.parse(tokenMatch[1]!) as string;

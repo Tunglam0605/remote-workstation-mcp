@@ -18,6 +18,32 @@ export const seasonalThemeCss = String.raw`
   box-shadow:0 28px 68px -14px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.07) inset,0 1px 0 0 color-mix(in srgb,var(--cc-season-accent,#f7c96b) 50%,transparent) inset;
   isolation:isolate;
 }
+.cc-seasonal-artwork{
+  position:absolute;
+  inset:0;
+  z-index:-4;
+  background-image:var(--cc-theme-hero-image,none);
+  background-size:cover;
+  background-position:center 42%;
+  background-repeat:no-repeat;
+  opacity:.78;
+  filter:saturate(1.18) contrast(1.06) brightness(.9);
+  transform:scale(1.025);
+  transform-origin:center;
+}
+body[data-cc-artwork="true"] .cc-seasonal-hero{
+  min-height:304px;
+  border-color:color-mix(in srgb,var(--cc-season-accent,#f7c96b) 58%,var(--border));
+  box-shadow:0 30px 78px -18px rgba(0,0,0,.78),0 0 0 1px rgba(255,255,255,.08) inset,0 1px 0 color-mix(in srgb,var(--cc-season-accent,#f7c96b) 55%,transparent) inset;
+}
+body[data-cc-artwork="true"] .cc-seasonal-hero:before{
+  background:
+    linear-gradient(90deg,rgba(2,6,23,.92) 0%,rgba(2,6,23,.76) 30%,rgba(2,6,23,.3) 55%,rgba(2,6,23,.12) 72%,rgba(2,6,23,.46) 100%),
+    linear-gradient(180deg,rgba(2,6,23,.08) 0%,rgba(2,6,23,.18) 58%,rgba(2,6,23,.72) 100%);
+}
+body[data-cc-artwork="true"] .cc-seasonal-orb,
+body[data-cc-artwork="true"] .cc-seasonal-drum-motif,
+body[data-cc-artwork="true"] .cc-seasonal-horizon{opacity:.16}
 
 /* Atmospheric rim light, subtle cockpit grid vignette and depth layers */
 .cc-seasonal-hero:before{
@@ -607,6 +633,37 @@ body[data-cc-theme]{
   --accent-strong:var(--cc-season-ui-accent-strong,#059669);
   --cyan:var(--cc-season-accent,#38bdf8);
 }
+body[data-cc-artwork="true"]{
+  background-color:#020617;
+  background-image:linear-gradient(180deg,rgba(2,6,23,.18) 0%,rgba(2,6,23,.55) 44%,rgba(2,6,23,.94) 100%),var(--cc-theme-backdrop-image,none);
+  background-size:cover;
+  background-position:center top;
+  background-attachment:fixed;
+}
+body[data-cc-artwork="true"] .cc-layout{
+  background:linear-gradient(180deg,rgba(3,9,22,.14) 0%,rgba(3,9,22,.46) 48%,rgba(3,9,22,.86) 100%);
+  background-attachment:fixed;
+}
+body[data-cc-artwork="true"] .cc-sidebar{
+  background:color-mix(in srgb,var(--surface) 82%,transparent);
+  backdrop-filter:blur(20px) saturate(1.18);
+  -webkit-backdrop-filter:blur(20px) saturate(1.18);
+}
+body[data-cc-artwork="true"] .card,
+body[data-cc-artwork="true"] .metric,
+body[data-cc-artwork="true"] .exec-summary-card,
+body[data-cc-artwork="true"] .cc-section-card{
+  background:color-mix(in srgb,var(--surface) 78%,transparent);
+  border-color:color-mix(in srgb,var(--cc-season-accent,#ffd36a) 28%,var(--border));
+  backdrop-filter:blur(18px) saturate(1.15);
+  -webkit-backdrop-filter:blur(18px) saturate(1.15);
+  box-shadow:0 14px 38px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.035);
+}
+body[data-cc-artwork="true"] .cc-topbar{
+  background:color-mix(in srgb,var(--surface) 72%,transparent);
+  backdrop-filter:blur(18px) saturate(1.12);
+  -webkit-backdrop-filter:blur(18px) saturate(1.12);
+}
 body[data-cc-theme] .cc-layout{
   background:
     radial-gradient(ellipse 1000px 500px at 85% 0%,color-mix(in srgb,var(--cc-season-accent,#38bdf8) 9%,transparent),transparent 72%),
@@ -710,6 +767,13 @@ const CC_THEME_CATALOG={
  'vietnam-women':{kind:'event',symbol:'🌺',vi:'Ngày Phụ nữ Việt Nam 20/10',en:'Vietnamese Women’s Day',tagVi:'Dịu dàng · Bản lĩnh · Tỏa sáng',tagEn:'Grace. Strength. Brilliance.',quoteVi:'Tôn vinh những người phụ nữ Việt Nam đầy bản lĩnh và sáng tạo.',quoteEn:'Celebrating Vietnamese women and their brilliance.',accent:'#fb9fba',deep:'#200a18',mid:'#662346',ui:'#f43f5e',uiStrong:'#be123c',decor:['🌺','🌸','✨','💐']},
  'teachers-day':{kind:'event',symbol:'📚',vi:'Ngày Nhà giáo Việt Nam 20/11',en:'Vietnamese Teachers’ Day',tagVi:'Tri thức dẫn đường · Sáng tạo tiếp bước',tagEn:'Knowledge lights the way.',quoteVi:'Biết ơn những người truyền cảm hứng cho hành trình học hỏi.',quoteEn:'Grateful to those who inspire the journey of learning.',accent:'#f5d06f',deep:'#0b1830',mid:'#253e63',ui:'#3b82f6',uiStrong:'#1d4ed8',decor:['📚','✨','🖋️','🌼']},
  'culture-day':{kind:'event',symbol:'🎭',vi:'Ngày Văn hóa Việt Nam 24/11',en:'Vietnam Culture Day',tagVi:'Bản sắc Việt · Sáng tạo mới',tagEn:'Vietnamese identity. New creativity.',quoteVi:'Giữ bản sắc để đi xa hơn trong một thế giới luôn đổi mới.',quoteEn:'Rooted in identity, ready for what comes next.',accent:'#e8b866',deep:'#1a0e13',mid:'#57222d',ui:'#d97706',uiStrong:'#92400e',decor:['🎭','🥁','☁️','🏮']}
+};
+
+const CC_THEME_ARTWORK={
+ 'mid-autumn':{
+  hero:'/assets/themes/mid-autumn/hero-scene.webp',
+  backdrop:'/assets/themes/mid-autumn/backdrop.webp'
+ }
 };
 
 const CC_LUNAR_EVENT_DATES={
@@ -837,6 +901,15 @@ function ccRenderSeasonalHero(){
  document.body.style.setProperty('--cc-season-mid',theme.mid);
  document.body.style.setProperty('--cc-season-ui-accent',theme.ui);
  document.body.style.setProperty('--cc-season-ui-accent-strong',theme.uiStrong);
+ const artwork=CC_THEME_ARTWORK[resolved.id]||null;
+ document.body.dataset.ccArtwork=artwork?'true':'false';
+ if(artwork){
+  document.body.style.setProperty('--cc-theme-hero-image','url("'+artwork.hero+'?v=0.31.0")');
+  document.body.style.setProperty('--cc-theme-backdrop-image','url("'+artwork.backdrop+'?v=0.31.0")');
+ }else{
+  document.body.style.removeProperty('--cc-theme-hero-image');
+  document.body.style.removeProperty('--cc-theme-backdrop-image');
+ }
  let hero=document.getElementById('ccSeasonalHero');
  if(!hero){
   hero=document.createElement('section');
@@ -849,6 +922,7 @@ function ccRenderSeasonalHero(){
  const vi=document.documentElement.lang==='vi';
  const modeBadge=resolved.mode==='manual'?(vi?'THỦ CÔNG':'MANUAL'):(theme.kind==='event'?(vi?'SỰ KIỆN':'EVENT'):(vi?'MÙA':'SEASON'));
  hero.innerHTML=
+  '<div class="cc-seasonal-artwork" aria-hidden="true"></div>'+
   '<div class="cc-seasonal-rail" aria-hidden="true"><span class="cc-seasonal-rail-diamond">❖</span></div>'+
   '<div class="cc-seasonal-sky">'+
    '<svg class="cc-seasonal-drum-motif" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">'+

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import http from 'node:http';
 import { SERVER_VERSION } from '../src/capabilities.js';
 import vm from 'node:vm';
 import { startSetupServer } from '../src/setup/setup-server.js';
@@ -14,101 +15,26 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     const page = await fetch(`${base}/`);
     assert.equal(page.status, 200);
     const pageText = await page.text();
-    assert.match(pageText, /Remote Workstation MCP Setup & Control Center/);
-    assert.match(pageText, /data-theme="dark"/);
-    assert.match(pageText, /id="themeToggle"/);
-    assert.match(pageText, /rwmcp\.theme/);
-    assert.match(pageText, /id="langEn"/);
-    assert.match(pageText, /id="langVi"/);
-    assert.match(pageText, /id="accessMode"/);
-    assert.match(pageText, /id="firstRunCard"/);
-    assert.match(pageText, /id="bootstrapTunnel"/);
-    assert.match(pageText, /id="bootstrapKey"/);
-    assert.match(pageText, /id="bootstrapConnect"/);
-    assert.match(pageText, /api\/bootstrap/);
-    assert.match(pageText, /id="autoUpdate"/);
-    assert.match(pageText, /id="checkUpdate"/);
-    assert.match(pageText, /id="devicePairingCard"/);
-    assert.match(pageText, /id="multiNodeCard"/);
-    assert.match(pageText, /id="executionPolicyCard"/);
-    assert.match(pageText, /Ch\u00ednh s\u00e1ch th\u1ef1c thi/);
-    assert.match(pageText, /Ch\u1ebf \u0111\u1ed9 m\u1eb7c \u0111\u1ecbnh/);
-    assert.match(pageText, /Khi Codex \u0111\u1ea1t gi\u1edbi h\u1ea1n/);
-    assert.match(pageText, /kh\u00f4ng gi\u1edbi h\u1ea1n/);
-    assert.match(pageText, /id="executionDefault"/);
-    assert.match(pageText, /id="codexFallback"/);
-    assert.match(pageText, /id="codexEnabled"/);
-    assert.match(pageText, /id="codexBrokerMode"/);
-    assert.match(pageText, /id="codexBrokerEnabled"/);
-    assert.match(pageText, /id="codexBrokerStatus"/);
-    assert.match(pageText, /id="antigravityEnabled"/);
-    assert.match(pageText, /id="antigravityModel"/);
-    assert.match(pageText, /id="antigravityStatus"/);
-    assert.match(pageText, /sidebar\.className='cc-sidebar'/);
-    assert.match(pageText, /pages\.id='controlCenterPages'/);
-    assert.match(pageText, /function buildControlCenterLayout\(\)/);
-    assert.match(pageText, /navOverview:'Tổng quan'/);
-    assert.match(pageText, /broker-account-grid/);
-    assert.match(pageText, /updatesCardTitle:'Cập nhật phần mềm'/);
-    assert.match(pageText, /controlCenterShort:'Trung tâm điều khiển'/);
-    assert.match(pageText, /const configCard=pageCardFor\('updateStatus'\)/);
-    assert.doesNotMatch(pageText, /var\(--(?:bg|surface-2|primary|success)\)/);
-    assert.match(pageText, /id="allowChatOverride"/);
-    assert.match(pageText, /\/api\/execution-policy/);
-    assert.match(pageText, /id="toggleMultiNode"/);
-    assert.match(pageText, /id="saveMultiNodeGrant"/);
-    assert.match(pageText, /id="multiNodeGrants"/);
-    assert.match(pageText, /\/api\/multi-node/);
-    assert.match(pageText, /\/api\/multi-node\/grants/);
-    assert.match(pageText, /id="createPairingCode"/);
-    assert.match(pageText, /id="pairSelectedHost"/);
-    assert.match(pageText, /id="testConnection"/);
-    assert.match(pageText, /id="saveReconnect"/);
-    assert.match(pageText, /api\/recovery\/status/);
-    assert.match(pageText, /api\/recovery\/test/);
-    assert.match(pageText, /api\/recovery\/apply/);
-    assert.match(pageText, /id="openSetup"/);
-    assert.match(pageText, /<dialog class="gw-modal setup-modal" id="setupModal">/);
-    assert.match(pageText, /<dialog class="gw-modal confirm-modal" id="fullAccessConfirmModal">/);
-    assert.doesNotMatch(pageText, /<details class="advanced-panel">/);
-    assert.match(pageText, /id="notificationToggle"/);
-    assert.match(pageText, /id="notificationBadge"/);
-    assert.match(pageText, /id="notificationPanel"/);
-    assert.match(pageText, /id="notificationList"/);
-    assert.match(pageText, /id="versionBadge"/);
-    assert.match(pageText, /assets\/brand\/logo\.png\?v=0\.30\.0/);
-    assert.match(pageText, /assets\/brand\/logo-background\.png\?v=0\.30\.0/);
-    assert.match(pageText, /function executionModeLabel\(mode\)/);
-    assert.match(pageText, /executionResetFallback:'Đặt lại chế độ dự phòng Codex'/);
-    assert.match(pageText, /executionClearOverrides:'Xóa ghi đè của cuộc trò chuyện'/);
-    assert.match(pageText, /executionTasksToday:'Số tác vụ Codex hôm nay'/);
-    assert.match(pageText, /\.brand-mark\{width:56px;height:56px;object-fit:contain;border-radius:0;padding:0;background:transparent;border:0;box-shadow:none/);
-    assert.match(pageText, /\.brand-signature\{display:block;width:min\(300px,60vw\).*opacity:\.95/);
-    assert.match(pageText, /notificationCodexFallbackTitle/);
-    assert.match(pageText, /notificationCodexUnavailableTitle/);
-    assert.match(pageText, /notificationUpdateTitle/);
-    assert.match(pageText, /renderControlNotifications/);
-    assert.match(pageText, /NOTIFICATION_READ_KEY/);
-    assert.match(pageText, /markCurrentNotificationsRead/);
-    assert.match(pageText, /select\{width:100%;min-height:38px/);
-    assert.doesNotMatch(pageText, /id="adminApprovalCard"/);
-    assert.match(pageText, /r=>r\.state==='pending'/);
-    assert.doesNotMatch(pageText, /\['pending','approved','running'\]/);
-    assert.match(pageText, /value="read_only"/);
-    assert.match(pageText, /value="workspace"/);
-    assert.match(pageText, /value="full_control"/);
-    assert.doesNotMatch(pageText, /id="applyMode"/);
-    assert.doesNotMatch(pageText, /id="scopeFull"/);
-    assert.doesNotMatch(pageText, /id="gateRawShell"/);
-    assert.match(pageText, /Quick setup for ChatGPT/);
-    assert.match(pageText, /rwmcp\.language/);
-    assert.match(pageText, /navigator\.language/);
-    const embeddedScript = pageText.match(/<script>([\s\S]*?)<\/script>/);
-    assert.ok(embeddedScript, 'Control Center should contain an embedded script.');
-    assert.doesNotThrow(() => new vm.Script(embeddedScript[1]!), 'Embedded Control Center JavaScript must parse.');
-    assert.doesNotMatch(pageText, /\uFFFD|â€¦|â€”|Â·|Ã—|â˜|âš|Thiáº¿t|Trung tÃ¢m/, 'Control Center HTML must not contain known mojibake markers.');
-    assert.match(pageText, /Thiết lập & Trung tâm điều khiển/);
-
+    assert.match(pageText, /Moonlight · MCP Control Center/);
+    assert.match(pageText, /Vui Tết Trung Thu/);
+    assert.match(pageText, /Kết Nối Yêu Thương/);
+    assert.match(pageText, /Đêm Trung Thu/);
+    assert.match(pageText, /id="devices"/);
+    assert.match(pageText, /id="command-form"/);
+    assert.match(pageText, /type="module" src="\/assets\/moonlight\/app.js"/);
+    assert.doesNotMatch(pageText, /__RWMCP_SETUP_TOKEN__|cc-sidebar|DEMO UI|Simulate/);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    const csp = page.headers.get('content-security-policy') ?? '';
+    assert.ok(csp.includes("script-src 'self'"));
+    assert.ok(!csp.includes("script-src 'unsafe-inline'"));
+    assert.ok(csp.includes("frame-ancestors 'none'"));
+    for (const [name, mime] of [['app.js', 'text/javascript'], ['i18n.js', 'text/javascript'], ['translations-shell.js', 'text/javascript'], ['translations-views.js', 'text/javascript'], ['style.css', 'text/css'], ['assets/mid-autumn.png', 'image/png'], ['assets/font-0.woff2', 'font/woff2']]) {
+      const asset = await fetch(base + '/assets/moonlight/' + name);
+      assert.equal(asset.status, 200, name);
+      assert.ok(asset.headers.get('content-type')?.startsWith(mime!), name);
+      assert.equal(asset.headers.get('x-content-type-options'), 'nosniff');
+      assert.ok((await asset.arrayBuffer()).byteLength > 0);
+    }
 
     const logo = await fetch(`${base}/assets/brand/logo.png`);
     assert.equal(logo.status, 200);
@@ -116,14 +42,26 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     const signature = await fetch(`${base}/assets/brand/logo-background.png`);
     assert.equal(signature.status, 200);
     assert.equal(signature.headers.get('content-type'), 'image/png');
-    const tokenMatch = pageText.match(/const token = ("[^"]+");/);
+    const tokenMatch = pageText.match(/<meta name="rwmcp-setup-token" content="([A-Za-z0-9_-]+)">/);
     assert.ok(tokenMatch, 'Control Center page should embed an ephemeral CSRF token.');
-    const token = JSON.parse(tokenMatch[1]!) as string;
+    const token = tokenMatch[1]!;
     assert.ok(token.length >= 32);
     assert.ok(!setup.url.includes(token), 'CSRF token must not be placed in the URL.');
 
     const missing = await fetch(`${base}/api/status`);
     assert.equal(missing.status, 403);
+
+    const foreignHost = await new Promise<number | undefined>((resolve, reject) => {
+      http.get(base, { headers: { host: 'attacker.invalid' } }, res => {
+        res.resume(); res.on('end', () => resolve(res.statusCode));
+      }).on('error', reject);
+    });
+    assert.equal(foreignHost, 403, 'A foreign Host must not receive the owner page token.');
+
+    for (const method of ['GET', 'POST']) {
+      const unauthenticatedExecution = await fetch(`${base}/api/execution`, { method });
+      assert.equal(unauthenticatedExecution.status, 403);
+    }
 
     const wrongOrigin = await fetch(`${base}/api/status`, {
       headers: {
@@ -133,6 +71,13 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     });
     assert.equal(wrongOrigin.status, 403);
 
+    const wrongToken = await fetch(base + '/api/status', { headers: { 'x-rwmcp-setup-token': 'wrong' } });
+    assert.equal(wrongToken.status, 403);
+    for (const resource of ['index.html', 'unknown.js', 'assets/../../package.json', '%2e%2e%2fsrc%2fsetup%2fsettings.ts']) {
+      const denied = await fetch(base + '/assets/moonlight/' + resource, { headers: { 'x-rwmcp-setup-token': token } });
+      assert.equal(denied.status, 404, resource);
+    }
+
     const ok = await fetch(`${base}/api/status`, {
       headers: { 'x-rwmcp-setup-token': token }
     });
@@ -141,6 +86,19 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.equal(body.version, SERVER_VERSION);
     assert.ok(Number.isInteger(body.settings.mcpPort));
     assert.equal(typeof body.onboardingRequired, 'boolean');
+
+    const catalogResponse = await fetch(`${base}/api/execution`, { headers: { 'x-rwmcp-setup-token': token } });
+    assert.equal(catalogResponse.status, 200);
+    const catalog = await catalogResponse.json() as { authority: string; node: { id: string }; operations: string[] };
+    assert.equal(catalog.authority, 'owner-local-only');
+    assert.ok(catalog.operations.includes('git-status'));
+    for (const request of [
+      { op: 'git-status', nodeId: 'remote-node', sessionId: 'missing' },
+      { op: 'task-run', nodeId: catalog.node.id, sessionId: 'missing', profile: 'unknown', shell: 'echo injected' }
+    ]) {
+      const denied = await fetch(`${base}/api/execution`, { method: 'POST', headers: { 'x-rwmcp-setup-token': token, 'content-type': 'application/json' }, body: JSON.stringify(request) });
+      assert.equal(denied.status, 400);
+    }
 
     const recoveryStatus = await fetch(`${base}/api/recovery/status`, {
       headers: { 'x-rwmcp-setup-token': token }

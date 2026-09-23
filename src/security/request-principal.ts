@@ -23,6 +23,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   capabilities_list: 'workstation.read',
   system_info: 'workstation.read',
   tool_discover: 'workstation.read',
+  office_capabilities: 'workstation.read',
+  word_inspect: 'workstation.read',
   device_list: 'workstation.read',
   device_probe: 'workstation.read',
   device_exec: 'workstation.execute',

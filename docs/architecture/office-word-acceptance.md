@@ -1,6 +1,6 @@
 # RWMCP Word Phase E Acceptance
 
-Status: PASS for v0.33.0 candidate
+Status: PASS for v0.33.2 candidate
 Date: 2026-09-23
 Work Session: `65373f50-f553-4bf1-9bd0-dc9b163729ef`
 
@@ -87,7 +87,7 @@ pm run plugin:validate`: PASS
 - 
 pm audit --omit=dev`: 0 vulnerabilities
 
-The release-version gate must be rerun after the v0.33.0 metadata change.
+The release-version gate was rerun for v0.33.2 after the Windows-only Office surface change and passed.
 
 ## Deferred work
 

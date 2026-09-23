@@ -19,7 +19,9 @@ Backend choice is per requested operation/capability, not one global preferred-e
 - A tool requests required capabilities and the selector returns only a backend that satisfies them.
 - There is no silent semantic downgrade.
 - Native-required operations fail closed if Word/Excel/PowerPoint native automation is unavailable.
-- COM imports/processes are lazy and optional; Linux startup must never depend on them.
+- The entire Office MCP surface is registered only on Windows. Linux/macOS nodes expose no Office tools or Office capabilities.
+- COM imports/processes are lazy and optional within the Windows Office pack; non-Windows startup must never require Microsoft Office.
+- OOXML remains a portable internal engine, but is not exposed as a standalone Office MCP surface on non-Windows hosts.
 - Raw COM dispatch objects/method names are never exposed through MCP arguments.
 - UI automation is never selected implicitly.
 - Mutating native workflows use an RWMCP-owned isolated Office instance by default.

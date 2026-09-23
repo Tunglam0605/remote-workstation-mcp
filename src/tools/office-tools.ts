@@ -84,7 +84,12 @@ function principalCanExecuteNativeOffice(): boolean {
   return principalHasExactScope('workstation.execute') || principalHasExactScope('workstation.full_control');
 }
 
+export function officePlatformSupported(platform: NodeJS.Platform | string = process.platform): boolean {
+  return platform === 'win32';
+}
+
 export function registerOfficeTools(server: McpServer, ctx: AppContext): void {
+  if (!officePlatformSupported()) throw new Error('RWMCP Office Capability Pack is supported only on Windows hosts.');
   const currentClientId = () => currentPrincipal()?.id ?? ctx.actor.clientId;
   const resources = new OfficeResourceManager(currentClientId);
 
@@ -119,7 +124,7 @@ export function registerOfficeTools(server: McpServer, ctx: AppContext): void {
       optimisticConcurrency: 'sha256',
       backup: true,
       workingCopy: true,
-      nativeAcceptance: 'optional-on-non-Windows, recommended/available on Windows',
+      nativeAcceptance: 'Windows-only; native Word acceptance is enabled by default and may be explicitly disabled only for bounded OOXML-only operations',
       rollback: 'same word_edit tool, action=rollback'
     }
   }))));

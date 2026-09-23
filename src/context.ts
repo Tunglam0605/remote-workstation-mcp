@@ -148,12 +148,17 @@ export async function createContext() {
     paths,
     engineeringRunner,
     process.env,
-    { accountBroker: codexAccountBroker },
+    {
+      accountBroker: codexAccountBroker,
+      model: setupSettings.execution.codexModel,
+      agentDelegationEnabled: setupSettings.execution.codexAgentsEnabled
+    },
     setupSettings.execution.codexEnabled
   );
   const antigravityWorker = new AntigravityWorkerProvider(policy, paths, engineeringRunner, {
     env: process.env,
-    model: setupSettings.execution.antigravityModel
+    model: setupSettings.execution.antigravityModel,
+    requireSandboxAutomationPolicy: true
   });
   if (setupSettings.execution.antigravityEnabled) workerProviders.register(antigravityWorker);
   const engineeringHardware = new HardwareDiscoveryAdapter();

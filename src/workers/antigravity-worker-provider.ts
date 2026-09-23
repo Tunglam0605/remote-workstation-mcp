@@ -21,6 +21,40 @@ const STATUS_TIMEOUT_MS = 12_000;
 const MAX_PROMPT_BYTES = 16 * 1024;
 const MAX_CAPTURE_BYTES = 512 * 1024;
 const MAX_EVIDENCE_BYTES = 12 * 1024;
+
+const MAX_AUTOMATION_SETTINGS_BYTES = 64 * 1024;
+
+interface AntigravityAutomationPolicy {
+  ready: boolean;
+  detail: string;
+}
+
+async function antigravityAutomationPolicy(env: NodeJS.ProcessEnv): Promise<AntigravityAutomationPolicy> {
+  const home = env.USERPROFILE?.trim() || env.HOME?.trim() || os.homedir();
+  const settingsPath = path.resolve(home, '.gemini', 'antigravity-cli', 'settings.json');
+  try {
+    const stat = await fs.stat(settingsPath);
+    if (!stat.isFile() || stat.size > MAX_AUTOMATION_SETTINGS_BYTES) {
+      return { ready: false, detail: 'Antigravity CLI settings file is not a bounded regular file.' };
+    }
+    const parsed = JSON.parse((await fs.readFile(settingsPath, 'utf8')).replace(/^\uFEFF/, '')) as Record<string, unknown>;
+    if (parsed.enableTerminalSandbox !== true) {
+      return { ready: false, detail: 'enableTerminalSandbox=true is required for headless RWMCP dispatch.' };
+    }
+    if (parsed.toolPermission !== 'proceed-in-sandbox') {
+      return { ready: false, detail: 'toolPermission=proceed-in-sandbox is required for headless RWMCP dispatch.' };
+    }
+    return { ready: true, detail: 'sandboxed headless automation policy is configured' };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return {
+      ready: false,
+      detail: code === 'ENOENT'
+        ? 'Antigravity CLI settings.json is missing.'
+        : compact(error instanceof Error ? error.message : String(error), 240)
+    };
+  }
+}
 const ANTIGRAVITY_RUNTIME_ENV = [
   'HOME', 'USER', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'LANG', 'LC_ALL',
   'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS'
@@ -41,6 +75,7 @@ export interface AntigravityProcessResult {
 export interface AntigravityWorkerOptions {
   env?: NodeJS.ProcessEnv;
   model?: string;
+  requireSandboxAutomationPolicy?: boolean;
   resolveExecutable?: (command: string) => Promise<string | undefined>;
   processRunner?: (
     program: string,
@@ -539,6 +574,7 @@ export class AntigravityWorkerProvider implements WorkerProvider {
   private readonly executableResolver: (command: string) => Promise<string | undefined>;
   private readonly processRunner: NonNullable<AntigravityWorkerOptions['processRunner']>;
   private readonly model?: string;
+  private readonly requireSandboxAutomationPolicy: boolean;
 
   constructor(
     private readonly policy: PolicyEngine,
@@ -550,6 +586,7 @@ export class AntigravityWorkerProvider implements WorkerProvider {
     this.executableResolver = options.resolveExecutable ?? resolveExecutable;
     this.processRunner = options.processRunner ?? defaultProcessRunner;
     this.model = options.model?.trim() || undefined;
+    this.requireSandboxAutomationPolicy = options.requireSandboxAutomationPolicy === true;
   }
 
   async inspect(includeQuota = true): Promise<AntigravityCliStatus> {
@@ -571,10 +608,15 @@ export class AntigravityWorkerProvider implements WorkerProvider {
       resolveExecutable: this.executableResolver,
       processRunner: this.processRunner
     });
-    return {
-      availability: status.available ? 'available' as const : 'unavailable' as const,
-      detail: status.detail
-    };
+    if (!status.available) return { availability: 'unavailable' as const, detail: status.detail };
+    if (this.requireSandboxAutomationPolicy) {
+      const automation = await antigravityAutomationPolicy(this.env);
+      if (!automation.ready) {
+        return { availability: 'unavailable' as const, detail: `ANTIGRAVITY_SANDBOX_POLICY_REQUIRED; ${automation.detail}` };
+      }
+      return { availability: 'available' as const, detail: `${status.detail}; ${automation.detail}` };
+    }
+    return { availability: 'available' as const, detail: status.detail };
   }
 
   async dispatch(request: WorkerDispatchRequest): Promise<WorkerDispatchResult> {
@@ -588,6 +630,12 @@ export class AntigravityWorkerProvider implements WorkerProvider {
       await fs.access(path.join(cwd, '.git'));
     } catch {
       return { status: 'blocked', summary: 'Assigned Antigravity worker path is not a Git worktree.' };
+    }
+    if (this.requireSandboxAutomationPolicy) {
+      const automation = await antigravityAutomationPolicy(this.env);
+      if (!automation.ready) {
+        return { status: 'blocked', summary: `ANTIGRAVITY_SANDBOX_POLICY_REQUIRED; ${automation.detail}` };
+      }
     }
 
     const executable = await resolveAntigravityExecutable(this.env, this.executableResolver);

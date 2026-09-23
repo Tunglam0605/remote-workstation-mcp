@@ -22,6 +22,87 @@ const MAX_PROMPT_BYTES = 16 * 1024;
 const MAX_CAPTURE_BYTES = 256 * 1024;
 const MAX_EVIDENCE_BYTES = 8 * 1024;
 
+const MAX_AGENT_CONFIG_BYTES = 32 * 1024;
+const EAS_ROLE_DESCRIPTIONS = {
+  architect: 'System architecture and safety review.',
+  debugger: 'Evidence-first root cause analysis and bounded remediation.',
+  implementer: 'Smallest approved implementation inside the assigned scope.',
+  researcher: 'Current authoritative evidence gathering when explicitly allowed.',
+  reviewer: 'Independent correctness and regression review.',
+  scout: 'Read-only repository discovery and call-flow mapping.',
+  'test-engineer': 'Targeted verification and regression testing.'
+} as const;
+const EAS_AGENT_KEYS = new Set([
+  'name',
+  'description',
+  'model',
+  'model_reasoning_effort',
+  'sandbox_mode',
+  'developer_instructions'
+]);
+
+type EasRole = keyof typeof EAS_ROLE_DESCRIPTIONS;
+
+interface EasProjection {
+  args: string[];
+  roles: EasRole[];
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+async function validatedEasProjection(env: NodeJS.ProcessEnv): Promise<EasProjection> {
+  const override = env.RWMCP_CODEX_AGENT_DIR?.trim();
+  if (override && !path.isAbsolute(override)) {
+    throw new Error('RWMCP_CODEX_AGENT_DIR must be an absolute path.');
+  }
+  const home = env.USERPROFILE?.trim() || env.HOME?.trim();
+  const root = override ? path.resolve(override) : home ? path.resolve(home, '.codex', 'agents') : undefined;
+  if (!root) throw new Error('Codex EAS delegation is enabled but no user home/agent directory is available.');
+
+  const args = [
+    '-c', 'features.multi_agent=true',
+    '-c', 'agents.enabled=true',
+    '-c', 'agents.max_concurrent_threads_per_session=2'
+  ];
+  const roles = Object.keys(EAS_ROLE_DESCRIPTIONS) as EasRole[];
+  for (const role of roles) {
+    const file = path.resolve(root, `${role}.toml`);
+    if (path.dirname(file) !== root) throw new Error(`Invalid EAS role path for ${role}.`);
+    const stat = await fs.stat(file).catch(() => undefined);
+    if (!stat?.isFile() || stat.size > MAX_AGENT_CONFIG_BYTES) {
+      throw new Error(`EAS role config is missing or invalid: ${role}.`);
+    }
+    const source = (await fs.readFile(file, 'utf8')).replace(/^\uFEFF/, '');
+    const seen = new Set<string>();
+    for (const rawLine of source.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      if (line.startsWith('[')) throw new Error(`EAS role config contains forbidden table syntax: ${role}.`);
+      const match = /^([A-Za-z0-9_-]+)\s*=/.exec(line);
+      if (!match?.[1] || !EAS_AGENT_KEYS.has(match[1])) {
+        throw new Error(`EAS role config contains an unsupported key: ${role}.`);
+      }
+      seen.add(match[1]);
+    }
+    const nameMatch = /^name\s*=\s*"([^"]+)"\s*$/m.exec(source);
+    if (nameMatch?.[1] !== role) throw new Error(`EAS role config name mismatch: ${role}.`);
+    const sandboxMatch = /^sandbox_mode\s*=\s*"([^"]+)"\s*$/m.exec(source);
+    if (!sandboxMatch?.[1] || !['read-only', 'workspace-write'].includes(sandboxMatch[1])) {
+      throw new Error(`EAS role config sandbox_mode is invalid: ${role}.`);
+    }
+    for (const required of EAS_AGENT_KEYS) {
+      if (!seen.has(required)) throw new Error(`EAS role config is incomplete: ${role} missing ${required}.`);
+    }
+    args.push(
+      '-c', `agents.${role}.description=${tomlString(EAS_ROLE_DESCRIPTIONS[role])}`,
+      '-c', `agents.${role}.config_file=${tomlString(file)}`
+    );
+  }
+  return { args, roles };
+}
+
 interface RunnerLike {
   run(program: string, args: string[], cwd: string, timeoutMs?: number): Promise<EngineeringCommandResult>;
 }
@@ -37,6 +118,8 @@ interface CodexExecResult {
 interface CodexWorkerOptions {
   env?: NodeJS.ProcessEnv;
   accountBroker?: CodexAccountBroker;
+  model?: string;
+  agentDelegationEnabled?: boolean;
   resolveExecutable?: (command: string) => Promise<string | undefined>;
   processRunner?: (
     program: string,
@@ -68,6 +151,7 @@ function safePrompt(request: WorkerDispatchRequest): string {
     'Do not push, merge, tag, release, deploy, update production nodes, modify owner policy/security settings, or access sibling worktrees.',
     'Do not enable web search or external browsing.',
     'Do not bypass sandbox or approval controls.',
+    'Do not spawn child agents unless the assigned Task detail explicitly authorizes delegation. If delegation is authorized, use only the projected EAS roles and keep every child inside this worktree.',
     'Run only the local build/tests needed to verify this assigned task.',
     '',
     `Objective: ${request.objective.name}`,
@@ -84,6 +168,44 @@ function safePrompt(request: WorkerDispatchRequest): string {
     throw new Error('Codex worker prompt exceeds bounded dispatch size.');
   }
   return prompt;
+}
+
+interface CodexStreamEvidence {
+  finalMessage?: string;
+  childAgentSpawns: number;
+}
+
+function parseCodexStreamEvidence(stdout: string): CodexStreamEvidence {
+  let finalMessage: string | undefined;
+  let childAgentSpawns = 0;
+  const counted = new Set<string>();
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith('{') || !line.endsWith('}')) continue;
+    try {
+      const event = JSON.parse(line) as {
+        type?: unknown;
+        item?: Record<string, unknown>;
+      };
+      const item = event.item;
+      if (!item || typeof item !== 'object') continue;
+      if (event.type === 'item.completed' && item.type === 'agent_message' && typeof item.text === 'string') {
+        const text = item.text.trim();
+        if (text) finalMessage = text;
+        continue;
+      }
+      if (event.type !== 'item.completed') continue;
+      const blob = JSON.stringify(item).toLowerCase();
+      if (!blob.includes('spawn_agent') && !blob.includes('collab_tool')) continue;
+      const id = typeof item.id === 'string' ? item.id : `spawn-${childAgentSpawns}`;
+      if (counted.has(id)) continue;
+      counted.add(id);
+      childAgentSpawns += 1;
+    } catch {
+      // Ignore non-JSON diagnostics. The CLI sandbox header remains authoritative on stderr.
+    }
+  }
+  return { ...(finalMessage ? { finalMessage } : {}), childAgentSpawns };
 }
 
 function parseRunId(stderr: string): string | undefined {
@@ -175,6 +297,8 @@ export class CodexWorkerProvider implements WorkerProvider {
   private readonly executableResolver: (command: string) => Promise<string | undefined>;
   private readonly processRunner: NonNullable<CodexWorkerOptions['processRunner']>;
   private readonly accountBroker?: CodexAccountBroker;
+  private readonly model?: string;
+  private readonly agentDelegationEnabled: boolean;
 
   constructor(
     private readonly policy: PolicyEngine,
@@ -186,6 +310,8 @@ export class CodexWorkerProvider implements WorkerProvider {
     this.executableResolver = options.resolveExecutable ?? resolveExecutable;
     this.processRunner = options.processRunner ?? defaultProcessRunner;
     this.accountBroker = options.accountBroker;
+    this.model = options.model?.trim() || undefined;
+    this.agentDelegationEnabled = options.agentDelegationEnabled === true;
   }
 
   private async executable(): Promise<string | undefined> {
@@ -299,8 +425,24 @@ export class CodexWorkerProvider implements WorkerProvider {
         }
       }
     }
+    let agentArgs: string[] = [];
+    let projectedRoles: EasRole[] = [];
+    if (this.agentDelegationEnabled) {
+      try {
+        const projection = await validatedEasProjection(this.env);
+        agentArgs = projection.args;
+        projectedRoles = projection.roles;
+      } catch (error) {
+        return {
+          status: 'blocked',
+          summary: `CODEX_EAS_CONFIG_INVALID; ${compact(error instanceof Error ? error.message : String(error), 400)}`
+        };
+      }
+    }
     const args = [
       ...brokerArgs,
+      ...(this.model ? ['-c', `model=${tomlString(this.model)}`] : []),
+      ...agentArgs,
       ...(process.platform === 'win32'
         ? ['-c', 'windows.sandbox=unelevated']
         : []),
@@ -310,6 +452,7 @@ export class CodexWorkerProvider implements WorkerProvider {
       'exec',
       '--ephemeral',
       '--ignore-user-config',
+      '--json',
       '--color', 'never',
       '-'
     ];
@@ -325,14 +468,24 @@ export class CodexWorkerProvider implements WorkerProvider {
       gitEvidence('before', beforeStatus, beforeDiff),
       gitEvidence('after', afterStatus, afterDiff)
     ].join(' | ');
-    const modelSummary = compact(result.stdout || result.stderr, 240);
+    const stream = parseCodexStreamEvidence(result.stdout);
+    const workerDetail = result.exitCode === 0 && !result.timedOut
+      ? compact(stream.finalMessage || result.stdout || result.stderr, 480)
+      : compact(boundedTail(result.stderr || result.stdout, 2400), 1200);
     const summary = boundedTail(
-      `exit=${result.exitCode ?? 'null'} timeout=${result.timedOut}; ${evidence}; worker=${modelSummary || 'no-summary'}`,
+      `exit=${result.exitCode ?? 'null'} timeout=${result.timedOut}; ${evidence}; model=${this.model ?? 'default'}; easRoles=${projectedRoles.length}; codexSubagents=${stream.childAgentSpawns}; worker=${workerDetail || 'no-summary'}`,
       MAX_EVIDENCE_BYTES
     );
 
     if (result.timedOut || result.exitCode !== 0) {
       const failureText = `${result.stdout}\n${result.stderr}`;
+      if (/\b401\b|unauthorized|incorrect api key|authentication required|not authenticated|log[ -]?in required/i.test(failureText)) {
+        return {
+          status: 'blocked',
+          ...(runId ? { runId } : {}),
+          summary: boundedTail(`CODEX_AUTH_REQUIRED; ${summary}`, MAX_EVIDENCE_BYTES)
+        };
+      }
       if (/\b429\b|rate[ -]?limit|usage[ -]?limit|quota|limit reached|reached (?:your|the) .*limit|too many requests|usage cap/i.test(failureText)) {
         return {
           status: 'blocked',

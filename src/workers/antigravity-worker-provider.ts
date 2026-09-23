@@ -474,6 +474,8 @@ function safePrompt(request: WorkerDispatchRequest): string {
     'Do not push, merge, tag, release, deploy, update production nodes, modify owner policy/security settings, or access sibling worktrees.',
     'Do not use web search, external browsing, remote MCP servers, or network downloads unless the assigned task explicitly requires them and local policy permits them.',
     'Do not bypass sandbox or permission controls.',
+    'Never request, invoke, or suggest escalate_admin, administrator/elevated/privileged execution, sudo, UAC, system settings changes, or permission changes.',
+    'If the assigned task cannot be completed with workspace-scoped edits and sandboxed local verification, stop and report the exact blocker instead of requesting broader permission.',
     'Run only the local build/tests needed to verify this assigned task.',
     '',
     `Objective: ${request.objective.name}`,

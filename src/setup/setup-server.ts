@@ -1269,6 +1269,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           codexEnabled?: boolean;
           codexModel?: string;
           codexAgentsEnabled?: boolean;
+          codexSkillsEnabled?: boolean;
           antigravityEnabled?: boolean;
           antigravityModel?: string;
           defaultMode?: 'rwmcp-only' | 'codex-only' | 'both';
@@ -1285,6 +1286,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const previousCodexEnabled = current.execution.codexEnabled;
         const previousCodexModel = current.execution.codexModel;
         const previousCodexAgentsEnabled = current.execution.codexAgentsEnabled;
+        const previousCodexSkillsEnabled = current.execution.codexSkillsEnabled;
         const previousAntigravityEnabled = current.execution.antigravityEnabled;
         const previousAntigravityModel = current.execution.antigravityModel;
         const previousBroker = current.execution.codexAccountBroker;
@@ -1295,6 +1297,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
             ...(typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
             ...(typeof body.codexModel === 'string' ? { codexModel: body.codexModel } : {}),
             ...(typeof body.codexAgentsEnabled === 'boolean' ? { codexAgentsEnabled: body.codexAgentsEnabled } : {}),
+            ...(typeof body.codexSkillsEnabled === 'boolean' ? { codexSkillsEnabled: body.codexSkillsEnabled } : {}),
             ...(typeof body.antigravityEnabled === 'boolean' ? { antigravityEnabled: body.antigravityEnabled } : {}),
             ...(typeof body.antigravityModel === 'string' ? { antigravityModel: body.antigravityModel } : {}),
             ...(body.defaultMode ? { defaultMode: body.defaultMode } : {}),
@@ -1338,6 +1341,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
             previousCodexEnabled !== settings.execution.codexEnabled ||
             previousCodexModel !== settings.execution.codexModel ||
             previousCodexAgentsEnabled !== settings.execution.codexAgentsEnabled ||
+            previousCodexSkillsEnabled !== settings.execution.codexSkillsEnabled ||
             previousAntigravityEnabled !== settings.execution.antigravityEnabled ||
             previousAntigravityModel !== settings.execution.antigravityModel ||
             previousBroker.enabled !== settings.execution.codexAccountBroker.enabled ||

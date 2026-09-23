@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { EngineeringCommandResult } from '../engineering/types.js';
@@ -23,6 +24,97 @@ const MAX_CAPTURE_BYTES = 256 * 1024;
 const MAX_EVIDENCE_BYTES = 8 * 1024;
 
 const MAX_AGENT_CONFIG_BYTES = 32 * 1024;
+const MAX_SHARED_SKILL_FILES = 512;
+const MAX_SHARED_SKILL_TOTAL_BYTES = 16 * 1024 * 1024;
+const MAX_SHARED_SKILL_FILE_BYTES = 2 * 1024 * 1024;
+
+interface CodexSkillSnapshot {
+  home: string;
+  sourceRoot: string;
+  skillCount: number;
+  fileCount: number;
+  cleanup(): Promise<void>;
+}
+
+function configuredCodexSkillsRoot(env: NodeJS.ProcessEnv): string {
+  const override = env.RWMCP_CODEX_SKILL_DIR?.trim();
+  if (override) {
+    if (!path.isAbsolute(override)) throw new Error('RWMCP_CODEX_SKILL_DIR must be an absolute path.');
+    return path.resolve(override);
+  }
+  const configuredHome = env.CODEX_HOME?.trim();
+  if (configuredHome) {
+    if (!path.isAbsolute(configuredHome)) throw new Error('CODEX_HOME must be an absolute path when Codex skill sharing is enabled.');
+    return path.resolve(configuredHome, 'skills');
+  }
+  const userHome = env.USERPROFILE?.trim() || env.HOME?.trim() || os.homedir();
+  return path.resolve(userHome, '.codex', 'skills');
+}
+
+async function createCodexSkillSnapshot(cwd: string, env: NodeJS.ProcessEnv): Promise<CodexSkillSnapshot> {
+  const sourceRoot = configuredCodexSkillsRoot(env);
+  const sourceStat = await fs.stat(sourceRoot).catch(() => undefined);
+  if (!sourceStat?.isDirectory()) throw new Error(`Codex skills directory is unavailable: ${sourceRoot}`);
+  const canonicalRoot = await fs.realpath(sourceRoot);
+
+  let fileCount = 0;
+  let totalBytes = 0;
+  let skillCount = 0;
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolute = path.resolve(dir, entry.name);
+      const canonical = await fs.realpath(absolute);
+      const relative = path.relative(canonicalRoot, canonical);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Codex skills tree contains an entry that escapes the configured skills root.');
+      }
+      const stat = await fs.lstat(absolute);
+      if (stat.isSymbolicLink()) throw new Error('Codex skills tree contains a symbolic link; refusing shared-skill snapshot.');
+      if (stat.isDirectory()) {
+        await walk(absolute);
+        continue;
+      }
+      if (!stat.isFile()) throw new Error('Codex skills tree contains an unsupported filesystem entry.');
+      fileCount += 1;
+      totalBytes += stat.size;
+      if (entry.name === 'SKILL.md') skillCount += 1;
+      if (fileCount > MAX_SHARED_SKILL_FILES) throw new Error('Codex skills tree exceeds the file-count limit.');
+      if (stat.size > MAX_SHARED_SKILL_FILE_BYTES) throw new Error(`Codex skill file exceeds the per-file limit: ${entry.name}`);
+      if (totalBytes > MAX_SHARED_SKILL_TOTAL_BYTES) throw new Error('Codex skills tree exceeds the total-size limit.');
+    }
+  };
+  await walk(sourceRoot);
+  if (skillCount < 1) throw new Error('Codex skills directory does not contain any SKILL.md entrypoints.');
+
+  const home = await fs.mkdtemp(path.join(cwd, '.rwmcp-codex-home-'));
+  try {
+    await fs.cp(sourceRoot, path.join(home, 'skills'), {
+      recursive: true,
+      dereference: false,
+      force: false,
+      errorOnExist: true
+    });
+    await fs.writeFile(
+      path.join(home, 'config.toml'),
+      '# RWMCP isolated Codex home. User config, plugins, MCP servers, and credentials are intentionally excluded.\n',
+      { encoding: 'utf8', mode: 0o600 }
+    );
+  } catch (error) {
+    await fs.rm(home, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return {
+    home,
+    sourceRoot: canonicalRoot,
+    skillCount,
+    fileCount,
+    cleanup: async () => {
+      await fs.rm(home, { recursive: true, force: true });
+    }
+  };
+}
+
 const EAS_ROLE_DESCRIPTIONS = {
   architect: 'architecture-review',
   debugger: 'root-cause-analysis',
@@ -121,6 +213,7 @@ interface CodexWorkerOptions {
   accountBroker?: CodexAccountBroker;
   model?: string;
   agentDelegationEnabled?: boolean;
+  skillSharingEnabled?: boolean;
   resolveExecutable?: (command: string) => Promise<string | undefined>;
   processRunner?: (
     program: string,
@@ -153,6 +246,7 @@ function safePrompt(request: WorkerDispatchRequest): string {
     'Do not enable web search or external browsing.',
     'Do not bypass sandbox or approval controls.',
     'Do not spawn child agents unless the assigned Task detail explicitly authorizes delegation. If delegation is authorized, use only the projected EAS roles and keep every child inside this worktree.',
+    'If shared Codex skills are available, use them when the task explicitly names one or when the skill catalog clearly applies. Skills are an isolated snapshot: read them as guidance but do not modify the snapshot.',
     'Run only the local build/tests needed to verify this assigned task.',
     '',
     `Objective: ${request.objective.name}`,
@@ -305,6 +399,7 @@ export class CodexWorkerProvider implements WorkerProvider {
   private readonly accountBroker?: CodexAccountBroker;
   private readonly model?: string;
   private readonly agentDelegationEnabled: boolean;
+  private readonly skillSharingEnabled: boolean;
 
   constructor(
     private readonly policy: PolicyEngine,
@@ -318,6 +413,7 @@ export class CodexWorkerProvider implements WorkerProvider {
     this.accountBroker = options.accountBroker;
     this.model = options.model?.trim() || undefined;
     this.agentDelegationEnabled = options.agentDelegationEnabled === true;
+    this.skillSharingEnabled = options.skillSharingEnabled === true;
   }
 
   private async executable(): Promise<string | undefined> {
@@ -413,6 +509,7 @@ export class CodexWorkerProvider implements WorkerProvider {
     ));
     let brokerArgs: string[] = [];
     let brokerEnv: Record<string, string> = {};
+    let cockpitPoolActive = false;
     if (this.accountBroker) {
       const broker = await this.accountBroker.status({ probe: true });
       if (broker.requestedMode === 'cockpit-api-pool') {
@@ -423,6 +520,7 @@ export class CodexWorkerProvider implements WorkerProvider {
           const launch = await this.accountBroker.poolLaunch();
           brokerArgs = launch.args;
           brokerEnv = launch.env;
+          cockpitPoolActive = true;
         } catch (error) {
           return {
             status: 'blocked',
@@ -430,6 +528,12 @@ export class CodexWorkerProvider implements WorkerProvider {
           };
         }
       }
+    }
+    if (this.skillSharingEnabled && !cockpitPoolActive) {
+      return {
+        status: 'blocked',
+        summary: 'CODEX_SHARED_SKILLS_REQUIRE_POOL; shared-skill workers require the isolated Cockpit API pool backend.'
+      };
     }
     let agentArgs: string[] = [];
     let projectedRoles: EasRole[] = [];
@@ -459,12 +563,12 @@ export class CodexWorkerProvider implements WorkerProvider {
       '--ephemeral',
       '--ignore-user-config'
     ];
-    const childEnv = {
+    const baseChildEnv = {
       ...buildSafeEnvironment(this.policy.config.process.inheritEnv, this.env),
       ...brokerEnv
     };
     let attestedSandbox: string | undefined;
-    if (this.agentDelegationEnabled) {
+    if (this.agentDelegationEnabled || this.skillSharingEnabled) {
       const attestationPrompt = 'Reply exactly SANDBOX_ATTESTED. Do not use tools or modify files.';
       const attestation = await this.processRunner(
         executable,
@@ -472,7 +576,7 @@ export class CodexWorkerProvider implements WorkerProvider {
         cwd,
         attestationPrompt,
         Math.min(timeoutLimit, 60_000),
-        childEnv
+        baseChildEnv
       );
       const attestationText = `${attestation.stdout}\n${attestation.stderr}`;
       if (attestation.timedOut || attestation.exitCode !== 0) {
@@ -495,16 +599,38 @@ export class CodexWorkerProvider implements WorkerProvider {
         };
       }
     }
+    let skillSnapshot: CodexSkillSnapshot | undefined;
+    if (this.skillSharingEnabled) {
+      try {
+        skillSnapshot = await createCodexSkillSnapshot(cwd, this.env);
+      } catch (error) {
+        return {
+          status: 'blocked',
+          summary: `CODEX_SHARED_SKILLS_INVALID; ${compact(error instanceof Error ? error.message : String(error), 500)}`
+        };
+      }
+    }
+    const mainBaseArgs = skillSnapshot
+      ? baseArgs.filter(arg => arg !== '--ignore-user-config')
+      : baseArgs;
+    const childEnv = skillSnapshot
+      ? { ...baseChildEnv, CODEX_HOME: skillSnapshot.home }
+      : baseChildEnv;
     const args = [
-      ...baseArgs,
-      ...(this.agentDelegationEnabled ? ['--json'] : []),
+      ...mainBaseArgs,
+      ...((this.agentDelegationEnabled || this.skillSharingEnabled) ? ['--json'] : []),
       '--color', 'never',
       '-'
     ];
-    const result = await this.processRunner(executable, args, cwd, prompt, timeoutLimit, childEnv);
+    let result: CodexExecResult;
+    try {
+      result = await this.processRunner(executable, args, cwd, prompt, timeoutLimit, childEnv);
+    } finally {
+      if (skillSnapshot) await skillSnapshot.cleanup().catch(() => undefined);
+    }
     const afterStatus = await this.runner.run(git, ['status', '--short'], cwd, 10_000);
     const afterDiff = await this.runner.run(git, ['diff', '--stat', '--'], cwd, 10_000);
-    const stream = this.agentDelegationEnabled
+    const stream = (this.agentDelegationEnabled || this.skillSharingEnabled)
       ? parseCodexStreamEvidence(result.stdout)
       : { finalMessage: result.stdout.trim() || undefined, childAgentSpawns: 0 };
     const runId = stream.threadId ?? parseRunId(result.stderr);
@@ -516,7 +642,7 @@ export class CodexWorkerProvider implements WorkerProvider {
       ? compact(stream.finalMessage || result.stdout || result.stderr, 480)
       : compact(boundedTail(result.stderr || result.stdout, 2400), 1200);
     const summary = boundedTail(
-      `exit=${result.exitCode ?? 'null'} timeout=${result.timedOut}; ${evidence}; model=${this.model ?? 'default'}; easRoles=${projectedRoles.length}; codexCollabEvents=${stream.childAgentSpawns}; sandbox=${attestedSandbox ?? parseSandboxMode(result.stderr) ?? 'missing'}; worker=${workerDetail || 'no-summary'}`,
+      `exit=${result.exitCode ?? 'null'} timeout=${result.timedOut}; ${evidence}; model=${this.model ?? 'default'}; easRoles=${projectedRoles.length}; sharedSkills=${skillSnapshot?.skillCount ?? 0}; codexCollabEvents=${stream.childAgentSpawns}; sandbox=${attestedSandbox ?? parseSandboxMode(result.stderr) ?? 'missing'}; worker=${workerDetail || 'no-summary'}`,
       MAX_EVIDENCE_BYTES
     );
 

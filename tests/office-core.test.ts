@@ -54,7 +54,7 @@ test('Office capability matrix never silently downgrades required semantics', ()
   );
 });
 
-test('Current Office matrix advertises Word OOXML mutation and Windows native acceptance without Linux COM dependency', () => {
+test('Internal Office backend matrix remains portable while the public Office MCP surface is Windows-only', () => {
   const windows = currentOfficeCapabilityMatrix('win32').list();
   assert.equal(windows.find(item => item.id === 'windows-com')?.status, 'available');
   assert.equal(windows.find(item => item.id === 'ooxml')?.status, 'available');

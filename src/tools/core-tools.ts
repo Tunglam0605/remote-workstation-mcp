@@ -2,7 +2,7 @@ import os from 'node:os';
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
-import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, CAPABILITIES, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
+import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, capabilitiesForPlatform, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
@@ -59,7 +59,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     engineeringApiVersion: ENGINEERING_API_VERSION,
     actorTag: ctx.actor,
     identityNote: 'Authenticated HTTP principals are request-scoped. RWMCP client tags remain fallback observability metadata for local transports; local owner policy and leases remain the authority.',
-    capabilities: CAPABILITIES
+    capabilities: capabilitiesForPlatform(os.platform())
   }))));
 
   server.registerTool('system_info', {

@@ -724,7 +724,7 @@ ChatGPT / optional Codex / optional Antigravity
 
 Office Pack is deterministic execution infrastructure, not a new reasoning agent.
 
-## 18. v0.33.0 implementation checkpoint
+## 18. v0.33.2 implementation checkpoint
 
 The evidence-backed architecture has now been implemented through Word Phase E without starting Excel or PowerPoint prematurely.
 
@@ -732,12 +732,12 @@ Implemented boundaries:
 
 - Office remains a sibling capability pack under `src/office`, with no dependency from Engineering into Office.
 - `office_capabilities`, `word_inspect`, and transactional `word_edit` are the only Office MCP tools exposed in this milestone.
-- Action Schema advances to 12; Engineering API remains 5.
+- Action Schema advances to 13 because Office tool registration is now explicitly Windows-only; Engineering API remains 5.
 - OOXML supplies deterministic package inspection and typed working-copy mutation.
 - Windows COM supplies native Word open, OMath verification, PDF render and native-process cleanup.
-- Linux requires no Microsoft Office dependency and retains the OOXML subset.
+- The Office MCP product surface is Windows-only. Linux/macOS nodes register no Office tools or Office capabilities; the portable OOXML code remains an internal engine/testable library rather than a non-Windows Office MCP surface.
 - `.docx` mutation uses explicit Work Session ownership, a stable file lease, backup, working copy, SHA-256 conflict detection, structural acceptance and explicit rollback.
 - Word equations are native OMML/OMath rather than images; MathType remains optional and absent from the required path.
 - Macro-enabled mutation, ActiveX, embedded OLE, remote templates, arbitrary VBA/shell/raw-COM and implicit UI automation remain fail-closed.
 
-Acceptance evidence is recorded in `docs/architecture/office-word-acceptance.md`. The pre-release repository gate reached 447 tests / 445 PASS / 0 FAIL / 2 SKIP with typecheck, build, plugin validation, diff check and production dependency audit all passing. Excel remains blocked until the v0.33.0 Word release is accepted on production nodes.
+Acceptance evidence is recorded in `docs/architecture/office-word-acceptance.md`. The v0.33.2 pre-release repository gate reached 449 tests / 447 PASS / 0 FAIL / 2 SKIP with typecheck, build, plugin validation, diff check and production dependency audit all passing, plus real Microsoft Word 16.0 OMath/PDF/rollback acceptance. Excel remains blocked until the v0.33.2 Word release is accepted on production Windows.

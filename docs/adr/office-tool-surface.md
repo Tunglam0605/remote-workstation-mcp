@@ -1,6 +1,6 @@
 # ADR: Office Tool Surface
 
-Status: Accepted and implemented for Word v0.33.0
+Status: Accepted and implemented for Word v0.33.2
 Date: 2026-09-23
 
 ## Context
@@ -11,7 +11,7 @@ The Windows RWMCP connector currently exposes 141 tools. Mirroring every Word/Ex
 
 Use progressive disclosure plus typed bounded batch operations.
 
-Implemented v0.33.0 surface:
+Implemented v0.33.2 surface:
 
 - `office_capabilities` - progressive discovery and backend/security posture;
 - `word_inspect` - bounded structural Word AST;
@@ -48,7 +48,7 @@ There is no arbitrary code, raw command, VBA or COM-method field.
 
 ## Compatibility
 
-Office tools are additive. Existing tool names/semantics do not change. Optional Office backends must not make Linux startup fail.
+Office tools are additive on Windows only. Existing non-Office tool names/semantics do not change. Linux/macOS nodes register no Office MCP tools and must remain healthy without Microsoft Office dependencies.
 
 ## Rejected alternatives
 

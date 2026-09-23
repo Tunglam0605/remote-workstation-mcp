@@ -1,7 +1,7 @@
-export const SERVER_VERSION = '0.33.1';
+export const SERVER_VERSION = '0.33.2';
 export const BUILD_CHANNEL = 'stable' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
-export const ACTION_SCHEMA_VERSION = 12;
+export const ACTION_SCHEMA_VERSION = 13;
 export const ENGINEERING_API_VERSION = 5;
 
 export type CapabilityStatus = 'available' | 'planned';
@@ -70,3 +70,7 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'engineering.kicad', status: 'available', tools: ['engineering_project_inspect', 'engineering_workflow_list', 'engineering_workflow_plan', 'engineering_workflow_run'], note: 'KiCad projects are detected from native project/schematic/board files. v0.22 adds validation-gated fabrication export for Gerbers, drill files and optional BOM into a caller-selected new project-local directory with per-file SHA-256 manifest. ERC/DRC remain temporary diagnostics and source-mutating upgrade/import/save-board/refill workflows are intentionally not exposed.' },
   { id: 'agent.orchestration', status: 'available', tools: ['worker_provider_list', 'work_objective_mutate', 'work_objective_schedule', 'work_objective_summary', 'work_objective_attempts', 'work_objective_execute_task', 'work_objective_cancel_task', 'work_objective_retry_task'], note: 'v0.19 Controlled Worker Orchestration delegates only persisted Work Objective tasks to locally registered providers. Dispatch enters through deterministic scheduler awareness, Work Session ownership/worktree isolation, TaskExecutionCoordinator, resource leases/node interlocks and durable Task Attempts. MCP exposes no provider registration, arbitrary shell/argv payload, permission grant, owner-policy mutation or cross-node grant path.' }
 ];
+
+export function capabilitiesForPlatform(platform: NodeJS.Platform | string = process.platform): CapabilityDescriptor[] {
+  return platform === 'win32' ? CAPABILITIES : CAPABILITIES.filter(capability => !capability.id.startsWith('office.'));
+}

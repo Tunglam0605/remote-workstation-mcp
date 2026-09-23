@@ -24,6 +24,12 @@ Office owns Office-specific document identity, Office sessions, semantic locator
 
 Office is **not** an AI agent and **not** a Worker Provider.
 
+## Platform scope
+
+The RWMCP Office Capability Pack is a **Windows-only product surface**. Only Windows hosts register Office MCP tools or advertise Office capabilities. Non-Windows nodes do not expose `office_capabilities`, `word_inspect`, `word_edit`, or future Excel/PowerPoint Office tools.
+
+The OOXML implementation remains portable internally because it is useful as a deterministic engine inside Windows transactions and tests, but portability of that library is not a promise of a Linux/macOS Office MCP surface. Linux nodes must stay healthy without loading or requiring Microsoft Office applications.
+
 ## Reuse requirements
 
 Office must reuse:

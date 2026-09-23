@@ -215,7 +215,11 @@ try {
   await fs.mkdir(versionDir, { recursive: true });
   await exec('tar', ['-xzf', tgzPath, '--strip-components=1', '-C', versionDir]);
   const npm = await resolveNpmExecutable();
-  await exec(npm, ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: versionDir });
+  const npmEnv = {
+    ...process.env,
+    PATH: [path.dirname(process.execPath), process.env.PATH].filter(Boolean).join(path.delimiter)
+  };
+  await exec(npm, ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: versionDir, env: npmEnv });
 
   const current = path.join(dataHome, 'current');
   const previous = path.join(dataHome, 'previous');

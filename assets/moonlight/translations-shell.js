@@ -27,4 +27,6 @@ export default {
   'Admin request {state}': 'Yêu cầu quản trị {state}', 'Update transaction {state}': 'Giao dịch cập nhật {state}'
   , 'Toggle navigation': 'Mở/đóng điều hướng', 'Close navigation': 'Đóng điều hướng', 'Main navigation': 'Điều hướng chính', 'Always Within Reach': 'Luôn trong tầm tay', 'Live local Control Center': 'Trung tâm điều khiển cục bộ đang hoạt động', 'Close dialog': 'Đóng hộp thoại',
   'Selected permitted operation': 'Thao tác được phép đã chọn', 'Select a permitted operation…': 'Chọn thao tác được phép…', 'Choose a backend-permitted operation for a selected node': 'Chọn thao tác được máy chủ cho phép cho nút đã chọn', 'Live execution policy from the local Control Center': 'Chính sách thực thi trực tiếp từ Trung tâm điều khiển cục bộ', 'Latest activity across all workstations': 'Hoạt động mới nhất trên mọi máy trạm', 'View all': 'Xem tất cả'
+  , 'Good morning,': 'Ch\u00e0o bu\u1ed5i s\u00e1ng,', 'Good afternoon,': 'Ch\u00e0o bu\u1ed5i chi\u1ec1u,', 'Good evening,': 'Ch\u00e0o bu\u1ed5i t\u1ed1i,'
+  , 'RWMCP only': 'Ch\u1ec9 RWMCP', 'Codex only': 'Ch\u1ec9 Codex', 'Hybrid \u00b7 RWMCP + Codex': 'K\u1ebft h\u1ee3p \u00b7 RWMCP + Codex', 'Specialist worker \u00b7 Antigravity': 'Worker chuy\u00ean bi\u1ec7t \u00b7 Antigravity'
 };

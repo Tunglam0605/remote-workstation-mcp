@@ -127,7 +127,8 @@ test('Linux updater resolves npm independently of a sparse systemd PATH', async 
   assert.match(updater, /path\.dirname\(process\.execPath\)/);
   assert.match(updater, /path\.join\(home, '\.local', 'bin', name\)/);
   assert.match(updater, /const npm = await resolveNpmExecutable\(\)/);
-  assert.match(updater, /await exec\(npm, \['install'/);
+  assert.match(updater, /PATH: \[path\.dirname\(process\.execPath\), process\.env\.PATH\]\.filter\(Boolean\)\.join\(path\.delimiter\)/);
+  assert.match(updater, /await exec\(npm, \['install'[\s\S]*env: npmEnv/);
 });
 
 test('Ubuntu TUI distinguishes runtime restart from owner-approved host reboot', async () => {

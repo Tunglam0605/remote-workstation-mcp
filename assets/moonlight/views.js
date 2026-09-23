@@ -2,6 +2,12 @@ import { deriveNotifications } from './model.js';
 import { t } from './i18n.js';
 import './translations-views.js';
 
+const executionModeLabel = (mode) => t({
+  'rwmcp-only': 'RWMCP only',
+  'codex-only': 'Codex only',
+  both: 'Hybrid · RWMCP + Codex'
+}[mode] || (mode == null || mode === '' ? '-' : String(mode)));
+
 const text = (value) => value == null || value === '' ? '—' : String(value);
 
 function el(tag, attributes = {}, ...children) {
@@ -82,10 +88,10 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
 
   function openExecution() {
     const policy = live('execution'); const antigravity = live('antigravity'); const content = pageRoot('Execution', 'Execution policy', 'Configure provider routing and bounded task budgets.'); unavailable('execution', content); if (!policy) return content;
-    const settings = policy.settings || {}; const status = policy.status || {}; const codex = policy.codex || {}; const overview = section('Effective policy', 'Live provider availability and configured execution behavior.');
-    overview.append(el('div', { class: 'detail-grid' }, el('div', { class: 'detail-item' }, el('span', { text: t('Configured mode') }), el('strong', { text: text(status.configuredMode) })), el('div', { class: 'detail-item' }, el('span', { text: t('Effective mode') }), el('strong', { text: text(status.effectiveMode) })), el('div', { class: 'detail-item' }, el('span', { text: 'Codex' }), el('strong', { text: t(codex.installed && codex.authenticated ? 'Ready' : 'Unavailable') })), el('div', { class: 'detail-item' }, el('span', { text: 'Antigravity' }), el('strong', { text: t(antigravity?.available ? 'Available' : 'Unavailable') }))));
+    const settings = policy.settings || {}; const status = policy.status || {}; const codex = policy.codex || {}; const overview = section('Effective policy', 'Routing mode controls RWMCP and Codex. Antigravity is configured independently as a specialist worker.');
+    overview.append(el('div', { class: 'detail-grid' }, el('div', { class: 'detail-item' }, el('span', { text: t('Configured mode') }), el('strong', { text: executionModeLabel(status.configuredMode) })), el('div', { class: 'detail-item' }, el('span', { text: t('Effective mode') }), el('strong', { text: executionModeLabel(status.effectiveMode) })), el('div', { class: 'detail-item' }, el('span', { text: 'Codex' }), el('strong', { text: t(codex.installed && codex.authenticated ? 'Ready' : 'Unavailable') })), el('div', { class: 'detail-item' }, el('span', { text: t('Specialist worker · Antigravity') }), el('strong', { text: t(antigravity?.available ? 'Available' : 'Unavailable') }))));
     if (status.fallbackActive) overview.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) })); content.append(overview);
-    const mode = selectValue(settings.defaultMode || status.configuredMode, [['rwmcp-only', 'Remote MCP only'], ['codex-only', 'Codex only'], ['both', 'Both']]);
+    const mode = selectValue(settings.defaultMode || status.configuredMode, [['rwmcp-only', 'RWMCP only'], ['codex-only', 'Codex only'], ['both', 'Hybrid · RWMCP + Codex']]);
     const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled }); const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled }); const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
     const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Use Remote MCP'], ['stop', 'Stop']]);
     const model = el('input', { value: settings.antigravityModel || '', placeholder: t('Provider configured model') });

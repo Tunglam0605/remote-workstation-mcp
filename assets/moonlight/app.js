@@ -36,21 +36,6 @@ function icon(name) { return element('i', { 'data-lucide': name }); }
 function paintIcons() { globalThis.lucide?.createIcons?.(); }
 function text(value) { return value == null || value === '' ? '—' : String(value); }
 const tr = (source, params) => t(source, params);
-function executionModeLabel(mode) {
-  if (mode === 'rwmcp-only') return tr('RWMCP only');
-  if (mode === 'codex-only') return tr('Codex only');
-  if (mode === 'both') return tr('Hybrid · RWMCP + Codex');
-  return text(mode);
-}
-function greetingSource(now = new Date()) {
-  const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Ho_Chi_Minh' }).format(now));
-  if (hour >= 5 && hour < 12) return 'Good morning,';
-  if (hour >= 12 && hour < 18) return 'Good afternoon,';
-  return 'Good evening,';
-}
-function updateGreeting(now = new Date()) {
-  $('.greeting h1').replaceChildren(document.createTextNode(`${tr(greetingSource(now))} `), element('span', { text: tr('Engineer!') }));
-}
 function readIds() { try { return new Set(JSON.parse(localStorage.getItem(readKey) || '[]')); } catch { return new Set(); } }
 function saveRead(ids) { try { localStorage.setItem(readKey, JSON.stringify([...ids])); } catch {} }
 function toast(message) { const node = $('#toast'); node.textContent = message; node.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { node.hidden = true; }, 3400); }
@@ -124,7 +109,7 @@ function renderMetrics(metrics, resources) {
   const root = $('#metrics'); root.replaceChildren();
   for (const metric of metrics) root.append(element('div', {}, element('strong', { text: metric.value }), element('span', { text: tr(metric.label) })));
   const mode = resources.execution?.data?.status?.effectiveMode ?? resources.execution?.data?.settings?.defaultMode;
-  $('#execution-mode').textContent = executionModeLabel(mode);
+  $('#execution-mode').textContent = text(mode);
 }
 
 function activityTime(timestamp) {
@@ -212,7 +197,7 @@ function localizeShell() {
   $('.activities-panel .panel-heading h2').textContent = tr('Recent Activities'); $('.activities-panel .panel-heading p').textContent = tr('Latest activity across all workstations'); leadingText('#all-activities', 'View all');
   $('.messages-panel .panel-heading h2').textContent = tr('System Messages'); leadingText('#all-messages', 'View all'); $('.page-footer > span:first-child').textContent = tr('Connected to your possibilities');
   $('#console-status-text').textContent = tr($('#console-status-text').dataset.source || 'Unavailable');
-  $('.greeting>p').textContent = tr('Welcome back,'); updateGreeting(); $('.greeting .subtitle').textContent = tr('Your remote workstations. Always within reach.');
+  $('.greeting>p').textContent = tr('Welcome back,'); $('.greeting h1').replaceChildren(document.createTextNode(`${tr('Good evening,')} `), element('span', { text: tr('Engineer!') })); $('.greeting .subtitle').textContent = tr('Your remote workstations. Always within reach.');
   $$('#countdown small').forEach((node, index) => { node.textContent = tr(['DAYS', 'HOURS', 'MINUTES', 'SECONDS'][index]); });
   if (activePage !== 'Overview') views.open(activePage); else render();
 }
@@ -286,7 +271,7 @@ function renderExecutionSelection(content, catalogue) {
   const gitStatus = element('button', { type: 'button', class: 'secondary-button', text: tr('Read Git status'), disabled: executionContext?.session && catalogue.operations.includes('git-status') ? null : '', onclick: () => runGitStatus() });
   const policy = catalogue.executionPolicy ?? catalogue.policy ?? {};
   const sessionPolicy = catalogue.sessionExecutionPolicies?.[executionContext?.session?.id] ?? policy;
-  const policySection = element('div', { class: 'detail-grid' }, element('div', { class: 'detail-item' }, element('span', { text: tr('Configured policy') }), element('strong', { text: executionModeLabel(sessionPolicy.configuredMode ?? policy.configuredMode) })), element('div', { class: 'detail-item' }, element('span', { text: tr('Effective policy') }), element('strong', { text: executionModeLabel(sessionPolicy.effectiveMode ?? policy.effectiveMode) })));
+  const policySection = element('div', { class: 'detail-grid' }, element('div', { class: 'detail-item' }, element('span', { text: tr('Configured policy') }), element('strong', { text: text(sessionPolicy.configuredMode ?? policy.configuredMode) })), element('div', { class: 'detail-item' }, element('span', { text: tr('Effective policy') }), element('strong', { text: text(sessionPolicy.effectiveMode ?? policy.effectiveMode) })));
   const openPolicy = element('button', { type: 'button', class: 'secondary-button', text: tr('View execution policy'), onclick: () => views.open('Execution') });
   content.append(element('p', { text: tr('Node: {name}', { name: text(node.name) }) }), policySection, element('label', { class: 'settings-row' }, element('span', { text: tr('Workspace') }), workspace), element('label', { class: 'settings-row' }, element('span', { text: tr('Project') }), project), element('label', { class: 'settings-row' }, element('span', { text: tr('Session') }), session), element('label', { class: 'settings-row' }, element('span', { text: tr('Permitted task') }), task), note, element('div', { class: 'modal-actions' }, create, run, gitStatus, openPolicy));
   if (executionContext?.process) {
@@ -337,7 +322,6 @@ function openActivityHistory() {
 
 function tick() {
   const now = new Date();
-  updateGreeting(now);
   const locale = getLanguage() === 'vi' ? 'vi-VN' : 'en-US';
   $('#clock').textContent = `${new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' }).format(now)}  ${new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(now)}`;
   const seconds = Math.max(0, Math.floor((Date.parse('2026-09-25T18:00:00+07:00') - now.getTime()) / 1000));

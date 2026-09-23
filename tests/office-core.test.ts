@@ -54,11 +54,12 @@ test('Office capability matrix never silently downgrades required semantics', ()
   );
 });
 
-test('Current Office matrix advertises Word OOXML inspection without pretending native engines are implemented', () => {
+test('Current Office matrix advertises Word OOXML mutation and Windows native acceptance without Linux COM dependency', () => {
   const windows = currentOfficeCapabilityMatrix('win32').list();
-  assert.equal(windows.find(item => item.id === 'windows-com')?.status, 'not-implemented');
+  assert.equal(windows.find(item => item.id === 'windows-com')?.status, 'available');
   assert.equal(windows.find(item => item.id === 'ooxml')?.status, 'available');
-  assert.deepEqual(windows.find(item => item.id === 'ooxml')?.capabilities, ['package.inspect', 'package.validate', 'word.inspect']);
+  assert.deepEqual(windows.find(item => item.id === 'ooxml')?.capabilities, ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml']);
+  assert.deepEqual(windows.find(item => item.id === 'windows-com')?.capabilities, ['word.inspect', 'word.equation.native-verify', 'word.render.pdf']);
 
   const linux = currentOfficeCapabilityMatrix('linux').list();
   assert.equal(linux.find(item => item.id === 'windows-com')?.status, 'unavailable');

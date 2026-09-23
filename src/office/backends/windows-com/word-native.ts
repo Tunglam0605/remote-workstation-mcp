@@ -36,7 +36,12 @@ async function runProcess(program: string, args: string[], timeoutMs: number): P
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
-      child.kill();
+      if (process.platform === 'win32' && child.pid) {
+        const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true, stdio: 'ignore' });
+        killer.unref();
+      } else {
+        child.kill('SIGKILL');
+      }
       settled = true;
       reject(new Error(`WORD_COM_TIMEOUT: helper exceeded ${timeoutMs} ms.`));
     }, timeoutMs);

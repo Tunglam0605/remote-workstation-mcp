@@ -55,6 +55,8 @@ try {
   $word.Visible = $false
   $word.DisplayAlerts = 0
   try { $word.AutomationSecurity = 3 } catch {}
+  try { $word.Options.UpdateLinksAtOpen = $false } catch {}
+  try { $word.Options.SaveNormalPrompt = $false } catch {}
 
   $document = $word.Documents.Open($documentPath, $false, $true)
   $equations = [int]$document.OMaths.Count

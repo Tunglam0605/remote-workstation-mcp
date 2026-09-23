@@ -1,6 +1,6 @@
 # ADR: Office Transaction Model
 
-Status: Accepted for Phase A
+Status: Accepted and implemented for Word v0.33.0
 Date: 2026-09-23
 
 ## Problem
@@ -56,6 +56,9 @@ Read-only inspection may run concurrently if the backend is safe. Mutating acces
 - Prefer same-filesystem atomic replacement.
 - Original remains untouched until commit.
 - Keep a bounded backup under policy.
+- v0.33.0 persists transaction records, backups, working copies and evidence under owner-local RWMCP configuration state rather than inside the document workspace.
+- Final commit and rollback use a random `wx` staging file beside the target only for the short same-volume replacement step, then remove it.
+- If a failure occurs after the filesystem replacement but before final transaction persistence, restore the recorded backup before returning failure.
 
 ## Failure/recovery
 

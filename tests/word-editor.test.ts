@@ -49,7 +49,7 @@ function editableDocx(): Uint8Array {
 test('Word editor applies typed text/style/format/table/media/section operations and preserves unknown parts', () => {
   const original = editableDocx();
   const edited = editWordDocx(original, [
-    { type: 'replace_paragraph_text', locator: { paraId: '00ABC123' }, text: 'Edited Heading' },
+    { type: 'replace_paragraph_text', locator: { stableId: 'w14:paraId:00ABC123' }, text: 'Edited Heading' },
     { type: 'set_paragraph_style', locator: { paraId: '00ABC123' }, styleId: 'Heading2' },
     {
       type: 'set_paragraph_format',
@@ -92,7 +92,7 @@ test('Word editor fails closed for missing or ambiguous semantic locators', () =
   );
   assert.throws(
     () => editWordDocx(original, [{ type: 'replace_paragraph_text', locator: {}, text: 'x' }]),
-    /requires paraId/
+    /requires stableId, paraId/
   );
 });
 

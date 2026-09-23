@@ -53,20 +53,20 @@ export function currentOfficeCapabilityMatrix(platform = process.platform): Offi
       id: 'ooxml',
       status: 'available',
       domains: ['word'],
-      capabilities: ['package.inspect', 'package.validate', 'word.inspect'],
+      capabilities: ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml'],
       nativeApplication: false,
       headless: true,
-      reason: 'Phase B provides bounded OOXML package preflight and structural Word inspection.'
+      reason: 'OOXML backend provides bounded package preflight, structural Word inspection and typed working-copy mutation including OMML equations.'
     },
     {
       id: 'windows-com',
-      status: platform === 'win32' ? 'not-implemented' : 'unavailable',
+      status: platform === 'win32' ? 'available' : 'unavailable',
       domains: ['word', 'excel', 'powerpoint'],
-      capabilities: [],
+      capabilities: platform === 'win32' ? ['word.inspect', 'word.equation.native-verify', 'word.render.pdf'] : [],
       nativeApplication: true,
       headless: false,
       reason: platform === 'win32'
-        ? 'Native COM adapter is intentionally deferred until Word native acceptance.'
+        ? 'Native Word COM acceptance supports isolated open, OMath count, PDF render and deterministic cleanup.'
         : 'Microsoft Office COM automation is Windows-specific.'
     },
     {

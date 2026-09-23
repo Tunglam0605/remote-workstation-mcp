@@ -11,6 +11,7 @@ export interface WordSemanticLocator {
   kind: 'paragraph' | 'table' | 'image' | 'equation' | 'section';
   structuralPath: string;
   stableId?: string;
+  paraId?: string;
   textHash?: string;
   bookmarks?: string[];
   relationshipId?: string;
@@ -232,7 +233,7 @@ function paragraphLocator(paragraph: Element, structuralPath: string): WordSeman
   return {
     kind: 'paragraph',
     structuralPath,
-    ...(paraId ? { stableId: `w14:paraId:${paraId}` } : {}),
+    ...(paraId ? { stableId: `w14:paraId:${paraId}`, paraId } : {}),
     ...(text ? { textHash: shortHash(text) } : {}),
     ...(bookmarks.length > 0 ? { bookmarks } : {})
   };

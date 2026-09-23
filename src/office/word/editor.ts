@@ -8,6 +8,7 @@ const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const W14_NS = 'http://schemas.microsoft.com/office/word/2010/wordml';
 
 export interface WordParagraphLocatorInput {
+  stableId?: string;
   paraId?: string;
   bookmark?: string;
   textHash?: string;
@@ -95,9 +96,10 @@ function text(root: Node): string {
 const hashText = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 16);
 
 function validateLocator(locator: WordParagraphLocatorInput): void {
-  if (!locator.paraId && !locator.bookmark && !locator.textHash && !locator.structuralPath) {
-    throw new Error('Word paragraph locator requires paraId, bookmark, textHash, or structuralPath.');
+  if (!locator.stableId && !locator.paraId && !locator.bookmark && !locator.textHash && !locator.structuralPath) {
+    throw new Error('Word paragraph locator requires stableId, paraId, bookmark, textHash, or structuralPath.');
   }
+  if (locator.stableId && !/^w14:paraId:[0-9A-Fa-f]{8}$/.test(locator.stableId)) throw new Error('stableId must be w14:paraId:<8 hex>.');
   if (locator.paraId && !/^[0-9A-Fa-f]{8}$/.test(locator.paraId)) throw new Error('paraId must be 8 hex characters.');
   if (locator.textHash && !/^[0-9a-f]{16}$/.test(locator.textHash)) throw new Error('textHash must be 16 lowercase hex characters.');
 }
@@ -107,6 +109,10 @@ function resolveParagraph(document: Document, locator: WordParagraphLocatorInput
   const paragraphs = elements(document, 'p');
   let candidates = paragraphs;
 
+  if (locator.stableId) {
+    const stableParaId = locator.stableId.slice('w14:paraId:'.length);
+    candidates = candidates.filter(p => (p.getAttributeNS(W14_NS, 'paraId') || attr(p, 'paraId')) === stableParaId);
+  }
   if (locator.paraId) {
     candidates = candidates.filter(p => (p.getAttributeNS(W14_NS, 'paraId') || attr(p, 'paraId')) === locator.paraId);
   }
@@ -295,7 +301,7 @@ export function editWordDocx(bytes: Uint8Array, operations: WordEditOperation[])
       case 'replace_paragraph_text': {
         const paragraph = resolveParagraph(document, operation.locator);
         replaceParagraphText(paragraph, operation.text);
-        applied.push({ index, type: operation.type, target: operation.locator.paraId ?? operation.locator.bookmark ?? operation.locator.structuralPath ?? operation.locator.textHash ?? 'paragraph' });
+        applied.push({ index, type: operation.type, target: operation.locator.stableId ?? operation.locator.paraId ?? operation.locator.bookmark ?? operation.locator.structuralPath ?? operation.locator.textHash ?? 'paragraph' });
         break;
       }
       case 'set_paragraph_style': {
@@ -307,7 +313,7 @@ export function editWordDocx(bytes: Uint8Array, operations: WordEditOperation[])
       case 'set_paragraph_format': {
         const paragraph = resolveParagraph(document, operation.locator);
         setParagraphFormat(paragraph, operation);
-        applied.push({ index, type: operation.type, target: operation.locator.paraId ?? operation.locator.structuralPath ?? 'paragraph' });
+        applied.push({ index, type: operation.type, target: operation.locator.stableId ?? operation.locator.paraId ?? operation.locator.structuralPath ?? 'paragraph' });
         break;
       }
       case 'set_table_cell_text':
@@ -322,7 +328,7 @@ export function editWordDocx(bytes: Uint8Array, operations: WordEditOperation[])
       case 'insert_omml': {
         const paragraph = resolveParagraph(document, operation.locator);
         insertOmml(document, paragraph, operation.omml, operation.mode ?? 'append');
-        applied.push({ index, type: operation.type, target: operation.locator.paraId ?? operation.locator.structuralPath ?? 'paragraph' });
+        applied.push({ index, type: operation.type, target: operation.locator.stableId ?? operation.locator.paraId ?? operation.locator.structuralPath ?? 'paragraph' });
         break;
       }
       case 'replace_equation_omml':

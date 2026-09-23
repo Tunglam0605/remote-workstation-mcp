@@ -1,6 +1,6 @@
 # ADR: Office Tool Surface
 
-Status: Accepted for Phase A
+Status: Accepted and implemented for Word v0.33.0
 Date: 2026-09-23
 
 ## Context
@@ -11,19 +11,13 @@ The Windows RWMCP connector currently exposes 141 tools. Mirroring every Word/Ex
 
 Use progressive disclosure plus typed bounded batch operations.
 
-Initial planned surface:
+Implemented v0.33.0 surface:
 
-- `office_capabilities`
-- `office_session_open`
-- `office_session_status`
-- `office_session_close`
-- `word_inspect`
-- `word_edit`
-- `word_equation`
-- `word_table`
-- `word_media`
-- `word_render`
-- `word_validate`
+- `office_capabilities` - progressive discovery and backend/security posture;
+- `word_inspect` - bounded structural Word AST;
+- `word_edit` - discriminated `apply|rollback` action with typed batched operations and acceptance requirements.
+
+Separate `word_equation`, `word_table`, `word_media`, `word_render`, session-management and validation tools were intentionally not registered because their current semantics fit inside inspection or the transactional edit contract. They may be introduced later only when they provide a distinct capability boundary rather than a convenience wrapper.
 
 Excel and PowerPoint domain tools are not registered until their phases begin.
 

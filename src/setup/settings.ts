@@ -21,6 +21,8 @@ const codexAccountBrokerSettingsSchema = z.object({
 
 export const executionSettingsSchema = z.object({
   codexEnabled: z.boolean().default(false),
+  codexModel: z.string().trim().regex(/^[A-Za-z0-9._-]{1,128}$/).default('gpt-6-sol'),
+  codexAgentsEnabled: z.boolean().default(false),
   antigravityEnabled: z.boolean().default(false),
   antigravityModel: z.string().trim().max(128).default(''),
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
@@ -56,6 +58,8 @@ export const setupSettingsSchema = z.object({
     .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' }),
   execution: executionSettingsSchema.default({
     codexEnabled: false,
+    codexModel: 'gpt-6-sol',
+    codexAgentsEnabled: false,
     antigravityEnabled: false,
     antigravityModel: '',
     defaultMode: 'rwmcp-only',
@@ -124,6 +128,8 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     httpScopes: migratedScopes,
     execution: raw.execution ?? {
       codexEnabled: false,
+      codexModel: 'gpt-6-sol',
+      codexAgentsEnabled: false,
       antigravityEnabled: false,
       antigravityModel: '',
       defaultMode: 'rwmcp-only',

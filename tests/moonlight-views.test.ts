@@ -30,6 +30,10 @@ test('Moonlight views use actual workstation scope names and transient secret in
   assert.match(source, /timeoutMs = 180_000/);
   assert.doesNotMatch(source, /innerHTML/);
   assert.doesNotMatch(source, /sessionStorage/);
+  assert.match(source, /codexModel/);
+  assert.match(source, /codexAgentsEnabled/);
+  assert.match(source, /Codex model/);
+  assert.match(source, /Enable Codex EAS agents/);
 });
 
 test('opening a view reads store state without issuing an API request', async () => {

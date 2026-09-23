@@ -26,6 +26,8 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.equal(settings.execution.defaultMode, 'rwmcp-only');
   assert.equal(settings.execution.codexEnabled, false);
+  assert.equal(settings.execution.codexModel, 'gpt-6-sol');
+  assert.equal(settings.execution.codexAgentsEnabled, false);
   assert.equal(settings.execution.antigravityEnabled, false);
   assert.equal(settings.execution.antigravityModel, '');
   assert.equal(settings.execution.allowChatOverride, true);
@@ -37,6 +39,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, controlPort: 80 }), /1024/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, httpScopes: ['workstation.write'] }), /workstation.read/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, controlPort: 8683, workspaceRoot: workspace }), /different loopback ports/);
+  assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, execution: { codexModel: 'gpt-6-sol\\nmalicious=true' } }), /Invalid string|regular expression|regex/i);
 
   const migrated = normalizeSetupSettings({ mcpPort: 8684, workspaceRoot: workspace });
   assert.equal(migrated.controlPort, 8685);

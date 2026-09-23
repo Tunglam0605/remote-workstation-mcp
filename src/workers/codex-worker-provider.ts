@@ -49,7 +49,11 @@ interface EasProjection {
 }
 
 function tomlString(value: string): string {
-  return JSON.stringify(value);
+  // Codex may resolve to a Windows .CMD shim. Keep config override values free of
+  // literal spaces so cmd.exe cannot split a quoted TOML value before Codex sees it.
+  // JSON string escaping is TOML-basic-string compatible for these bounded values;
+  // TOML decodes \\u0020 back to the original space.
+  return JSON.stringify(value).replace(/ /g, '\\u0020');
 }
 
 async function validatedEasProjection(env: NodeJS.ProcessEnv): Promise<EasProjection> {

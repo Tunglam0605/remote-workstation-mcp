@@ -83,7 +83,7 @@ async function writeEasRoles(home: string) {
 }
 
 test('Codex worker projects only validated EAS roles while keeping user config ignored', async () => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-eas-'));
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp codex eas-'));
   const repo = path.join(temp, 'repo');
   await fs.mkdir(path.join(repo, '.git'), { recursive: true });
   await writeEasRoles(temp);
@@ -115,8 +115,10 @@ test('Codex worker projects only validated EAS roles while keeping user config i
   const args = calls[0]!;
   assert.ok(args.includes('--ignore-user-config'));
   assert.ok(args.includes('--json'));
-  assert.ok(args.includes('--json'));
   assert.ok(args.includes('model="gpt-6-sol"'));
+  for (let index = 0; index < args.length - 1; index += 1) {
+    if (args[index] === '-c') assert.doesNotMatch(args[index + 1]!, /\s/, 'Codex -c override must not contain literal whitespace');
+  }
   assert.ok(args.includes('features.multi_agent=true'));
   assert.ok(args.includes('agents.enabled=true'));
   assert.ok(args.includes('agents.max_concurrent_threads_per_session=2'));

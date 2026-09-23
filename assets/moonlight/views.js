@@ -130,37 +130,155 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   }
 
   function openExecution() {
-    const policy = live('execution'); const antigravity = live('antigravity'); const content = pageRoot('Execution', 'Execution policy', 'Configure provider routing and bounded task budgets.'); unavailable('execution', content); if (!policy) return content;
-    const settings = policy.settings || {}; const status = policy.status || {}; const codex = policy.codex || {}; const overview = section('Effective policy', 'Live provider availability and configured execution behavior.', 'moon-page-full');
-    overview.append(el('div', { class: 'detail-grid' }, el('div', { class: 'detail-item' }, el('span', { text: t('Configured mode') }), el('strong', { text: text(status.configuredMode) })), el('div', { class: 'detail-item' }, el('span', { text: t('Effective mode') }), el('strong', { text: text(status.effectiveMode) })), el('div', { class: 'detail-item' }, el('span', { text: 'Codex' }), el('strong', { text: t(codex.installed && codex.authenticated ? 'Ready' : 'Unavailable') })), el('div', { class: 'detail-item' }, el('span', { text: 'Antigravity' }), el('strong', { text: t(antigravity?.available ? 'Available' : 'Unavailable') }))));
-    if (status.fallbackActive) overview.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) })); content.append(overview);
-    const mode = selectValue(settings.defaultMode || status.configuredMode, [['rwmcp-only', 'Remote MCP only'], ['codex-only', 'Codex only'], ['both', 'Both']]);
-    const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled }); const codexAgentsEnabled = el('input', { type: 'checkbox', checked: settings.codexAgentsEnabled }); const codexSkillsEnabled = el('input', { type: 'checkbox', checked: settings.codexSkillsEnabled }); const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled }); const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
-    const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Use Remote MCP'], ['stop', 'Stop']]);
+    const policy = live('execution');
+    const antigravity = live('antigravity');
+    const content = pageRoot('Execution', 'Agent Control', 'Choose how ChatGPT may route bounded implementation work to RWMCP, Codex, and Antigravity.');
+    unavailable('execution', content);
+    if (!policy) return content;
+
+    const settings = policy.settings || {};
+    const status = policy.status || {};
+    const codex = policy.codex || {};
+    const broker = policy.accountBroker || settings.codexAccountBroker || {};
+    const codexAvailable = Boolean(codex.installed && codex.authenticated);
+    const antigravityAvailable = Boolean(antigravity?.available && antigravity?.authenticated);
+    const codexReady = Boolean(settings.codexEnabled && codexAvailable && broker.effectiveBackend !== 'blocked');
+    const antigravityReady = Boolean(settings.antigravityEnabled && antigravityAvailable);
+    const modeLabels = { 'rwmcp-only': 'RWMCP only', 'codex-only': 'Codex first', both: 'Hybrid' };
+    const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
+    const effective = status.effectiveMode || settings.defaultMode || 'rwmcp-only';
+    const routeText = effective === 'rwmcp-only'
+      ? 'Without a Work Session override, ChatGPT uses RWMCP directly for coding work.'
+      : effective === 'codex-only'
+        ? 'ChatGPT may delegate bounded implementation tasks to Codex.'
+        : 'ChatGPT may combine direct RWMCP control with bounded coding workers.';
+
+    const route = section('Global route', 'This shows the owner-level route; Work Sessions can have different routes when overrides are allowed. Session fallbacks are not shown here.', 'moon-page-full agent-route-section');
+    route.append(el('div', { class: 'agent-route-banner' },
+      el('div', { class: 'agent-route-main' },
+        el('span', { class: `pill ${status.fallbackActive ? 'warning' : 'success'}`, text: t(status.fallbackActive ? 'Fallback active' : 'Policy active') }),
+        el('div', {}, el('strong', { text: t(modeLabels[effective] || effective) }), el('p', { text: t(routeText) }))
+      ),
+      el('div', { class: 'agent-route-meta' },
+        el('span', { text: `${t('Source')}: ${t(sourceLabels[status.source] || text(status.source))}` }),
+        el('span', { text: `${t('Chat overrides')}: ${settings.allowChatOverride ? t('Allowed') : t('Locked by owner')}` }),
+        el('span', { text: `${t('Active overrides')}: ${text(status.activeSessionOverrides ?? 0)}` })
+      )
+    ));
+    if (status.fallbackActive) route.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) }));
+    content.append(route);
+
+    const strategy = section('Default strategy', 'Pick the normal route. ChatGPT can only override it per Work Session when you allow that below.', 'moon-page-full');
+    const selectedMode = settings.defaultMode || status.configuredMode || 'rwmcp-only';
+    const strategies = [
+      ['rwmcp-only', 'RWMCP only', 'Lowest worker usage. ChatGPT operates through typed RWMCP tools only.'],
+      ['codex-only', 'Codex first', 'Use Codex for bounded coding tasks; RWMCP remains the control plane.'],
+      ['both', 'Hybrid', 'Let ChatGPT choose direct RWMCP or bounded workers per task.']
+    ];
+    const strategyGrid = el('div', { class: 'agent-strategy-grid' });
+    for (const [id, title, description] of strategies) {
+      const input = el('input', { type: 'radio', name: 'execution-strategy', value: id, checked: id === selectedMode });
+      strategyGrid.append(el('label', { class: `agent-strategy-card${id === selectedMode ? ' selected' : ''}` }, input,
+        el('div', {}, el('strong', { text: t(title) }), el('p', { text: t(description) }))
+      ));
+      input.addEventListener('change', () => strategyGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked)));
+    }
+    strategy.append(strategyGrid);
+    content.append(strategy);
+
+    const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled });
+    const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled });
+    const providers = section('Workers', 'Enable only the workers you want ChatGPT to be able to use. Availability never grants extra workstation authority.', 'moon-page-full');
+    const providerGrid = el('div', { class: 'agent-provider-grid' });
+    const providerCard = (kind, title, ready, enabledControl, facts, note) => el('article', { class: `agent-provider-card ${ready ? 'ready' : 'offline'}` },
+      el('header', { class: 'agent-provider-header' },
+        el('div', {}, el('span', { class: 'agent-provider-kicker', text: t(kind) }), el('h4', { text: title })),
+        el('span', { class: `pill ${ready ? 'success' : 'warning'}`, text: t(ready ? 'Ready' : enabledControl.checked ? 'Unavailable' : 'Disabled') })
+      ),
+      el('div', { class: 'agent-provider-facts' }, ...facts.filter(Boolean).map(([label, value]) => el('div', {}, el('span', { text: t(label) }), el('strong', { text: t(text(value)) })) )),
+      el('p', { class: 'moon-muted', text: t(enabledControl.checked ? note : 'Worker is disabled by owner policy.') }),
+      el('label', { class: 'agent-enable-row' }, enabledControl, el('span', { text: t('Allow ChatGPT to use this worker') }))
+    );
+    providerGrid.append(
+      providerCard('Coding worker', 'OpenAI Codex', codexReady, codexEnabled, [
+        ['Version', codex.version],
+        ['Model', settings.codexModel || 'gpt-6-sol'],
+        ['Account routing', broker.effectiveBackend || broker.mode || settings.codexAccountBroker?.mode]
+      ], codexReady ? 'Codex is authenticated and ready for bounded Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
+      providerCard('UI / frontend worker', 'Google Antigravity', antigravityReady, antiEnabled, [
+        ['Version', antigravity?.version],
+        ['Model', antigravity?.model?.label || antigravity?.model?.id || settings.antigravityModel || 'Provider default'],
+        ['Sandbox', antigravity?.available ? 'Required' : 'Unavailable']
+      ], antigravityReady ? 'Antigravity is authenticated and constrained by the configured sandbox policy.' : (antigravity?.detail || 'Antigravity is not ready.'))
+    );
+    providers.append(providerGrid);
+    content.append(providers);
+
+    const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
+    const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop Codex dispatch']]);
+    const behavior = section('ChatGPT behavior', 'These controls define what ChatGPT may change temporarily and what happens when Codex reaches a limit.', 'moon-page-full');
+    behavior.append(el('div', { class: 'agent-behavior-grid' },
+      field('Work Session override', chatOverride, 'Allows ChatGPT to choose RWMCP only, Codex first, or Hybrid for one isolated Work Session.'),
+      field('When Codex reaches a limit', fallback, 'RWMCP fallback switches the affected route; Stop rejects Codex dispatch without switching routes.')
+    ));
+    content.append(behavior);
+
     const codexModel = el('input', { value: settings.codexModel || 'gpt-6-sol', placeholder: 'gpt-6-sol' });
-    const model = el('input', { value: settings.antigravityModel || '', placeholder: t('Provider configured model') });
-    const maxSession = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerSession ?? '' }); const maxDay = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerDay ?? '' });
-    const broker = settings.codexAccountBroker || {}; const brokerEnabled = el('input', { type: 'checkbox', checked: broker.enabled }); const brokerMode = selectValue(broker.mode || 'native', [['native', 'Native'], ['cockpit-api-pool', 'Cockpit API pool']]);
-    const form = section('Configuration', 'Provider changes are validated by the backend before they are saved.', 'moon-page-full');
-    const formGrid = el('div', { class: 'moon-form-grid' },
-      field('Default mode', mode),
-      field('Codex fallback', fallback),
-      field('Enable Codex', codexEnabled),
+    const antiModel = el('input', { value: settings.antigravityModel || '', placeholder: t('Provider configured model') });
+    const codexAgentsEnabled = el('input', { type: 'checkbox', checked: settings.codexAgentsEnabled });
+    const codexSkillsEnabled = el('input', { type: 'checkbox', checked: settings.codexSkillsEnabled });
+    const maxSession = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerSession ?? '' });
+    const maxDay = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerDay ?? '' });
+    const brokerEnabled = el('input', { type: 'checkbox', checked: settings.codexAccountBroker?.enabled });
+    const brokerMode = selectValue(settings.codexAccountBroker?.mode || 'native', [['native', 'Native'], ['cockpit-api-pool', 'Cockpit API pool']]);
+    const advanced = section('Advanced', 'Model overrides, budgets, agent features, and recovery controls.', 'moon-page-full');
+    const details = el('details', { class: 'agent-advanced' }, el('summary', { text: t('Show advanced worker settings') }));
+    details.append(el('div', { class: 'moon-form-grid agent-advanced-grid' },
       field('Codex model', codexModel),
+      field('Antigravity model', antiModel),
       field('Enable Codex EAS agents', codexAgentsEnabled),
       field('Share Codex skills with RWMCP workers', codexSkillsEnabled),
-      field('Enable Antigravity', antiEnabled),
-      field('Antigravity model', model),
-      field('Allow chat overrides', chatOverride),
-      field('Max Codex tasks / session', maxSession),
-      field('Max Codex tasks / day', maxDay),
+      field('Max Codex tasks / session', maxSession, '0 means unlimited.'),
+      field('Max Codex tasks / day', maxDay, '0 means unlimited.'),
       field('Enable account broker', brokerEnabled),
       field('Broker mode', brokerMode)
-    );
-    form.append(formGrid);
-    form.append(actions(button('Save execution policy', async () => { if (!confirm(t('Save this execution policy?'))) return; const body = { defaultMode: mode.value, codexEnabled: codexEnabled.checked, codexModel: codexModel.value, codexAgentsEnabled: codexAgentsEnabled.checked, codexSkillsEnabled: codexSkillsEnabled.checked, antigravityEnabled: antiEnabled.checked, antigravityModel: model.value, allowChatOverride: chatOverride.checked, codexFallback: fallback.value, maxCodexTasksPerSession: maxSession.value === '' ? undefined : Number(maxSession.value), maxCodexTasksPerDay: maxDay.value === '' ? undefined : Number(maxDay.value), codexAccountBroker: { enabled: brokerEnabled.checked, mode: brokerMode.value } }; await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'Execution policy saved.'); openExecution(); }, 'primary-button'), button('Reset fallback', async () => { await mutate('/api/execution-policy/fallback-reset', {}, ['execution'], 'Fallback reset.'); openExecution(); }), button('Clear overrides', async () => { if (!confirm(t('Clear all active execution overrides?'))) return; await mutate('/api/execution-policy/clear-overrides', {}, ['execution'], 'Overrides cleared.'); openExecution(); }))); content.append(form); return content;
-  }
+    ));
+    details.append(el('div', { class: 'agent-danger-zone' },
+      el('div', {}, el('strong', { text: t('Recovery actions') }), el('p', { class: 'moon-muted', text: t('Use these only when a fallback latch or stale Work Session override needs to be cleared.') })),
+      actions(
+        button('Reset fallback', async () => { await mutate('/api/execution-policy/fallback-reset', {}, ['execution'], 'Fallback reset.'); openExecution(); }),
+        button('Clear overrides', async () => { if (!confirm(t('Clear all active execution overrides?'))) return; await mutate('/api/execution-policy/clear-overrides', {}, ['execution'], 'Overrides cleared.'); openExecution(); }, 'secondary-button danger-button')
+      )
+    ));
+    advanced.append(details);
+    content.append(advanced);
 
+    content.append(el('div', { class: 'agent-save-bar moon-page-full' },
+      el('div', {}, el('strong', { text: t('Owner policy') }), el('span', { text: t('Changes affect future worker routing; provider/runtime changes may require a managed restart.') })),
+      button('Save Agent Control', async () => {
+        if (!confirm(t('Save this execution policy?'))) return;
+        const selected = content.querySelector('input[name="execution-strategy"]:checked')?.value || 'rwmcp-only';
+        const body = {
+          defaultMode: selected,
+          codexEnabled: codexEnabled.checked,
+          codexModel: codexModel.value,
+          codexAgentsEnabled: codexAgentsEnabled.checked,
+          codexSkillsEnabled: codexSkillsEnabled.checked,
+          antigravityEnabled: antiEnabled.checked,
+          antigravityModel: antiModel.value,
+          allowChatOverride: chatOverride.checked,
+          codexFallback: fallback.value,
+          maxCodexTasksPerSession: maxSession.value === '' ? undefined : Number(maxSession.value),
+          maxCodexTasksPerDay: maxDay.value === '' ? undefined : Number(maxDay.value),
+          codexAccountBroker: { enabled: brokerEnabled.checked, mode: brokerMode.value }
+        };
+        const result = await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'Execution policy saved.');
+        if (result?.restartRequired) toast(t('Saved. Restart the managed runtime to activate provider-level changes.'));
+        openExecution();
+      }, 'primary-button')
+    ));
+    return content;
+  }
   function openDevices() {
     const pairing = live('pairing'); const multi = live('multiNode'); const content = pageRoot('Devices', 'Devices & multi-node', 'Pair trusted devices and manage explicit transfer grants.'); unavailable('pairing', content); if (!pairing) return content;
     const devices = section('Paired devices', 'Pairing records do not report device liveness.');

@@ -76,8 +76,21 @@ function installDom() {
     get textContent() { return this.ownText + this.children.map((child) => child.textContent).join(''); }
     setAttribute(name: string, value: string) { this.attributes.set(name, value); if (name === 'value') this.value = value; }
     addEventListener(name: string, handler: (event: { currentTarget: Node }) => unknown) { this.listeners.set(name, handler); }
-    append(...children: Node[]) { this.children.push(...children); }
-    querySelectorAll(selector: string) { return selector === 'input:checked' ? descendants(this).filter((node) => node.attributes.get('type') === 'checkbox' && node.checked) : []; }
+    append(...children: Node[]) {
+      this.children.push(...children);
+      const selected = children.find((child) => child.attributes.has('selected'));
+      if (selected) this.value = selected.value;
+    }
+    querySelectorAll(selector: string) {
+      if (selector === 'input:checked') return descendants(this).filter((node) => node.attributes.get('type') === 'checkbox' && node.checked);
+      if (selector === '.agent-strategy-card') return descendants(this).filter((node) => node.className.split(/\s+/).includes('agent-strategy-card'));
+      return [];
+    }
+    querySelector(selector: string) {
+      if (selector === 'input[name="execution-strategy"]:checked') return descendants(this).find((node) => node.attributes.get('name') === 'execution-strategy' && node.checked);
+      if (selector === 'input') return descendants(this).find((node) => node.attributes.has('type'));
+      return undefined;
+    }
     remove() {}
   }
   const descendants = (node: Node): Node[] => node.children.flatMap((child) => [child, ...descendants(child)]);
@@ -85,6 +98,100 @@ function installDom() {
   globalThis.document = document as never;
   return { Node, descendants, restore: () => { globalThis.document = previousDocument; globalThis.confirm = previousConfirm; } };
 }
+
+test('Execution distinguishes global route from Work Session overrides and unavailable workers', () => {
+  const dom = installDom();
+  const pages: Array<InstanceType<typeof dom.Node>> = [];
+  const state = {
+    execution: { data: {
+      settings: { defaultMode: 'rwmcp-only', codexEnabled: true, antigravityEnabled: false, allowChatOverride: true, codexFallback: 'stop' },
+      status: { effectiveMode: 'rwmcp-only', source: 'owner-default', activeSessionOverrides: 2 },
+      codex: { installed: true, authenticated: true }, accountBroker: { effectiveBackend: 'blocked', pool: { detail: 'Pool unreachable' } }
+    } },
+    antigravity: { data: { available: true, authenticated: true } }
+  };
+  try {
+    setLanguage('en');
+    const views = createViews({ api: { request: async () => ({}) }, store: { getState: () => state },
+      openModal: () => {}, openPage: (_page: string, _title: string, content: InstanceType<typeof dom.Node>) => { pages.push(content); }, toast: () => {}, refresh: async () => {} });
+    views.open('Execution');
+    const rendered = pages[0]!.textContent;
+    assert.match(rendered, /Global route/);
+    assert.match(rendered, /Work Sessions can have different routes/);
+    assert.match(rendered, /Pool unreachable/);
+    assert.match(rendered, /Disabled/);
+    assert.match(rendered, /When Codex reaches a limit/);
+    assert.doesNotMatch(rendered, /Stop worker dispatch/);
+    setLanguage('vi');
+    assert.equal(t('Global route'), 'Luồng tổng thể');
+    assert.equal(t('Stop Codex dispatch'), 'Dừng giao việc cho Codex');
+  } finally { dom.restore(); }
+});
+
+test('Agent Control saves the selected route and provider settings through the existing execution-policy API', async () => {
+  const dom = installDom();
+  const requests: Array<{ path: string; options: { body?: any; method?: string } }> = [];
+  const pages: Array<InstanceType<typeof dom.Node>> = [];
+  globalThis.confirm = (() => true) as never;
+  const state = {
+    execution: { data: {
+      settings: {
+        defaultMode: 'both',
+        codexEnabled: true,
+        codexModel: 'gpt-6-sol',
+        codexAgentsEnabled: true,
+        codexSkillsEnabled: true,
+        antigravityEnabled: true,
+        antigravityModel: '',
+        allowChatOverride: true,
+        codexFallback: 'rwmcp-only',
+        maxCodexTasksPerSession: 0,
+        maxCodexTasksPerDay: 0,
+        codexAccountBroker: { enabled: true, mode: 'cockpit-api-pool' }
+      },
+      status: { effectiveMode: 'both', configuredMode: 'both', source: 'owner-default', activeSessionOverrides: 0 },
+      codex: { installed: true, authenticated: true, version: 'codex-cli test' },
+      accountBroker: { effectiveBackend: 'cockpit-api-pool' }
+    } },
+    antigravity: { data: { available: true, authenticated: true, version: '1.2.9', model: { id: 'test-model' } } }
+  };
+  try {
+    setLanguage('en');
+    const views = createViews({
+      api: { request: async (path: string, options: { body?: any; method?: string }) => {
+        requests.push({ path, options });
+        return { restartRequired: false };
+      } },
+      store: { getState: () => state },
+      openModal: () => {},
+      openPage: (_page: string, _title: string, content: InstanceType<typeof dom.Node>) => { pages.push(content); },
+      toast: () => {},
+      refresh: async () => {}
+    });
+    views.open('Execution');
+    const page = pages[0]!;
+    const save = dom.descendants(page).find((node) => node.textContent === 'Save Agent Control' && node.listeners.has('click'));
+    assert.ok(save);
+    await save.listeners.get('click')!({ currentTarget: save });
+    const request = requests.find((item) => item.path === '/api/execution-policy');
+    assert.ok(request);
+    assert.equal(request.options.method, 'POST');
+    assert.deepEqual(request.options.body, {
+      defaultMode: 'both',
+      codexEnabled: true,
+      codexModel: 'gpt-6-sol',
+      codexAgentsEnabled: true,
+      codexSkillsEnabled: true,
+      antigravityEnabled: true,
+      antigravityModel: '',
+      allowChatOverride: true,
+      codexFallback: 'rwmcp-only',
+      maxCodexTasksPerSession: 0,
+      maxCodexTasksPerDay: 0,
+      codexAccountBroker: { enabled: true, mode: 'cockpit-api-pool' }
+    });
+  } finally { dom.restore(); }
+});
 
 test('Vietnamese views localize interactive text while retaining backend request values', async () => {
   const dom = installDom();

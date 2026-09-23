@@ -20,7 +20,11 @@ import { WorkflowRunStore } from '../src/workflow-run-store.js';
 const sessionA = '44444444-4444-4444-8444-444444444444';
 
 async function createEvidence(root: string, count: number, approve: boolean) {
-  const runs = new WorkflowRunStore('openai-tunnel', { file: path.join(root, 'runs.json') });
+  let tick = Date.now();
+  const runs = new WorkflowRunStore('openai-tunnel', {
+    file: path.join(root, 'runs.json'),
+    now: () => new Date(tick += 100)
+  });
   const observations = new QualityObservationStore('openai-tunnel', {
     file: path.join(root, 'observations.json'),
     settingsFile: path.join(root, 'settings.json')

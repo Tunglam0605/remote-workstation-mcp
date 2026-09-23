@@ -1,6 +1,6 @@
 /* Additive styles for live Control Center forms; base Moonlight layout remains in style.css. */
 #overview[hidden],#page-outlet[hidden]{display:none!important}
-#page-outlet{margin-left:var(--sidebar);padding:0 18px 0 16px;max-width:2100px;min-width:0}
+#page-outlet{margin-left:var(--sidebar);padding:0 20px 48px 18px;max-width:2100px;min-width:0}
 #language-toggle{font-size:11px;font-weight:600;letter-spacing:.4px;flex-shrink:0}
 .device-card,.device-head>div,.spec-row,.spec-row .value{min-width:0}
 .device-head h2,.device-description>span{overflow:hidden;text-overflow:ellipsis}
@@ -14,19 +14,514 @@
 .metrics strong{overflow-wrap:anywhere}
 @media(min-width:1650px){.console-panel,.mode-panel{min-height:155px}.activities-panel,.messages-panel{min-height:209px}}
 @media(max-width:520px){.metrics strong{font-size:12px;white-space:nowrap;overflow-wrap:normal}.metrics span{white-space:normal;line-height:1.35;overflow-wrap:normal;font-size:8px}}
-.moon-view{display:grid;gap:14px}.moon-section{padding:14px;border:1px solid var(--line);border-radius:10px;background:#071a2ddd}.moon-section h3,.moon-section h4{margin:0 0 5px;font-size:14px;font-weight:500}.moon-section h4{margin-top:10px;font-size:12px}.moon-section>p{margin:0 0 12px}.moon-field{display:grid;gap:5px;margin:10px 0;color:#dce7f9;font-size:11px}.moon-field small,.moon-muted{color:var(--muted);font-size:10px}.moon-field input:not([type=checkbox]),.moon-field select{width:100%;background:#10253e;border:1px solid #375271;border-radius:6px;padding:8px;color:var(--text)}.moon-field input[type=checkbox]{width:16px;height:16px;accent-color:var(--gold)}.moon-check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}.moon-row{display:grid;gap:5px;padding:10px 0;border-top:1px solid var(--line);font-size:11px}.moon-row strong{font-weight:500}.moon-row span,.moon-row small{color:var(--muted)}.moon-row code,.moon-secret code{overflow-wrap:anywhere;color:#f6d69b}.moon-error{color:#ff9b9b!important}.moon-warning{color:#ffd278!important}.moon-status{color:#92e9bf!important}.moon-secret{display:grid;gap:6px;margin-top:12px;padding:12px;border:1px solid #b28a4c;border-radius:8px;background:#1c2430}.moon-transaction{max-height:180px;overflow:auto;font-size:10px;white-space:pre-wrap}.moon-section .modal-actions{margin-top:12px}.moon-page{width:min(1240px,100%);margin:0 auto;padding:30px 4px 48px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.moon-page-header{grid-column:1/-1;padding:28px 30px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(120deg,rgba(var(--theme-panel,16,43,73),.95),rgba(var(--theme-base,7,25,46),.92));box-shadow:0 14px 35px #0003}.moon-page-header h1{margin:4px 0 7px;font-size:26px;color:var(--gold)}.moon-page-header p{margin:0;color:var(--muted);font-size:13px}.moon-page-kicker{color:var(--gold)!important;font-size:10px!important;letter-spacing:1.8px;text-transform:uppercase}.moon-page .moon-section{min-width:0;padding:22px;background:linear-gradient(145deg,rgba(var(--theme-panel,13,38,62),.93),rgba(var(--theme-base,6,24,43),.90));box-shadow:0 9px 28px #0002}.moon-page .moon-section h3{font-size:16px}.moon-page .moon-section>p{font-size:11px}.moon-page .modal-actions{gap:10px}.moon-page .primary-button,.moon-page .secondary-button{min-height:38px}.moon-page .moon-row{padding:13px 0}@media(max-width:760px){.moon-page{grid-template-columns:1fr;padding:18px 0 36px;gap:12px}.moon-page-header{padding:22px 18px}.moon-page-header h1{font-size:22px}.moon-page .moon-section{padding:16px}}@media(max-width:520px){.moon-check-grid{grid-template-columns:1fr}.moon-section{padding:11px}}
 
-.moon-page-header{position:relative;overflow:hidden;border-top:2px solid var(--gold)}
-.moon-page .moon-field{font-size:12px;line-height:1.5;margin:14px 0}
-.moon-page .moon-field small,.moon-page .moon-muted{font-size:11px;line-height:1.65}
-.moon-page .moon-section>p{line-height:1.65}
-.moon-page .moon-field input:not([type=checkbox]),.moon-page .moon-field select{min-height:40px;background:rgba(var(--theme-base,16,37,62),.82);border-color:var(--line)}
-.moon-page .moon-field:has(input[type=checkbox]){grid-template-columns:1fr auto;align-items:center;gap:12px}
-.moon-page .moon-field input[type=checkbox]{width:18px;height:18px}
-.moon-page .modal-actions{padding-top:14px;border-top:1px solid var(--line);flex-wrap:wrap}
-.moon-page .detail-grid{gap:12px}
-.moon-page .detail-item{min-width:0;background:rgba(var(--theme-base,7,20,35),.38)}
-.moon-page .detail-item strong,.moon-page .moon-row{overflow-wrap:anywhere}
-@media(max-width:760px){#page-outlet{padding:0 12px}.moon-page .modal-actions>button{flex:1 1 150px}}
+/* --- Moonlight Non-Overview Pages Design System --- */
 
-@media(max-width:520px){.topbar{gap:8px;padding-inline:10px}.top-actions{gap:5px}.top-actions .separator{display:none}.top-actions .icon-button,.top-actions .avatar{width:28px;min-width:28px}.top-brand{min-width:0;gap:8px}}
+.moon-view{display:grid;gap:14px}
+
+.moon-page{
+  width:min(1340px,100%);
+  margin:0 auto;
+  padding:24px 0 40px;
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:16px;
+  align-items:start;
+}
+.moon-page-full{
+  grid-column:1/-1!important;
+}
+.moon-page-updates{
+  width:min(880px,100%);
+}
+
+/* Page Header */
+.moon-page-header{
+  grid-column:1/-1;
+  padding:24px 28px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:linear-gradient(120deg,rgba(var(--theme-panel,16,43,73),.95),rgba(var(--theme-base,7,25,46),.92));
+  box-shadow:0 12px 32px rgba(0,0,0,.28);
+  position:relative;
+  overflow:hidden;
+  border-top:2px solid var(--gold);
+}
+.moon-page-header:after{
+  content:'';
+  position:absolute;
+  right:0;
+  top:0;
+  bottom:0;
+  width:260px;
+  background:radial-gradient(circle at right center,rgba(255,210,138,.08),transparent 70%);
+  pointer-events:none;
+}
+.moon-page-kicker{
+  margin:0 0 4px;
+  color:var(--gold)!important;
+  font-size:10px!important;
+  font-weight:600;
+  letter-spacing:1.8px;
+  text-transform:uppercase;
+}
+.moon-page-header h1{
+  margin:0 0 6px;
+  font-size:26px;
+  font-weight:600;
+  color:var(--gold);
+  letter-spacing:-.5px;
+  line-height:1.25;
+}
+.moon-page-header p.moon-page-desc,.moon-page-header p:last-child{
+  margin:0;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.5;
+}
+
+/* Section Cards & Hierarchy */
+.moon-section{
+  min-width:0;
+  padding:20px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:linear-gradient(145deg,rgba(var(--theme-panel,13,38,62),.93),rgba(var(--theme-base,6,24,43),.90));
+  box-shadow:0 8px 24px rgba(0,0,0,.22);
+}
+.moon-section-header{
+  margin:0 0 16px;
+  padding-bottom:12px;
+  border-bottom:1px solid var(--line);
+}
+.moon-section-header h3,.moon-section>h3{
+  margin:0 0 4px;
+  font-size:14px;
+  font-weight:600;
+  color:var(--text);
+  letter-spacing:-.2px;
+}
+.moon-section-header p,.moon-section>p:not(.moon-status):not(.moon-warning):not(.moon-error):not(.moon-muted):not(.moon-message-box){
+  margin:0 0 12px;
+  font-size:11px;
+  color:var(--muted);
+  line-height:1.55;
+}
+.moon-subheading{
+  margin:18px 0 10px;
+  font-size:11px;
+  font-weight:600;
+  color:var(--gold);
+  letter-spacing:.8px;
+  text-transform:uppercase;
+}
+
+/* Form Fields & Alignment */
+.moon-field{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin:10px 0;
+  color:#dce7f9;
+  font-size:11px;
+  font-weight:500;
+}
+.moon-field small{
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.45;
+  font-weight:400;
+}
+.moon-field input:not([type=checkbox]),
+.moon-field select{
+  width:100%;
+  min-height:38px;
+  background:rgba(var(--theme-base,16,37,62),.82);
+  border:1px solid #324e70;
+  border-radius:6px;
+  padding:8px 12px;
+  color:var(--text);
+  font-size:11px;
+  font-family:inherit;
+  transition:border-color .18s,box-shadow .18s,background .18s;
+  outline:none;
+}
+.moon-field input:not([type=checkbox]):focus,
+.moon-field select:focus{
+  border-color:var(--gold);
+  box-shadow:0 0 0 2px rgba(255,210,138,.22);
+}
+.moon-field input::placeholder{
+  color:#7b94b5;
+}
+.moon-form-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:4px 14px;
+}
+
+/* Checkbox & Toggle Cards */
+.moon-field:has(input[type=checkbox]){
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 14px;
+  background:rgba(var(--theme-base,10,26,46),.65);
+  border:1px solid var(--line);
+  border-radius:8px;
+  margin:8px 0;
+  cursor:pointer;
+  transition:background .16s,border-color .16s;
+}
+.moon-field:has(input[type=checkbox]):hover{
+  background:rgba(22,45,75,.75);
+  border-color:rgba(134,169,214,.35);
+}
+.moon-field:has(input[type=checkbox]) span{
+  order:1;
+}
+.moon-field:has(input[type=checkbox]) input[type=checkbox]{
+  order:2;
+  width:18px;
+  height:18px;
+  margin:0;
+  accent-color:var(--gold);
+  cursor:pointer;
+}
+.moon-check-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px 12px;
+  margin:8px 0 14px;
+}
+.moon-check-grid .moon-field{
+  margin:0;
+  padding:9px 12px;
+}
+.moon-toggle-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px 12px;
+  margin:4px 0 10px;
+}
+.moon-toggle-grid .moon-field{
+  margin:0;
+}
+
+/* Detail Grids (Executive Metric Cards) */
+.moon-page .detail-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:0;
+  margin:4px 0 14px;
+  background:rgba(7,21,38,.55);
+  border:1px solid var(--line);
+  border-radius:8px;
+  overflow:hidden;
+}
+.moon-page .detail-item{
+  padding:14px 16px;
+  border:0;
+  border-right:1px solid var(--line);
+  border-radius:0;
+  background:transparent;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-width:0;
+}
+.moon-page .detail-item:last-child{
+  border-right:0;
+}
+.moon-page .detail-item span{
+  font-size:9px;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.8px;
+  font-weight:500;
+}
+.moon-page .detail-item strong{
+  font-size:15px;
+  font-weight:600;
+  color:var(--gold);
+  overflow-wrap:anywhere;
+}
+.moon-page .detail-item strong.text-success{
+  color:var(--green);
+}
+.moon-page .detail-item strong.text-warning{
+  color:#ffd278;
+}
+
+/* Buttons & Action Bars */
+.moon-page .modal-actions,.moon-section .modal-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-top:16px;
+  padding-top:14px;
+  border-top:1px solid var(--line);
+}
+.moon-page .primary-button,.primary-button{
+  min-height:38px;
+  padding:9px 18px;
+  background:linear-gradient(135deg,#f1c482,#e5b369);
+  color:#11233a;
+  font-weight:600;
+  border-radius:7px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);
+  transition:transform .15s,filter .15s;
+}
+.moon-page .primary-button:hover,.primary-button:hover{
+  transform:translateY(-1px);
+  filter:brightness(1.08);
+}
+.moon-page .secondary-button,.secondary-button{
+  min-height:38px;
+  padding:9px 16px;
+  background:#182e46;
+  color:#dce7f8;
+  border:1px solid #354e6d;
+  border-radius:7px;
+  font-weight:500;
+  transition:background .15s,border-color .15s,transform .15s;
+}
+.moon-page .secondary-button:hover,.secondary-button:hover{
+  background:#223c5b;
+  border-color:#5578a2;
+  transform:translateY(-1px);
+}
+.danger-button{
+  color:#ff9b9b!important;
+  border-color:rgba(255,100,100,.35)!important;
+}
+.danger-button:hover{
+  background:rgba(100,30,40,.5)!important;
+  border-color:rgba(255,100,100,.6)!important;
+}
+
+/* Statuses, Alerts, Secrets & Empty States */
+.moon-status{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 12px;
+  border-radius:20px;
+  font-size:11px;
+  font-weight:500;
+  background:rgba(67,237,171,.12);
+  border:1px solid rgba(67,237,171,.3);
+  color:var(--green)!important;
+  margin:0 0 12px;
+}
+.moon-status.inactive{
+  background:rgba(134,169,214,.08);
+  border-color:var(--line);
+  color:var(--muted)!important;
+}
+.moon-warning{
+  margin:10px 0;
+  padding:10px 14px;
+  border-radius:7px;
+  background:rgba(255,210,120,.1);
+  border:1px solid rgba(255,210,120,.3);
+  color:#ffd278!important;
+  font-size:11px;
+  line-height:1.5;
+}
+.moon-error{
+  margin:10px 0;
+  padding:10px 14px;
+  border-radius:7px;
+  background:rgba(255,120,120,.1);
+  border:1px solid rgba(255,120,120,.3);
+  color:#ff9b9b!important;
+  font-size:11px;
+  line-height:1.5;
+}
+.moon-message-box{
+  margin:12px 0;
+  padding:10px 14px;
+  border-radius:7px;
+  background:rgba(10,26,46,.5);
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.55;
+}
+.moon-muted{
+  color:var(--muted);
+  font-size:11px;
+}
+.moon-empty{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:26px 16px;
+  border:1px dashed var(--line);
+  border-radius:8px;
+  background:rgba(7,20,36,.4);
+  margin:8px 0;
+  text-align:center;
+}
+.moon-empty p,.moon-empty .moon-muted{
+  margin:0;
+  font-size:11px;
+  color:var(--muted);
+}
+.moon-secret{
+  display:grid;
+  gap:8px;
+  margin-top:14px;
+  padding:16px;
+  border:1px solid rgba(255,210,138,.4);
+  border-radius:8px;
+  background:linear-gradient(135deg,rgba(26,38,56,.9),rgba(12,22,36,.95));
+  box-shadow:0 4px 16px rgba(0,0,0,.3);
+}
+.moon-secret strong{
+  color:var(--gold);
+  font-size:10px;
+  letter-spacing:.8px;
+  text-transform:uppercase;
+}
+.moon-secret code{
+  font-family:Consolas,monospace;
+  font-size:17px;
+  font-weight:600;
+  letter-spacing:1.5px;
+  color:#fff;
+  background:rgba(4,14,26,.85);
+  padding:10px 14px;
+  border-radius:6px;
+  border:1px dashed rgba(255,210,138,.5);
+  user-select:all;
+  text-align:center;
+}
+.moon-secret small{
+  color:var(--muted);
+  font-size:10px;
+  text-align:center;
+}
+.moon-transaction{
+  max-height:220px;
+  overflow:auto;
+  font:11px/1.6 Consolas,monospace;
+  white-space:pre-wrap;
+  background:#030e1d;
+  color:#7ef1c3;
+  border:1px solid #304b62;
+  border-radius:7px;
+  padding:12px;
+  margin-top:14px;
+}
+
+/* Rows, Devices & Grants */
+.moon-row{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding:14px 16px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:rgba(8,22,39,.6);
+  margin-bottom:10px;
+  font-size:11px;
+}
+.moon-row strong{
+  font-weight:600;
+  color:var(--text);
+  font-size:12px;
+}
+.moon-row span,.moon-row small{
+  color:var(--muted);
+}
+.moon-row code{
+  font-family:Consolas,monospace;
+  font-size:10px;
+  color:#ffd699;
+  background:rgba(0,0,0,.4);
+  padding:6px 10px;
+  border-radius:5px;
+  border:1px solid rgba(255,210,138,.2);
+  overflow-wrap:anywhere;
+}
+.admin-request-header,.device-row-header,.grant-info{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.admin-request-reason{
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.45;
+}
+.grant-row{
+  flex-direction:row;
+  align-items:center;
+  justify-content:space-between;
+}
+.moon-grant-list{
+  margin:12px 0;
+}
+
+/* Responsive Breakpoints */
+@media(max-width:1100px){
+  .moon-page .detail-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .moon-page .detail-item:nth-child(2){
+    border-right:0;
+  }
+  .moon-page .detail-item:nth-child(-n+2){
+    border-bottom:1px solid var(--line);
+  }
+}
+@media(max-width:760px){
+  #page-outlet{
+    padding:0 12px 36px;
+  }
+  .moon-page{
+    grid-template-columns:1fr;
+    padding:16px 0 32px;
+    gap:12px;
+  }
+  .moon-page-header{
+    padding:20px 16px;
+  }
+  .moon-page-header h1{
+    font-size:22px;
+  }
+  .moon-section{
+    padding:16px;
+  }
+  .moon-form-grid,
+  .moon-check-grid,
+  .moon-toggle-grid{
+    grid-template-columns:1fr;
+  }
+  .moon-page .modal-actions>button{
+    flex:1 1 100%;
+  }
+}
+@media(max-width:520px){
+  .moon-page .detail-grid{
+    grid-template-columns:1fr;
+  }
+  .moon-page .detail-item{
+    border-right:0;
+    border-bottom:1px solid var(--line);
+  }
+  .moon-page .detail-item:last-child{
+    border-bottom:0;
+  }
+  .topbar{gap:8px;padding-inline:10px}
+  .top-actions{gap:5px}
+  .top-actions .separator{display:none}
+  .top-actions .icon-button,.top-actions .avatar{width:28px;min-width:28px}
+  .top-brand{min-width:0;gap:8px}
+}

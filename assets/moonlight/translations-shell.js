@@ -2,7 +2,7 @@ export default {
   'Loading the permitted execution catalogue…': 'Đang tải danh mục thực thi được phép…',
   'Moonlight could not initialize because the page token is unavailable.': 'Không thể khởi tạo Moonlight vì mã xác thực trang không khả dụng.',
   'Overview': 'Tổng quan', 'Access': 'Truy cập', 'Execution': 'Thực thi', 'Devices': 'Thiết bị', 'Updates': 'Cập nhật', 'Settings': 'Cài đặt',
-  'Welcome back,': 'Chào mừng trở lại,', 'Good evening,': 'Chào buổi tối,', 'Engineer!': 'Kỹ sư!', 'Your remote workstations. Always within reach.': 'Máy trạm từ xa của bạn. Luôn trong tầm tay.',
+  'Welcome back,': 'Chào mừng trở lại,', 'Good morning,': 'Chào buổi sáng,', 'Good afternoon,': 'Chào buổi chiều,', 'Good evening,': 'Chào buổi tối,', 'Engineer!': 'Kỹ sư!', 'Your remote workstations. Always within reach.': 'Máy trạm từ xa của bạn. Luôn trong tầm tay.',
   'Search workstations, devices, commands…': 'Tìm máy trạm, thiết bị, tác vụ…', 'Notifications': 'Thông báo', 'Appearance settings': 'Giao diện', 'Toggle navigation': 'Mở/đóng điều hướng',
   'Execution Console': 'Bảng điều khiển thực thi', 'Execution Mode': 'Chế độ thực thi', 'Recent Activities': 'Hoạt động gần đây', 'System Messages': 'Thông báo hệ thống', 'View all': 'Xem tất cả',
   'Choose a backend-permitted operation for a selected node': 'Chọn thao tác được máy chủ cho phép cho nút đã chọn', 'Select a permitted operation…': 'Chọn thao tác được cho phép…', 'Execution catalogue unavailable.': 'Danh mục thực thi không khả dụng.',

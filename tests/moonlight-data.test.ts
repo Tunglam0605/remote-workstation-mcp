@@ -62,7 +62,7 @@ test('model distinguishes unavailable data from false backend state and derives 
   const resources = emptyResources();
   resources.runtime = resource(null, new Error('network failed'));
   resources.execution = resource({ codex: { installed: true, authenticated: true }, status: { fallbackActive: true, fallbackReason: 'limit', codexTasksToday: 2, codexTasksThisSession: 1, maxCodexTasksPerDay: 10, maxCodexTasksPerSession: 4 } });
-  resources.updates = resource({ updateAvailable: true, installedVersion: '0.30.0', latestVersion: '0.31.1' });
+  resources.updates = resource({ updateAvailable: true, installedVersion: '0.30.0', latestVersion: '0.31.2' });
   resources.admin = resource({ requests: [{ id: 'a1', state: 'pending', createdAt: '2026-09-02T00:00:00Z', program: 'installer' }] });
   const cards = deriveCards(resources);
   assert.equal(cards.find((card) => card.id === 'health')?.status, 'Unavailable');

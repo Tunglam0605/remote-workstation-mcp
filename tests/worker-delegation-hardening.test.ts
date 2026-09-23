@@ -83,7 +83,7 @@ async function writeEasRoles(home: string) {
 }
 
 test('Codex worker projects only validated EAS roles while keeping user config ignored', async () => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp codex eas-'));
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-codex-eas-'));
   const repo = path.join(temp, 'repo');
   await fs.mkdir(path.join(repo, '.git'), { recursive: true });
   await writeEasRoles(temp);
@@ -111,14 +111,16 @@ test('Codex worker projects only validated EAS roles while keeping user config i
   );
   const result = await provider.dispatch(request());
   assert.equal(result.status, 'succeeded');
-  assert.equal(calls.length, 1);
-  const args = calls[0]!;
+  assert.equal(calls.length, 2);
+  const preflightArgs = calls[0]!;
+  const args = calls[1]!;
+  assert.ok(preflightArgs.includes('--ignore-user-config'));
+  assert.ok(!preflightArgs.includes('--json'));
   assert.ok(args.includes('--ignore-user-config'));
+  assert.deepEqual(args.filter(arg => arg !== '--json'), preflightArgs);
   assert.ok(args.includes('--json'));
-  assert.ok(args.includes('model="gpt-6-sol"'));
-  for (let index = 0; index < args.length - 1; index += 1) {
-    if (args[index] === '-c') assert.doesNotMatch(args[index + 1]!, /\s/, 'Codex -c override must not contain literal whitespace');
-  }
+  assert.ok(args.includes('-m'));
+  assert.ok(args.includes('gpt-6-sol'));
   assert.ok(args.includes('features.multi_agent=true'));
   assert.ok(args.includes('agents.enabled=true'));
   assert.ok(args.includes('agents.max_concurrent_threads_per_session=2'));

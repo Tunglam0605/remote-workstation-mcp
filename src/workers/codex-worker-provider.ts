@@ -24,13 +24,13 @@ const MAX_EVIDENCE_BYTES = 8 * 1024;
 
 const MAX_AGENT_CONFIG_BYTES = 32 * 1024;
 const EAS_ROLE_DESCRIPTIONS = {
-  architect: 'System architecture and safety review.',
-  debugger: 'Evidence-first root cause analysis and bounded remediation.',
-  implementer: 'Smallest approved implementation inside the assigned scope.',
-  researcher: 'Current authoritative evidence gathering when explicitly allowed.',
-  reviewer: 'Independent correctness and regression review.',
-  scout: 'Read-only repository discovery and call-flow mapping.',
-  'test-engineer': 'Targeted verification and regression testing.'
+  architect: 'architecture-review',
+  debugger: 'root-cause-analysis',
+  implementer: 'bounded-implementation',
+  researcher: 'evidence-research',
+  reviewer: 'independent-review',
+  scout: 'repository-scout',
+  'test-engineer': 'verification-testing'
 } as const;
 const EAS_AGENT_KEYS = new Set([
   'name',
@@ -49,11 +49,8 @@ interface EasProjection {
 }
 
 function tomlString(value: string): string {
-  // Codex may resolve to a Windows .CMD shim. Keep config override values free of
-  // literal spaces so cmd.exe cannot split a quoted TOML value before Codex sees it.
-  // JSON string escaping is TOML-basic-string compatible for these bounded values;
-  // TOML decodes \\u0020 back to the original space.
-  return JSON.stringify(value).replace(/ /g, '\\u0020');
+  if (/[\u0000\r\n']/.test(value)) throw new Error('Unsafe TOML literal string value.');
+  return `'${value}'`;
 }
 
 async function validatedEasProjection(env: NodeJS.ProcessEnv): Promise<EasProjection> {
@@ -176,11 +173,13 @@ function safePrompt(request: WorkerDispatchRequest): string {
 
 interface CodexStreamEvidence {
   finalMessage?: string;
+  threadId?: string;
   childAgentSpawns: number;
 }
 
 function parseCodexStreamEvidence(stdout: string): CodexStreamEvidence {
   let finalMessage: string | undefined;
+  let threadId: string | undefined;
   let childAgentSpawns = 0;
   const counted = new Set<string>();
   for (const rawLine of stdout.split(/\r?\n/)) {
@@ -191,6 +190,9 @@ function parseCodexStreamEvidence(stdout: string): CodexStreamEvidence {
         type?: unknown;
         item?: Record<string, unknown>;
       };
+      if (event.type === 'thread.started' && typeof (event as { thread_id?: unknown }).thread_id === 'string') {
+        threadId = (event as { thread_id: string }).thread_id;
+      }
       const item = event.item;
       if (!item || typeof item !== 'object') continue;
       if (event.type === 'item.completed' && item.type === 'agent_message' && typeof item.text === 'string') {
@@ -209,7 +211,7 @@ function parseCodexStreamEvidence(stdout: string): CodexStreamEvidence {
       // Ignore non-JSON diagnostics. The CLI sandbox header remains authoritative on stderr.
     }
   }
-  return { ...(finalMessage ? { finalMessage } : {}), childAgentSpawns };
+  return { ...(finalMessage ? { finalMessage } : {}), ...(threadId ? { threadId } : {}), childAgentSpawns };
 }
 
 function parseRunId(stderr: string): string | undefined {
@@ -443,9 +445,9 @@ export class CodexWorkerProvider implements WorkerProvider {
         };
       }
     }
-    const args = [
+    const baseArgs = [
       ...brokerArgs,
-      ...(this.model ? ['-c', `model=${tomlString(this.model)}`] : []),
+      ...(this.model ? ['-m', this.model] : []),
       ...agentArgs,
       ...(process.platform === 'win32'
         ? ['-c', 'windows.sandbox=unelevated']
@@ -455,29 +457,66 @@ export class CodexWorkerProvider implements WorkerProvider {
       '-C', cwd,
       'exec',
       '--ephemeral',
-      '--ignore-user-config',
-      '--json',
-      '--color', 'never',
-      '-'
+      '--ignore-user-config'
     ];
     const childEnv = {
       ...buildSafeEnvironment(this.policy.config.process.inheritEnv, this.env),
       ...brokerEnv
     };
+    let attestedSandbox: string | undefined;
+    if (this.agentDelegationEnabled) {
+      const attestationPrompt = 'Reply exactly SANDBOX_ATTESTED. Do not use tools or modify files.';
+      const attestation = await this.processRunner(
+        executable,
+        [...baseArgs, '--color', 'never', '-'],
+        cwd,
+        attestationPrompt,
+        Math.min(timeoutLimit, 60_000),
+        childEnv
+      );
+      const attestationText = `${attestation.stdout}\n${attestation.stderr}`;
+      if (attestation.timedOut || attestation.exitCode !== 0) {
+        if (/\b401\b|unauthorized|incorrect api key|authentication required|not authenticated|log[ -]?in required/i.test(attestationText)) {
+          return { status: 'blocked', summary: 'CODEX_AUTH_REQUIRED; sandbox attestation failed.' };
+        }
+        if (/\b429\b|rate[ -]?limit|usage[ -]?limit|quota|limit reached|too many requests|usage cap/i.test(attestationText)) {
+          return { status: 'blocked', summary: 'CODEX_LIMIT_REACHED; sandbox attestation failed.' };
+        }
+        return {
+          status: 'blocked',
+          summary: `CODEX_SANDBOX_ATTESTATION_FAILED; exit=${attestation.exitCode ?? 'null'} timeout=${attestation.timedOut}`
+        };
+      }
+      attestedSandbox = parseSandboxMode(attestation.stderr);
+      if (attestedSandbox !== 'workspace-write') {
+        return {
+          status: 'blocked',
+          summary: `CODEX_SANDBOX_ATTESTATION_FAILED; reported=${attestedSandbox ?? 'missing'}`
+        };
+      }
+    }
+    const args = [
+      ...baseArgs,
+      ...(this.agentDelegationEnabled ? ['--json'] : []),
+      '--color', 'never',
+      '-'
+    ];
     const result = await this.processRunner(executable, args, cwd, prompt, timeoutLimit, childEnv);
     const afterStatus = await this.runner.run(git, ['status', '--short'], cwd, 10_000);
     const afterDiff = await this.runner.run(git, ['diff', '--stat', '--'], cwd, 10_000);
-    const runId = parseRunId(result.stderr);
+    const stream = this.agentDelegationEnabled
+      ? parseCodexStreamEvidence(result.stdout)
+      : { finalMessage: result.stdout.trim() || undefined, childAgentSpawns: 0 };
+    const runId = stream.threadId ?? parseRunId(result.stderr);
     const evidence = [
       gitEvidence('before', beforeStatus, beforeDiff),
       gitEvidence('after', afterStatus, afterDiff)
     ].join(' | ');
-    const stream = parseCodexStreamEvidence(result.stdout);
     const workerDetail = result.exitCode === 0 && !result.timedOut
       ? compact(stream.finalMessage || result.stdout || result.stderr, 480)
       : compact(boundedTail(result.stderr || result.stdout, 2400), 1200);
     const summary = boundedTail(
-      `exit=${result.exitCode ?? 'null'} timeout=${result.timedOut}; ${evidence}; model=${this.model ?? 'default'}; easRoles=${projectedRoles.length}; codexSubagents=${stream.childAgentSpawns}; worker=${workerDetail || 'no-summary'}`,
+      `exit=${result.exitCode ?? 'null'} timeout=${result.timedOut}; ${evidence}; model=${this.model ?? 'default'}; easRoles=${projectedRoles.length}; codexCollabEvents=${stream.childAgentSpawns}; sandbox=${attestedSandbox ?? parseSandboxMode(result.stderr) ?? 'missing'}; worker=${workerDetail || 'no-summary'}`,
       MAX_EVIDENCE_BYTES
     );
 
@@ -499,7 +538,7 @@ export class CodexWorkerProvider implements WorkerProvider {
       }
       return { status: 'failed', ...(runId ? { runId } : {}), summary };
     }
-    const sandboxMode = parseSandboxMode(result.stderr);
+    const sandboxMode = attestedSandbox ?? parseSandboxMode(result.stderr);
     if (sandboxMode !== 'workspace-write') {
       return {
         status: 'blocked',

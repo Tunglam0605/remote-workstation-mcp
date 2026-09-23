@@ -44,16 +44,39 @@ jobs:
               install-windows.ps1 install-windows.cmd install-linux.sh \
               rwmcp-sbom.cdx.json > SHA256SUMS.txt
           )
-      - name: Publish GitHub Release
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+      - name: Upload GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
             "release/remote-workstation-mcp-${GITHUB_REF_NAME}.tgz" \
             "release/install-windows.ps1" \
             "release/install-windows.cmd" \
             "release/install-linux.sh" \
             "release/rwmcp-sbom.cdx.json" \
             "release/SHA256SUMS.txt" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+            --clobber
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ASSETS="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')"
+          for REQUIRED in \
+            "remote-workstation-mcp-${GITHUB_REF_NAME}.tgz" \
+            install-windows.ps1 install-windows.cmd install-linux.sh \
+            rwmcp-sbom.cdx.json SHA256SUMS.txt; do
+            printf '%s\n' "$ASSETS" | grep -Fx -- "$REQUIRED" >/dev/null || {
+              echo "Missing required release asset: $REQUIRED"
+              exit 1
+            }
+          done

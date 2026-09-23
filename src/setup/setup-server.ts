@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { setupHtml } from './ui.js';
+import { OwnerExecutionBridge } from './owner-execution.js';
 import { ExecutionPolicyService } from '../execution-policy.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import { windowsCommandShim } from '../adapters/windows-command-shim.js';
@@ -26,6 +27,8 @@ import {
   applyOwnerPermissionMode,
   applyPermissionConfig,
   grantFullControlLease,
+  managedLeasePath,
+  managedPolicyPath,
   readPermissionState,
   revokePermissionLease
 } from './permissions.js';
@@ -42,6 +45,7 @@ import {
   normalizeSetupSettings,
   saveSetupSettings,
   setupSecretPath,
+  setupConfigDir,
   setupSettingsPath,
   type SetupSettings
 } from './settings.js';
@@ -62,6 +66,15 @@ type RuntimeAction = 'Start' | 'Stop' | 'Restart' | 'RegisterStartup' | 'Unregis
 type RuntimeMode = 'Local' | 'OpenAI';
 
 const MAX_BODY_BYTES = 64 * 1024;
+const MOONLIGHT_ASSETS = new Map<string, string>([
+  ...['app.js', 'api.js', 'store.js', 'model.js', 'views.js', 'themes.js', 'i18n.js', 'translations-shell.js', 'translations-views.js', 'assets/lucide.min.js'].map(name => [name, 'text/javascript; charset=utf-8'] as [string, string]),
+  ...['style.css', 'integration.css', 'themes.css', 'assets/fonts.css'].map(name => [name, 'text/css; charset=utf-8'] as [string, string]),
+  ...['spring', 'summer', 'autumn', 'winter', 'tet', 'hung-kings', 'reunification', 'labour-day', 'national-day'].map(id => [`assets/backgrounds/${id}.png`, 'image/png'] as [string, string]),
+  ...Array.from({ length: 6 }, (_, i) => [`assets/font-${i}.woff2`, 'font/woff2'] as [string, string]),
+  ['assets/mid-autumn.png', 'image/png'],
+  ['assets/openai.svg', 'image/svg+xml'],
+  ['assets/ubuntu.svg', 'image/svg+xml']
+]);
 const MCP_PORT_CANDIDATES = [8683, 8877, 9876, 8765, 18765, 19001, 20080];
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -81,7 +94,7 @@ function html(res: http.ServerResponse, body: string): void {
     'content-type': 'text/html; charset=utf-8',
     'content-length': data.byteLength,
     'cache-control': 'no-store',
-    'content-security-policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
     'x-content-type-options': 'nosniff',
     'x-frame-options': 'DENY',
     'referrer-policy': 'no-referrer'
@@ -1014,11 +1027,29 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
   }
   const token = crypto.randomBytes(32).toString('base64url');
   let boundPort = preferredPort;
+  let executionBridge: Promise<OwnerExecutionBridge> | undefined;
+  const ownerExecution = () => executionBridge ??= (async () => {
+    const [identity, settings] = await Promise.all([loadOrCreateDeviceIdentity(), loadSetupSettings()]);
+    await fs.mkdir(settings.workspaceRoot, { recursive: true });
+    await ensureDefaultPolicy(repoRoot, settings.workspaceRoot);
+    return new OwnerExecutionBridge({
+      repoRoot,
+      identity,
+      policyPath: managedPolicyPath(repoRoot),
+      leasePath: managedLeasePath(),
+      sessionStoreFile: path.join(setupConfigDir(), 'runtime', `owner-execution-sessions-${boundPort}.json`),
+      auditPath: path.join(setupConfigDir(), 'runtime', `owner-execution-audit-${boundPort}.jsonl`)
+    });
+  })();
 
   const server = http.createServer(async (req, res) => {
     try {
       if (!req.socket.remoteAddress || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
         json(res, 403, { error: 'Setup console accepts loopback clients only.' });
+        return;
+      }
+      if (![`127.0.0.1:${boundPort}`, `localhost:${boundPort}`].includes(req.headers.host ?? '')) {
+        json(res, 403, { error: 'Host is not allowed.' });
         return;
       }
       if (!allowedOrigin(req, boundPort)) {
@@ -1028,6 +1059,21 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${boundPort}`);
       if (url.pathname === '/' && req.method === 'GET') {
         html(res, setupHtml(token));
+        return;
+      }
+      if (req.method === 'GET' && url.pathname.startsWith('/assets/moonlight/')) {
+        const name = url.pathname.slice('/assets/moonlight/'.length);
+        const mime = MOONLIGHT_ASSETS.get(name);
+        if (!mime) { json(res, 404, { error: 'Asset not found.' }); return; }
+        const data = await fs.readFile(new URL(`../../assets/moonlight/${name}`, import.meta.url));
+        res.writeHead(200, {
+          'content-type': mime,
+          'content-length': data.byteLength,
+          'cache-control': 'no-cache',
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer'
+        });
+        res.end(data);
         return;
       }
       if (req.method === 'GET' && (url.pathname === '/assets/brand/logo.png' || url.pathname === '/assets/brand/logo-background.png')) {
@@ -1046,6 +1092,12 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
       if (req.headers['x-rwmcp-setup-token'] !== token) {
         json(res, 403, { error: 'Invalid or missing setup token.' });
+        return;
+      }
+
+      if (url.pathname === '/api/execution' && (req.method === 'GET' || req.method === 'POST')) {
+        const bridge = await ownerExecution();
+        json(res, 200, req.method === 'GET' ? await bridge.catalog() : await bridge.execute(await readJsonBody(req)));
         return;
       }
 
@@ -1071,6 +1123,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           identity,
           recommendedAppName: recommendedChatGptAppName(identity),
           platform: process.platform,
+          hostname: os.hostname(),
           nodeVersion: process.version,
           settings,
           settingsPersisted: settingsFileExists,
@@ -1702,6 +1755,9 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
   return {
     url,
     port: boundPort,
-    close: () => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    close: async () => {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      if (executionBridge) await (await executionBridge).close();
+    }
   };
 }

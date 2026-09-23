@@ -7,9 +7,9 @@ test('Control Center exposes owner-local Windows update status/config APIs', asy
   try {
     const page = await fetch(setup.url);
     const html = await page.text();
-    const match = html.match(/const token = ("[^"]+");/);
+    const match = html.match(/<meta name="rwmcp-setup-token" content="([A-Za-z0-9_-]+)">/);
     assert.ok(match);
-    const token = JSON.parse(match[1]!) as string;
+    const token = match[1]!;
     const headers = { 'x-rwmcp-setup-token': token };
 
     const statusResponse = await fetch(`${setup.url}api/update/status`, { headers });

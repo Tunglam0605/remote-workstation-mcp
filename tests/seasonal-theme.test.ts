@@ -26,20 +26,13 @@ function resolveAt(iso: string): string {
   return vm.runInContext(`ccResolveTheme(new Date(${JSON.stringify(iso)})).id`, context) as string;
 }
 
-test('seasonal theme assets are injected into Control Center HTML', () => {
+test('approved Mid-Autumn layout remains the default Control Center template', () => {
   const html = setupHtml('test-token');
-  assert.match(html, /cc-seasonal-hero/);
-  assert.match(html, /initSeasonalThemeSystem\(\)/);
-  assert.match(html, /CC_LUNAR_EVENT_DATES/);
-  assert.match(html, /mid-autumn/);
-  assert.match(html, /hung-kings/);
-  assert.match(html, /national-day/);
+  assert.match(html, /Moonlight/);
+  assert.match(html, /Vui Tết Trung Thu/);
+  assert.match(html, /class="landscape"/);
+  assert.doesNotMatch(html, /initSeasonalThemeSystem|cc-seasonal-hero/);
   assert.ok(seasonalThemeCss.includes('prefers-reduced-motion'));
-  assert.ok(seasonalThemeCss.includes('cc-seasonal-drum-motif'));
-  assert.ok(seasonalThemeCss.includes('cc-horizon-svg'));
-  assert.ok(seasonalThemeCss.includes('cc-seasonal-status-panel'));
-  assert.ok(seasonalThemeScript.includes('cc-seasonal-orb-ring'));
-  assert.ok(seasonalThemeScript.includes("vi?'SỰ KIỆN':'EVENT'"));
 });
 
 test('event-first resolver activates Vietnamese event themes before seasonal fallback', () => {

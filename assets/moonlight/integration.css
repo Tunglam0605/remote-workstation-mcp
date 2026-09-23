@@ -1,0 +1,32 @@
+/* Additive styles for live Control Center forms; base Moonlight layout remains in style.css. */
+#overview[hidden],#page-outlet[hidden]{display:none!important}
+#page-outlet{margin-left:var(--sidebar);padding:0 18px 0 16px;max-width:2100px;min-width:0}
+#language-toggle{font-size:11px;font-weight:600;letter-spacing:.4px;flex-shrink:0}
+.device-card,.device-head>div,.spec-row,.spec-row .value{min-width:0}
+.device-head h2,.device-description>span{overflow:hidden;text-overflow:ellipsis}
+.device-description>span{white-space:nowrap;min-width:0}
+.device-description svg{flex-shrink:0}
+.spec-row .value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.device-head .status.muted{color:var(--muted)}
+.device-head .status.warning{color:#ffd278}
+.device-head .status.danger{color:#ff9b9b}
+.metrics>div{min-width:0}
+.metrics strong{overflow-wrap:anywhere}
+@media(min-width:1650px){.console-panel,.mode-panel{min-height:155px}.activities-panel,.messages-panel{min-height:209px}}
+@media(max-width:520px){.metrics strong{font-size:12px;white-space:nowrap;overflow-wrap:normal}.metrics span{white-space:normal;line-height:1.35;overflow-wrap:normal;font-size:8px}}
+.moon-view{display:grid;gap:14px}.moon-section{padding:14px;border:1px solid var(--line);border-radius:10px;background:#071a2ddd}.moon-section h3,.moon-section h4{margin:0 0 5px;font-size:14px;font-weight:500}.moon-section h4{margin-top:10px;font-size:12px}.moon-section>p{margin:0 0 12px}.moon-field{display:grid;gap:5px;margin:10px 0;color:#dce7f9;font-size:11px}.moon-field small,.moon-muted{color:var(--muted);font-size:10px}.moon-field input:not([type=checkbox]),.moon-field select{width:100%;background:#10253e;border:1px solid #375271;border-radius:6px;padding:8px;color:var(--text)}.moon-field input[type=checkbox]{width:16px;height:16px;accent-color:var(--gold)}.moon-check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}.moon-row{display:grid;gap:5px;padding:10px 0;border-top:1px solid var(--line);font-size:11px}.moon-row strong{font-weight:500}.moon-row span,.moon-row small{color:var(--muted)}.moon-row code,.moon-secret code{overflow-wrap:anywhere;color:#f6d69b}.moon-error{color:#ff9b9b!important}.moon-warning{color:#ffd278!important}.moon-status{color:#92e9bf!important}.moon-secret{display:grid;gap:6px;margin-top:12px;padding:12px;border:1px solid #b28a4c;border-radius:8px;background:#1c2430}.moon-transaction{max-height:180px;overflow:auto;font-size:10px;white-space:pre-wrap}.moon-section .modal-actions{margin-top:12px}.moon-page{width:min(1240px,100%);margin:0 auto;padding:30px 4px 48px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.moon-page-header{grid-column:1/-1;padding:28px 30px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(120deg,rgba(var(--theme-panel,16,43,73),.95),rgba(var(--theme-base,7,25,46),.92));box-shadow:0 14px 35px #0003}.moon-page-header h1{margin:4px 0 7px;font-size:26px;color:var(--gold)}.moon-page-header p{margin:0;color:var(--muted);font-size:13px}.moon-page-kicker{color:var(--gold)!important;font-size:10px!important;letter-spacing:1.8px;text-transform:uppercase}.moon-page .moon-section{min-width:0;padding:22px;background:linear-gradient(145deg,rgba(var(--theme-panel,13,38,62),.93),rgba(var(--theme-base,6,24,43),.90));box-shadow:0 9px 28px #0002}.moon-page .moon-section h3{font-size:16px}.moon-page .moon-section>p{font-size:11px}.moon-page .modal-actions{gap:10px}.moon-page .primary-button,.moon-page .secondary-button{min-height:38px}.moon-page .moon-row{padding:13px 0}@media(max-width:760px){.moon-page{grid-template-columns:1fr;padding:18px 0 36px;gap:12px}.moon-page-header{padding:22px 18px}.moon-page-header h1{font-size:22px}.moon-page .moon-section{padding:16px}}@media(max-width:520px){.moon-check-grid{grid-template-columns:1fr}.moon-section{padding:11px}}
+
+.moon-page-header{position:relative;overflow:hidden;border-top:2px solid var(--gold)}
+.moon-page .moon-field{font-size:12px;line-height:1.5;margin:14px 0}
+.moon-page .moon-field small,.moon-page .moon-muted{font-size:11px;line-height:1.65}
+.moon-page .moon-section>p{line-height:1.65}
+.moon-page .moon-field input:not([type=checkbox]),.moon-page .moon-field select{min-height:40px;background:rgba(var(--theme-base,16,37,62),.82);border-color:var(--line)}
+.moon-page .moon-field:has(input[type=checkbox]){grid-template-columns:1fr auto;align-items:center;gap:12px}
+.moon-page .moon-field input[type=checkbox]{width:18px;height:18px}
+.moon-page .modal-actions{padding-top:14px;border-top:1px solid var(--line);flex-wrap:wrap}
+.moon-page .detail-grid{gap:12px}
+.moon-page .detail-item{min-width:0;background:rgba(var(--theme-base,7,20,35),.38)}
+.moon-page .detail-item strong,.moon-page .moon-row{overflow-wrap:anywhere}
+@media(max-width:760px){#page-outlet{padding:0 12px}.moon-page .modal-actions>button{flex:1 1 150px}}
+
+@media(max-width:520px){.topbar{gap:8px;padding-inline:10px}.top-actions{gap:5px}.top-actions .separator{display:none}.top-actions .icon-button,.top-actions .avatar{width:28px;min-width:28px}.top-brand{min-width:0;gap:8px}}

@@ -1,7 +1,7 @@
-export const SERVER_VERSION = '0.32.4';
+export const SERVER_VERSION = '0.33.0';
 export const BUILD_CHANNEL = 'stable' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
-export const ACTION_SCHEMA_VERSION = 11;
+export const ACTION_SCHEMA_VERSION = 12;
 export const ENGINEERING_API_VERSION = 5;
 
 export type CapabilityStatus = 'available' | 'planned';
@@ -16,6 +16,9 @@ export interface CapabilityDescriptor {
 export const CAPABILITIES: CapabilityDescriptor[] = [
   { id: 'chatgpt.web_control', status: 'available', tools: ['chatgpt_web_status', 'workstation_identity'], note: 'First-call end-to-end verification for ChatGPT Web plus stable per-workstation identity and a non-secret nodeHealth snapshot for direct multi-node control.' },
   { id: 'system.inspect', status: 'available', tools: ['system_info', 'capabilities_list', 'tool_discover'] },
+  { id: 'office.core', status: 'available', tools: ['office_capabilities'], note: 'Office Pack core provides deterministic capability discovery plus typed document identity, session, transaction, validation and backend-selection boundaries. Office remains a sibling capability pack, not a reasoning worker.' },
+  { id: 'office.word.inspect', status: 'available', tools: ['word_inspect'], note: 'Phase B read-only Word OOXML inspection returns a bounded structural AST for headings, paragraphs, tables, media, OMML equations and sections. ZIP/package limits and active-content reporting are fail-closed; macros and external relationships are never executed/followed.' },
+  { id: 'office.word.mutate', status: 'available', tools: ['word_edit'], note: 'Phase E Word mutation uses typed bounded operations, explicit Work Session ownership, per-file write leases, SHA-256 optimistic concurrency, backup/working-copy transactions, rollback records, OMML equations and optional native Word open/PDF/OMath acceptance.' },
   { id: 'software.update.check', status: 'available', tools: ['update_check'], note: 'Read-only GitHub Releases check; install/update remains owner-controlled.' },
   { id: 'setup.local_web', status: 'available', tools: [], note: 'Owner-operated loopback-only Setup & Control Center persists non-secret workstation settings outside the repository, can protect the OpenAI runtime key with Windows DPAPI, manages approval notifications, and in v0.18 manages default-deny cross-node directional grants without exposing owner policy mutation through MCP.' },
   { id: 'setup.local_tui', status: 'available', tools: [], note: 'Owner-local terminal control surface for status, access mode, MCP port, device name, tunnel binding, hidden Runtime API key rotation, and review of typed Ubuntu host-reboot approval requests. Runtime restart and host reboot remain distinct actions.' },

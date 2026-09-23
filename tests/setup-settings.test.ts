@@ -28,6 +28,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.execution.codexEnabled, false);
   assert.equal(settings.execution.codexModel, 'gpt-6-sol');
   assert.equal(settings.execution.codexAgentsEnabled, false);
+  assert.equal(settings.execution.codexSkillsEnabled, false);
   assert.equal(settings.execution.antigravityEnabled, false);
   assert.equal(settings.execution.antigravityModel, '');
   assert.equal(settings.execution.allowChatOverride, true);

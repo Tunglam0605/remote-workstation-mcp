@@ -151,7 +151,8 @@ export async function createContext() {
     {
       accountBroker: codexAccountBroker,
       model: setupSettings.execution.codexModel,
-      agentDelegationEnabled: setupSettings.execution.codexAgentsEnabled
+      agentDelegationEnabled: setupSettings.execution.codexAgentsEnabled,
+      skillSharingEnabled: setupSettings.execution.codexSkillsEnabled
     },
     setupSettings.execution.codexEnabled
   );

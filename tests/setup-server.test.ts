@@ -28,7 +28,7 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.ok(csp.includes("script-src 'self'"));
     assert.ok(!csp.includes("script-src 'unsafe-inline'"));
     assert.ok(csp.includes("frame-ancestors 'none'"));
-    for (const [name, mime] of [['app.js', 'text/javascript'], ['i18n.js', 'text/javascript'], ['translations-shell.js', 'text/javascript'], ['translations-views.js', 'text/javascript'], ['style.css', 'text/css'], ['assets/mid-autumn.png', 'image/png'], ['assets/font-0.woff2', 'font/woff2']]) {
+    for (const [name, mime] of [['app.js', 'text/javascript'], ['i18n.js', 'text/javascript'], ['time.js', 'text/javascript'], ['translations-shell.js', 'text/javascript'], ['translations-views.js', 'text/javascript'], ['style.css', 'text/css'], ['assets/mid-autumn.png', 'image/png'], ['assets/font-0.woff2', 'font/woff2']]) {
       const asset = await fetch(base + '/assets/moonlight/' + name);
       assert.equal(asset.status, 200, name);
       assert.ok(asset.headers.get('content-type')?.startsWith(mime!), name);

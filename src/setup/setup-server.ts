@@ -67,7 +67,7 @@ type RuntimeMode = 'Local' | 'OpenAI';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MOONLIGHT_ASSETS = new Map<string, string>([
-  ...['app.js', 'api.js', 'store.js', 'model.js', 'views.js', 'themes.js', 'i18n.js', 'translations-shell.js', 'translations-views.js', 'assets/lucide.min.js'].map(name => [name, 'text/javascript; charset=utf-8'] as [string, string]),
+  ...['app.js', 'api.js', 'store.js', 'model.js', 'views.js', 'themes.js', 'i18n.js', 'time.js', 'translations-shell.js', 'translations-views.js', 'assets/lucide.min.js'].map(name => [name, 'text/javascript; charset=utf-8'] as [string, string]),
   ...['style.css', 'integration.css', 'themes.css', 'assets/fonts.css'].map(name => [name, 'text/css; charset=utf-8'] as [string, string]),
   ...['spring', 'summer', 'autumn', 'winter', 'tet', 'hung-kings', 'reunification', 'labour-day', 'national-day'].map(id => [`assets/backgrounds/${id}.png`, 'image/png'] as [string, string]),
   ...Array.from({ length: 6 }, (_, i) => [`assets/font-${i}.woff2`, 'font/woff2'] as [string, string]),

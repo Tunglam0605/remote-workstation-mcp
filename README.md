@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.31.2 — channel=stable — Action Schema 11 — Engineering API 5** — delivers the Moonlight Control Center: a Vietnamese-first interface with an English option, ten seasonal and Vietnamese-event themes, live owner-authorized status and execution views, and dedicated Access, Execution, Devices, Updates, and Settings workspaces. The existing loopback, setup-token, owner-policy, pairing, admin approval, updater, and bounded-execution controls remain authoritative; the release adds no arbitrary shell or permission bypass.
+**Stable release: v0.31.3 — channel=stable — Action Schema 11 — Engineering API 5** — delivers the Moonlight Control Center: a Vietnamese-first interface with an English option, ten seasonal and Vietnamese-event themes, live owner-authorized status and execution views, and dedicated Access, Execution, Devices, Updates, and Settings workspaces. The existing loopback, setup-token, owner-policy, pairing, admin approval, updater, and bounded-execution controls remain authoritative; the release adds no arbitrary shell or permission bypass.
 
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 

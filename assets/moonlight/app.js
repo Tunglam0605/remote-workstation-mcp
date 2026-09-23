@@ -5,6 +5,7 @@ import { createViews } from '/assets/moonlight/views.js';
 import { createThemeController } from '/assets/moonlight/themes.js';
 import { getLanguage, onLanguageChange, registerTranslations, setLanguage, t } from '/assets/moonlight/i18n.js';
 import translations from '/assets/moonlight/translations-shell.js';
+import { CONTROL_CENTER_TIME_ZONE, greetingSource } from '/assets/moonlight/time.js';
 
 registerTranslations(translations);
 
@@ -18,6 +19,7 @@ const readKey = 'moonlight-read-notifications';
 let toastTimer;
 let executionContext = null;
 let executionPending = false;
+let greetingSignature = '';
 
 function element(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
@@ -34,6 +36,16 @@ function element(tag, attributes = {}, ...children) {
 
 function icon(name) { return element('i', { 'data-lucide': name }); }
 function paintIcons() { globalThis.lucide?.createIcons?.(); }
+function renderGreeting(now = new Date()) {
+  const source = greetingSource(now);
+  const signature = `${getLanguage()}:${source}`;
+  if (signature === greetingSignature) return;
+  greetingSignature = signature;
+  $('.greeting h1').replaceChildren(
+    document.createTextNode(`${tr(source)} `),
+    element('span', { text: tr('Engineer!') })
+  );
+}
 function text(value) { return value == null || value === '' ? '—' : String(value); }
 const tr = (source, params) => t(source, params);
 function readIds() { try { return new Set(JSON.parse(localStorage.getItem(readKey) || '[]')); } catch { return new Set(); } }
@@ -197,7 +209,7 @@ function localizeShell() {
   $('.activities-panel .panel-heading h2').textContent = tr('Recent Activities'); $('.activities-panel .panel-heading p').textContent = tr('Latest activity across all workstations'); leadingText('#all-activities', 'View all');
   $('.messages-panel .panel-heading h2').textContent = tr('System Messages'); leadingText('#all-messages', 'View all'); $('.page-footer > span:first-child').textContent = tr('Connected to your possibilities');
   $('#console-status-text').textContent = tr($('#console-status-text').dataset.source || 'Unavailable');
-  $('.greeting>p').textContent = tr('Welcome back,'); $('.greeting h1').replaceChildren(document.createTextNode(`${tr('Good evening,')} `), element('span', { text: tr('Engineer!') })); $('.greeting .subtitle').textContent = tr('Your remote workstations. Always within reach.');
+  $('.greeting>p').textContent = tr('Welcome back,'); renderGreeting(); $('.greeting .subtitle').textContent = tr('Your remote workstations. Always within reach.');
   $$('#countdown small').forEach((node, index) => { node.textContent = tr(['DAYS', 'HOURS', 'MINUTES', 'SECONDS'][index]); });
   if (activePage !== 'Overview') views.open(activePage); else render();
 }
@@ -323,7 +335,8 @@ function openActivityHistory() {
 function tick() {
   const now = new Date();
   const locale = getLanguage() === 'vi' ? 'vi-VN' : 'en-US';
-  $('#clock').textContent = `${new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' }).format(now)}  ${new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(now)}`;
+  $('#clock').textContent = `${new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: CONTROL_CENTER_TIME_ZONE }).format(now)}  ${new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone: CONTROL_CENTER_TIME_ZONE }).format(now)}`;
+  renderGreeting(now);
   const seconds = Math.max(0, Math.floor((Date.parse('2026-09-25T18:00:00+07:00') - now.getTime()) / 1000));
   const values = [Math.floor(seconds / 86400), Math.floor(seconds % 86400 / 3600), Math.floor(seconds % 3600 / 60), seconds % 60];
   $$('#countdown b').forEach((node, index) => { node.textContent = String(values[index]).padStart(2, '0'); });

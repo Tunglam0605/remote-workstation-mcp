@@ -18,6 +18,11 @@ test('Moonlight shell provides one secondary-page heading and localizes console 
   for (const source of [
     'Create session', 'Run permitted task', 'Read output', 'Stop process',
     'Execution catalogue unavailable: {message}', 'Session selected · choose a permitted task',
-    'No output is available yet.', 'Notifications, {count} unread'
+    'No output is available yet.', 'Notifications, {count} unread',
+    'Good morning,', 'Good afternoon,', 'Good evening,'
   ]) assert.match(translationModule, new RegExp(`'${source.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}'`));
+  assert.match(app, /greetingSource\(now\)/);
+  assert.match(app, /CONTROL_CENTER_TIME_ZONE/);
+  assert.doesNotMatch(app, /tr\('Good evening,'\)/);
+  assert.doesNotMatch(html, /Good evening,/);
 });

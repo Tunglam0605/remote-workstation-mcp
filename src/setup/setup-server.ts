@@ -8,6 +8,7 @@ import path from 'node:path';
 import { setupHtml } from './ui.js';
 import { OwnerExecutionBridge } from './owner-execution.js';
 import { ExecutionPolicyService } from '../execution-policy.js';
+import { ACTION_SCHEMA_VERSION, capabilitiesForPlatform, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { CodexAccountBroker } from '../workers/codex-account-broker.js';
@@ -68,7 +69,7 @@ type RuntimeMode = 'Local' | 'OpenAI';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MOONLIGHT_ASSETS = new Map<string, string>([
-  ...['app.js', 'api.js', 'store.js', 'model.js', 'views.js', 'themes.js', 'i18n.js', 'time.js', 'translations-shell.js', 'translations-views.js', 'assets/lucide.min.js'].map(name => [name, 'text/javascript; charset=utf-8'] as [string, string]),
+  ...['app.js', 'api.js', 'store.js', 'model.js', 'views.js', 'navigation.js', 'themes.js', 'i18n.js', 'time.js', 'translations-shell.js', 'translations-views.js', 'assets/lucide.min.js'].map(name => [name, 'text/javascript; charset=utf-8'] as [string, string]),
   ...['style.css', 'integration.css', 'themes.css', 'assets/fonts.css'].map(name => [name, 'text/css; charset=utf-8'] as [string, string]),
   ...['spring', 'summer', 'autumn', 'winter', 'tet', 'hung-kings', 'reunification', 'labour-day', 'national-day'].map(id => [`assets/backgrounds/${id}.png`, 'image/png'] as [string, string]),
   ...Array.from({ length: 6 }, (_, i) => [`assets/font-${i}.woff2`, 'font/woff2'] as [string, string]),
@@ -1099,6 +1100,17 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       if (url.pathname === '/api/execution' && (req.method === 'GET' || req.method === 'POST')) {
         const bridge = await ownerExecution();
         json(res, 200, req.method === 'GET' ? await bridge.catalog() : await bridge.execute(await readJsonBody(req)));
+        return;
+      }
+
+      if (url.pathname === '/api/capabilities' && req.method === 'GET') {
+        json(res, 200, {
+          serverVersion: SERVER_VERSION,
+          actionSchemaVersion: ACTION_SCHEMA_VERSION,
+          engineeringApiVersion: ENGINEERING_API_VERSION,
+          platform: process.platform,
+          capabilities: capabilitiesForPlatform(process.platform)
+        });
         return;
       }
 

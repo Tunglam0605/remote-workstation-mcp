@@ -6,6 +6,21 @@ import { z } from 'zod';
 export const SETUP_SETTINGS_VERSION = 1 as const;
 export const DEFAULT_CONTROL_PORT = 8684 as const;
 export type ExecutionMode = 'rwmcp-only' | 'codex-only' | 'both';
+export type WorkerRoutingProfile = 'direct' | 'codex-assisted' | 'smart' | 'custom';
+
+export function inferWorkerRoutingProfile(execution: Record<string, unknown> | undefined): WorkerRoutingProfile {
+  const configured = execution?.workerRoutingProfile;
+  if (configured === 'direct' || configured === 'codex-assisted' || configured === 'smart' || configured === 'custom') {
+    return configured;
+  }
+  const mode = execution?.defaultMode;
+  const codexEnabled = execution?.codexEnabled;
+  const antigravityEnabled = execution?.antigravityEnabled;
+  if (mode === 'rwmcp-only' || codexEnabled === false) return 'direct';
+  if (codexEnabled === true && antigravityEnabled === true && mode === 'both') return 'smart';
+  if (codexEnabled === true && (mode === 'both' || mode === 'codex-only')) return 'codex-assisted';
+  return 'custom';
+}
 
 export const DEFAULT_HTTP_SCOPES = [
   'workstation.read',
@@ -27,6 +42,7 @@ export const executionSettingsSchema = z.object({
   antigravityEnabled: z.boolean().default(false),
   antigravityModel: z.string().trim().max(128).default(''),
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
+  workerRoutingProfile: z.enum(['direct', 'codex-assisted', 'smart', 'custom']).default('direct'),
   allowChatOverride: z.boolean().default(true),
   codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
   maxCodexTasksPerSession: z.number().int().min(0).max(10000).default(0),
@@ -65,6 +81,7 @@ export const setupSettingsSchema = z.object({
     antigravityEnabled: false,
     antigravityModel: '',
     defaultMode: 'rwmcp-only',
+    workerRoutingProfile: 'direct',
     allowChatOverride: true,
     codexFallback: 'rwmcp-only',
     maxCodexTasksPerSession: 0,
@@ -128,7 +145,10 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     cloudflaredManaged: raw.cloudflaredManaged ?? false,
     controlPort: migratedControlPort,
     httpScopes: migratedScopes,
-    execution: raw.execution ?? {
+    execution: raw.execution && typeof raw.execution === 'object' ? {
+      ...raw.execution,
+      workerRoutingProfile: inferWorkerRoutingProfile(raw.execution as Record<string, unknown>)
+    } : {
       codexEnabled: false,
       codexModel: 'gpt-6-sol',
       codexAgentsEnabled: false,
@@ -136,6 +156,7 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
       antigravityEnabled: false,
       antigravityModel: '',
       defaultMode: 'rwmcp-only',
+      workerRoutingProfile: 'direct',
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',
       maxCodexTasksPerSession: 0,

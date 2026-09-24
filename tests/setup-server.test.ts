@@ -62,6 +62,8 @@ test('Setup & Control Center requires the ephemeral token for API access', async
       const unauthenticatedExecution = await fetch(`${base}/api/execution`, { method });
       assert.equal(unauthenticatedExecution.status, 403);
     }
+    const unauthenticatedRouting = await fetch(`${base}/api/execution-policy`, { method: 'POST' });
+    assert.equal(unauthenticatedRouting.status, 403);
 
     const wrongOrigin = await fetch(`${base}/api/status`, {
       headers: {

@@ -47,7 +47,8 @@ import {
   setupSecretPath,
   setupConfigDir,
   setupSettingsPath,
-  type SetupSettings
+  type SetupSettings,
+  type WorkerRoutingProfile
 } from './settings.js';
 
 export interface SetupServerOptions {
@@ -1273,6 +1274,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           antigravityEnabled?: boolean;
           antigravityModel?: string;
           defaultMode?: 'rwmcp-only' | 'codex-only' | 'both';
+          workerRoutingProfile?: WorkerRoutingProfile;
           allowChatOverride?: boolean;
           codexFallback?: 'rwmcp-only' | 'stop';
           maxCodexTasksPerSession?: number;
@@ -1290,17 +1292,26 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const previousAntigravityEnabled = current.execution.antigravityEnabled;
         const previousAntigravityModel = current.execution.antigravityModel;
         const previousBroker = current.execution.codexAccountBroker;
+        const requestedProfile = body.workerRoutingProfile ?? current.execution.workerRoutingProfile;
+        const preset = requestedProfile === 'direct'
+          ? { workerRoutingProfile: requestedProfile, codexEnabled: false, antigravityEnabled: false, defaultMode: 'rwmcp-only' as const }
+          : requestedProfile === 'codex-assisted'
+            ? { workerRoutingProfile: requestedProfile, codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' as const }
+            : requestedProfile === 'smart'
+              ? { workerRoutingProfile: requestedProfile, codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' as const }
+              : { workerRoutingProfile: 'custom' as const };
         const settings = normalizeSetupSettings({
           ...current,
           execution: {
             ...current.execution,
-            ...(typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
+            ...preset,
+            ...(requestedProfile === 'custom' && typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
             ...(typeof body.codexModel === 'string' ? { codexModel: body.codexModel } : {}),
             ...(typeof body.codexAgentsEnabled === 'boolean' ? { codexAgentsEnabled: body.codexAgentsEnabled } : {}),
             ...(typeof body.codexSkillsEnabled === 'boolean' ? { codexSkillsEnabled: body.codexSkillsEnabled } : {}),
-            ...(typeof body.antigravityEnabled === 'boolean' ? { antigravityEnabled: body.antigravityEnabled } : {}),
+            ...(requestedProfile === 'custom' && typeof body.antigravityEnabled === 'boolean' ? { antigravityEnabled: body.antigravityEnabled } : {}),
             ...(typeof body.antigravityModel === 'string' ? { antigravityModel: body.antigravityModel } : {}),
-            ...(body.defaultMode ? { defaultMode: body.defaultMode } : {}),
+            ...(requestedProfile === 'custom' && body.defaultMode ? { defaultMode: body.defaultMode } : {}),
             ...(typeof body.allowChatOverride === 'boolean' ? { allowChatOverride: body.allowChatOverride } : {}),
             ...(body.codexFallback ? { codexFallback: body.codexFallback } : {}),
             ...(body.maxCodexTasksPerSession !== undefined ? { maxCodexTasksPerSession: body.maxCodexTasksPerSession } : {}),
@@ -1324,7 +1335,9 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
             throw new Error(`Cockpit API pool is not ready: ${brokerStatus.pool.detail}`);
           }
         }
-        if (body.antigravityEnabled === true) {
+        const enablingAntigravity = settings.execution.antigravityEnabled &&
+          (!previousAntigravityEnabled || body.antigravityEnabled === true || body.workerRoutingProfile === 'smart');
+        if (enablingAntigravity) {
           const agy = await antigravityCliStatus(repoRoot, false);
           if (!agy.available || !agy.authenticated) {
             throw new Error(`Antigravity CLI is not ready: ${agy.detail}`);

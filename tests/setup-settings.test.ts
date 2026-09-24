@@ -25,6 +25,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.deepEqual(settings.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.equal(settings.execution.defaultMode, 'rwmcp-only');
+  assert.equal(settings.execution.workerRoutingProfile, 'direct');
   assert.equal(settings.execution.codexEnabled, false);
   assert.equal(settings.execution.codexModel, 'gpt-6-sol');
   assert.equal(settings.execution.codexAgentsEnabled, false);
@@ -74,8 +75,18 @@ test('setup settings persist outside the repository and round-trip', async () =>
   const file = await saveSetupSettings(settings, options);
   assert.equal(file, setupSettingsPath(options));
   assert.deepEqual(await loadSetupSettings(options), settings);
+  const routed = normalizeSetupSettings({ ...settings, execution: { ...settings.execution, defaultMode: 'both', workerRoutingProfile: 'smart', codexEnabled: true, antigravityEnabled: true } }, options);
+  await saveSetupSettings(routed, options);
+  assert.deepEqual((await loadSetupSettings(options)).execution, routed.execution);
 });
 
+test('setup settings infer routing profiles for pre-v0.35 execution settings', () => {
+  const workspace = path.resolve('tmp-workspace-routing');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: false, defaultMode: 'both' } }).execution.workerRoutingProfile, 'direct');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' } }).execution.workerRoutingProfile, 'codex-assisted');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' } }).execution.workerRoutingProfile, 'smart');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'codex-only', workerRoutingProfile: 'custom' } }).execution.workerRoutingProfile, 'custom');
+});
 
 test('setup settings tolerate a UTF-8 BOM written by Windows PowerShell', async () => {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-settings-bom-'));

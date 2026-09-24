@@ -144,6 +144,12 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const antigravityAvailable = Boolean(antigravity?.available && antigravity?.authenticated);
     const codexReady = Boolean(settings.codexEnabled && codexAvailable && broker.effectiveBackend !== 'blocked');
     const antigravityReady = Boolean(settings.antigravityEnabled && antigravityAvailable);
+    const profileLabels = { direct: 'Direct', 'codex-assisted': 'Codex assisted', smart: 'Smart routing', custom: 'Custom' };
+    const selectedProfile = settings.workerRoutingProfile || (settings.defaultMode === 'rwmcp-only' || settings.codexEnabled === false
+      ? 'direct'
+      : settings.codexEnabled && settings.antigravityEnabled && settings.defaultMode === 'both'
+        ? 'smart'
+        : settings.codexEnabled ? 'codex-assisted' : 'custom');
     const modeLabels = { 'rwmcp-only': 'RWMCP only', 'codex-only': 'Codex first', both: 'Hybrid' };
     const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
     const effective = status.effectiveMode || settings.defaultMode || 'rwmcp-only';
@@ -161,6 +167,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       ),
       el('div', { class: 'agent-route-meta' },
         el('span', { text: `${t('Source')}: ${t(sourceLabels[status.source] || text(status.source))}` }),
+        el('span', { text: `${t('Routing profile')}: ${t(profileLabels[selectedProfile] || selectedProfile)}` }),
         el('span', { text: `${t('Chat overrides')}: ${settings.allowChatOverride ? t('Allowed') : t('Locked by owner')}` }),
         el('span', { text: `${t('Active overrides')}: ${text(status.activeSessionOverrides ?? 0)}` })
       )
@@ -168,7 +175,26 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     if (status.fallbackActive) route.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) }));
     content.append(route);
 
-    const strategy = section('Default strategy', 'Pick the normal route. ChatGPT can only override it per Work Session when you allow that below.', 'moon-page-full');
+    const routing = section('Routing profile', 'Profiles are owner presets over the existing execution policy. They simplify routing but never grant extra authority.', 'moon-page-full');
+    const routingProfiles = [
+      ['direct', 'Direct', 'RWMCP only. Best for hardware, Office, diagnostics, and deterministic workstation actions.'],
+      ['codex-assisted', 'Codex assisted', 'Codex handles bounded coding and review work with RWMCP as the safe fallback.'],
+      ['smart', 'Smart routing', 'Codex handles general engineering work; Antigravity specializes in frontend/UI; RWMCP remains the fallback.'],
+      ['custom', 'Custom', 'Keep manual control of the existing low-level execution mode and worker enablement.']
+    ];
+    const profileGrid = el('div', { class: 'agent-routing-grid' });
+    const profileInputs = [];
+    for (const [id, title, description] of routingProfiles) {
+      const input = el('input', { type: 'radio', name: 'worker-routing-profile', value: id, checked: id === selectedProfile });
+      profileInputs.push(input);
+      profileGrid.append(el('label', { class: `agent-strategy-card${id === selectedProfile ? ' selected' : ''}` }, input,
+        el('div', {}, el('strong', { text: t(title) }), el('p', { text: t(description) }))
+      ));
+    }
+    routing.append(profileGrid, el('p', { class: 'moon-muted', text: t('The selected profile maps onto the existing policy controls below; Work Session overrides and provider sandbox rules remain authoritative.') }));
+    content.append(routing);
+
+    const strategy = section('Default strategy', 'Low-level execution mode used by the routing profile and Work Session override system.', 'moon-page-full');
     const selectedMode = settings.defaultMode || status.configuredMode || 'rwmcp-only';
     const strategies = [
       ['rwmcp-only', 'RWMCP only', 'Lowest worker usage. ChatGPT operates through typed RWMCP tools only.'],
@@ -188,6 +214,24 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
 
     const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled });
     const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled });
+    const syncRoutingProfilePreview = () => {
+      const profile = profileInputs.find((input) => input.checked)?.value || selectedProfile;
+      profileGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked));
+      const custom = profile === 'custom';
+      if (!custom) {
+        const mode = profile === 'direct' ? 'rwmcp-only' : 'both';
+        const strategyInput = content.querySelector(`input[name="execution-strategy"][value="${mode}"]`);
+        if (strategyInput) strategyInput.checked = true;
+        strategyGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked));
+        codexEnabled.checked = profile !== 'direct';
+        antiEnabled.checked = profile === 'smart';
+      }
+      codexEnabled.disabled = !custom;
+      antiEnabled.disabled = !custom;
+      strategyGrid.querySelectorAll('input[name="execution-strategy"]').forEach((input) => { input.disabled = !custom; });
+    };
+    for (const input of profileInputs) input.addEventListener('change', syncRoutingProfilePreview);
+    syncRoutingProfilePreview();
     const providers = section('Workers', 'Enable only the workers you want ChatGPT to be able to use. Availability never grants extra workstation authority.', 'moon-page-full');
     const providerGrid = el('div', { class: 'agent-provider-grid' });
     const providerCard = (kind, title, ready, enabledControl, facts, note) => el('article', { class: `agent-provider-card ${ready ? 'ready' : 'offline'}` },
@@ -259,6 +303,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         if (!confirm(t('Save this execution policy?'))) return;
         const selected = content.querySelector('input[name="execution-strategy"]:checked')?.value || 'rwmcp-only';
         const body = {
+          workerRoutingProfile: content.querySelector('input[name="worker-routing-profile"]:checked')?.value || selectedProfile,
           defaultMode: selected,
           codexEnabled: codexEnabled.checked,
           codexModel: codexModel.value,

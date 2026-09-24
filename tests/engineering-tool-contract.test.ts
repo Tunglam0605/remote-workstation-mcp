@@ -32,17 +32,29 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.34.1 retains Office Word, hardened Codex/EAS, and Antigravity integration on Action Schema v13 and Engineering API v5', async () => {
+test('v0.35.0 adds read-only Smart Routing while retaining Office Word and bounded worker authority on Action Schema v14 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 13;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 14;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.34\.1';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.35\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);
   assert.match(capabilities, /multi_device\.authorization/);
   assert.match(capabilities, /stm32_ioc_inspect/);
+  assert.match(capabilities, /agent\.routing/);
+  assert.match(capabilities, /worker_route_plan/);
+  const coreTools = await read('src/tools/core-tools.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  assert.match(scopes, /worker_route_plan: 'workstation\.read'/);
+  const routeStart = coreTools.indexOf("server.registerTool('worker_route_plan'");
+  const routeEnd = coreTools.indexOf("server.registerTool('worker_provider_list'", routeStart);
+  assert.ok(routeStart >= 0 && routeEnd > routeStart);
+  const routeBlock = coreTools.slice(routeStart, routeEnd);
+  assert.match(routeBlock, /readOnlyHint: true/);
+  assert.match(routeBlock, /planWorkerRoute/);
+  assert.doesNotMatch(routeBlock, /work_objective_execute_task|taskWorkflowExecution\.execute|\.dispatch\(/);
 });
 
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
@@ -184,7 +196,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v13 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v14 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -192,7 +204,7 @@ test('current runtime retains Work Session routing under Action Schema v13 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 13;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 14;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

@@ -47,6 +47,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   codex_account_broker_status: 'workstation.read',
   antigravity_status: 'workstation.read',
   worker_provider_list: 'workstation.read',
+  worker_route_plan: 'workstation.read',
   execution_policy_status: 'workstation.read',
   execution_policy_set_override: 'workstation.write',
   work_objective_create: 'workstation.write',

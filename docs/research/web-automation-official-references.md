@@ -20,6 +20,8 @@ Date: 2026-09-24
   - https://developer.chrome.com/blog/remote-debugging-port
   - https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
   - https://developer.chrome.com/docs/extensions/reference/manifest/content-scripts
+- Google Account security:
+  - https://support.google.com/accounts/answer/7675428
 - W3C:
   - https://www.w3.org/TR/webdriver-bidi/
   - https://www.w3.org/WAI/ARIA/apg/practices/names-and-descriptions/
@@ -34,6 +36,8 @@ Date: 2026-09-24
 6. WebDriver BiDi is a standards-track bidirectional browser protocol and remains a future provider option; it is not required for the first production provider.
 7. Download handling must await the browser download event and explicitly persist the artifact before context close.
 8. Accessibility semantics are role/name/state oriented. RWMCP element identity should therefore be semantic and short-lived, not coordinate based.
+9. Google Account Help states that sign-in may be blocked when a browser is controlled through software automation. NotebookLM authentication therefore uses owner-authenticated normal Chrome through an explicit extension bridge instead of retrying or disguising managed-browser automation.
+10. Chrome Native Messaging supports an exact extension-origin allowlist and stdio messaging to a local native host. RWMCP uses that boundary plus local IPC authentication rather than exposing a remote debugging port.
 
 ## Environment verification
 

@@ -151,4 +151,79 @@ export function registerBrowserTools(server: McpServer, ctx: AppContext) {
     annotations: read
   }, async ({ workSessionId, sessionId, downloadId }) =>
     executeInSession('browser_download_status', workSessionId, owner => ctx.browser.downloadStatus(sessionId, owner, downloadId)));
+
+  server.registerTool('browser_existing_chrome_status', {
+    description: 'Inspect the owner-installed Existing Chrome Bridge and bounded NotebookLM tab inventory. Requires an explicit Work Session and never returns cookies, tokens, passwords or browser storage.',
+    inputSchema: z.object({ workSessionId: z.string().uuid() }),
+    annotations: read
+  }, async ({ workSessionId }) =>
+    executeInSession('browser_existing_chrome_status', workSessionId, () => ctx.existingChrome.bridgeStatus()));
+
+  server.registerTool('browser_existing_session_open', {
+    description: 'Claim one existing authenticated NotebookLM tab as an exclusive Existing Chrome resource for this principal + Work Session. No browser login or navigation is automated.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), tabId: z.number().int().positive().optional() }),
+    annotations: execute
+  }, async ({ workSessionId, tabId }) =>
+    executeInSession('browser_existing_session_open', workSessionId, owner => ctx.existingChrome.open(owner, tabId)));
+
+  server.registerTool('browser_existing_session_status', {
+    description: 'Inspect caller-owned Existing Chrome session metadata.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), existingSessionId: z.string().uuid() }),
+    annotations: read
+  }, async ({ workSessionId, existingSessionId }) =>
+    executeInSession('browser_existing_session_status', workSessionId, owner => ctx.existingChrome.status(existingSessionId, owner)));
+
+  server.registerTool('browser_existing_session_close', {
+    description: 'Release the caller-owned Existing Chrome Work Session claim without closing the user Chrome tab.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), existingSessionId: z.string().uuid() }),
+    annotations: execute
+  }, async ({ workSessionId, existingSessionId }) =>
+    executeInSession('browser_existing_session_close', workSessionId, owner => ctx.existingChrome.close(existingSessionId, owner)));
+
+  server.registerTool('browser_existing_inspect', {
+    description: 'Inspect semantic controls in the claimed NotebookLM tab through the owner-installed extension. Password inputs are excluded by the content bridge.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), existingSessionId: z.string().uuid(), maxItems: z.number().int().min(1).max(50).default(30) }),
+    annotations: read
+  }, async ({ workSessionId, existingSessionId, maxItems }) =>
+    executeInSession('browser_existing_inspect', workSessionId, owner => ctx.existingChrome.inspect(existingSessionId, owner, maxItems)));
+
+  server.registerTool('browser_existing_find', {
+    description: 'Find exact semantic role/name controls in the claimed NotebookLM tab.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid(),
+      role: z.enum(['heading', 'link', 'button', 'textbox', 'checkbox', 'radio', 'combobox']),
+      name: z.string().min(1).max(256),
+      maxItems: z.number().int().min(1).max(50).default(20)
+    }),
+    annotations: read
+  }, async ({ workSessionId, existingSessionId, role, name, maxItems }) =>
+    executeInSession('browser_existing_find', workSessionId, owner => ctx.existingChrome.find(existingSessionId, owner, role, name, maxItems)));
+
+  server.registerTool('browser_existing_extract', {
+    description: 'Extract bounded visible text from the claimed NotebookLM tab; no cookie/storage/token APIs are exposed.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), existingSessionId: z.string().uuid(), maxChars: z.number().int().min(1).max(16000).default(8000) }),
+    annotations: read
+  }, async ({ workSessionId, existingSessionId, maxChars }) =>
+    executeInSession('browser_existing_extract', workSessionId, owner => ctx.existingChrome.extract(existingSessionId, owner, maxChars)));
+
+  server.registerTool('browser_existing_click', {
+    description: 'Click one short-lived semantic control in the claimed NotebookLM tab. No coordinate input or raw selector is accepted.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), existingSessionId: z.string().uuid(), elementId: z.string().regex(/^xc_\d+_\d+$/) }),
+    annotations: write
+  }, async ({ workSessionId, existingSessionId, elementId }) =>
+    executeInSession('browser_existing_click', workSessionId, owner => ctx.existingChrome.click(existingSessionId, owner, elementId)));
+
+  server.registerTool('browser_existing_fill', {
+    description: 'Fill one semantic textbox in the claimed NotebookLM tab. Password fields are excluded and cannot be targeted.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid(),
+      elementId: z.string().regex(/^xc_\d+_\d+$/),
+      value: z.string().max(8000)
+    }),
+    annotations: write
+  }, async ({ workSessionId, existingSessionId, elementId, value }) =>
+    executeInSession('browser_existing_fill', workSessionId, owner => ctx.existingChrome.fill(existingSessionId, owner, elementId, value)));
+
 }

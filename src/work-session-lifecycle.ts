@@ -8,6 +8,8 @@ export interface WorkSessionRuntimeResourceState {
   debugSessions: number;
   hardwareLeases: number;
   nodeInterlocks: number;
+  browserSessions?: number;
+  existingChromeSessions?: number;
 }
 
 export interface WorkSessionCloseResult {
@@ -56,7 +58,9 @@ function activeResourceCount(state: WorkSessionRuntimeResourceState): number {
     state.serialSessions +
     state.debugSessions +
     state.hardwareLeases +
-    state.nodeInterlocks
+    state.nodeInterlocks +
+    (state.browserSessions ?? 0) +
+    (state.existingChromeSessions ?? 0)
   );
 }
 

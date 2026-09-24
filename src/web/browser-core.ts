@@ -261,6 +261,14 @@ export class BrowserCore {
     return ref;
   }
 
+  countOwned(principalId: string, workSessionId: string): number {
+    return [...this.sessions.values()].filter(session =>
+      !session.closed &&
+      session.principalId === principalId &&
+      session.workSessionId === workSessionId
+    ).length;
+  }
+
   status(id: string, owner: Owner) {
     const session = this.session(id, owner);
     return {

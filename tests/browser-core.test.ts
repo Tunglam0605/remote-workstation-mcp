@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +19,8 @@ import { CAPABILITIES } from '../src/capabilities.js';
 import { registerBrowserTools } from '../src/tools/browser-tools.js';
 import type { AppContext } from '../src/context.js';
 import type { McpServer } from '@modelcontextprotocol/server';
+import { ExistingChromeSessionService } from '../src/web/existing-chrome-session.js';
+import { CHROME_BRIDGE_EXTENSION_ID } from '../src/web/chrome-bridge-protocol.js';
 
 const owner = { principalId: 'alice', workSessionId: 'work-1' };
 
@@ -85,7 +88,7 @@ function fakeProvider() {
 
 test('browser tools have explicit read/write/execute scopes and appear in sibling pack', () => {
   const tools = CAPABILITIES.find(capability => capability.id === 'web.automation')!.tools;
-  assert.equal(tools.length, 28);
+  assert.equal(tools.length, 37);
   for (const tool of tools) assert.ok(['workstation.read', 'workstation.write', 'workstation.execute'].includes(requiredScopeForTool(tool)!));
   assert.equal(requiredScopeForTool('browser_profile_status'), 'workstation.read');
   assert.equal(requiredScopeForTool('browser_navigate'), 'workstation.execute');
@@ -96,6 +99,10 @@ test('browser tools have explicit read/write/execute scopes and appear in siblin
   assert.equal(requiredScopeForTool('browser_upload'), 'workstation.write');
   assert.equal(requiredScopeForTool('browser_download'), 'workstation.write');
   assert.equal(requiredScopeForTool('browser_download_status'), 'workstation.read');
+  assert.equal(requiredScopeForTool('browser_existing_chrome_status'), 'workstation.read');
+  assert.equal(requiredScopeForTool('browser_existing_session_open'), 'workstation.execute');
+  assert.equal(requiredScopeForTool('browser_existing_click'), 'workstation.write');
+  assert.equal(requiredScopeForTool('browser_existing_fill'), 'workstation.write');
 });
 
 test('server registration covers every advertised browser tool', () => {
@@ -300,4 +307,73 @@ test('persistent profile names are bounded and cannot escape the managed profile
   const core = new BrowserCore(fakeProvider().provider, () => false, path.join(os.tmpdir(), 'rwmcp-a'), path.join(os.tmpdir(), 'rwmcp-p'));
   await assert.rejects(core.profileStatus('../default'), /profile name/i);
   await assert.rejects(core.create(owner, 'background', 'C:\\Users\\Admin'), /profile name/i);
+});
+
+
+test('Existing Chrome session is exclusive to one principal plus Work Session', async () => {
+  const calls: { command: string; payload: Record<string, unknown> }[] = [];
+  const client = {
+    availability: async () => ({ available: true, extensionReady: true }),
+    request: async (command: string, payload: Record<string, unknown> = {}) => {
+      calls.push({ command, payload });
+      if (command === 'status') {
+        return {
+          connected: true,
+          tabs: [{ tabId: 17, active: true, title: 'NotebookLM', url: 'https://notebooklm.google.com/' }]
+        };
+      }
+      if (command === 'page.inspect') return { elements: [{ elementId: 'xc_1_1', role: 'button', name: 'Create' }] };
+      if (command === 'page.extract') return { text: 'NotebookLM' };
+      if (command === 'page.click') return { action: 'click' };
+      if (command === 'page.fill') return { action: 'fill' };
+      return {};
+    }
+  };
+  const service = new ExistingChromeSessionService(client as never);
+  const first = await service.open(owner);
+  assert.equal(first.tabId, 17);
+  assert.equal(service.countOwned(owner.principalId, owner.workSessionId), 1);
+  await assert.rejects(service.open({ principalId: 'bob', workSessionId: 'work-2' }), /RESOURCE_BUSY/);
+  assert.throws(() => service.status(first.sessionId, { ...owner, workSessionId: 'other' }), /not found/i);
+  const inspected = await service.inspect(first.sessionId, owner, 12);
+  assert.equal(inspected.elements[0].elementId, 'xc_1_1');
+  await service.click(first.sessionId, owner, 'xc_1_1');
+  await service.fill(first.sessionId, owner, 'xc_2_1', 'hello');
+  assert.equal(calls.some(call => call.command === 'page.click'), true);
+  assert.equal(calls.some(call => call.command === 'page.fill'), true);
+  service.close(first.sessionId, owner);
+  assert.equal(service.countOwned(owner.principalId, owner.workSessionId), 0);
+});
+
+test('Existing Chrome extension has a stable ID and excludes password access', async () => {
+  const manifest = JSON.parse(await fs.readFile(path.resolve('assets/chrome-bridge-extension/manifest.json'), 'utf8'));
+  const key = Buffer.from(manifest.key, 'base64');
+  const digest = createHash('sha256').update(key).digest().subarray(0, 16);
+  const derived = [...digest]
+    .flatMap(byte => [byte >> 4, byte & 15])
+    .map(nibble => 'abcdefghijklmnop'[nibble])
+    .join('');
+  assert.equal(derived, CHROME_BRIDGE_EXTENSION_ID);
+  assert.deepEqual(manifest.permissions.sort(), ['nativeMessaging', 'tabs']);
+  assert.deepEqual(manifest.host_permissions.sort(), [
+    'https://notebook.google.com/*',
+    'https://notebooklm.google.com/*'
+  ]);
+
+  const content = await fs.readFile(path.resolve('assets/chrome-bridge-extension/content-script.js'), 'utf8');
+  assert.match(content, /input:not\(\[type="password"\]\)/);
+  assert.match(content, /Password fields are never writable through RWMCP/);
+  assert.doesNotMatch(content, /document\.cookie|localStorage|sessionStorage|chrome\.cookies/);
+
+  const worker = await fs.readFile(path.resolve('assets/chrome-bridge-extension/service-worker.js'), 'utf8');
+  assert.match(worker, /Tab is outside the NotebookLM allowlist/);
+  assert.doesNotMatch(worker, /chrome\.debugger/);
+});
+
+test('Windows native host installer binds exactly to the stable extension origin', async () => {
+  const installer = await fs.readFile(path.resolve('scripts/install-chrome-bridge-windows.ps1'), 'utf8');
+  assert.match(installer, new RegExp(CHROME_BRIDGE_EXTENSION_ID));
+  assert.match(installer, /allowed_origins/);
+  assert.match(installer, /HKCU:\\Software\\Google\\Chrome\\NativeMessagingHosts/);
+  assert.match(installer, /bridge-token\.txt/);
 });

@@ -41,7 +41,9 @@ test('Moonlight views use actual workstation scope names and transient secret in
 test('opening a view reads store state without issuing an API request', async () => {
   const source = await readFile(viewsPath, 'utf8');
   assert.match(source, /function open\(page\)/);
-  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);
+  for (const mapping of ['Work: openWork', 'Agents: openExecution', 'Engineering: openEngineering', 'Office: openOffice', 'Web: openWeb', 'Devices: openDevices', 'Security: openAccess', 'System: openSystem']) assert.match(source, new RegExp(mapping.replace(/[.*+?^${}()|[\\]\\]/g, '\\  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);')));
+  assert.match(source, /function capabilityDomain\(/);
+  assert.match(source, /live\('capabilities'\)/);
   assert.match(source, /function live\(name\) \{ return resource\(store, name\)\.data; \}/);
   assert.match(source, /deriveNotifications\(store\.getState\(\)\)/);
   assert.match(source, /state\.updateAvailable === true \? 'Update available' : state\.updateAvailable === false \? 'Current' : 'Unavailable'/);
@@ -227,5 +229,45 @@ test('Vietnamese views localize interactive text while retaining backend request
     await saveScopes.listeners.get('click')!({ currentTarget: saveScopes });
     assert.equal(confirmations.at(-1), 'Lưu các phạm vi truy cập đã chọn?');
     assert.deepEqual(requests.at(-1), { path: '/api/permissions/config', options: { method: 'POST', body: { httpScopes: ['workstation.read'], allowHostFilesystem: false, allowRawShell: false }, timeoutMs: 180_000 } });
+  } finally { dom.restore(); }
+});
+
+
+test('domain pages are capability-driven and keep providers below their domain', () => {
+  const dom = installDom();
+  const pages: Array<{ title: string; content: InstanceType<typeof dom.Node> }> = [];
+  const state = {
+    capabilities: { data: { capabilities: [
+      { id: 'engineering.hardware', status: 'available', tools: ['hardware_list'], note: 'Hardware' },
+      { id: 'office.word.inspect', status: 'available', tools: ['word_inspect'], note: 'Word inspect' },
+      { id: 'web.automation', status: 'available', tools: ['browser_inspect'], note: 'Browser' },
+      { id: 'agent.antigravity_worker', status: 'available', tools: ['antigravity_status'], note: 'Worker' }
+    ] } },
+    runtime: { data: { running: true } },
+    updates: { data: { installedVersion: '0.36.0', latestVersion: '0.36.0' } },
+    status: { data: { platform: 'win32' } }
+  };
+  try {
+    setLanguage('en');
+    const views = createViews({
+      api: { request: async () => ({}) },
+      store: { getState: () => state },
+      openModal: () => {},
+      openPage: (_page: string, title: string, content: InstanceType<typeof dom.Node>) => { pages.push({ title, content }); },
+      openExecutionConsole: () => {},
+      toast: () => {},
+      refresh: async () => {}
+    });
+    views.open('Engineering');
+    views.open('Office');
+    views.open('Web');
+    views.open('System');
+
+    assert.match(pages[0]!.content.textContent, /engineering\.hardware/);
+    assert.doesNotMatch(pages[0]!.content.textContent, /agent\.antigravity_worker/);
+    assert.match(pages[1]!.content.textContent, /office\.word\.inspect/);
+    assert.match(pages[2]!.content.textContent, /web\.automation/);
+    assert.match(pages[3]!.content.textContent, /Runtime & recovery/);
+    assert.match(pages[3]!.content.textContent, /Updates/);
   } finally { dom.restore(); }
 });

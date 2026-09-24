@@ -2,7 +2,7 @@ import { deriveNotifications } from './model.js';
 import { t } from './i18n.js';
 import './translations-views.js';
 
-const text = (value) => value == null || value === '' ? '—' : String(value);
+const text = (value) => value == null || value === '' ? 'â€”' : String(value);
 
 function el(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
@@ -53,7 +53,7 @@ function selectValue(value, choices) {
 function requestError(error) { return error?.message || t('The control center rejected this request.'); }
 function emptyState(message) { return el('div', { class: 'moon-empty' }, el('p', { class: 'moon-muted', text: t(message) })); }
 
-export function createViews({ api, store, openModal, openPage = (_page, title, content) => { openModal(title, content); return content; }, toast, refresh }) {
+export function createViews({ api, store, openModal, openPage = (_page, title, content) => { openModal(title, content); return content; }, openExecutionConsole = () => {}, toast, refresh }) {
   async function mutate(path, body, keys, message, method = 'POST', timeoutMs = 180_000) {
     try {
       const result = await api.request(path, { method, body, timeoutMs });
@@ -65,7 +65,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function live(name) { return resource(store, name).data; }
   function unavailable(name, content) {
     const item = resource(store, name);
-    if (item.loading) content.append(el('p', { class: 'moon-muted', text: t('Loading current state…') }));
+    if (item.loading) content.append(el('p', { class: 'moon-muted', text: t('Loading current stateâ€¦') }));
     else if (item.error) content.append(el('p', { class: 'moon-error', text: `${t('Unavailable')}: ${requestError(item.error)}` }));
   }
   function actions(...nodes) { return el('div', { class: 'modal-actions' }, nodes); }
@@ -78,6 +78,104 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       )
     );
     openPage(page, t(title), content);
+    return content;
+  }
+
+
+  function capabilityEntries(prefixes) {
+    const state = live('capabilities');
+    const entries = Array.isArray(state?.capabilities) ? state.capabilities : [];
+    return entries
+      .filter((item) => prefixes.some((prefix) => String(item?.id || '').startsWith(prefix)))
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  }
+
+  function capabilityDomain(page, title, description, prefixes, emptyMessage, extraActions = []) {
+    const content = pageRoot(page, title, description);
+    unavailable('capabilities', content);
+    const entries = capabilityEntries(prefixes);
+    const summary = section('Capability groups', 'Capabilities are discovered from the running backend. Provider and implementation details stay below the domain layer.', 'moon-page-full');
+    if (!entries.length) summary.append(emptyState(emptyMessage));
+    for (const item of entries) {
+      const tools = Array.isArray(item.tools) ? item.tools : [];
+      summary.append(el('article', { class: 'moon-row' },
+        el('div', { class: 'device-row-header' },
+          el('strong', { text: text(item.id) }),
+          el('span', { class: `pill ${item.status === 'available' ? 'success' : 'warning'}`, text: t(text(item.status || 'Unavailable')) })
+        ),
+        el('span', { text: t('{count} typed tools', { count: tools.length }) }),
+        item.note && el('small', { class: 'moon-muted', text: text(item.note) })
+      ));
+    }
+    if (extraActions.length) summary.append(actions(...extraActions));
+    content.append(summary);
+    return content;
+  }
+
+  function openWork() {
+    return capabilityDomain(
+      'Work',
+      'Work',
+      'Projects, Work Sessions, tasks, objectives, and artifacts belong here. Execution providers stay separate under Agents.',
+      ['work_session.', 'project.', 'project_session_group.', 'work_objective.', 'task.', 'filesystem.', 'git.'],
+      'No work-management capabilities are currently advertised by the backend.',
+      [button('Open Execution Console', () => openExecutionConsole(), 'primary-button')]
+    );
+  }
+
+  function openEngineering() {
+    return capabilityDomain(
+      'Engineering',
+      'Engineering',
+      'Hardware, firmware, debugging, ROS 2, containers, build diagnostics, and engineering workflows.',
+      ['engineering.', 'build.diagnostics', 'code.semantic'],
+      'No engineering capabilities are currently advertised by the backend.'
+    );
+  }
+
+  function openOffice() {
+    return capabilityDomain(
+      'Office',
+      'Office',
+      'Word, Excel, and PowerPoint capabilities stay in one Office domain while OOXML and COM remain implementation details.',
+      ['office.'],
+      'No Office capabilities are currently advertised by the backend.'
+    );
+  }
+
+  function openWeb() {
+    return capabilityDomain(
+      'Web',
+      'Web',
+      'Managed browsers, Existing Chrome, and site adapters such as NotebookLM belong to one web automation domain.',
+      ['web.'],
+      'No web automation capabilities are currently advertised by the backend.'
+    );
+  }
+
+  function openSystem() {
+    const content = pageRoot(
+      'System',
+      'System',
+      'Runtime, updates, recovery, diagnostics, and local platform maintenance.'
+    );
+    const runtime = live('runtime');
+    const updates = live('updates');
+    const status = live('status');
+
+    const runtimeSection = section('Runtime & recovery', 'Manage the local runtime, secure tunnel, and recovery settings without mixing them with application capabilities.');
+    runtimeSection.append(el('div', { class: 'detail-grid' },
+      el('div', { class: 'detail-item' }, el('span', { text: t('Runtime') }), el('strong', { text: t(runtime?.running ? 'Online' : 'Unavailable') })),
+      el('div', { class: 'detail-item' }, el('span', { text: t('Platform') }), el('strong', { text: text(status?.platform) }))
+    ), actions(button('Open runtime & recovery', () => openSettings(), 'primary-button')));
+    content.append(runtimeSection);
+
+    const updateSection = section('Updates', 'Platform updates stay under System instead of occupying a top-level navigation slot.');
+    updateSection.append(el('div', { class: 'detail-grid' },
+      el('div', { class: 'detail-item' }, el('span', { text: t('Installed') }), el('strong', { text: text(updates?.installedVersion) })),
+      el('div', { class: 'detail-item' }, el('span', { text: t('Latest') }), el('strong', { text: text(updates?.latestVersion) }))
+    ), actions(button('Open updates', () => openUpdates())));
+    content.append(updateSection);
     return content;
   }
 
@@ -106,7 +204,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const leaseSection = section('Full-control lease', 'A lease is permitted only when the backend local gate is enabled.');
     const lease = state.lease;
     const leaseStatusClass = lease?.active ? 'moon-status' : 'moon-status inactive';
-    leaseSection.append(el('p', { class: leaseStatusClass, text: lease?.active ? t('Active · {seconds} seconds remaining', { seconds: text(lease.remainingSeconds) }) : t('No active lease.') }));
+    leaseSection.append(el('p', { class: leaseStatusClass, text: lease?.active ? t('Active Â· {seconds} seconds remaining', { seconds: text(lease.remainingSeconds) }) : t('No active lease.') }));
     const duration = selectValue('30', [['10', '10 minutes'], ['30', '30 minutes'], ['60', '60 minutes']]);
     leaseSection.append(field('Duration', duration), actions(lease?.active ? button('Revoke lease', async () => { if (!confirm(t('Revoke the active full-control lease?'))) return; await mutate('/api/permissions/lease', undefined, ['permissions'], 'Lease revoked.', 'DELETE'); openAccess(); }, 'secondary-button danger-button') : button('Request lease', async () => { if (!confirm(t('Request a full-control lease?'))) return; await mutate('/api/permissions/lease', { ttlMinutes: Number(duration.value) }, ['permissions'], 'Lease requested.'); openAccess(); }, 'primary-button'))); content.append(leaseSection);
     const requests = admin?.requests || []; const adminSection = section('Admin requests', 'Review the exact command hash before authorizing the Windows UAC flow.');
@@ -115,7 +213,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       const row = el('article', { class: 'moon-row' },
         el('div', { class: 'admin-request-header' },
           el('strong', { text: text(item.program) }),
-          el('span', { class: `pill ${item.state === 'pending' ? 'warning' : 'info'}`, text: `${text(item.state)} · ${text(item.reason)}` })
+          el('span', { class: `pill ${item.state === 'pending' ? 'warning' : 'info'}`, text: `${text(item.state)} Â· ${text(item.reason)}` })
         ),
         el('code', { text: text(item.commandHash) })
       );
@@ -332,7 +430,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       const row = el('article', { class: 'moon-row' },
         el('div', { class: 'device-row-header' },
           el('strong', { text: text(device.name || device.hostname) }),
-          el('span', { class: 'pill info', text: `${text(device.platform)} · ${text(device.version)}` })
+          el('span', { class: 'pill info', text: `${text(device.platform)} Â· ${text(device.version)}` })
         ),
         el('small', { class: 'moon-muted', text: t('Last seen: {value}', { value: text(device.lastSeenAt) }) })
       );
@@ -367,7 +465,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       const grants = multi.grants || [];
       if (grants.length) {
         const grantList = el('div', { class: 'moon-grant-list' });
-        for (const grant of grants) grantList.append(el('article', { class: 'moon-row grant-row' }, el('div', { class: 'grant-info' }, el('strong', { text: text(grant.id) }), el('span', { text: `${text(grant.sourceNodeId)} → ${text(grant.destinationNodeId)}` })), actions(button('Remove grant', async () => { if (!confirm(t('Remove grant {id}?', { id: text(grant.id) }))) return; await mutate(`/api/multi-node/grants/${encodeURIComponent(grant.id)}`, undefined, ['multiNode'], 'Grant removed.', 'DELETE'); openDevices(); }, 'secondary-button danger-button'))));
+        for (const grant of grants) grantList.append(el('article', { class: 'moon-row grant-row' }, el('div', { class: 'grant-info' }, el('strong', { text: text(grant.id) }), el('span', { text: `${text(grant.sourceNodeId)} â†’ ${text(grant.destinationNodeId)}` })), actions(button('Remove grant', async () => { if (!confirm(t('Remove grant {id}?', { id: text(grant.id) }))) return; await mutate(`/api/multi-node/grants/${encodeURIComponent(grant.id)}`, undefined, ['multiNode'], 'Grant removed.', 'DELETE'); openDevices(); }, 'secondary-button danger-button'))));
         multiSection.append(grantList);
       }
       const grantId = el('input', { placeholder: t('Grant ID') }); const source = el('input', { placeholder: t('Source node ID') }); const destination = el('input', { placeholder: t('Destination node ID') }); const sourceWorkspace = el('input', { placeholder: t('Source workspace') }); const destinationWorkspace = el('input', { placeholder: t('Destination workspace') }); const extensions = el('input', { placeholder: '.zip, .json', value: '.zip' });
@@ -398,7 +496,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openSettings() {
     const status = live('status'); const runtime = live('runtime'); const content = pageRoot('Settings', 'Settings & recovery', 'Manage local runtime, secure tunnel, and recovery configuration.'); unavailable('status', content);
     if (!status) {
-      const loading = el('p', { class: 'moon-muted', text: t('Loading recovery controls…') }); content.append(loading);
+      const loading = el('p', { class: 'moon-muted', text: t('Loading recovery controlsâ€¦') }); content.append(loading);
       void api.request('/api/recovery/status', { timeoutMs: 180_000 }).then((recoveryStatus) => {
         loading.remove(); const settings = recoveryStatus.settings || {};
         const tunnel = el('input', { value: settings.tunnelId ?? '' });
@@ -489,6 +587,21 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openNotifications() { const content = el('div', { class: 'moon-view' }); openModal(t('Notifications'), content); const notices = deriveNotifications(store.getState()); if (!notices.length) notices.push({ title: t('No current notifications.'), description: '' }); content.append(...notices.map((notice) => el('article', { class: 'moon-row' }, el('strong', { text: text(notice.title) }), notice.description && el('span', { text: text(notice.description) })))); return content; }
   function openProfile() { const status = live('status'); const content = el('div', { class: 'moon-view' }); openModal(t('Local owner session'), content); content.append(el('p', { text: t('Node: {name}', { name: text(status?.identity?.name) }) }), el('p', { text: t('Platform: {platform}', { platform: text(status?.platform) }) }), el('p', { class: 'moon-muted', text: t('This interface operates through the local, authenticated Control Center.') })); return content; }
   function openDevice(card) { const content = el('div', { class: 'moon-view' }); openModal(text(card?.name || t('Device')), content); for (const spec of card?.specs || []) content.append(el('p', { text: `${text(spec.label)}: ${text(spec.value)}` })); return content; }
-  function open(page) { ({ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings }[page] || (() => {}))(); }
+  function open(page) {
+    ({
+      Work: openWork,
+      Agents: openExecution,
+      Execution: openExecution,
+      Engineering: openEngineering,
+      Office: openOffice,
+      Web: openWeb,
+      Devices: openDevices,
+      Security: openAccess,
+      Access: openAccess,
+      System: openSystem,
+      Updates: openUpdates,
+      Settings: openSettings
+    }[page] || (() => {}))();
+  }
   return { open, openDevice, openNotifications, openProfile };
 }

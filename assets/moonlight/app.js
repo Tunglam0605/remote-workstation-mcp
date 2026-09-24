@@ -2,6 +2,7 @@ import { createApi } from '/assets/moonlight/api.js';
 import { createStore } from '/assets/moonlight/store.js';
 import { deriveActivities, deriveCards, deriveMetrics, deriveNotifications } from '/assets/moonlight/model.js';
 import { createViews } from '/assets/moonlight/views.js';
+import { NAVIGATION, canonicalPage, pageFromHash, routeForPage } from '/assets/moonlight/navigation.js';
 import { createThemeController } from '/assets/moonlight/themes.js';
 import { getLanguage, onLanguageChange, registerTranslations, setLanguage, t } from '/assets/moonlight/i18n.js';
 import translations from '/assets/moonlight/translations-shell.js';
@@ -36,6 +37,23 @@ function element(tag, attributes = {}, ...children) {
 
 function icon(name) { return element('i', { 'data-lucide': name }); }
 function paintIcons() { globalThis.lucide?.createIcons?.(); }
+function renderNavigation() {
+  const root = $('#main-nav');
+  root.replaceChildren();
+  for (const item of NAVIGATION) {
+    const button = element('button', {
+      class: `nav-item${item.id === activePage ? ' active' : ''}`,
+      type: 'button',
+      'data-page': item.id,
+      'data-route': item.route,
+      title: item.children?.length ? item.children.map((child) => tr(child)).join(' · ') : tr(item.label),
+      onclick: () => navigate(item.id)
+    }, icon(item.icon), element('span', { text: tr(item.label) }));
+    if (item.id === 'System') button.append(element('span', { class: 'badge', hidden: '' }));
+    root.append(button);
+  }
+  paintIcons();
+}
 function renderGreeting(now = new Date()) {
   const source = greetingSource(now);
   const signature = `${getLanguage()}:${source}`;
@@ -52,7 +70,7 @@ function readIds() { try { return new Set(JSON.parse(localStorage.getItem(readKe
 function saveRead(ids) { try { localStorage.setItem(readKey, JSON.stringify([...ids])); } catch {} }
 function toast(message) { const node = $('#toast'); node.textContent = message; node.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { node.hidden = true; }, 3400); }
 
-const unavailableResources = () => Object.fromEntries(['status', 'runtime', 'execution', 'antigravity', 'pairing', 'multiNode', 'permissions', 'updates', 'admin', 'console'].map((key) => [key, { data: null, error: new Error('Setup token unavailable'), loading: false, loadedAt: null }]));
+const unavailableResources = () => Object.fromEntries(['status', 'capabilities', 'runtime', 'execution', 'antigravity', 'pairing', 'multiNode', 'permissions', 'updates', 'admin', 'console'].map((key) => [key, { data: null, error: new Error('Setup token unavailable'), loading: false, loadedAt: null }]));
 const api = usableToken ? createApi(usableToken) : null;
 const store = api ? createStore(api, { consolePath: '/api/execution' }) : { getState: unavailableResources, subscribe: () => () => {}, refresh: async () => {}, start: () => {}, stop: () => {} };
 
@@ -74,13 +92,33 @@ function closeMenu() { document.body.classList.remove('menu-open'); $('#menu-tog
 
 let activePage = 'Overview';
 function openPage(page, title, content) {
-  activePage = page;
+  activePage = canonicalPage(page);
   $('#overview').hidden = true;
   const outlet = $('#page-outlet'); outlet.hidden = false; outlet.replaceChildren(content);
-  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.page === page));
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.page === activePage));
   return content;
 }
-const views = createViews({ api: api ?? { request: async () => { throw new Error('Setup token unavailable'); } }, store, openModal, openPage, toast, refresh: (keys) => store.refresh(keys) });
+function showOverview() {
+  activePage = 'Overview';
+  $('#page-outlet').hidden = true;
+  $('#overview').hidden = false;
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.page === 'Overview'));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  $('#search').value = '';
+  searchCards();
+}
+function navigate(page, { updateHash = true } = {}) {
+  const requested = page || 'Overview';
+  const target = canonicalPage(requested);
+  closeMenu();
+  if (target === 'Overview') showOverview();
+  else views.open(requested);
+  if (updateHash) {
+    const hash = `#${routeForPage(target)}`;
+    if (location.hash !== hash) history.replaceState(null, '', hash);
+  }
+}
+const views = createViews({ api: api ?? { request: async () => { throw new Error('Setup token unavailable'); } }, store, openModal, openPage, openExecutionConsole: openConsoleSelection, toast, refresh: (keys) => store.refresh(keys) });
 const themes = createThemeController({ openModal, toast });
 
 function spec(card, label) { return card.specs.find((item) => item.label === label)?.value; }
@@ -190,8 +228,7 @@ function render() {
 
 function localizeShell() {
   document.documentElement.lang = getLanguage();
-  const labels = { Overview: 'Overview', Access: 'Access', Execution: 'Execution', Devices: 'Devices', Updates: 'Updates', Settings: 'Settings' };
-  $$('.nav-item').forEach((item) => { const span = $('span', item); if (span) span.textContent = tr(labels[item.dataset.page] ?? item.dataset.page); });
+  $$('.nav-item').forEach((item) => { const span = $('span', item); if (span) span.textContent = tr(item.dataset.page); const nav = NAVIGATION.find((entry) => entry.id === item.dataset.page); if (nav) item.title = nav.children?.length ? nav.children.map((child) => tr(child)).join(' · ') : tr(nav.label); });
   $('#language-toggle').textContent = getLanguage() === 'vi' ? 'EN' : 'VI'; $('#language-toggle').setAttribute('aria-label', tr('Language'));
   $('#search').placeholder = tr('Search workstations, devices, commands…'); $('#search').setAttribute('aria-label', tr('Search workstations, devices, commands…'));
   $('#no-results').textContent = tr('No matching workstations. Try “Ubuntu” or “Windows”.');
@@ -353,12 +390,12 @@ $('#all-messages').addEventListener('click', () => views.openNotifications());
 $('#command-form').addEventListener('submit', (event) => { event.preventDefault(); openConsoleSelection(); });
 $('#menu-toggle').addEventListener('click', () => { if (window.innerWidth > 700) return; const open = document.body.classList.toggle('menu-open'); $('#menu-toggle').setAttribute('aria-expanded', String(open)); $('#scrim').hidden = !open; });
 $('#scrim').addEventListener('click', closeMenu);
-$$('.nav-item').forEach((button) => button.addEventListener('click', () => { const page = button.dataset.page; closeMenu(); $$('.nav-item').forEach((item) => item.classList.toggle('active', item === button)); if (page === 'Overview') { activePage = 'Overview'; $('#page-outlet').hidden = true; $('#overview').hidden = false; window.scrollTo({ top: 0, behavior: 'smooth' }); $('#search').value = ''; searchCards(); return; } views.open(page); }));
+window.addEventListener('hashchange', () => navigate(pageFromHash(location.hash), { updateHash: false }));
 $('#language-toggle').addEventListener('click', () => setLanguage(getLanguage() === 'vi' ? 'en' : 'vi'));
 document.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); $('#search').focus(); } if (event.key === 'Escape') closeMenu(); });
 
 try { document.body.classList.toggle('reduce-motion', localStorage.getItem('moonlight-reduce-motion') === '1'); } catch {}
-store.subscribe(render); onLanguageChange(localizeShell); localizeShell(); tick(); setInterval(tick, 1000); if (api) store.start(); else toast(tr('Moonlight could not initialize because the page token is unavailable.'));
+renderNavigation(); store.subscribe(render); onLanguageChange(localizeShell); localizeShell(); navigate(pageFromHash(location.hash), { updateHash: false }); tick(); setInterval(tick, 1000); if (api) store.start(); else toast(tr('Moonlight could not initialize because the page token is unavailable.'));
 paintIcons();
 
 export { openActivityHistory, openConsoleSelection, openModal, render };

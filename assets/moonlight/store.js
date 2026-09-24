@@ -1,5 +1,6 @@
 const DEFINITIONS = {
   status: { path: '/api/status', intervalMs: 15_000 },
+  capabilities: { path: '/api/capabilities', intervalMs: 60_000 },
   runtime: { path: '/api/runtime/status', intervalMs: 15_000 },
   execution: { path: '/api/execution-policy', intervalMs: 60_000 },
   antigravity: { path: '/api/antigravity/status', intervalMs: 60_000 },

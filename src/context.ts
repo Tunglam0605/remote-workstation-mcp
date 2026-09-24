@@ -70,6 +70,7 @@ import { BrowserCore } from './web/browser-core.js';
 import { PlaywrightBrowserProvider } from './web/browser-provider.js';
 import { ExistingChromeBridgeClient } from './web/existing-chrome-bridge.js';
 import { ExistingChromeSessionService } from './web/existing-chrome-session.js';
+import { NotebookLmAdapter } from './web/adapters/notebooklm-adapter.js';
 
 export async function createContext() {
   const actor = {
@@ -177,6 +178,7 @@ export async function createContext() {
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const browser = new BrowserCore(new PlaywrightBrowserProvider());
   const existingChrome = new ExistingChromeSessionService(new ExistingChromeBridgeClient());
+  const notebooklm = new NotebookLmAdapter(existingChrome);
   const workSessionLifecycle = new WorkSessionLifecycleService(
     workSessions,
     worktreeManager,
@@ -238,6 +240,7 @@ export async function createContext() {
     audit,
     browser,
     existingChrome,
+    notebooklm,
     multiNodeAuthorization,
     workSessions,
     workSessionLifecycle,

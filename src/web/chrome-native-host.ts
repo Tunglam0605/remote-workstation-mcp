@@ -24,6 +24,14 @@ if (!localAppData) {
 }
 const bridgeDir = path.join(localAppData, 'RemoteWorkstationMCP', 'chrome-bridge');
 const tokenPath = path.join(bridgeDir, 'bridge-token.txt');
+const diagnosticPath = path.join(bridgeDir, 'native-host.log');
+fs.mkdirSync(bridgeDir, { recursive: true });
+function diagnostic(event: string, detail = ''): void {
+  try {
+    fs.appendFileSync(diagnosticPath, `${new Date().toISOString()} ${event}${detail ? ' ' + detail : ''}\n`, 'utf8');
+  } catch {}
+}
+diagnostic('host_start', actualOrigin === expectedOrigin ? 'origin_ok' : 'origin_rejected');
 let expectedToken = '';
 try {
   expectedToken = fs.readFileSync(tokenPath, 'utf8').trim();
@@ -61,9 +69,11 @@ function handleNative(message: any): void {
   if (!message || typeof message !== 'object') return;
   if (message.type === 'bridge_hello') {
     extensionReady = true;
+    diagnostic('bridge_hello');
     return;
   }
   if (message.type !== 'bridge_response' || typeof message.id !== 'string') return;
+  diagnostic('bridge_response', message.ok === true ? 'ok' : 'error');
   const socket = pending.get(message.id);
   if (!socket) return;
   pending.delete(message.id);
@@ -125,10 +135,12 @@ const server = net.createServer(socket => {
           return;
         }
         authenticated = true;
+        diagnostic('pipe_auth_ok', extensionReady ? 'extension_ready' : 'extension_not_ready');
         sendSocket(socket, { type: 'auth_ok', extensionReady, hostPid: process.pid, host: os.hostname() });
         continue;
       }
       if (!extensionReady) {
+        diagnostic('request_rejected', 'extension_not_ready');
         sendSocket(socket, { type: 'error', code: 'EXTENSION_NOT_READY', message: 'Chrome extension is not connected.' });
         continue;
       }
@@ -143,6 +155,7 @@ const server = net.createServer(socket => {
         payload: message.payload && typeof message.payload === 'object' ? message.payload : undefined
       } as ChromeBridgeRequest;
       pending.set(request.id, socket);
+      diagnostic('request_forward', request.command);
       try {
         writeNative({ type: 'bridge_request', id: request.id, command: request.command, payload: request.payload ?? {} });
       } catch (error) {
@@ -161,6 +174,7 @@ server.on('error', error => {
   process.exit(4);
 });
 server.listen(CHROME_BRIDGE_PIPE, () => {
+  diagnostic('pipe_listen');
   process.stderr.write('[rwmcp-chrome-bridge] native host ready\n');
 });
 

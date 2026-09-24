@@ -1,6 +1,6 @@
 # ADR-WEB-008: Site Adapter Architecture
 
-Status: Accepted for architecture; adapter implementation deferred
+Status: Accepted; NotebookLM adapter v1 implemented in Phase G
 Date: 2026-09-24
 
 ## Decision

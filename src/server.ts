@@ -12,6 +12,7 @@ import { registerLspTools } from './tools/lsp-tools.js';
 import { registerPrivilegedTools } from './tools/privileged-tools.js';
 import { registerSshTools } from './tools/ssh-tools.js';
 import { registerBrowserTools } from './tools/browser-tools.js';
+import { registerNotebookLmTools } from './tools/notebooklm-tools.js';
 
 export function buildServer(ctx: AppContext): McpServer {
   const server = new McpServer(
@@ -35,6 +36,7 @@ export function buildServer(ctx: AppContext): McpServer {
   registerDeviceTools(server, ctx);
   registerCoreTools(server, ctx);
   registerBrowserTools(server, ctx);
+  registerNotebookLmTools(server, ctx);
   registerEngineeringTools(server, ctx);
   if (officePlatformSupported(process.platform)) registerOfficeTools(server, ctx);
   registerInteractiveProcessTools(server, ctx);

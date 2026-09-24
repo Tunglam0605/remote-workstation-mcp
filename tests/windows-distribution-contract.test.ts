@@ -6,6 +6,17 @@ async function read(path: string): Promise<string> {
   return await fs.readFile(path, 'utf8');
 }
 
+test('Windows update and recovery state writers use unique atomic replacement files', async () => {
+  const updateHandoff = await read('scripts/update-handoff-windows.ps1');
+  const recovery = await read('scripts/autonomous-recovery-windows.ps1');
+
+  for (const source of [updateHandoff, recovery]) {
+    assert.match(source, /\$nonce = \[Guid\]::NewGuid\(\)\.ToString\('N'\)/);
+    assert.match(source, /\[IO\.File\]::Replace\(\$tmp, \$Path, \$backup, \$true\)/);
+    assert.doesNotMatch(source, /Move-Item -LiteralPath \$tmp -Destination .* -Force/);
+  }
+});
+
 test('Windows installer resolves Program Files safely when process environment variables are missing', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
 

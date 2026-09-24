@@ -377,3 +377,22 @@ test('Windows native host installer binds exactly to the stable extension origin
   assert.match(installer, /HKCU:\\Software\\Google\\Chrome\\NativeMessagingHosts/);
   assert.match(installer, /bridge-token\.txt/);
 });
+
+
+test('Existing Chrome service worker prevents duplicate native-host reconnect races', async () => {
+  const worker = await fs.readFile(path.resolve('assets/chrome-bridge-extension/service-worker.js'), 'utf8');
+  assert.match(worker, /if \(port\) return;/);
+  assert.match(worker, /if \(port !== nextPort\) return;/);
+  assert.match(worker, /const nextPort = chrome\.runtime\.connectNative|nextPort = chrome\.runtime\.connectNative/);
+});
+
+test('Windows bridge installer stages extension and native host runtime outside the worktree', async () => {
+  const installer = await fs.readFile(path.resolve('scripts/install-chrome-bridge-windows.ps1'), 'utf8');
+  assert.match(installer, /RemoteWorkstationMCP\\chrome-bridge/);
+  assert.match(installer, /\$ExtensionPath = Join-Path \$BridgeDir "extension"/);
+  assert.match(installer, /\$NativeRuntimeDir = Join-Path \$BridgeDir "native-runtime"/);
+  assert.match(installer, /Copy-Item -Path \(Join-Path \$ExtensionSource "\*"\) -Destination \$ExtensionPath/);
+  assert.match(installer, /chrome-bridge-protocol\.js/);
+  assert.match(installer, /rwmcp-chrome-native-host-" \+ \$LauncherHash/);
+  assert.doesNotMatch(installer, /path = \$LauncherSource/);
+});

@@ -105,20 +105,25 @@ function scheduleReconnect() {
 }
 
 function connect() {
+  if (port) return;
+  let nextPort;
   try {
-    port = chrome.runtime.connectNative(HOST);
+    nextPort = chrome.runtime.connectNative(HOST);
   } catch {
     scheduleReconnect();
     return;
   }
+  port = nextPort;
 
-  port.onMessage.addListener(async message => {
+  nextPort.onMessage.addListener(async message => {
     if (!message || message.type !== 'bridge_request' || typeof message.id !== 'string') return;
     try {
       const result = await execute(message.command, message.payload || {});
-      port.postMessage({ type: 'bridge_response', id: message.id, ok: true, result });
+      if (port !== nextPort) return;
+      nextPort.postMessage({ type: 'bridge_response', id: message.id, ok: true, result });
     } catch (error) {
-      port.postMessage({
+      if (port !== nextPort) return;
+      nextPort.postMessage({
         type: 'bridge_response',
         id: message.id,
         ok: false,
@@ -130,12 +135,13 @@ function connect() {
     }
   });
 
-  port.onDisconnect.addListener(() => {
+  nextPort.onDisconnect.addListener(() => {
+    if (port !== nextPort) return;
     port = undefined;
     scheduleReconnect();
   });
 
-  port.postMessage({
+  nextPort.postMessage({
     type: 'bridge_hello',
     extensionId: chrome.runtime.id,
     version: chrome.runtime.getManifest().version

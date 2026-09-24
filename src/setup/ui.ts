@@ -1,5 +1,6 @@
 import { SERVER_VERSION } from '../capabilities.js';
 import { seasonalThemeCss, seasonalThemeScript } from './seasonal-theme.js';
+import { overviewDashboardCss, overviewDashboardScript } from './overview-dashboard.js';
 
 export function setupHtml(token: string): string {
   return `<!doctype html>
@@ -102,6 +103,7 @@ export function setupHtml(token: string): string {
   .broker-account-grid{grid-template-columns:1fr}
 }
 ${seasonalThemeCss}
+${overviewDashboardCss}
 </style>
 </head>
 <body>
@@ -406,6 +408,7 @@ function pageCardFor(id){const el=$(id);return el?el.closest('section.card'):nul
 function setControlCenterPage(page,persist=true){
   const valid=new Set(['overview','access','execution','devices','updates','settings']);
   controlCenterPage=valid.has(page)?page:'overview';
+  document.body.dataset.ccPage=controlCenterPage;
   document.querySelectorAll('.cc-page').forEach(el=>{el.hidden=el.dataset.page!==controlCenterPage;});
   document.querySelectorAll('.cc-nav button[data-page]').forEach(btn=>{const active=btn.dataset.page===controlCenterPage;btn.classList.toggle('active',active);btn.setAttribute('aria-current',active?'page':'false');});
   const pageNavMap={overview:'navOverview',access:'navAccess',execution:'navExecution',devices:'navDevices',updates:'navUpdates',settings:'navSettings'};
@@ -455,6 +458,7 @@ function buildControlCenterLayout(){
   const signature=root.querySelector(':scope > .brand-signature');const footer=root.querySelector(':scope > .footer');if(signature)workspace.appendChild(signature);if(footer)workspace.appendChild(footer);
   document.querySelectorAll('.cc-nav button[data-page]').forEach(btn=>btn.addEventListener('click',()=>setControlCenterPage(btn.dataset.page)));
   let initial='overview';try{initial=localStorage.getItem(CC_PAGE_KEY)||'overview';}catch{}
+  try{if(new URLSearchParams(location.search).get('preview')==='mid-autumn')initial='overview';}catch{}
   setControlCenterPage(initial,false);
 }
 const LANGUAGE_KEY = 'rwmcp.language';
@@ -552,7 +556,8 @@ $('copyTunnel').onclick=async()=>{const v=$('tunnel').value.trim();if(!v)return;
 $('langEn').onclick=()=>applyLanguage('en');$('langVi').onclick=()=>applyLanguage('vi');$('themeToggle').onclick=()=>applyTheme(currentTheme==='dark'?'light':'dark');$('notificationToggle').onclick=event=>{event.stopPropagation();toggleNotifications();};$('notificationPanel').onclick=event=>event.stopPropagation();document.addEventListener('click',()=>toggleNotifications(false));$('openSetup').onclick=()=>setControlCenterPage('settings');$('closeSetup').onclick=()=>setControlCenterPage('overview');$('confirmFullAccess').onclick=()=>finishFullAccessDecision(true);$('cancelFullAccess').onclick=()=>finishFullAccessDecision(false);$('closeFullAccessConfirm').onclick=()=>finishFullAccessDecision(false);$('fullAccessConfirmModal').addEventListener('cancel',event=>{event.preventDefault();finishFullAccessDecision(false);});installBackdropClose('setupModal');
 $('bootstrapConnect').onclick=bootstrapConnection;$('bootstrapKey').addEventListener('keydown',event=>{if(event.key==='Enter')bootstrapConnection();});$('testConnection').onclick=testConnection;$('saveReconnect').onclick=saveAndReconnect;$('createPairingCode').onclick=createPairCode;$('pairSelectedHost').onclick=pairSelectedHost;$('refreshDevices').onclick=refreshDevices;$('startOpenAI').onclick=()=>runtimeAction('Start');$('restart').onclick=()=>runtimeAction('Restart');$('stop').onclick=()=>runtimeAction('Stop');$('autostartOn').onclick=()=>runtimeAction('RegisterStartup');$('autostartOff').onclick=()=>runtimeAction('UnregisterStartup');$('refreshRuntime').onclick=refreshRuntime;$('accessMode').onchange=()=>setPermissionMode($('accessMode').value);$('autoUpdate').onchange=()=>setAutoUpdate($('autoUpdate').checked);$('checkUpdate').onclick=checkForUpdates;$('installUpdate').onclick=installAvailableUpdate;$('toggleMultiNode').onclick=toggleMultiNodeEnabled;$('refreshMultiNode').onclick=refreshMultiNode;$('saveMultiNodeGrant').onclick=saveMultiNodeGrant;$('saveExecutionPolicy').onclick=saveExecutionPolicy;$('resetCodexFallback').onclick=resetCodexFallback;$('clearChatOverrides').onclick=clearChatOverrides;
 ${seasonalThemeScript}
-buildControlCenterLayout();initSeasonalThemeSystem();applyTheme(currentTheme,false);applyLanguage(currentLanguage,false);refresh();refreshRuntime();refreshPermissions();refreshUpdate();refreshDevices();refreshMultiNode();refreshExecutionPolicy();refreshAdminRequests();setInterval(refreshAdminRequests,2000);
+${overviewDashboardScript}
+buildControlCenterLayout();initOverviewDashboard();initSeasonalThemeSystem();applyTheme(currentTheme,false);applyLanguage(currentLanguage,false);refresh();refreshRuntime();refreshPermissions();refreshUpdate();refreshDevices();refreshMultiNode();refreshExecutionPolicy();refreshAdminRequests();setInterval(refreshAdminRequests,2000);
 </script>
 </body></html>`;
 }

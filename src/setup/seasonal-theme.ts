@@ -824,6 +824,7 @@ function ccReadSeasonSetting(key,fallback){try{return localStorage.getItem(key)|
 function ccWriteSeasonSetting(key,value){try{localStorage.setItem(key,value);}catch{}}
 function ccResolveTheme(now=new Date()){
  const parts=ccYmdParts(now),mode=ccReadSeasonSetting(CC_SEASON_MODE_KEY,'event-first'),manual=ccReadSeasonSetting(CC_SEASON_THEME_KEY,'mid-autumn');
+ try{if(typeof location!=='undefined'&&new URLSearchParams(location.search).get('preview')==='mid-autumn'){const lunar=CC_LUNAR_EVENT_DATES[parts.year]||{};return {id:'mid-autumn',theme:CC_THEME_CATALOG['mid-autumn'],parts,event:{id:'mid-autumn'},target:lunar['mid-autumn']?ccParseYmd(lunar['mid-autumn']):null,mode:'manual'};}}catch{}
  const event=ccResolveEvent(parts),season=ccSeasonFor(parts);
  let id=season,target=null;
  if(mode==='manual'){id=CC_THEME_CATALOG[manual]?manual:season;}

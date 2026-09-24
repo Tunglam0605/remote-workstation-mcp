@@ -104,7 +104,7 @@ test('Execution distinguishes global route from Work Session overrides and unava
   const pages: Array<InstanceType<typeof dom.Node>> = [];
   const state = {
     execution: { data: {
-      settings: { defaultMode: 'rwmcp-only', codexEnabled: true, antigravityEnabled: false, allowChatOverride: true, codexFallback: 'stop' },
+      settings: { defaultMode: 'rwmcp-only', workerRoutingProfile: 'custom', codexEnabled: true, antigravityEnabled: false, allowChatOverride: true, codexFallback: 'stop' },
       status: { effectiveMode: 'rwmcp-only', source: 'owner-default', activeSessionOverrides: 2 },
       codex: { installed: true, authenticated: true }, accountBroker: { effectiveBackend: 'blocked', pool: { detail: 'Pool unreachable' } }
     } },
@@ -117,6 +117,8 @@ test('Execution distinguishes global route from Work Session overrides and unava
     views.open('Execution');
     const rendered = pages[0]!.textContent;
     assert.match(rendered, /Global route/);
+    assert.match(rendered, /Routing profile/);
+    assert.match(rendered, /Smart routing/);
     assert.match(rendered, /Work Sessions can have different routes/);
     assert.match(rendered, /Pool unreachable/);
     assert.match(rendered, /Disabled/);
@@ -137,6 +139,7 @@ test('Agent Control saves the selected route and provider settings through the e
     execution: { data: {
       settings: {
         defaultMode: 'both',
+        workerRoutingProfile: 'smart',
         codexEnabled: true,
         codexModel: 'gpt-6-sol',
         codexAgentsEnabled: true,
@@ -177,6 +180,7 @@ test('Agent Control saves the selected route and provider settings through the e
     assert.ok(request);
     assert.equal(request.options.method, 'POST');
     assert.deepEqual(request.options.body, {
+      workerRoutingProfile: 'smart',
       defaultMode: 'both',
       codexEnabled: true,
       codexModel: 'gpt-6-sol',

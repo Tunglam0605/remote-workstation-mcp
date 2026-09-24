@@ -536,7 +536,8 @@
 .agent-route-main p{margin:0;color:var(--muted);font-size:11px;line-height:1.55}
 .agent-route-meta{display:grid;gap:7px;min-width:230px;font-size:9px;color:#9fb3cb;text-align:right}
 .agent-route-meta span,.agent-route-main p,.agent-provider-card>p,.agent-save-bar span{overflow-wrap:anywhere}
-.agent-strategy-grid,.agent-provider-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}
+.agent-strategy-grid,.agent-routing-grid,.agent-provider-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}
+.agent-routing-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 .agent-provider-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .agent-strategy-card{display:flex;gap:10px;align-items:flex-start;padding:15px;border:1px solid var(--line);border-radius:10px;background:#0b2036;cursor:pointer;transition:border-color .16s,background .16s,transform .16s}
 .agent-strategy-card:hover{border-color:#56718f;transform:translateY(-1px)}
@@ -573,5 +574,5 @@
 .agent-save-bar>div{display:flex;flex-direction:column;gap:4px;min-width:0}
 .agent-save-bar strong{font-size:10px;color:#efd09e}
 .agent-save-bar span{font-size:9px;color:var(--muted)}
-@media(max-width:1000px){.moon-page-execution{grid-template-columns:1fr}.agent-strategy-grid{grid-template-columns:1fr}.agent-provider-facts{grid-template-columns:1fr 1fr}.agent-route-banner{flex-direction:column}.agent-route-meta{text-align:left;min-width:0}.agent-behavior-grid{grid-template-columns:1fr}}
-@media(max-width:700px){.agent-provider-grid{grid-template-columns:1fr}.agent-provider-facts{grid-template-columns:1fr}.agent-danger-zone,.agent-save-bar{align-items:stretch;flex-direction:column}.agent-save-bar{bottom:8px}.agent-save-bar .primary-button{width:100%}}
+@media(max-width:1000px){.moon-page-execution{grid-template-columns:1fr}.agent-strategy-grid{grid-template-columns:1fr}.agent-routing-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.agent-provider-facts{grid-template-columns:1fr 1fr}.agent-route-banner{flex-direction:column}.agent-route-meta{text-align:left;min-width:0}.agent-behavior-grid{grid-template-columns:1fr}}
+@media(max-width:700px){.agent-routing-grid,.agent-provider-grid{grid-template-columns:1fr}.agent-provider-facts{grid-template-columns:1fr}.agent-danger-zone,.agent-save-bar{align-items:stretch;flex-direction:column}.agent-save-bar{bottom:8px}.agent-save-bar .primary-button{width:100%}}

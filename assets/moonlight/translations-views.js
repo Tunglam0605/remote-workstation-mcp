@@ -84,5 +84,17 @@ registerTranslations({
   'Saved. Restart the managed runtime to activate provider-level changes.': 'Đã lưu. Hãy khởi động lại runtime có quản lý để kích hoạt thay đổi ở cấp provider.',
   'Provider default': 'Mặc định của provider',
   'Antigravity is not ready.': 'Antigravity chưa sẵn sàng.',
-  'Codex is not ready.': 'Codex chưa sẵn sàng.'
+  'Codex is not ready.': 'Codex chưa sẵn sàng.',
+  'Routing profile': 'Cấu hình điều phối',
+  'Profiles are owner presets over the existing execution policy. They simplify routing but never grant extra authority.': 'Các cấu hình là preset do chủ máy đặt trên chính sách thực thi hiện có. Chúng giúp điều phối đơn giản hơn nhưng không cấp thêm quyền.',
+  'Direct': 'Trực tiếp',
+  'Codex assisted': 'Hỗ trợ bằng Codex',
+  'Smart routing': 'Điều phối thông minh',
+  'Custom': 'Tùy chỉnh',
+  'RWMCP only. Best for hardware, Office, diagnostics, and deterministic workstation actions.': 'Chỉ RWMCP. Phù hợp nhất cho phần cứng, Office, chẩn đoán và các thao tác máy tính xác định.',
+  'Codex handles bounded coding and review work with RWMCP as the safe fallback.': 'Codex xử lý tác vụ lập trình và review có giới hạn, RWMCP là đường dự phòng an toàn.',
+  'Codex handles general engineering work; Antigravity specializes in frontend/UI; RWMCP remains the fallback.': 'Codex xử lý công việc kỹ thuật chung; Antigravity chuyên frontend/UI; RWMCP vẫn là đường dự phòng.',
+  'Keep manual control of the existing low-level execution mode and worker enablement.': 'Giữ quyền điều khiển thủ công chế độ thực thi mức thấp và trạng thái bật/tắt worker hiện có.',
+  'The selected profile maps onto the existing policy controls below; Work Session overrides and provider sandbox rules remain authoritative.': 'Cấu hình đã chọn ánh xạ xuống các điều khiển chính sách hiện có bên dưới; ghi đè Work Session và quy tắc sandbox của provider vẫn là lớp quyết định cuối cùng.',
+  'Low-level execution mode used by the routing profile and Work Session override system.': 'Chế độ thực thi mức thấp được cấu hình điều phối và hệ thống ghi đè Work Session sử dụng.'
 });

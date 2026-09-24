@@ -11,6 +11,7 @@ test('read scoped principal can inspect semantic code but cannot mutate or execu
   runAsPrincipal({ id: 'reader', type: 'test', scopes: ['workstation.read'], authenticated: true }, () => {
     assert.equal(currentPrincipal()?.id, 'reader');
     assert.doesNotThrow(() => assertToolScope('fs_read'));
+    assert.doesNotThrow(() => assertToolScope('worker_route_plan'));
     assert.doesNotThrow(() => assertToolScope('lsp_definition'));
     assert.doesNotThrow(() => assertToolScope('lsp_diagnostics'));
     assert.throws(() => assertToolScope('fs_write'), /lacks required scope 'workstation.write'/);

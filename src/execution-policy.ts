@@ -60,6 +60,10 @@ export class ExecutionPolicyService {
   private readonly loadSettings: () => Promise<SetupSettings>;
   private mutationTail: Promise<void> = Promise.resolve();
 
+  async settings(): Promise<SetupSettings> {
+    return await this.loadSettings();
+  }
+
   constructor(options: ExecutionPolicyServiceOptions = {}) {
     this.file = options.file ?? path.join(setupConfigDir(), 'execution-policy-state.json');
     this.now = options.now ?? (() => new Date());

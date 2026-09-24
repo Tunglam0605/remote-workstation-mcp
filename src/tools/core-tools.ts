@@ -6,6 +6,7 @@ import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, capabilitiesForPlat
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
+import { planWorkerRoute, WORKER_ROUTING_INTENTS } from '../worker-route-plan.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -343,6 +344,22 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ includeQuota }) => result(await audited(ctx.audit, 'antigravity_status', undefined, () =>
     ctx.antigravityWorker.inspect(includeQuota)
+  )));
+
+  server.registerTool('worker_route_plan', {
+    description: 'Plan the preferred bounded execution route for one task intent using owner routing settings, effective Work Session policy and live worker readiness. Read-only advisory only: it never dispatches a worker, changes settings, grants authority or relaxes permissions.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid().optional(),
+      intent: z.enum(WORKER_ROUTING_INTENTS).default('general')
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, intent }) => result(await audited(ctx.audit, 'worker_route_plan', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => {
+      const settings = await ctx.executionPolicy.settings();
+      const status = await ctx.executionPolicy.status(workSessionId);
+      const providers = await ctx.workerProviders.listStatus();
+      return planWorkerRoute({ settings: settings.execution, status, providers, intent });
+    })
   )));
 
   server.registerTool('worker_provider_list', {

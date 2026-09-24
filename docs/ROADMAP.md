@@ -2,6 +2,14 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.38.1 - Windows headless Antigravity hardening
+
+- keep Windows headless Antigravity work file-scoped inside the assigned sandboxed worktree;
+- prevent delegated prompts from invoking terminal, shell, PowerShell, cmd.exe or generic command-execution tools on Windows;
+- leave command-based build, test and Git verification to ChatGPT/RWMCP while preserving Antigravity for file/UI implementation;
+- retain fail-closed permission handling and explicitly avoid --dangerously-skip-permissions;
+- retain symmetric AI-worker fallback, Action Schema 15 and Engineering API 5.
+
 ## v0.38 — Symmetric AI Worker Routing + Agents Orchestrator ✅
 
 - treat Codex and Antigravity as general-purpose bounded implementation workers with affinity rather than hard capability locks;

@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.38.0 adds symmetric AI-worker fallback while retaining v0.37 information architecture and the v0.36 capability baseline on Action Schema v15 and Engineering API v5', async () => {
+test('v0.38.1 hardens Windows headless Antigravity execution while retaining symmetric AI-worker fallback on Action Schema v15 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 15;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.38\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.38\.1';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);

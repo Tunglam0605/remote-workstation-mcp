@@ -238,6 +238,8 @@ test('Antigravity dispatch uses sandboxed stream-json stdin and filters secret-l
     const input = JSON.parse(call.input.trim());
     assert.equal(input.event, 'user');
     assert.match(input.message.content, /Improve responsive dashboard/);
+    assert.match(input.message.content, /Do not request privilege escalation, administrator\/root access/);
+    assert.match(input.message.content, /stay inside the current sandbox/);
     assert.equal(call.env.GEMINI_API_KEY, undefined);
   } finally {
     await fs.rm(temp, { recursive: true, force: true });

@@ -5,7 +5,9 @@ import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, capabilitiesForPlatform, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
+import { loadSetupSettings } from '../setup/settings.js';
 import { audited } from '../security/audit.js';
+import { planWorkerRoute, WORKER_ROUTING_INTENTS } from '../worker-routing.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -359,6 +361,24 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       note: 'Dispatch-capable providers may be used only through persisted worker-provider task bindings and work_objective_execute_task. Provider registration is not exposed through MCP; direct MCP control remains independent of worker availability.'
     };
   })));
+
+  server.registerTool('worker_route_plan', {
+    description: 'Plan the preferred bounded execution route for one task intent using local owner routing settings, the effective Work Session execution policy and live worker-provider readiness. This tool is read-only: it never dispatches a worker, changes owner settings, relaxes permissions or creates tasks.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid().optional(),
+      intent: z.enum(WORKER_ROUTING_INTENTS).default('general')
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, intent }) => result(await audited(ctx.audit, 'worker_route_plan', undefined, () =>
+    ctx.runInWorkSession(workSessionId, async () => {
+      const [settings, status, providers] = await Promise.all([
+        loadSetupSettings(),
+        ctx.executionPolicy.status(workSessionId),
+        ctx.workerProviders.listStatus()
+      ]);
+      return planWorkerRoute({ settings: settings.execution, status, providers, intent });
+    })
+  )));
 
   server.registerTool('work_objective_create', {
     description: 'Create a durable Work Objective inside one explicit caller-owned Work Session. Objective/task identity never grants authority beyond the authenticated principal and local owner policy.',

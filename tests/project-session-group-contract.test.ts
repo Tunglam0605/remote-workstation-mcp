@@ -22,6 +22,7 @@ test('Project Session Group and Controlled Worker Orchestration cannot become an
   assert.match(scopes, /project_session_group_inspect: 'workstation\.read'/);
   assert.match(scopes, /project_session_group_mutate: 'workstation\.write'/);
   assert.match(scopes, /worker_provider_list: 'workstation\.read'/);
+  assert.match(scopes, /worker_route_plan: 'workstation\.read'/);
   assert.match(scopes, /work_objective_execute_task: 'workstation\.execute'/);
   assert.doesNotMatch(scopes, /project_session_group_(create|inspect|mutate): 'workstation\.execute'/);
   assert.doesNotMatch(scopes, /worker_provider_list: 'workstation\.execute'/);

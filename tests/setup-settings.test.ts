@@ -31,6 +31,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.execution.codexSkillsEnabled, false);
   assert.equal(settings.execution.antigravityEnabled, false);
   assert.equal(settings.execution.antigravityModel, '');
+  assert.equal(settings.execution.workerRoutingProfile, 'direct');
   assert.equal(settings.execution.allowChatOverride, true);
   assert.equal(settings.execution.codexFallback, 'rwmcp-only');
   assert.deepEqual(settings.execution.codexAccountBroker, { enabled: false, mode: 'native' });
@@ -57,6 +58,27 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
     httpScopes: ['workstation.read']
   });
   assert.deepEqual(legacyReadOnlyScopes.httpScopes, ['workstation.read']);
+});
+
+test('setup settings infer routing profiles for pre-v0.34 execution settings', () => {
+  const workspace = path.resolve('tmp-workspace-routing');
+  const smart = normalizeSetupSettings({
+    workspaceRoot: workspace,
+    execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' }
+  });
+  assert.equal(smart.execution.workerRoutingProfile, 'smart');
+
+  const codex = normalizeSetupSettings({
+    workspaceRoot: workspace,
+    execution: { codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' }
+  });
+  assert.equal(codex.execution.workerRoutingProfile, 'codex-assisted');
+
+  const direct = normalizeSetupSettings({
+    workspaceRoot: workspace,
+    execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'rwmcp-only' }
+  });
+  assert.equal(direct.execution.workerRoutingProfile, 'direct');
 });
 
 test('setup settings persist outside the repository and round-trip', async () => {

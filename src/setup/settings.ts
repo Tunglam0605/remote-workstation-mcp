@@ -6,6 +6,7 @@ import { z } from 'zod';
 export const SETUP_SETTINGS_VERSION = 1 as const;
 export const DEFAULT_CONTROL_PORT = 8684 as const;
 export type ExecutionMode = 'rwmcp-only' | 'codex-only' | 'both';
+export type WorkerRoutingProfile = 'direct' | 'codex-assisted' | 'smart' | 'custom';
 
 export const DEFAULT_HTTP_SCOPES = [
   'workstation.read',
@@ -26,6 +27,7 @@ export const executionSettingsSchema = z.object({
   codexSkillsEnabled: z.boolean().default(false),
   antigravityEnabled: z.boolean().default(false),
   antigravityModel: z.string().trim().max(128).default(''),
+  workerRoutingProfile: z.enum(['direct', 'codex-assisted', 'smart', 'custom']).default('direct'),
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
   allowChatOverride: z.boolean().default(true),
   codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
@@ -64,6 +66,7 @@ export const setupSettingsSchema = z.object({
     codexSkillsEnabled: false,
     antigravityEnabled: false,
     antigravityModel: '',
+    workerRoutingProfile: 'direct',
     defaultMode: 'rwmcp-only',
     allowChatOverride: true,
     codexFallback: 'rwmcp-only',
@@ -119,6 +122,20 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
   const migratedScopes = existingScopes.includes('workstation.execute') && !existingScopes.includes('workstation.admin_request')
     ? [...existingScopes, 'workstation.admin_request']
     : existingScopes;
+  const rawExecution = raw.execution && typeof raw.execution === 'object'
+    ? raw.execution as Record<string, unknown>
+    : undefined;
+  const inferredRoutingProfile: WorkerRoutingProfile = rawExecution?.workerRoutingProfile === 'direct' ||
+    rawExecution?.workerRoutingProfile === 'codex-assisted' ||
+    rawExecution?.workerRoutingProfile === 'smart' ||
+    rawExecution?.workerRoutingProfile === 'custom'
+      ? rawExecution.workerRoutingProfile
+      : rawExecution?.defaultMode === 'rwmcp-only' || rawExecution?.codexEnabled === false
+        ? 'direct'
+        : rawExecution?.antigravityEnabled === true ? 'smart' : 'codex-assisted';
+  const migratedExecution = rawExecution
+    ? { ...rawExecution, workerRoutingProfile: inferredRoutingProfile }
+    : undefined;
   const parsed = setupSettingsSchema.parse({
     version: raw.version ?? SETUP_SETTINGS_VERSION,
     mcpPort: requestedMcpPort,
@@ -128,13 +145,14 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     cloudflaredManaged: raw.cloudflaredManaged ?? false,
     controlPort: migratedControlPort,
     httpScopes: migratedScopes,
-    execution: raw.execution ?? {
+    execution: migratedExecution ?? {
       codexEnabled: false,
       codexModel: 'gpt-6-sol',
       codexAgentsEnabled: false,
       codexSkillsEnabled: false,
       antigravityEnabled: false,
       antigravityModel: '',
+      workerRoutingProfile: 'direct',
       defaultMode: 'rwmcp-only',
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',

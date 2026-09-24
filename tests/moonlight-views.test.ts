@@ -36,6 +36,13 @@ test('Moonlight views use actual workstation scope names and transient secret in
   assert.match(source, /Codex model/);
   assert.match(source, /Enable Codex EAS agents/);
   assert.match(source, /Share Codex skills with RWMCP workers/);
+  assert.match(source, /AI worker routing/);
+  assert.match(source, /workerRoutingProfile/);
+  assert.match(source, /Smart routing/);
+  assert.match(source, /worker-route-grid/);
+  assert.match(source, /worker-provider-grid/);
+  assert.match(source, /Advanced settings/);
+  assert.match(source, /restartRequired/);
 });
 
 test('opening a view reads store state without issuing an API request', async () => {
@@ -52,6 +59,8 @@ test('view translations render Vietnamese and preserve English source text', () 
   assert.equal(getLanguage(), 'vi');
   assert.equal(t('Access & owner controls'), 'Quyền truy cập và kiểm soát chủ sở hữu');
   assert.equal(t('Last seen: {value}', { value: '2026-09-22' }), 'Lần cuối thấy: 2026-09-22');
+  assert.equal(t('Smart routing'), 'Điều phối thông minh');
+  assert.equal(t('AI worker routing'), 'Điều phối AI worker');
   setLanguage('en');
   assert.equal(t('Access & owner controls'), 'Access & owner controls');
   assert.equal(t('Last seen: {value}', { value: '2026-09-22' }), 'Last seen: 2026-09-22');

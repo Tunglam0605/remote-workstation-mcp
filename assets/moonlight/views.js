@@ -130,35 +130,136 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   }
 
   function openExecution() {
-    const policy = live('execution'); const antigravity = live('antigravity'); const content = pageRoot('Execution', 'Execution policy', 'Configure provider routing and bounded task budgets.'); unavailable('execution', content); if (!policy) return content;
-    const settings = policy.settings || {}; const status = policy.status || {}; const codex = policy.codex || {}; const overview = section('Effective policy', 'Live provider availability and configured execution behavior.', 'moon-page-full');
-    overview.append(el('div', { class: 'detail-grid' }, el('div', { class: 'detail-item' }, el('span', { text: t('Configured mode') }), el('strong', { text: text(status.configuredMode) })), el('div', { class: 'detail-item' }, el('span', { text: t('Effective mode') }), el('strong', { text: text(status.effectiveMode) })), el('div', { class: 'detail-item' }, el('span', { text: 'Codex' }), el('strong', { text: t(codex.installed && codex.authenticated ? 'Ready' : 'Unavailable') })), el('div', { class: 'detail-item' }, el('span', { text: 'Antigravity' }), el('strong', { text: t(antigravity?.available ? 'Available' : 'Unavailable') }))));
-    if (status.fallbackActive) overview.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) })); content.append(overview);
-    const mode = selectValue(settings.defaultMode || status.configuredMode, [['rwmcp-only', 'Remote MCP only'], ['codex-only', 'Codex only'], ['both', 'Both']]);
-    const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled }); const codexAgentsEnabled = el('input', { type: 'checkbox', checked: settings.codexAgentsEnabled }); const codexSkillsEnabled = el('input', { type: 'checkbox', checked: settings.codexSkillsEnabled }); const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled }); const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
+    const policy = live('execution'); const antigravity = live('antigravity'); const runtime = live('runtime');
+    const content = pageRoot('Execution', 'AI worker routing', 'Choose how ChatGPT delegates bounded work to RWMCP, Codex, and Antigravity.'); unavailable('execution', content); if (!policy) return content;
+    const settings = policy.settings || {}; const status = policy.status || {}; const codex = policy.codex || {}; const accountBroker = policy.accountBroker || {};
+    const inferredProfile = settings.workerRoutingProfile || (status.configuredMode === 'rwmcp-only' ? 'direct' : settings.antigravityEnabled ? 'smart' : 'codex-assisted');
+    const codexReady = Boolean(codex.installed && (codex.authenticated || accountBroker.effectiveBackend === 'cockpit-api-pool'));
+    const antigravityReady = Boolean(antigravity?.available && antigravity?.authenticated);
+
+    const routing = section('Routing profile', 'Pick the behavior you want. ChatGPT keeps planning and acceptance authority in every profile.', 'moon-page-full');
+    const routeInputs = [];
+    const routeGrid = el('div', { class: 'worker-route-grid' });
+    const routeChoices = [
+      ['direct', 'Direct', 'ChatGPT uses RWMCP directly. Best for hardware, Office, diagnostics, and deterministic workstation actions.'],
+      ['codex-assisted', 'Codex assisted', 'Codex handles coding and review work. RWMCP remains the safe fallback.'],
+      ['smart', 'Smart routing', 'Recommended: Codex for general engineering work, Antigravity for frontend/UI, then RWMCP fallback.'],
+      ['custom', 'Custom', 'Manually control provider enablement and the low-level execution mode.']
+    ];
+    for (const [id, label, description] of routeChoices) {
+      const input = el('input', { type: 'radio', name: 'workerRoutingProfile', value: id, checked: id === inferredProfile });
+      routeInputs.push(input);
+      routeGrid.append(el('label', { class: 'worker-route-card' },
+        input,
+        el('span', { class: 'worker-route-title', text: t(label) }),
+        el('small', { text: t(description) })
+      ));
+    }
+    routing.append(routeGrid); content.append(routing);
+
+    const providers = section('Providers', 'See what ChatGPT can actually use before a task is delegated.', 'moon-page-full');
+    const providerGrid = el('div', { class: 'worker-provider-grid' });
+    const providerCard = (name, ready, role, detail) => el('article', { class: 'worker-provider-card' },
+      el('div', { class: 'worker-provider-head' },
+        el('strong', { text: name }),
+        el('span', { class: `pill ${ready ? 'success' : 'warning'}`, text: t(ready ? 'Ready' : 'Unavailable') })
+      ),
+      el('p', { text: t(role) }),
+      detail && el('small', { class: 'moon-muted', text: detail })
+    );
+    providerGrid.append(
+      providerCard('RWMCP', true, 'Direct workstation actions, hardware, files, Office, diagnostics, and bounded engineering tools.', t('Always available under the current authenticated workstation policy.')),
+      providerCard('Codex', codexReady, 'General coding, debugging, review, and repository implementation.', codexReady ? text(codex.version || accountBroker.effectiveBackend) : text(codex.detail)),
+      providerCard('Antigravity', antigravityReady, 'Frontend and UI implementation inside the assigned sandboxed worktree.', antigravityReady ? t('Sandboxed; privileged permission requests still fail closed.') : text(antigravity?.detail))
+    );
+    providers.append(providerGrid); content.append(providers);
+
+    const control = section('Chat control & fallback', 'Keep normal chat simple while preserving explicit owner control.', 'moon-page-full');
+    const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
     const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Use Remote MCP'], ['stop', 'Stop']]);
+    control.append(el('div', { class: 'moon-form-grid compact-grid' },
+      field('Allow chat overrides', chatOverride, 'Lets ChatGPT select a bounded Work Session mode when you explicitly ask for one.'),
+      field('Worker fallback', fallback, 'Use RWMCP when a worker is unavailable, blocked, or quota-limited.')
+    ));
+    control.append(el('div', { class: 'worker-policy-strip' },
+      el('span', { text: `${t('Effective mode')}: ${text(status.effectiveMode)}` }),
+      el('span', { text: `${t('Active overrides')}: ${text(status.activeSessionOverrides ?? 0)}` }),
+      el('span', { text: `${t('Active fallbacks')}: ${text(status.activeSessionFallbacks ?? 0)}` })
+    ));
+    if (status.fallbackActive) control.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) }));
+    const recoveryActions = [];
+    if (status.fallbackActive) recoveryActions.push(button('Reset fallback', async () => { await mutate('/api/execution-policy/fallback-reset', {}, ['execution'], 'Fallback reset.'); openExecution(); }));
+    if ((status.activeSessionOverrides ?? 0) > 0) recoveryActions.push(button('Clear overrides', async () => { if (!confirm(t('Clear all active execution overrides?'))) return; await mutate('/api/execution-policy/clear-overrides', {}, ['execution'], 'Overrides cleared.'); openExecution(); }));
+    if (recoveryActions.length) control.append(actions(...recoveryActions));
+    content.append(control);
+
+    const mode = selectValue(settings.defaultMode || status.configuredMode, [['rwmcp-only', 'Remote MCP only'], ['codex-only', 'Codex only'], ['both', 'Both']]);
+    const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled });
+    const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled });
+    const codexAgentsEnabled = el('input', { type: 'checkbox', checked: settings.codexAgentsEnabled });
+    const codexSkillsEnabled = el('input', { type: 'checkbox', checked: settings.codexSkillsEnabled });
     const codexModel = el('input', { value: settings.codexModel || 'gpt-6-sol', placeholder: 'gpt-6-sol' });
     const model = el('input', { value: settings.antigravityModel || '', placeholder: t('Provider configured model') });
-    const maxSession = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerSession ?? '' }); const maxDay = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerDay ?? '' });
-    const broker = settings.codexAccountBroker || {}; const brokerEnabled = el('input', { type: 'checkbox', checked: broker.enabled }); const brokerMode = selectValue(broker.mode || 'native', [['native', 'Native'], ['cockpit-api-pool', 'Cockpit API pool']]);
-    const form = section('Configuration', 'Provider changes are validated by the backend before they are saved.', 'moon-page-full');
-    const formGrid = el('div', { class: 'moon-form-grid' },
-      field('Default mode', mode),
-      field('Codex fallback', fallback),
-      field('Enable Codex', codexEnabled),
-      field('Codex model', codexModel),
-      field('Enable Codex EAS agents', codexAgentsEnabled),
-      field('Share Codex skills with RWMCP workers', codexSkillsEnabled),
-      field('Enable Antigravity', antiEnabled),
-      field('Antigravity model', model),
-      field('Allow chat overrides', chatOverride),
-      field('Max Codex tasks / session', maxSession),
-      field('Max Codex tasks / day', maxDay),
-      field('Enable account broker', brokerEnabled),
-      field('Broker mode', brokerMode)
+    const maxSession = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerSession ?? '' });
+    const maxDay = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerDay ?? '' });
+    const broker = settings.codexAccountBroker || {};
+    const brokerEnabled = el('input', { type: 'checkbox', checked: broker.enabled });
+    const brokerMode = selectValue(broker.mode || 'native', [['native', 'Native'], ['cockpit-api-pool', 'Cockpit API pool']]);
+    const advanced = el('details', { class: 'worker-advanced moon-page-full' },
+      el('summary', { text: t('Advanced settings') }),
+      el('p', { class: 'moon-muted', text: t('Use these controls only when you need custom provider or budget behavior.') }),
+      el('div', { class: 'moon-form-grid' },
+        field('Low-level execution mode', mode),
+        field('Enable Codex', codexEnabled),
+        field('Codex model', codexModel),
+        field('Enable Codex EAS agents', codexAgentsEnabled),
+        field('Share Codex skills with RWMCP workers', codexSkillsEnabled),
+        field('Enable Antigravity', antiEnabled),
+        field('Antigravity model', model),
+        field('Max Codex tasks / session', maxSession),
+        field('Max Codex tasks / day', maxDay),
+        field('Enable account broker', brokerEnabled),
+        field('Broker mode', brokerMode)
+      )
     );
-    form.append(formGrid);
-    form.append(actions(button('Save execution policy', async () => { if (!confirm(t('Save this execution policy?'))) return; const body = { defaultMode: mode.value, codexEnabled: codexEnabled.checked, codexModel: codexModel.value, codexAgentsEnabled: codexAgentsEnabled.checked, codexSkillsEnabled: codexSkillsEnabled.checked, antigravityEnabled: antiEnabled.checked, antigravityModel: model.value, allowChatOverride: chatOverride.checked, codexFallback: fallback.value, maxCodexTasksPerSession: maxSession.value === '' ? undefined : Number(maxSession.value), maxCodexTasksPerDay: maxDay.value === '' ? undefined : Number(maxDay.value), codexAccountBroker: { enabled: brokerEnabled.checked, mode: brokerMode.value } }; await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'Execution policy saved.'); openExecution(); }, 'primary-button'), button('Reset fallback', async () => { await mutate('/api/execution-policy/fallback-reset', {}, ['execution'], 'Fallback reset.'); openExecution(); }), button('Clear overrides', async () => { if (!confirm(t('Clear all active execution overrides?'))) return; await mutate('/api/execution-policy/clear-overrides', {}, ['execution'], 'Overrides cleared.'); openExecution(); }))); content.append(form); return content;
+    const syncCustomControls = () => {
+      const custom = routeInputs.find(input => input.checked)?.value === 'custom';
+      mode.disabled = !custom; codexEnabled.disabled = !custom; antiEnabled.disabled = !custom;
+    };
+    for (const input of routeInputs) input.addEventListener('change', syncCustomControls);
+    syncCustomControls();
+    content.append(advanced);
+
+    const save = section('Apply', 'Saving never grants a worker more authority. Provider registration changes may require an RWMCP runtime restart.', 'moon-page-full');
+    save.append(actions(button('Save routing', async () => {
+      const workerRoutingProfile = routeInputs.find(input => input.checked)?.value || inferredProfile;
+      if (!confirm(t('Save this worker routing configuration?'))) return;
+      const body = {
+        workerRoutingProfile,
+        defaultMode: mode.value,
+        codexEnabled: codexEnabled.checked,
+        codexModel: codexModel.value,
+        codexAgentsEnabled: codexAgentsEnabled.checked,
+        codexSkillsEnabled: codexSkillsEnabled.checked,
+        antigravityEnabled: antiEnabled.checked,
+        antigravityModel: model.value,
+        allowChatOverride: chatOverride.checked,
+        codexFallback: fallback.value,
+        maxCodexTasksPerSession: maxSession.value === '' ? undefined : Number(maxSession.value),
+        maxCodexTasksPerDay: maxDay.value === '' ? undefined : Number(maxDay.value),
+        codexAccountBroker: { enabled: brokerEnabled.checked, mode: brokerMode.value }
+      };
+      const saved = await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'Worker routing saved.');
+      if (saved?.restartRequired) {
+        toast(t('Restart RWMCP to activate provider registration changes.'));
+        if (confirm(t('Restart RWMCP now to activate these provider changes?'))) {
+          await mutate('/api/runtime/action', { action: 'Restart', mode: runtime?.mode || 'OpenAI' }, ['runtime', 'status'], 'Restart request submitted.');
+        }
+      }
+      openExecution();
+    }, 'primary-button')));
+    content.append(save);
+    return content;
   }
 
   function openDevices() {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "remote-workstation",
-  "version": "0.36.0",
+  "version": "0.37.0",
   "description": "Operate owner-authorized engineering and Office workstations through independent direct MCP nodes with typed, policy-gated capabilities.",
   "author": {
     "name": "Tunglam0605",

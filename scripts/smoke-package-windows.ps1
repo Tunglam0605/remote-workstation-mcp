@@ -30,6 +30,7 @@ try {
     'assets\chrome-bridge-extension\manifest.json',
     'assets\chrome-bridge-extension\service-worker.js',
     'assets\chrome-bridge-extension\content-script.js',
+    'assets\moonlight\navigation.js',
     'dist\web\chrome-native-host.js',
     'dist\web\chrome-bridge-protocol.js'
   )) {

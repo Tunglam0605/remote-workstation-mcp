@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.37 — Stable Control Center Information Architecture ✅
+
+- fix the top-level Moonlight navigation to nine long-lived user-intent domains: Overview, Work, Agents, Engineering, Office, Web, Devices, Security and System;
+- keep provider/implementation details below the domain layer so Codex, Antigravity, Playwright, Existing Chrome, NotebookLM, Word/Excel/PowerPoint backends, COM and OOXML do not create new top-level drawers;
+- add owner-local capability discovery so Work, Engineering, Office and Web landing pages are populated from the running backend rather than a hard-coded tool catalogue;
+- keep Execution under Agents, Access under Security, and Updates plus Settings/Recovery under System;
+- preserve legacy page names and hash deep links for backward compatibility;
+- verify desktop and mobile routing/layout with no horizontal overflow and no startup page errors;
+- preserve all v0.36 authority/security boundaries and retain Action Schema 15 / Engineering API 5.
+
 ## v0.36 — Bounded Web Automation + NotebookLM Video Studio ✅
 
 - add a generic managed Chrome/Edge provider with background-first sessions, tab/navigation control, bounded semantic inspect/find/extract/screenshot and no raw JavaScript/selectors/CDP or coordinate input;

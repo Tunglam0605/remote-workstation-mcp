@@ -37,6 +37,39 @@ function Get-CurrentVersion {
   }
 }
 
+function Write-AtomicUtf8File([string]$Path, [string]$Content) {
+  $directory = Split-Path -Parent $Path
+  if ($directory) { New-Item -ItemType Directory -Force -Path $directory | Out-Null }
+  $nonce = [Guid]::NewGuid().ToString('N')
+  $tmp = "$Path.tmp.$PID.$nonce"
+  $backup = "$Path.bak.$PID.$nonce"
+  try {
+    [IO.File]::WriteAllText($tmp, $Content, (New-Object Text.UTF8Encoding($false)))
+    for ($attempt = 0; $attempt -lt 3; $attempt += 1) {
+      try {
+        if (Test-Path -LiteralPath $Path) {
+          [IO.File]::Replace($tmp, $Path, $backup, $true)
+        } else {
+          [IO.File]::Move($tmp, $Path)
+        }
+        return
+      } catch [System.IO.FileNotFoundException] {
+        if ($attempt -ge 2) { throw }
+        Start-Sleep -Milliseconds 25
+      } catch [System.IO.IOException] {
+        if ($attempt -ge 2) { throw }
+        Start-Sleep -Milliseconds 25
+      }
+    }
+  } finally {
+    foreach ($artifact in @($tmp, $backup)) {
+      if (Test-Path -LiteralPath $artifact) {
+        Remove-Item -LiteralPath $artifact -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
 function Write-Transaction(
   [string]$State,
   [string]$Message,
@@ -59,10 +92,8 @@ function Write-Transaction(
     message = $Message
     logPath = $LogPath
   }
-  $tmp = "$StatePath.tmp"
   $json = $payload | ConvertTo-Json -Depth 6
-  [IO.File]::WriteAllText($tmp, $json + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
-  Move-Item -LiteralPath $tmp -Destination $StatePath -Force
+  Write-AtomicUtf8File $StatePath ($json + [Environment]::NewLine)
 }
 
 function Invoke-LauncherAction([string]$Action) {

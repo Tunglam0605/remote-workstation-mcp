@@ -301,10 +301,26 @@ if ($Rollback) {
   exit 0
 }
 
-$nodeKnown = @((Join-Path $env:ProgramFiles 'nodejs\node.exe'))
-$npmKnown = @((Join-Path $env:ProgramFiles 'nodejs\npm.cmd'))
-$gitKnown = @((Join-Path $env:ProgramFiles 'Git\cmd\git.exe'))
-if (${env:ProgramFiles(x86)}) { $gitKnown += (Join-Path ${env:ProgramFiles(x86)} 'Git\cmd\git.exe') }
+$programFilesRoot = $env:ProgramFiles
+if ([string]::IsNullOrWhiteSpace($programFilesRoot)) {
+  $programFilesRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles)
+}
+$programFilesX86Root = ${env:ProgramFiles(x86)}
+if ([string]::IsNullOrWhiteSpace($programFilesX86Root)) {
+  $programFilesX86Root = [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86)
+}
+
+$nodeKnown = @()
+$npmKnown = @()
+$gitKnown = @()
+if (-not [string]::IsNullOrWhiteSpace($programFilesRoot)) {
+  $nodeKnown += (Join-Path $programFilesRoot 'nodejs\node.exe')
+  $npmKnown += (Join-Path $programFilesRoot 'nodejs\npm.cmd')
+  $gitKnown += (Join-Path $programFilesRoot 'Git\cmd\git.exe')
+}
+if (-not [string]::IsNullOrWhiteSpace($programFilesX86Root)) {
+  $gitKnown += (Join-Path $programFilesX86Root 'Git\cmd\git.exe')
+}
 if ($env:LOCALAPPDATA) { $gitKnown += (Join-Path $env:LOCALAPPDATA 'Programs\Git\cmd\git.exe') }
 $NodeExe = Resolve-CommandPath 'node' 'OpenJS.NodeJS.LTS' $nodeKnown
 $NpmExe = Resolve-CommandPath 'npm' 'OpenJS.NodeJS.LTS' $npmKnown

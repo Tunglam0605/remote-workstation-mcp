@@ -110,7 +110,7 @@ test('Execution distinguishes global route from Work Session overrides and unava
       status: { effectiveMode: 'rwmcp-only', source: 'owner-default', activeSessionOverrides: 2 },
       codex: { installed: true, authenticated: true }, accountBroker: { effectiveBackend: 'blocked', pool: { detail: 'Pool unreachable' } }
     } },
-    antigravity: { data: { available: true, authenticated: true } }
+    antigravity: { data: { available: true, authenticated: true, quotaGroups: [{ buckets: [{ window: 'weekly', remainingFraction: 0.95 }] }] } }
   };
   try {
     setLanguage('en');
@@ -118,17 +118,25 @@ test('Execution distinguishes global route from Work Session overrides and unava
       openModal: () => {}, openPage: (_page: string, _title: string, content: InstanceType<typeof dom.Node>) => { pages.push(content); }, toast: () => {}, refresh: async () => {} });
     views.open('Execution');
     const rendered = pages[0]!.textContent;
+    assert.match(rendered, /AI Agent Orchestrator/);
     assert.match(rendered, /Global route/);
-    assert.match(rendered, /Routing profile/);
-    assert.match(rendered, /Smart routing/);
-    assert.match(rendered, /Work Sessions can have different routes/);
+    assert.match(rendered, /Task affinity & fallback/);
+    assert.match(rendered, /Frontend \/ UI/);
+    assert.match(rendered, /Antigravity preferred/);
+    assert.match(rendered, /Backend \/ Code \/ Engineering/);
+    assert.match(rendered, /Codex preferred/);
+    assert.match(rendered, /Worker pool & capacity/);
+    assert.match(rendered, /General-purpose · engineering preferred/);
+    assert.match(rendered, /General-purpose · UI preferred/);
+    assert.match(rendered, /Cross-worker fallback is limited to capacity/);
     assert.match(rendered, /Pool unreachable/);
     assert.match(rendered, /Disabled/);
-    assert.match(rendered, /When Codex reaches a limit/);
-    assert.doesNotMatch(rendered, /Stop worker dispatch/);
+    assert.match(rendered, /When all AI workers are exhausted/);
+    assert.doesNotMatch(rendered, /When Codex reaches a limit/);
     setLanguage('vi');
-    assert.equal(t('Global route'), 'Luồng tổng thể');
-    assert.equal(t('Stop Codex dispatch'), 'Dừng giao việc cho Codex');
+    assert.equal(t('Task affinity & fallback'), 'Độ phù hợp tác vụ & dự phòng');
+    assert.equal(t('When all AI workers are exhausted'), 'Khi tất cả tác nhân AI hết năng lực');
+    assert.equal(t('{percent}% weekly remaining', { percent: 95 }), 'Còn 95% hạn mức tuần');
   } finally { dom.restore(); }
 });
 
@@ -158,7 +166,7 @@ test('Agent Control saves the selected route and provider settings through the e
       codex: { installed: true, authenticated: true, version: 'codex-cli test' },
       accountBroker: { effectiveBackend: 'cockpit-api-pool' }
     } },
-    antigravity: { data: { available: true, authenticated: true, version: '1.2.9', model: { id: 'test-model' } } }
+    antigravity: { data: { available: true, authenticated: true, version: '1.2.9', model: { id: 'test-model' }, quotaGroups: [{ buckets: [{ window: 'weekly', remainingFraction: 0.8 }] }] } }
   };
   try {
     setLanguage('en');

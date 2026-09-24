@@ -74,13 +74,15 @@ export function planWorkerRoute(input: {
   } else if (profile === 'smart') {
     desired = intent === 'frontend-ui'
       ? ['antigravity-local', 'codex-local', fallback]
-      : ['codex-local', fallback];
+      : ['codex-local', 'antigravity-local', fallback];
   } else if (status.effectiveMode === 'rwmcp-only') {
     desired = ['rwmcp-direct'];
   } else if (status.effectiveMode === 'codex-only') {
     desired = ['codex-local', fallback];
   } else if (intent === 'frontend-ui' && settings.antigravityEnabled) {
     desired = ['antigravity-local', 'codex-local', fallback];
+  } else if (status.effectiveMode === 'both' && settings.antigravityEnabled) {
+    desired = ['codex-local', 'antigravity-local', fallback];
   } else {
     desired = ['codex-local', fallback];
   }
@@ -132,11 +134,11 @@ export function planWorkerRoute(input: {
     source: status.source,
     advisory: true,
     note: selected === 'antigravity-local'
-      ? 'Antigravity is selected only as the frontend/UI specialist. Sandbox or privilege blockers must fall through to the next ready route; permissions are never widened automatically.'
+      ? 'Antigravity is the preferred general-purpose worker for frontend/UI affinity. Capacity or availability failures may fall through to Codex, but permissions are never widened automatically.'
       : selected === 'codex-local'
-        ? 'Codex is selected for bounded implementation/review while ChatGPT retains planning and acceptance authority.'
+        ? 'Codex is the preferred general-purpose worker for coding/backend/engineering affinity. Capacity or availability failures may fall through to Antigravity while ChatGPT retains planning and acceptance authority.'
         : selected === 'rwmcp-direct'
-          ? 'Use RWMCP directly; no worker provider should be dispatched for this task.'
+          ? 'Use RWMCP directly; no AI worker provider should be dispatched for this task.'
           : 'Stop and surface the owner-policy blocker instead of dispatching a worker.'
   };
 }

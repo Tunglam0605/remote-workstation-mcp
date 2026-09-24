@@ -1,11 +1,11 @@
 import type { EngineeringWorkflowExecutionService } from './engineering-workflow-execution.js';
-import type { TaskAttemptRecord, TaskAttemptStatus, TaskAttemptStore } from './task-attempt-store.js';
+import type { TaskAttemptRecord, TaskAttemptStatus, TaskAttemptStore, TaskProviderAttemptRecord } from './task-attempt-store.js';
 import type { TaskExecutionCoordinator } from './task-executor.js';
 import type { TaskGraphStore, WorkTask } from './task-graph.js';
 import type { WorkerProviderRegistry, WorkerDispatchResult } from './worker-provider.js';
 import type { WorkSessionStore } from './work-session.js';
 import type { WorktreeManager, WorktreeState } from './worktree-manager.js';
-import { isCodexLimitSignal, type ExecutionPolicyService } from './execution-policy.js';
+import { isWorkerCapacitySignal, type ExecutionPolicyService } from './execution-policy.js';
 import type { DesktopNotificationService } from './desktop-notification.js';
 
 class TaskWorkflowOutcomeError extends Error {
@@ -40,6 +40,23 @@ function attemptStatus(error: unknown): Exclude<TaskAttemptStatus, 'running'> {
   if (error instanceof TaskWorkflowOutcomeError && error.workflowStatus === 'blocked') return 'blocked';
   if (error instanceof WorkerProviderOutcomeError && error.providerStatus === 'blocked') return 'blocked';
   return 'failed';
+}
+
+type AiWorkerProviderId = 'codex-local' | 'antigravity-local';
+
+function aiWorkerProvider(value: string): value is AiWorkerProviderId {
+  return value === 'codex-local' || value === 'antigravity-local';
+}
+
+function alternateAiWorker(value: AiWorkerProviderId): AiWorkerProviderId {
+  return value === 'codex-local' ? 'antigravity-local' : 'codex-local';
+}
+
+function compactProviderTrace(attempts: TaskProviderAttemptRecord[]): string {
+  return attempts
+    .map(item => `${item.providerId}=${item.status}${item.summary ? `:${item.summary}` : ''}`)
+    .join(' -> ')
+    .slice(0, 1024);
 }
 
 export class TaskWorkflowExecutionService {
@@ -150,6 +167,27 @@ export class TaskWorkflowExecutionService {
     }
   }
 
+  private async workerProviderChain(
+    preferredProviderId: string,
+    workSessionId: string
+  ): Promise<string[]> {
+    if (!aiWorkerProvider(preferredProviderId) || !this.executionPolicy || !this.workerProviders) {
+      return [preferredProviderId];
+    }
+    const [settings, status] = await Promise.all([
+      this.executionPolicy.settings(),
+      this.executionPolicy.status(workSessionId)
+    ]);
+    if (status.effectiveMode !== 'both' || status.fallbackActive) return [preferredProviderId];
+
+    const alternate = alternateAiWorker(preferredProviderId);
+    const alternateEnabled = alternate === 'codex-local'
+      ? settings.execution.codexEnabled
+      : settings.execution.antigravityEnabled;
+    if (!alternateEnabled || !this.workerProviders.descriptor(alternate)) return [preferredProviderId];
+    return [preferredProviderId, alternate];
+  }
+
   private async executeWorker(objectiveId: string, task: WorkTask) {
     if (!task.execution || task.execution.kind !== 'worker-provider') {
       throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${task.id}' has no worker-provider binding.`);
@@ -195,17 +233,17 @@ export class TaskWorkflowExecutionService {
       : undefined;
     let attempt: TaskAttemptRecord | undefined;
     let providerResult: WorkerDispatchResult | undefined;
+    let selectedProviderId = binding.providerId;
+    const providerAttempts: TaskProviderAttemptRecord[] = [];
 
     try {
       const executed = await this.taskExecutor.execute(
         objectiveId,
         task.id,
         async () => {
-          if (binding.providerId === 'codex-local' && this.executionPolicy) {
-            await this.executionPolicy.beforeCodexDispatch(objective.workSessionId);
-          }
-          providerResult = await this.workerProviders!.dispatch(binding.providerId, {
-            version: 1,
+          const providerChain = await this.workerProviderChain(binding.providerId, objective.workSessionId);
+          const dispatchRequest = {
+            version: 1 as const,
             workSessionId: objective.workSessionId,
             objective: {
               id: objective.id,
@@ -219,35 +257,90 @@ export class TaskWorkflowExecutionService {
               ...(task.description ? { description: task.description } : {})
             },
             ...(dispatchProject ? { project: dispatchProject } : {})
-          });
-          if (providerResult.status === 'blocked' || providerResult.status === 'failed') {
-            if (
-              binding.providerId === 'codex-local' &&
-              this.executionPolicy &&
-              isCodexLimitSignal(providerResult.summary)
-            ) {
-              await this.executionPolicy.activateFallback(
-                'provider-limit',
-                providerResult.summary ?? 'Codex provider reported a usage or rate limit.'
-              );
-              const policyStatus = await this.executionPolicy.status(objective.workSessionId);
-              throw new WorkerProviderOutcomeError(
-                'blocked',
-                binding.providerId,
-                providerResult.runId,
-                policyStatus.fallbackActive
-                  ? 'CODEX_FALLBACK_ACTIVE: Codex limit detected; effective execution mode switched to rwmcp-only.'
-                  : 'CODEX_LIMIT_REACHED: Codex limit detected; owner fallback policy is stop.'
-              );
+          };
+
+          for (const providerId of providerChain) {
+            selectedProviderId = providerId;
+            if (providerId === 'codex-local' && this.executionPolicy) {
+              try {
+                await this.executionPolicy.beforeCodexDispatch(objective.workSessionId, { deferFallback: true });
+              } catch (error) {
+                const summary = message(error);
+                if (!isWorkerCapacitySignal(summary)) throw error;
+                providerAttempts.push({ providerId, status: 'blocked', summary });
+                continue;
+              }
             }
+
+            try {
+              providerResult = await this.workerProviders!.dispatch(providerId, dispatchRequest);
+            } catch (error) {
+              const summary = message(error);
+              if (!isWorkerCapacitySignal(summary)) {
+                providerAttempts.push({ providerId, status: 'failed', summary });
+                throw error;
+              }
+              providerAttempts.push({ providerId, status: 'blocked', summary });
+              continue;
+            }
+
+            if (providerResult.status === 'succeeded') {
+              providerAttempts.push({
+                providerId,
+                status: 'succeeded',
+                ...(providerResult.runId ? { providerRunId: providerResult.runId } : {}),
+                ...(providerResult.summary ? { summary: providerResult.summary } : {})
+              });
+              return providerResult;
+            }
+
+            if (isWorkerCapacitySignal(providerResult.summary)) {
+              providerAttempts.push({
+                providerId,
+                status: providerResult.status,
+                ...(providerResult.runId ? { providerRunId: providerResult.runId } : {}),
+                ...(providerResult.summary ? { summary: providerResult.summary } : {})
+              });
+              continue;
+            }
+
+            providerAttempts.push({
+              providerId,
+              status: providerResult.status,
+              ...(providerResult.runId ? { providerRunId: providerResult.runId } : {}),
+              ...(providerResult.summary ? { summary: providerResult.summary } : {})
+            });
             throw new WorkerProviderOutcomeError(
               providerResult.status,
-              binding.providerId,
+              providerId,
               providerResult.runId,
               providerResult.summary
             );
           }
-          return providerResult;
+
+          const trace = compactProviderTrace(providerAttempts) || 'no AI worker route remained usable';
+          if (this.executionPolicy) {
+            const settings = await this.executionPolicy.settings();
+            if (settings.execution.codexFallback === 'rwmcp-only') {
+              await this.executionPolicy.activateSessionFallback(
+                objective.workSessionId,
+                'workers-exhausted',
+                trace
+              );
+              throw new WorkerProviderOutcomeError(
+                'blocked',
+                selectedProviderId,
+                providerResult?.runId,
+                `WORKER_FALLBACK_ACTIVE: all allowed AI workers exhausted capacity or availability; effective Work Session route switched to RWMCP direct. ${trace}`
+              );
+            }
+          }
+          throw new WorkerProviderOutcomeError(
+            'blocked',
+            selectedProviderId,
+            providerResult?.runId,
+            `WORKER_CAPACITY_EXHAUSTED: all allowed AI workers exhausted capacity or availability; owner fallback policy is stop. ${trace}`
+          );
         },
         {
           onStarted: async started => {
@@ -269,12 +362,14 @@ export class TaskWorkflowExecutionService {
 
       if (!attempt) throw new Error('TASK_ATTEMPT_MISSING: worker execution started without durable attempt state.');
       const finishedAttempt = await this.taskAttempts.finish(attempt.id, 'succeeded', {
-        providerId: binding.providerId,
-        providerRunId: providerResult?.runId
+        providerId: selectedProviderId,
+        providerRunId: providerResult?.runId,
+        providerAttempts
       });
-      if (binding.providerId === 'codex-local' && this.desktopNotifications) {
+      if (aiWorkerProvider(selectedProviderId) && this.desktopNotifications) {
+        const workerName = selectedProviderId === 'codex-local' ? 'Codex' : 'Antigravity';
         await this.desktopNotifications.notify({
-          title: 'Codex task hoàn tất',
+          title: `${workerName} task hoàn tất`,
           body: `${task.title} — ${session.name}`,
           kind: 'success'
         }).catch(() => undefined);
@@ -284,19 +379,21 @@ export class TaskWorkflowExecutionService {
       if (attempt) {
         await this.taskAttempts.finish(attempt.id, attemptStatus(error), {
           error: message(error),
-          providerId: binding.providerId,
+          providerId: selectedProviderId,
           providerRunId:
             error instanceof WorkerProviderOutcomeError
               ? error.providerRunId ?? providerResult?.runId
-              : providerResult?.runId
+              : providerResult?.runId,
+          providerAttempts
         }).catch(() => undefined);
       }
-      if (binding.providerId === 'codex-local' && this.desktopNotifications) {
+      if (aiWorkerProvider(binding.providerId) && this.desktopNotifications) {
         const errorText = message(error);
-        const fallback = errorText.includes('CODEX_FALLBACK_ACTIVE');
+        const fallback = errorText.includes('WORKER_FALLBACK_ACTIVE') || errorText.includes('CODEX_FALLBACK_ACTIVE');
         const blocked = attemptStatus(error) === 'blocked';
+        const workerName = binding.providerId === 'codex-local' ? 'Codex' : 'Antigravity';
         await this.desktopNotifications.notify({
-          title: fallback ? 'Codex đã chuyển sang RWMCP' : blocked ? 'Codex task bị chặn' : 'Codex task thất bại',
+          title: fallback ? 'AI workers đã chuyển sang RWMCP' : blocked ? `${workerName} task bị chặn` : `${workerName} task thất bại`,
           body: `${task.title}: ${errorText}`,
           kind: blocked || fallback ? 'warning' : 'error'
         }).catch(() => undefined);

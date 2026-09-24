@@ -661,18 +661,21 @@ test('worktree-bound provider receives live WorktreeManager metadata instead of 
 });
 
 
-test('Codex provider limit activates audited execution-policy fallback before fake success can be reported', async t => {
+test('Codex capacity failure falls through to Antigravity and records the provider trace', async t => {
   const events: string[] = [];
   const executionPolicy = {
-    async beforeCodexDispatch(sessionId: string) {
-      events.push(`before:${sessionId}`);
-      return {};
-    },
-    async activateFallback(reason: string) {
-      events.push(`fallback:${reason}`);
+    async settings() {
+      return { execution: { codexEnabled: true, antigravityEnabled: true, codexFallback: 'rwmcp-only' } };
     },
     async status() {
-      return { fallbackActive: true };
+      return { effectiveMode: 'both', fallbackActive: false };
+    },
+    async beforeCodexDispatch(sessionId: string, options?: { deferFallback?: boolean }) {
+      events.push(`before:${sessionId}:${options?.deferFallback === true}`);
+      return {};
+    },
+    async activateSessionFallback(sessionId: string, reason: string) {
+      events.push(`fallback:${sessionId}:${reason}`);
     }
   };
   const notices: any[] = [];
@@ -695,21 +698,128 @@ test('Codex provider limit activates audited execution-policy fallback before fa
     status: async () => ({ availability: 'available' as const }),
     dispatch: async () => ({
       status: 'blocked' as const,
-      runId: 'limit-run',
+      runId: 'codex-limit-run',
       summary: 'CODEX_LIMIT_REACHED; HTTP 429 usage limit reached'
+    })
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'antigravity-local',
+      kind: 'antigravity',
+      displayName: 'Antigravity Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'succeeded' as const,
+      runId: 'anti-success-run',
+      summary: 'implemented with alternate worker'
     })
   });
 
   const session = await fx.workSessions.create({
-    name: 'codex-limit-session',
+    name: 'symmetric-fallback-session',
     workspace: 'projects',
     projectPath: 'repo'
   });
 
   await runWithWorkSession(session.id, async () => {
     const objective = await fx.taskGraphs.create({
-      name: 'Codex limit objective',
-      objective: 'Fallback safely'
+      name: 'Symmetric worker objective',
+      objective: 'Use alternate AI worker before RWMCP fallback'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Bounded implementation',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('codex-local')
+    });
+
+    const output = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+    assert.equal(output.task.status, 'succeeded');
+    assert.deepEqual(events, [`before:${session.id}:true`]);
+
+    const attempts = await fx.taskAttempts.list({ taskId: task.id });
+    assert.equal(attempts[0]?.status, 'succeeded');
+    assert.equal(attempts[0]?.providerId, 'antigravity-local');
+    assert.deepEqual(
+      attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]),
+      [['codex-local', 'blocked'], ['antigravity-local', 'succeeded']]
+    );
+    assert.equal(notices[0]?.title, 'Antigravity task hoàn tất');
+    assert.equal(notices[0]?.kind, 'success');
+  });
+});
+
+test('all AI worker capacity failures activate Work Session RWMCP fallback after the full chain is exhausted', async t => {
+  const events: string[] = [];
+  const executionPolicy = {
+    async settings() {
+      return { execution: { codexEnabled: true, antigravityEnabled: true, codexFallback: 'rwmcp-only' } };
+    },
+    async status() {
+      return { effectiveMode: 'both', fallbackActive: false };
+    },
+    async beforeCodexDispatch(sessionId: string, options?: { deferFallback?: boolean }) {
+      events.push(`before:${sessionId}:${options?.deferFallback === true}`);
+      return {};
+    },
+    async activateSessionFallback(sessionId: string, reason: string) {
+      events.push(`fallback:${sessionId}:${reason}`);
+    }
+  };
+  const notices: any[] = [];
+  const desktopNotifications = {
+    async notify(notification: any) { notices.push(notification); return { delivered: true }; }
+  };
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  }, { executionPolicy, desktopNotifications });
+
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local',
+      kind: 'codex',
+      displayName: 'Codex Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'blocked' as const,
+      runId: 'codex-limit-run',
+      summary: 'CODEX_LIMIT_REACHED; quota exhausted'
+    })
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'antigravity-local',
+      kind: 'antigravity',
+      displayName: 'Antigravity Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'blocked' as const,
+      runId: 'anti-limit-run',
+      summary: 'ANTIGRAVITY_LIMIT_REACHED; resource exhausted'
+    })
+  });
+
+  const session = await fx.workSessions.create({
+    name: 'all-workers-exhausted-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'AI workers exhausted objective',
+      objective: 'Fall back to direct RWMCP only after the AI worker chain is exhausted'
     });
     const task = await fx.taskGraphs.addTask(objective.id, {
       title: 'Bounded implementation',
@@ -719,14 +829,186 @@ test('Codex provider limit activates audited execution-policy fallback before fa
 
     await assert.rejects(
       fx.taskWorkflowExecution.execute(objective.id, task.id),
-      /CODEX_FALLBACK_ACTIVE/
+      /WORKER_FALLBACK_ACTIVE/
     );
-    assert.deepEqual(events, [`before:${session.id}`, 'fallback:provider-limit']);
-    const persisted = await fx.taskGraphs.get(objective.id);
-    assert.equal(persisted.tasks.find(item => item.id === task.id)?.status, 'failed');
+    assert.deepEqual(events, [
+      `before:${session.id}:true`,
+      `fallback:${session.id}:workers-exhausted`
+    ]);
+
     const attempts = await fx.taskAttempts.list({ taskId: task.id });
     assert.equal(attempts[0]?.status, 'blocked');
-    assert.equal(notices[0]?.title, 'Codex đã chuyển sang RWMCP');
+    assert.deepEqual(
+      attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]),
+      [['codex-local', 'blocked'], ['antigravity-local', 'blocked']]
+    );
+    assert.equal(notices[0]?.title, 'AI workers đã chuyển sang RWMCP');
     assert.equal(notices[0]?.kind, 'warning');
+  });
+});
+
+test('ordinary worker task failure does not cross-fallback to the alternate AI worker', async t => {
+  let antigravityCalls = 0;
+  const executionPolicy = {
+    async settings() {
+      return { execution: { codexEnabled: true, antigravityEnabled: true, codexFallback: 'rwmcp-only' } };
+    },
+    async status() {
+      return { effectiveMode: 'both', fallbackActive: false };
+    },
+    async beforeCodexDispatch() {
+      return {};
+    },
+    async activateSessionFallback() {
+      throw new Error('fallback should not activate for ordinary task failure');
+    }
+  };
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  }, { executionPolicy });
+
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local',
+      kind: 'codex',
+      displayName: 'Codex Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'failed' as const,
+      runId: 'codex-build-fail',
+      summary: 'compile failed with exit code 2'
+    })
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'antigravity-local',
+      kind: 'antigravity',
+      displayName: 'Antigravity Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => {
+      antigravityCalls += 1;
+      return { status: 'succeeded' as const, runId: 'anti-should-not-run' };
+    }
+  });
+
+  const session = await fx.workSessions.create({
+    name: 'no-cross-fallback-on-task-failure',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Real failure objective',
+      objective: 'Do not hide a real implementation failure'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Compile implementation',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('codex-local')
+    });
+
+    await assert.rejects(
+      fx.taskWorkflowExecution.execute(objective.id, task.id),
+      /compile failed with exit code 2/
+    );
+    assert.equal(antigravityCalls, 0);
+    const attempts = await fx.taskAttempts.list({ taskId: task.id });
+    assert.deepEqual(
+      attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]),
+      [['codex-local', 'failed']]
+    );
+  });
+});
+
+test('Antigravity capacity failure falls through to Codex for frontend-preferred work and records the provider trace', async t => {
+  const events: string[] = [];
+  const executionPolicy = {
+    async settings() {
+      return { execution: { codexEnabled: true, antigravityEnabled: true, codexFallback: 'rwmcp-only' } };
+    },
+    async status() {
+      return { effectiveMode: 'both', fallbackActive: false };
+    },
+    async beforeCodexDispatch(sessionId: string, options?: { deferFallback?: boolean }) {
+      events.push(`before:${sessionId}:${options?.deferFallback === true}`);
+      return {};
+    },
+    async activateSessionFallback() {
+      throw new Error('RWMCP fallback should not activate when Codex succeeds');
+    }
+  };
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  }, { executionPolicy });
+
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'antigravity-local',
+      kind: 'antigravity',
+      displayName: 'Antigravity Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'blocked' as const,
+      runId: 'anti-limit-run',
+      summary: 'ANTIGRAVITY_LIMIT_REACHED; resource exhausted'
+    })
+  });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local',
+      kind: 'codex',
+      displayName: 'Codex Local',
+      worktreeAssignment: false,
+      progressReporting: false,
+      cancellationIntent: false
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({
+      status: 'succeeded' as const,
+      runId: 'codex-success-run',
+      summary: 'implemented with alternate worker'
+    })
+  });
+
+  const session = await fx.workSessions.create({
+    name: 'reverse-symmetric-fallback-session',
+    workspace: 'projects',
+    projectPath: 'repo'
+  });
+
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({
+      name: 'Reverse symmetric worker objective',
+      objective: 'Use Codex only after Antigravity capacity failure'
+    });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Frontend implementation',
+      concurrency: { operation: 'project.inspect' },
+      execution: workerBinding('antigravity-local')
+    });
+
+    const output = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+    assert.equal(output.task.status, 'succeeded');
+    assert.deepEqual(events, [`before:${session.id}:true`]);
+
+    const attempts = await fx.taskAttempts.list({ taskId: task.id });
+    assert.equal(attempts[0]?.providerId, 'codex-local');
+    assert.deepEqual(
+      attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]),
+      [['antigravity-local', 'blocked'], ['codex-local', 'succeeded']]
+    );
   });
 });

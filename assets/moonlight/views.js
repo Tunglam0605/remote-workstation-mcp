@@ -230,7 +230,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openExecution() {
     const policy = live('execution');
     const antigravity = live('antigravity');
-    const content = pageRoot('Execution', 'Agent Control', 'Choose how ChatGPT may route bounded implementation work to RWMCP, Codex, and Antigravity.');
+    const content = pageRoot('Execution', 'AI Agent Orchestrator', 'Route bounded implementation work across Codex, Antigravity, and direct RWMCP using task affinity, symmetric worker fallback, and owner-controlled policy.');
     unavailable('execution', content);
     if (!policy) return content;
 
@@ -242,20 +242,33 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const antigravityAvailable = Boolean(antigravity?.available && antigravity?.authenticated);
     const codexReady = Boolean(settings.codexEnabled && codexAvailable && broker.effectiveBackend !== 'blocked');
     const antigravityReady = Boolean(settings.antigravityEnabled && antigravityAvailable);
+    const antiQuotaBuckets = (antigravity?.quotaGroups || []).flatMap((group) => group?.buckets || []);
+    const antiWeekly = antiQuotaBuckets.find((bucket) => bucket?.window === 'weekly');
+    const antiCapacity = Number.isFinite(antiWeekly?.remainingFraction)
+      ? t('{percent}% weekly remaining', { percent: Math.round(Number(antiWeekly.remainingFraction) * 100) })
+      : t('Quota telemetry unavailable');
+    const codexSessionLimit = Number(status.maxCodexTasksPerSession || 0);
+    const codexSessionUsed = Number(status.codexTasksThisSession || 0);
+    const codexCapacity = codexSessionLimit > 0
+      ? t('{remaining} / {limit} session tasks remaining', {
+          remaining: Math.max(0, codexSessionLimit - codexSessionUsed),
+          limit: codexSessionLimit
+        })
+      : t('No Codex task cap');
     const profileLabels = { direct: 'Direct', 'codex-assisted': 'Codex assisted', smart: 'Smart routing', custom: 'Custom' };
     const selectedProfile = settings.workerRoutingProfile || (settings.defaultMode === 'rwmcp-only' || settings.codexEnabled === false
       ? 'direct'
       : settings.codexEnabled && settings.antigravityEnabled && settings.defaultMode === 'both'
         ? 'smart'
         : settings.codexEnabled ? 'codex-assisted' : 'custom');
-    const modeLabels = { 'rwmcp-only': 'RWMCP only', 'codex-only': 'Codex first', both: 'Hybrid' };
+    const modeLabels = { 'rwmcp-only': 'RWMCP only', 'codex-only': 'Codex only', both: 'AI workers + RWMCP' };
     const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
     const effective = status.effectiveMode || settings.defaultMode || 'rwmcp-only';
     const routeText = effective === 'rwmcp-only'
-      ? 'Without a Work Session override, ChatGPT uses RWMCP directly for coding work.'
+      ? 'ChatGPT uses typed RWMCP tools directly; no AI worker is dispatched.'
       : effective === 'codex-only'
-        ? 'ChatGPT may delegate bounded implementation tasks to Codex.'
-        : 'ChatGPT may combine direct RWMCP control with bounded coding workers.';
+        ? 'Only Codex may receive bounded worker tasks; Antigravity is excluded by this explicit owner mode.'
+        : 'Task affinity chooses a preferred AI worker, capacity/availability may cross-fallback to the other worker, and RWMCP is the final safe fallback.';
 
     const route = section('Global route', 'This shows the owner-level route; Work Sessions can have different routes when overrides are allowed. Session fallbacks are not shown here.', 'moon-page-full agent-route-section');
     route.append(el('div', { class: 'agent-route-banner' },
@@ -273,11 +286,49 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     if (status.fallbackActive) route.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) }));
     content.append(route);
 
+    const affinity = section(
+      'Task affinity & fallback',
+      'Both Codex and Antigravity are general-purpose implementation workers. Affinity chooses the preferred worker; capacity and availability failures may fall through without widening permissions.',
+      'moon-page-full'
+    );
+    const chainCard = (title, subtitle, steps) => el('article', { class: 'agent-affinity-card' },
+      el('div', { class: 'agent-affinity-head' },
+        el('strong', { text: t(title) }),
+        el('span', { class: 'moon-muted', text: t(subtitle) })
+      ),
+      el('div', { class: 'agent-route-chain' },
+        ...steps.flatMap((step, index) => [
+          el('span', { class: `agent-route-step ${step.kind || ''}`, text: t(step.label) }),
+          ...(index < steps.length - 1 ? [el('span', { class: 'agent-route-arrow', text: '→' })] : [])
+        ])
+      )
+    );
+    const affinityGrid = el('div', { class: 'agent-affinity-grid' },
+      chainCard('Frontend / UI', 'Antigravity preferred', [
+        { label: 'Antigravity', kind: 'preferred' },
+        { label: 'Codex', kind: 'fallback-worker' },
+        { label: 'RWMCP', kind: 'direct' }
+      ]),
+      chainCard('Backend / Code / Engineering', 'Codex preferred', [
+        { label: 'Codex', kind: 'preferred' },
+        { label: 'Antigravity', kind: 'fallback-worker' },
+        { label: 'RWMCP', kind: 'direct' }
+      ]),
+      chainCard('Read / Workstation / Deterministic', 'Direct typed tools', [
+        { label: 'RWMCP', kind: 'preferred direct' }
+      ])
+    );
+    affinity.append(
+      affinityGrid,
+      el('p', { class: 'moon-muted', text: t('Cross-worker fallback is limited to capacity, quota, authentication, or provider availability failures. Ordinary implementation, build, and test failures stay with the worker that produced them.') })
+    );
+    content.append(affinity);
+
     const routing = section('Routing profile', 'Profiles are owner presets over the existing execution policy. They simplify routing but never grant extra authority.', 'moon-page-full');
     const routingProfiles = [
       ['direct', 'Direct', 'RWMCP only. Best for hardware, Office, diagnostics, and deterministic workstation actions.'],
-      ['codex-assisted', 'Codex assisted', 'Codex handles bounded coding and review work with RWMCP as the safe fallback.'],
-      ['smart', 'Smart routing', 'Codex handles general engineering work; Antigravity specializes in frontend/UI; RWMCP remains the fallback.'],
+      ['codex-assisted', 'Codex assisted', 'Use Codex as the only AI worker for bounded implementation; RWMCP remains the safe fallback.'],
+      ['smart', 'Smart routing', 'Both AI workers are general-purpose: Antigravity is preferred for frontend/UI, Codex for code/backend/engineering, and each can capacity-fallback to the other before RWMCP.'],
       ['custom', 'Custom', 'Keep manual control of the existing low-level execution mode and worker enablement.']
     ];
     const profileGrid = el('div', { class: 'agent-routing-grid' });
@@ -296,7 +347,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const selectedMode = settings.defaultMode || status.configuredMode || 'rwmcp-only';
     const strategies = [
       ['rwmcp-only', 'RWMCP only', 'Lowest worker usage. ChatGPT operates through typed RWMCP tools only.'],
-      ['codex-only', 'Codex first', 'Use Codex for bounded coding tasks; RWMCP remains the control plane.'],
+      ['codex-only', 'Codex only', 'Use Codex as the only AI worker for bounded coding tasks; RWMCP remains the control plane.'],
       ['both', 'Hybrid', 'Let ChatGPT choose direct RWMCP or bounded workers per task.']
     ];
     const strategyGrid = el('div', { class: 'agent-strategy-grid' });
@@ -330,7 +381,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     };
     for (const input of profileInputs) input.addEventListener('change', syncRoutingProfilePreview);
     syncRoutingProfilePreview();
-    const providers = section('Workers', 'Enable only the workers you want ChatGPT to be able to use. Availability never grants extra workstation authority.', 'moon-page-full');
+    const providers = section('Worker pool & capacity', 'Both workers can handle general implementation work. Preference is affinity, not a hard capability lock; availability never grants extra workstation authority.', 'moon-page-full');
     const providerGrid = el('div', { class: 'agent-provider-grid' });
     const providerCard = (kind, title, ready, enabledControl, facts, note) => el('article', { class: `agent-provider-card ${ready ? 'ready' : 'offline'}` },
       el('header', { class: 'agent-provider-header' },
@@ -342,26 +393,32 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       el('label', { class: 'agent-enable-row' }, enabledControl, el('span', { text: t('Allow ChatGPT to use this worker') }))
     );
     providerGrid.append(
-      providerCard('Coding worker', 'OpenAI Codex', codexReady, codexEnabled, [
+      providerCard('General-purpose · engineering preferred', 'OpenAI Codex', codexReady, codexEnabled, [
         ['Version', codex.version],
         ['Model', settings.codexModel || 'gpt-6-sol'],
+        ['Preferred for', 'Backend / code / engineering'],
+        ['Capacity', codexCapacity],
+        ['Fallback', 'Antigravity → RWMCP'],
         ['Account routing', broker.effectiveBackend || broker.mode || settings.codexAccountBroker?.mode]
-      ], codexReady ? 'Codex is authenticated and ready for bounded Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
-      providerCard('UI / frontend worker', 'Google Antigravity', antigravityReady, antiEnabled, [
+      ], codexReady ? 'Codex is ready for bounded general-purpose Work Session tasks and is preferred for engineering-oriented work.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
+      providerCard('General-purpose · UI preferred', 'Google Antigravity', antigravityReady, antiEnabled, [
         ['Version', antigravity?.version],
         ['Model', antigravity?.model?.label || antigravity?.model?.id || settings.antigravityModel || 'Provider default'],
+        ['Preferred for', 'Frontend / UI'],
+        ['Capacity', antiCapacity],
+        ['Fallback', 'Codex → RWMCP'],
         ['Sandbox', antigravity?.available ? 'Required' : 'Unavailable']
-      ], antigravityReady ? 'Antigravity is authenticated and constrained by the configured sandbox policy.' : (antigravity?.detail || 'Antigravity is not ready.'))
+      ], antigravityReady ? 'Antigravity is ready for bounded general-purpose Work Session tasks and is preferred for frontend/UI work.' : (antigravity?.detail || 'Antigravity is not ready.'))
     );
     providers.append(providerGrid);
     content.append(providers);
 
     const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
-    const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop Codex dispatch']]);
-    const behavior = section('ChatGPT behavior', 'These controls define what ChatGPT may change temporarily and what happens when Codex reaches a limit.', 'moon-page-full');
+    const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop worker routing']]);
+    const behavior = section('Fallback behavior', 'These controls define what ChatGPT may change temporarily and what happens only after the allowed AI worker chain is exhausted.', 'moon-page-full');
     behavior.append(el('div', { class: 'agent-behavior-grid' },
-      field('Work Session override', chatOverride, 'Allows ChatGPT to choose RWMCP only, Codex first, or Hybrid for one isolated Work Session.'),
-      field('When Codex reaches a limit', fallback, 'RWMCP fallback switches the affected route; Stop rejects Codex dispatch without switching routes.')
+      field('Work Session override', chatOverride, 'Allows ChatGPT to choose RWMCP only, Codex only, or Hybrid routing for one isolated Work Session.'),
+      field('When all AI workers are exhausted', fallback, 'RWMCP fallback switches only the affected Work Session after the allowed AI worker chain has exhausted capacity or availability; Stop leaves the worker task blocked.')
     ));
     content.append(behavior);
 

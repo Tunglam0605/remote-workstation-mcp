@@ -12,6 +12,13 @@ export type TaskAttemptStatus =
   | 'cancelled'
   | 'interrupted';
 
+export interface TaskProviderAttemptRecord {
+  providerId: string;
+  status: 'succeeded' | 'failed' | 'blocked';
+  providerRunId?: string;
+  summary?: string;
+}
+
 export interface TaskAttemptRecord {
   version: 1;
   id: string;
@@ -28,6 +35,7 @@ export interface TaskAttemptRecord {
   workflowRunId?: string;
   providerId?: string;
   providerRunId?: string;
+  providerAttempts?: TaskProviderAttemptRecord[];
   error?: string;
 }
 
@@ -100,6 +108,18 @@ export class TaskAttemptStore {
       (item.workflowRunId === undefined || typeof item.workflowRunId === 'string') &&
       (item.providerId === undefined || typeof item.providerId === 'string') &&
       (item.providerRunId === undefined || typeof item.providerRunId === 'string') &&
+      (item.providerAttempts === undefined || (
+        Array.isArray(item.providerAttempts) &&
+        item.providerAttempts.length <= 8 &&
+        item.providerAttempts.every(entry =>
+          entry &&
+          typeof entry === 'object' &&
+          typeof entry.providerId === 'string' &&
+          ['succeeded', 'failed', 'blocked'].includes(entry.status) &&
+          (entry.providerRunId === undefined || typeof entry.providerRunId === 'string') &&
+          (entry.summary === undefined || typeof entry.summary === 'string')
+        )
+      )) &&
       (item.error === undefined || typeof item.error === 'string');
   };
 
@@ -274,7 +294,13 @@ export class TaskAttemptStore {
   async finish(
     attemptId: string,
     status: Exclude<TaskAttemptStatus, 'running'>,
-    options: { error?: string; workflowRunId?: string; providerId?: string; providerRunId?: string } = {}
+    options: {
+      error?: string;
+      workflowRunId?: string;
+      providerId?: string;
+      providerRunId?: string;
+      providerAttempts?: TaskProviderAttemptRecord[];
+    } = {}
   ): Promise<TaskAttemptRecord> {
     const owner = this.owner();
     const normalizedId = bounded(attemptId, 'attemptId', 64);
@@ -299,6 +325,18 @@ export class TaskAttemptStore {
       if (providerId) attempt.providerId = bounded(providerId, 'providerId', 64);
       const providerRunId = options.providerRunId?.trim();
       if (providerRunId) attempt.providerRunId = bounded(providerRunId, 'providerRunId', 128);
+      if (options.providerAttempts) {
+        attempt.providerAttempts = options.providerAttempts.slice(0, 8).map(entry => ({
+          providerId: bounded(entry.providerId, 'providerAttempts.providerId', 64),
+          status: entry.status,
+          ...(entry.providerRunId?.trim()
+            ? { providerRunId: bounded(entry.providerRunId, 'providerAttempts.providerRunId', 128) }
+            : {}),
+          ...(entry.summary?.trim()
+            ? { summary: bounded(entry.summary, 'providerAttempts.summary', 1024) }
+            : {})
+        }));
+      }
       await this.save(state);
       return structuredClone(attempt);
     });

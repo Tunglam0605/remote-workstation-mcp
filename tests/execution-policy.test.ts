@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ExecutionPolicyService, isCodexLimitSignal } from '../src/execution-policy.js';
+import { ExecutionPolicyService, isCodexLimitSignal, isWorkerCapacitySignal } from '../src/execution-policy.js';
 import { normalizeSetupSettings } from '../src/setup/settings.js';
 
 function settings(overrides: Partial<ReturnType<typeof normalizeSetupSettings>['execution']> = {}) {
@@ -95,11 +95,35 @@ test('Codex Work Session budget activates a durable rwmcp-only fallback latch', 
   assert.equal(reset.effectiveMode, 'both');
 });
 
-test('Codex limit signal classifier detects provider quota/rate-limit failures without guessing remaining quota', () => {
+test('worker capacity classifier detects quota/auth/availability across Codex and Antigravity without treating permission denial as capacity', () => {
   assert.equal(isCodexLimitSignal('HTTP 429 Too Many Requests'), true);
-  assert.equal(isCodexLimitSignal('usage limit reached for this account'), true);
-  assert.equal(isCodexLimitSignal('quota exhausted'), true);
-  assert.equal(isCodexLimitSignal('compile failed with exit code 2'), false);
+  assert.equal(isWorkerCapacitySignal('CODEX_LIMIT_REACHED; usage limit reached for this account'), true);
+  assert.equal(isWorkerCapacitySignal('CODEX_AUTH_REQUIRED; not authenticated'), true);
+  assert.equal(isWorkerCapacitySignal('ANTIGRAVITY_LIMIT_REACHED; resource exhausted'), true);
+  assert.equal(isWorkerCapacitySignal('ANTIGRAVITY_AUTH_REQUIRED; sign-in required'), true);
+  assert.equal(isWorkerCapacitySignal('Worker provider antigravity-local is not available'), true);
+  assert.equal(isWorkerCapacitySignal('ANTIGRAVITY_PERMISSION_REQUIRED; escalate_admin denied'), false);
+  assert.equal(isWorkerCapacitySignal('compile failed with exit code 2'), false);
+});
+
+test('deferred Codex budget exhaustion leaves the Work Session route available for alternate AI workers', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-execution-policy-'));
+  const owner = settings({ defaultMode: 'both', maxCodexTasksPerSession: 1 });
+  const service = new ExecutionPolicyService({
+    file: path.join(root, 'state.json'),
+    now: () => new Date('2026-09-21T01:00:00.000Z'),
+    loadSettings: async () => owner
+  });
+  const sessionId = '44444444-4444-4444-8444-444444444444';
+
+  await service.beforeCodexDispatch(sessionId, { deferFallback: true });
+  await assert.rejects(
+    () => service.beforeCodexDispatch(sessionId, { deferFallback: true }),
+    /CODEX_BUDGET_REACHED/
+  );
+  const after = await service.status(sessionId);
+  assert.equal(after.fallbackActive, false);
+  assert.equal(after.effectiveMode, 'both');
 });
 
 

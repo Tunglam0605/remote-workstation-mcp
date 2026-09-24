@@ -436,3 +436,24 @@ test('Windows installer repairs the OpenAI tunnel client even when the runtime s
   assert.match(installer, /Test-Path \$tunnelInstaller/);
   assert.match(installer, /OpenAI tunnel-client installation failed/);
 });
+
+test('Windows release installer stages the Chrome bridge from the installed slot before activation', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+  const bridgeInstaller = await read('scripts/install-chrome-bridge-windows.ps1');
+  const smoke = await read('scripts/smoke-package-windows.ps1');
+
+  const tunnel = installer.indexOf("$tunnelInstaller = Join-Path $Slot 'scripts\\install-openai-tunnel-windows.ps1'");
+  const bridge = installer.indexOf("$chromeBridgeInstaller = Join-Path $Slot 'scripts\\install-chrome-bridge-windows.ps1'");
+  const activate = installer.indexOf('  $oldCurrent =', bridge);
+  assert.ok(tunnel >= 0 && bridge > tunnel, 'Chrome bridge staging must follow tunnel-client repair.');
+  assert.ok(activate > bridge, 'Chrome bridge staging must complete before slot activation.');
+  assert.match(installer, /-RepoRoot \$Slot -NodePath \$NodeExe/);
+  assert.match(installer, /Chrome bridge staging failed/);
+
+  assert.match(bridgeInstaller, /\$ExtensionPath = Join-Path \$BridgeDir "extension"/);
+  assert.match(bridgeInstaller, /\$NativeRuntimeDir = Join-Path \$BridgeDir "native-runtime"/);
+  assert.match(bridgeInstaller, /\[string\]\$NodePath/);
+  assert.match(smoke, /assets\\chrome-bridge-extension\\manifest\.json/);
+  assert.match(smoke, /dist\\web\\chrome-native-host\.js/);
+  assert.match(smoke, /scripts\\chrome-native-host-launcher\.cs/);
+});

@@ -21,7 +21,18 @@ try {
   New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
   & tar.exe -xzf $Archive --strip-components=1 -C $PackageDir
   if ($LASTEXITCODE -ne 0) { throw 'tar extraction failed.' }
-  foreach ($required in @('package.json','dist\cli.js','scripts\smoke-engineering-native.mjs')) {
+  foreach ($required in @(
+    'package.json',
+    'dist\cli.js',
+    'scripts\smoke-engineering-native.mjs',
+    'scripts\install-chrome-bridge-windows.ps1',
+    'scripts\chrome-native-host-launcher.cs',
+    'assets\chrome-bridge-extension\manifest.json',
+    'assets\chrome-bridge-extension\service-worker.js',
+    'assets\chrome-bridge-extension\content-script.js',
+    'dist\web\chrome-native-host.js',
+    'dist\web\chrome-bridge-protocol.js'
+  )) {
     if (-not (Test-Path -LiteralPath (Join-Path $PackageDir $required))) { throw "Packed release is missing $required" }
   }
   Push-Location $PackageDir

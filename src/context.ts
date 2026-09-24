@@ -66,6 +66,11 @@ import { CodexAccountBroker } from './workers/codex-account-broker.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
 import { DesktopNotificationService } from './desktop-notification.js';
+import { BrowserCore } from './web/browser-core.js';
+import { PlaywrightBrowserProvider } from './web/browser-provider.js';
+import { ExistingChromeBridgeClient } from './web/existing-chrome-bridge.js';
+import { ExistingChromeSessionService } from './web/existing-chrome-session.js';
+import { NotebookLmAdapter } from './web/adapters/notebooklm-adapter.js';
 
 export async function createContext() {
   const actor = {
@@ -171,6 +176,9 @@ export async function createContext() {
   const engineeringStm32Ioc = new Stm32IocAdapter(paths);
   const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
+  const browser = new BrowserCore(new PlaywrightBrowserProvider());
+  const existingChrome = new ExistingChromeSessionService(new ExistingChromeBridgeClient());
+  const notebooklm = new NotebookLmAdapter(existingChrome);
   const workSessionLifecycle = new WorkSessionLifecycleService(
     workSessions,
     worktreeManager,
@@ -180,7 +188,9 @@ export async function createContext() {
       serialSessions: engineeringSerial.list().length,
       debugSessions: engineeringDebug.list().length,
       hardwareLeases: engineeringResources.listOwned().length,
-      nodeInterlocks: (await nodeInterlocks.listOwned()).length
+      nodeInterlocks: (await nodeInterlocks.listOwned()).length,
+      browserSessions: browser.countOwned(currentClientId(), sessionId),
+      existingChromeSessions: existingChrome.countOwned(currentClientId(), sessionId)
     }))
   );
   const schedulerAwareness = new SchedulerAwarenessService(
@@ -216,6 +226,10 @@ export async function createContext() {
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy, desktopNotifications);
+  process.once('beforeExit', () => {
+    void browser.closeAll();
+    existingChrome.closeAll();
+  });
   return {
     config,
     hostsConfig,
@@ -224,6 +238,9 @@ export async function createContext() {
     actor,
     identity,
     audit,
+    browser,
+    existingChrome,
+    notebooklm,
     multiNodeAuthorization,
     workSessions,
     workSessionLifecycle,

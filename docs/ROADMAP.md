@@ -2,6 +2,21 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.36 — Bounded Web Automation + NotebookLM Video Studio ✅
+
+- add a generic managed Chrome/Edge provider with background-first sessions, tab/navigation control, bounded semantic inspect/find/extract/screenshot and no raw JavaScript/selectors/CDP or coordinate input;
+- add semantic click/fill/type/press/select/check plus typed waits using short-lived generation-bound element references that fail closed when stale;
+- add workspace-guarded browser upload and controlled download artifacts with MIME/size/SHA-256 evidence;
+- add dedicated RWMCP persistent browser profiles without attaching to the user's default Chrome profile or exposing cookie/token/storage-reading APIs;
+- add an owner-visible Existing Chrome Bridge for Google-authenticated NotebookLM using Manifest V3, exact-extension-origin Native Messaging and authenticated local named-pipe IPC;
+- stage the bridge extension and native runtime under stable per-user RWMCP state instead of a transient Work Session worktree, with versioned launcher updates and duplicate-connect race protection;
+- add principal + Work Session ownership for managed and Existing Chrome browser resources so lifecycle close remains fail-closed;
+- add typed NotebookLM session/status/source inventory and ask-and-wait operations;
+- add deterministic NotebookLM Video Overview generation: Create now must yield a generation-busy postcondition and READY requires that busy evidence to disappear plus a new video artifact relative to the pre-generation baseline;
+- preserve Google login/2FA/CAPTCHA as owner actions and do not copy cookies/tokens or disguise automation;
+- advance Action Schema to 15; Engineering API remains 5.
+
+
 ## v0.1 — Local foundation ✅
 
 - MCP server using the official TypeScript SDK v2

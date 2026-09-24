@@ -403,6 +403,15 @@ try {
   & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $tunnelInstaller
   if ($LASTEXITCODE -ne 0) { throw 'OpenAI tunnel-client installation failed.' }
 
+  # v0.36+ packages may include the owner-visible Existing Chrome Bridge. Stage
+  # the extension/native host into stable per-user state before slot activation
+  # so Chrome never depends on a version-slot or source-worktree path.
+  $chromeBridgeInstaller = Join-Path $Slot 'scripts\install-chrome-bridge-windows.ps1'
+  if (Test-Path $chromeBridgeInstaller) {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $chromeBridgeInstaller -RepoRoot $Slot -NodePath $NodeExe
+    if ($LASTEXITCODE -ne 0) { throw 'Chrome bridge staging failed.' }
+  }
+
   $oldCurrent = if (Test-Path $CurrentFile) { (Get-Content -Path $CurrentFile -Raw).Trim() } else { '' }
   if ($oldCurrent -and $oldCurrent -ne $Slot -and (Test-Path $oldCurrent)) {
     Set-Content -Path $PreviousFile -Value $oldCurrent -Encoding utf8

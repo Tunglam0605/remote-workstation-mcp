@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "RWMCP Existing Chrome Bridge",
+  "version": "0.2.0",
+  "description": "Owner-visible bridge between an authenticated Chrome tab and Remote Workstation MCP.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApcRVy/TLdwfQhbDK8yJQegCExD8m30h7v13SzopGtBAEruxqJgF7EGqkCjmuoNr3OL6j4AmV+igbbD5OQcMxTzM11vsYlgd0b3Xwz3bJRKjY5gs1yZ6fujB8dlWb8FjFDTxOQ56xIIiQOS4zny8oJGSE7RSeSl/o4CKC0WML44b8W2CaY0ncERfG8iIPCRTkjxnPwsAhgBR30lAU6jKqaJtVKL+aIVWrogIaxNGHUazwn/+TsV/3hkSEKYjFdSzBRtk2h13kLSHqPXy9dhSSWcX+HFD56ILBcNYCG8cHmc2N2YuklsuF2auh9B1HCPiUxL4yIf0MaMAd+3GZ7SKctQIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://notebooklm.google.com/*",
+    "https://notebook.google.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://notebooklm.google.com/*",
+        "https://notebook.google.com/*"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "RWMCP Existing Chrome Bridge"
+  }
+}

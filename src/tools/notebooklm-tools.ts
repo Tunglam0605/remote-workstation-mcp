@@ -83,6 +83,40 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
     executeInSession('notebooklm_sources_list', workSessionId, owner =>
       ctx.notebooklm.listSources(existingSessionId, owner)));
 
+  server.registerTool('notebooklm_video_status', {
+    description: 'Read NotebookLM Video Overview generation state and bounded READY artifact metadata from the claimed notebook tab.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid()
+    }),
+    annotations: {
+      readOnlyHint: true,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  }, async ({ workSessionId, existingSessionId }) =>
+    executeInSession('notebooklm_video_status', workSessionId, owner =>
+      ctx.notebooklm.videoStatus(existingSessionId, owner)));
+
+  server.registerTool('notebooklm_video_generate', {
+    description: 'Create a NotebookLM Video Overview with bounded custom focus and verify generation STARTED; optionally wait until a new READY video artifact appears. This mutates cloud Studio state and may consume NotebookLM AI quota.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid(),
+      focus: z.string().trim().min(1).max(8_000),
+      waitForReady: z.boolean().default(true),
+      timeoutMs: z.number().int().min(30_000).max(1_800_000).default(900_000)
+    }),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  }, async ({ workSessionId, existingSessionId, focus, waitForReady, timeoutMs }) =>
+    executeInSession('notebooklm_video_generate', workSessionId, owner =>
+      ctx.notebooklm.videoGenerate(existingSessionId, owner, focus, waitForReady, timeoutMs)));
+
   server.registerTool('notebooklm_ask', {
     description: 'Ask one bounded question in the claimed NotebookLM notebook and wait until a changed, stable conversation postcondition is observed. This mutates cloud conversation state.',
     inputSchema: z.object({

@@ -1,5 +1,6 @@
 param(
-  [string]$RepoRoot = ""
+  [string]$RepoRoot = "",
+  [string]$NodePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,7 +39,12 @@ if (-not (Test-Path $TokenPath)) {
   [IO.File]::WriteAllText($TokenPath, $token, (New-Object Text.UTF8Encoding($false)))
 }
 
-$NodePath = (Get-Command node.exe -ErrorAction Stop).Source
+if ([string]::IsNullOrWhiteSpace($NodePath)) {
+  $NodePath = (Get-Command node.exe -ErrorAction Stop).Source
+}
+if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) {
+  throw "Node executable was not found: $NodePath"
+}
 $LauncherHash = ((Get-FileHash -LiteralPath $LauncherSource -Algorithm SHA256).Hash.Substring(0, 12)).ToLowerInvariant()
 $LauncherExe = Join-Path $BridgeDir ("rwmcp-chrome-native-host-" + $LauncherHash + ".exe")
 $RuntimeConfig = Join-Path $BridgeDir "host-runtime.txt"

@@ -66,6 +66,8 @@ import { CodexAccountBroker } from './workers/codex-account-broker.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
 import { DesktopNotificationService } from './desktop-notification.js';
+import { BrowserCore } from './web/browser-core.js';
+import { PlaywrightBrowserProvider } from './web/browser-provider.js';
 
 export async function createContext() {
   const actor = {
@@ -216,6 +218,8 @@ export async function createContext() {
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy, desktopNotifications);
+  const browser = new BrowserCore(new PlaywrightBrowserProvider());
+  process.once('beforeExit', () => { void browser.closeAll(); });
   return {
     config,
     hostsConfig,
@@ -224,6 +228,7 @@ export async function createContext() {
     actor,
     identity,
     audit,
+    browser,
     multiNodeAuthorization,
     workSessions,
     workSessionLifecycle,

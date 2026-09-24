@@ -11,6 +11,7 @@ import { registerInteractiveProcessTools } from './tools/interactive-process-too
 import { registerLspTools } from './tools/lsp-tools.js';
 import { registerPrivilegedTools } from './tools/privileged-tools.js';
 import { registerSshTools } from './tools/ssh-tools.js';
+import { registerBrowserTools } from './tools/browser-tools.js';
 
 export function buildServer(ctx: AppContext): McpServer {
   const server = new McpServer(
@@ -33,6 +34,7 @@ export function buildServer(ctx: AppContext): McpServer {
   registerChatGptWebTools(server, ctx);
   registerDeviceTools(server, ctx);
   registerCoreTools(server, ctx);
+  registerBrowserTools(server, ctx);
   registerEngineeringTools(server, ctx);
   if (officePlatformSupported(process.platform)) registerOfficeTools(server, ctx);
   registerInteractiveProcessTools(server, ctx);

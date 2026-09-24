@@ -2,6 +2,14 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.37.1 — Windows updater environment hardening ✅
+
+- make the Windows release installer tolerate non-interactive shells where process-level `ProgramFiles` and `ProgramFiles(x86)` variables are absent;
+- resolve Program Files roots through Windows Special Folders and guard every path join against blank roots;
+- add a regression contract that forbids direct `Join-Path $env:ProgramFiles ...` usage in the installer;
+- verify fallback resolution with both Program Files variables removed from the process environment;
+- retain Action Schema 15, Engineering API 5 and all v0.37 Control Center behavior.
+
 ## v0.37 — Stable Control Center Information Architecture ✅
 
 - fix the top-level Moonlight navigation to nine long-lived user-intent domains: Overview, Work, Agents, Engineering, Office, Web, Devices, Security and System;

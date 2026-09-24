@@ -6,6 +6,16 @@ async function read(path: string): Promise<string> {
   return await fs.readFile(path, 'utf8');
 }
 
+test('Windows installer resolves Program Files safely when process environment variables are missing', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+
+  assert.match(installer, /GetFolderPath\(\[Environment\+SpecialFolder\]::ProgramFiles\)/);
+  assert.match(installer, /GetFolderPath\(\[Environment\+SpecialFolder\]::ProgramFilesX86\)/);
+  assert.match(installer, /if \(-not \[string\]::IsNullOrWhiteSpace\(\$programFilesRoot\)\)/);
+  assert.doesNotMatch(installer, /Join-Path \$env:ProgramFiles /);
+  assert.doesNotMatch(installer, /Join-Path \$\{env:ProgramFiles\(x86\)\} /);
+});
+
 test('Windows managed install is one-time and startup uses the stable Boot action', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
   const runtime = await read('scripts/runtime-control-windows.ps1');

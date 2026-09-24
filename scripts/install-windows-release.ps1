@@ -388,12 +388,20 @@ try {
       if ($LASTEXITCODE -ne 0 -or $reportedVersion -notmatch [regex]::Escape($manifest.version)) {
         throw "Installed runtime version check failed: $reportedVersion"
       }
-      & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Slot 'scripts\install-openai-tunnel-windows.ps1')
-      if ($LASTEXITCODE -ne 0) { throw 'OpenAI tunnel-client installation failed.' }
     } finally { Pop-Location }
   } else {
     Write-Host "Runtime slot already exists: $Slot" -ForegroundColor Yellow
   }
+
+  # A release slot can already exist after an interrupted or partial install.
+  # Always validate/repair the OpenAI tunnel-client before activating the slot;
+  # the tunnel installer is idempotent and verifies the pinned binary checksum.
+  $tunnelInstaller = Join-Path $Slot 'scripts\install-openai-tunnel-windows.ps1'
+  if (-not (Test-Path $tunnelInstaller)) {
+    throw "Runtime slot is missing the OpenAI tunnel-client installer: $tunnelInstaller"
+  }
+  & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $tunnelInstaller
+  if ($LASTEXITCODE -ne 0) { throw 'OpenAI tunnel-client installation failed.' }
 
   $oldCurrent = if (Test-Path $CurrentFile) { (Get-Content -Path $CurrentFile -Raw).Trim() } else { '' }
   if ($oldCurrent -and $oldCurrent -ne $Slot -and (Test-Path $oldCurrent)) {

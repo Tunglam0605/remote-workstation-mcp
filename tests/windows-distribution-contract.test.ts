@@ -420,3 +420,19 @@ test('Windows recovery circuit breaker persists cooldowns and opens after repeat
   assert.match(recovery, /Register-RwmcpRecoveryFailure/);
   assert.match(recovery, /Reset-RwmcpRecoveryCircuit/);
 });
+
+test('Windows installer repairs the OpenAI tunnel client even when the runtime slot already exists', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+
+  const slotBranch = installer.indexOf("  if (-not (Test-Path $Slot)) {");
+  const existingSlotBranch = installer.indexOf('Runtime slot already exists: $Slot', slotBranch);
+  const tunnelInstaller = installer.indexOf("$tunnelInstaller = Join-Path $Slot 'scripts\\install-openai-tunnel-windows.ps1'", existingSlotBranch);
+  const activateSlot = installer.indexOf('  $oldCurrent =', existingSlotBranch);
+
+  assert.ok(slotBranch >= 0, 'runtime-slot install branch must exist');
+  assert.ok(existingSlotBranch > slotBranch, 'existing-slot branch must remain explicit');
+  assert.ok(tunnelInstaller > existingSlotBranch, 'tunnel-client repair must run after the existing-slot branch');
+  assert.ok(tunnelInstaller < activateSlot, 'tunnel-client repair must run before the slot is activated');
+  assert.match(installer, /Test-Path \$tunnelInstaller/);
+  assert.match(installer, /OpenAI tunnel-client installation failed/);
+});

@@ -242,12 +242,18 @@ export class ExecutionPolicyService {
     return await this.status();
   }
 
-  async beforeCodexDispatch(workSessionId: string): Promise<ExecutionPolicyStatus> {
+  async beforeCodexDispatch(
+    workSessionId: string,
+    options: { deferFallback?: boolean } = {}
+  ): Promise<ExecutionPolicyStatus> {
     const status = await this.status(workSessionId);
     if (!status.codexEnabled || status.effectiveMode === 'rwmcp-only') {
       throw new Error('EXECUTION_POLICY_RWMCP_ONLY: Codex worker dispatch is disabled by the effective execution policy.');
     }
     if (status.maxCodexTasksPerSession > 0 && status.codexTasksThisSession >= status.maxCodexTasksPerSession) {
+      if (options.deferFallback === true) {
+        throw new Error('CODEX_BUDGET_REACHED: session Codex task budget reached; alternate worker routing may continue.');
+      }
       await this.activateSessionFallback(workSessionId, 'session-budget', 'Codex task budget for this Work Session was reached.');
       const after = await this.status(workSessionId);
       throw new Error(after.fallbackActive
@@ -255,6 +261,9 @@ export class ExecutionPolicyService {
         : 'CODEX_BUDGET_REACHED: session Codex task budget reached; fallback policy is stop.');
     }
     if (status.maxCodexTasksPerDay > 0 && status.codexTasksToday >= status.maxCodexTasksPerDay) {
+      if (options.deferFallback === true) {
+        throw new Error('CODEX_BUDGET_REACHED: daily Codex task budget reached; alternate worker routing may continue.');
+      }
       await this.activateFallback('daily-budget', 'Daily Codex task budget was reached.');
       const after = await this.status(workSessionId);
       throw new Error(after.fallbackActive
@@ -311,8 +320,19 @@ export class ExecutionPolicyService {
   }
 }
 
-export function isCodexLimitSignal(value: string | undefined): boolean {
+export function isWorkerCapacitySignal(value: string | undefined): boolean {
   const text = value?.toLowerCase() ?? '';
   if (!text) return false;
-  return /\b429\b|rate[ -]?limit|usage[ -]?limit|quota|limit reached|reached (?:your|the) .*limit|too many requests|usage cap/.test(text);
+  if (/antigravity_permission_required|sandbox_attestation_failed|shared_skills_invalid|eas_config_invalid/.test(text)) {
+    return false;
+  }
+  return /\b429\b|rate[ -]?limit|usage[ -]?limit|quota|limit reached|reached (?:your|the) .*limit|too many requests|usage cap|out of credits|resource[ -]?exhausted/.test(text) ||
+    /codex_(?:limit_reached|budget_reached|auth_required|account_pool_unavailable)/.test(text) ||
+    /antigravity_(?:limit_reached|auth_required)/.test(text) ||
+    /worker provider .+ is not available/.test(text) ||
+    /(?:codex|antigravity).+(?:authentication unavailable|not authenticated|sign[ -]?in required)/.test(text);
+}
+
+export function isCodexLimitSignal(value: string | undefined): boolean {
+  return isWorkerCapacitySignal(value);
 }

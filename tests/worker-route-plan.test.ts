@@ -113,7 +113,7 @@ test('smart routing prefers Antigravity for frontend UI and Codex for coding', (
     intent: 'coding'
   });
   assert.equal(coding.selected, 'codex-local');
-  assert.deepEqual(coding.fallbackChain, ['codex-local', 'rwmcp-direct']);
+  assert.deepEqual(coding.fallbackChain, ['codex-local', 'antigravity-local', 'rwmcp-direct']);
 });
 
 test('smart routing falls back from unavailable Antigravity to Codex', () => {
@@ -126,6 +126,20 @@ test('smart routing falls back from unavailable Antigravity to Codex', () => {
   assert.equal(plan.selected, 'codex-local');
   assert.equal(plan.candidates[0]?.ready, false);
 });
+
+test('smart routing falls back from unavailable Codex to Antigravity for coding', () => {
+  const plan = planWorkerRoute({
+    settings: execution(),
+    status: status(),
+    providers: [provider('codex-local', false), provider('antigravity-local')],
+    intent: 'coding'
+  });
+  assert.equal(plan.selected, 'antigravity-local');
+  assert.deepEqual(plan.fallbackChain, ['codex-local', 'antigravity-local', 'rwmcp-direct']);
+  assert.equal(plan.candidates[0]?.ready, false);
+  assert.equal(plan.candidates[1]?.ready, true);
+});
+
 
 test('effective Work Session policy and Codex budgets are authoritative', () => {
   const fallback = planWorkerRoute({

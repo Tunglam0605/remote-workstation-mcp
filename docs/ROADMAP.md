@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.38 — Symmetric AI Worker Routing + Agents Orchestrator ✅
+
+- treat Codex and Antigravity as general-purpose bounded implementation workers with affinity rather than hard capability locks;
+- prefer Antigravity for frontend/UI work and Codex for coding/backend/engineering work;
+- permit symmetric Codex ⇄ Antigravity fallback only for capacity, quota, authentication, rate-limit or provider-availability failures;
+- preserve ordinary implementation/build/test failures on the worker that produced them instead of silently switching providers;
+- when all allowed AI workers are exhausted, apply owner policy and optionally fall back only the affected Work Session to direct RWMCP;
+- persist bounded provider-attempt evidence in Task Attempts;
+- redesign the Moonlight Agents page around routing policy, task affinity, worker pool/capacity, fallback chain and direct-RWMCP recovery;
+- preserve RWMCP-only, Codex-only and Both/Smart owner controls, bounded authority and isolated Work Session/worktree semantics;
+- retain Action Schema 15 and Engineering API 5.
+
 ## v0.37.1 — Windows updater environment hardening ✅
 
 - make the Windows release installer tolerate non-interactive shells where process-level `ProgramFiles` and `ProgramFiles(x86)` variables are absent;

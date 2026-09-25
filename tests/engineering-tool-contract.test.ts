@@ -32,19 +32,27 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.42 generalizes three-target execution policy on Action Schema v18 and Engineering API v5', async () => {
+test('v0.43 adds objective decomposition and bounded multi-agent waves on Action Schema v19 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 18;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 19;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.42\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.43\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
+  const decomposition = await read('src/objective-decomposition.ts');
+  const waveExecution = await read('src/objective-wave-execution.ts');
+  const taskGraph = await read('src/task-graph.ts');
   assert.match(settings, /targetPolicy/);
   assert.match(settings, /inferExecutionTargetPolicy/);
   assert.match(policy, /beforeTargetDispatch/);
   assert.match(policy, /sessionTargetTasks/);
   assert.match(routes, /targetBudgetAvailable/);
+  assert.match(decomposition, /ObjectiveDecompositionService/);
+  assert.match(decomposition, /NO_AI_TARGET_ALLOWED/);
+  assert.match(waveExecution, /ObjectiveWaveExecutionService/);
+  assert.match(waveExecution, /bounded-wave-execution/);
+  assert.match(taskGraph, /addTaskBatch/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -58,6 +66,10 @@ test('v0.42 generalizes three-target execution policy on Action Schema v18 and E
   assert.match(scopes, /worker_route_plan: 'workstation\.read'/);
   assert.match(scopes, /execution_target_set_override: 'workstation\.write'/);
   assert.match(coreTools, /server\.registerTool\('execution_target_set_override'/);
+  assert.match(coreTools, /server\.registerTool\('work_objective_decompose'/);
+  assert.match(coreTools, /server\.registerTool\('work_objective_execute_wave'/);
+  assert.match(scopes, /work_objective_decompose: 'workstation\.write'/);
+  assert.match(scopes, /work_objective_execute_wave: 'workstation\.execute'/);
   assert.match(coreTools, /z\.enum\(EXECUTION_TARGET_MODES\)/);
   const routeStart = coreTools.indexOf("server.registerTool('worker_route_plan'");
   const routeEnd = coreTools.indexOf("server.registerTool('worker_provider_list'", routeStart);
@@ -81,6 +93,8 @@ test('v0.42 generalizes three-target execution policy on Action Schema v18 and E
   assert.match(views, /security-primary-grid/);
   assert.match(views, /security-admin-section/);
   assert.match(views, /Show command hash/);
+  assert.match(views, /Multi-agent objective flow/);
+  assert.match(views, /work_objective_execute_wave/);
 });
 
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
@@ -222,7 +236,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v18 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v19 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -230,7 +244,7 @@ test('current runtime retains Work Session routing under Action Schema v18 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 18;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 19;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

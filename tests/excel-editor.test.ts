@@ -53,6 +53,10 @@ test('Excel editor clears value/formula content without deleting cell style', ()
 
 test('Excel editor rejects unknown sheets, external-workbook formulas and non-rectangular ranges', () => {
   assert.throws(() => editExcelXlsx(fixture(), [{ type: 'set_cell_value', sheet: 'Missing', cell: 'A1', value: 1 }]), /EXCEL_SHEET_NOT_FOUND/);
-  assert.throws(() => editExcelXlsx(fixture(), [{ type: 'set_cell_formula', sheet: 'Data', cell: 'A1', formula: "'[Other.xlsx]Sheet1'!A1" }]), /EXCEL_EXTERNAL_FORMULA_BLOCKED/);
+  assert.throws(() => editExcelXlsx(fixture(), [{ type: 'set_cell_formula', sheet: 'Data', cell: 'A1', formula: "'[Other.xlsx]Sheet1'!A1" }]), /EXCEL_FORMULA_SIDE_EFFECT_BLOCKED/);
+  assert.throws(() => editExcelXlsx(fixture(), [{ type: 'set_cell_formula', sheet: 'Data', cell: 'A1', formula: 'WEBSERVICE("https://example.com")' }]), /external-data-function:WEBSERVICE/);
+  assert.throws(() => editExcelXlsx(fixture(), [{ type: 'set_cell_formula', sheet: 'Data', cell: 'A1', formula: 'RTD("server.prog",,"topic")' }]), /external-data-function:RTD/);
+  const structured = editExcelXlsx(fixture(), [{ type: 'set_cell_formula', sheet: 'Data', cell: 'A1', formula: 'SUM(Table1[Amount])' }]);
+  assert.equal(inspectExcelWorkbook({ canonicalPath: 'book.xlsx', bytes: structured.bytes }).sheets[0]?.cells.find(item => item.address === 'A1')?.formula, 'SUM(Table1[Amount])');
   assert.throws(() => editExcelXlsx(fixture(), [{ type: 'set_range_values', sheet: 'Data', topLeft: 'A1', values: [[1, 2], [3]] }]), /rectangular/);
 });

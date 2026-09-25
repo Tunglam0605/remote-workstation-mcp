@@ -362,7 +362,7 @@ export class DebugSessionManager {
     safeExpression(expression);
     const flag = access === 'read' ? '-r ' : access === 'access' ? '-a ' : '';
     const result = await this.owned(id).gdb.command(`-break-watch ${flag}\"${quoteMi(expression)}\"`);
-    return { number: parseDebugBreakpointNumber(result.payload), expression, access, kind: 'hardware-watchpoint' };
+    return { number: parseDebugBreakpointNumber(result.payload), expression, access, kind: 'watchpoint', hardwareGuaranteed: access === 'read' || access === 'access' };
   }
 
   async removeWatchpoint(id: string, number: number) {

@@ -2,6 +2,8 @@ param([Parameter(Mandatory=$true)][string]$InputPath)
 $ErrorActionPreference = 'Stop'
 $powerPoint = $null
 $presentation = $null
+$oldAutomationSecurity = $null
+$automationSecurityChanged = $false
 $release = { param($obj) if ($null -ne $obj) { try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($obj) } catch {} } }
 try {
   $request = Get-Content -LiteralPath $InputPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -10,9 +12,17 @@ try {
   $outputPdfPath = [System.IO.Path]::GetFullPath([string]$request.outputPdfPath)
   $powerPoint = New-Object -ComObject PowerPoint.Application
   try { $powerPoint.DisplayAlerts = 1 } catch {} # ppAlertsNone
-  try { $powerPoint.AutomationSecurity = 3 } catch {} # msoAutomationSecurityForceDisable
+  try {
+    $oldAutomationSecurity = $powerPoint.AutomationSecurity
+    $powerPoint.AutomationSecurity = 3 # msoAutomationSecurityForceDisable
+    $automationSecurityChanged = $true
+  } catch {}
   # Presentations.Open(FileName, ReadOnly=-1, Untitled=0, WithWindow=0)
-  $presentation = $powerPoint.Presentations.Open($presentationPath, -1, 0, 0)
+  try {
+    $presentation = $powerPoint.Presentations.Open($presentationPath, -1, 0, 0)
+  } finally {
+    if ($automationSecurityChanged) { try { $powerPoint.AutomationSecurity = $oldAutomationSecurity } catch {} ; $automationSecurityChanged = $false }
+  }
   $slideCount = [int]$presentation.Slides.Count
   $shapeCount = 0
   foreach ($slide in @($presentation.Slides)) {
@@ -35,6 +45,7 @@ try {
   [pscustomobject]@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
   exit 2
 } finally {
+  if ($automationSecurityChanged -and $null -ne $powerPoint) { try { $powerPoint.AutomationSecurity = $oldAutomationSecurity } catch {} }
   if ($null -ne $presentation) { try { $presentation.Close() } catch {} }
   & $release $presentation
   if ($null -ne $powerPoint) { try { $powerPoint.Quit() } catch {} }

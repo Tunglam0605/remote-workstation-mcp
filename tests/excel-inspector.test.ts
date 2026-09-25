@@ -79,3 +79,17 @@ test('Excel inspector truncates returned cells while retaining total cell and fo
   assert.equal(result.sheets[0]?.formulaCount, 1);
   assert.equal(result.sheets[0]?.cellsTruncated, true);
 });
+
+
+test('Excel inspector reports risky formula candidates even when returned cells are truncated', () => {
+  const bytes = workbook({
+    'xl/worksheets/sheet1.xml': xml(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:C1"/><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>WEBSERVICE("https://example.com")</f><v>0</v></c><c r="C1"><f>SUM(A1,1)</f><v>2</v></c></row></sheetData></worksheet>`)
+  });
+  const result = inspectExcelWorkbook({ canonicalPath: 'book.xlsx', bytes, maxCellsPerSheet: 1 });
+  assert.equal(result.sheets[0]?.cells.length, 1);
+  assert.equal(result.sheets[0]?.formulaCount, 2);
+  assert.equal(result.sheets[0]?.riskyFormulaCount, 1);
+  assert.equal(result.security.riskyFormulaCount, 1);
+  assert.equal(result.security.riskyFormulaExamples[0]?.address, 'B1');
+  assert.equal(result.security.riskyFormulaExamples[0]?.findings[0]?.token, 'WEBSERVICE');
+});

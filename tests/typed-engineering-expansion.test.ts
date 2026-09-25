@@ -635,8 +635,53 @@ test('KiCad fabrication export gates on ERC/DRC and emits isolated SHA-256 manif
     assert.equal(await fs.readFile(schematic, 'utf8'), schematicBefore);
     assert.equal(calls.flat().includes('--save-board'), false);
     assert.equal(calls.flat().includes('--refill-zones'), false);
+    const drcCall = calls.find(args => args.includes('drc'));
+    assert.ok(drcCall?.includes('--schematic-parity'), 'fabrication validation must request board/schematic parity when both source files exist');
     await assert.rejects(() => adapter.fabricationExport('w', '.', files, 'out/fab-v1'), /already exists/);
     await assert.rejects(() => adapter.fabricationExport('w', '.', files, '../escape'), /project-relative|escape/);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('KiCad fabrication export blocks active unconnected and schematic-parity findings before creating outputs', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-fabrication-parity-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin, 'kicad-cli');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  await fs.writeFile(path.join(root, 'robot.kicad_pcb'), '(kicad_pcb source)');
+  await fs.writeFile(path.join(root, 'robot.kicad_sch'), '(kicad_sch source)');
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      const outputIndex = args.indexOf('--output');
+      const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
+      if (args.includes('drc')) {
+        await fs.writeFile(output!, JSON.stringify({
+          violations: [],
+          unconnected_items: [{ severity: 'warning', excluded: false, description: 'U1 pad is unconnected' }],
+          schematic_parity: [{ severity: 'warning', excluded: false, description: 'R1 differs from schematic' }],
+          ignored_checks: []
+        }));
+      } else if (args.includes('erc')) {
+        await fs.writeFile(output!, JSON.stringify({ sheets: [{ path: '/', violations: [] }] }));
+      }
+      return command(program, args, cwd);
+    }
+  };
+  try {
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new KicadAdapter(engine, new PathGuard(engine), runner as never);
+    await assert.rejects(
+      () => adapter.fabricationExport('w', '.', { schematic: 'robot.kicad_sch', board: 'robot.kicad_pcb', jobsets: [] }, 'out/fab-parity'),
+      /unconnected=1.*schematicParity=1/
+    );
+    assert.ok(calls.find(args => args.includes('drc'))?.includes('--schematic-parity'));
+    await assert.rejects(fs.stat(path.join(root, 'out', 'fab-parity')), /ENOENT/);
+    assert.equal(calls.some(args => args.includes('gerbers') || args.includes('drill') || args.includes('bom')), false);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

@@ -2,6 +2,19 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.44.1 - Vendor Reference Hardening
+
+- audit existing STM32/OpenOCD/GDB, ROS 2, KiCad and Microsoft Office/Open XML tooling against official vendor documentation and upstream repositories;
+- remove redundant OpenOCD double verification by using the upstream `program ... verify reset exit` helper for flash/deploy while retaining standalone verify;
+- report GDB watchpoints truthfully instead of claiming every default write watchpoint is hardware-backed;
+- attach subscriber-observed measurement semantics and QoS/host-load caveats to ROS 2 topic Hz/bandwidth results;
+- request KiCad schematic parity whenever board and schematic are validated together and block fabrication on active errors, unconnected items or parity findings;
+- harden Excel formula mutation/native acceptance against external workbook references, DDE, external-data/link functions and native-code functions while preserving valid structured references;
+- scope Excel and PowerPoint `AutomationSecurity` to the programmatic Open call and restore it immediately afterwards;
+- preserve simple PowerPoint paragraph/run formatting in-place and fail closed on mixed runs, hyperlinks, fields, breaks or paragraph-count changes rather than flattening formatting;
+- keep Action Schema at 20 and Engineering API at 5 because this is a correctness/safety patch with no new public action/input contract;
+- record the evidence and deferred follow-ups in `docs/audits/PROFESSIONAL_TOOLING_VENDOR_AUDIT.md`.
+
 ## v0.44.0 - Professional Tooling Expansion
 
 - expand STM32/embedded diagnostics with `firmware_memory_report`, halted-frame `debug_locals`, bounded `debug_disassemble`, and safe-expression hardware watchpoint add/remove while retaining no arbitrary GDB command or memory-write surface;

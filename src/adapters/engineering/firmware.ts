@@ -601,7 +601,7 @@ export class FirmwareAdapter {
       '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(probeSerial ? ['-c', `adapter serial ${probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
-      '-c', 'init', '-c', 'reset halt', '-c', `program {${tclArtifact}} verify`, '-c', 'reset run', '-c', 'shutdown'
+      '-c', `program {${tclArtifact}} verify reset exit`
     ];
     return {
       provider: 'openocd', family: project.family, target: project.target, artifact: artifactAbsolute,
@@ -723,19 +723,14 @@ export class FirmwareAdapter {
       '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', plan.targetConfig,
       ...(plan.probeSerial ? ['-c', `adapter serial ${plan.probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(plan.adapterSpeedKhz),
-      '-c', 'init',
-      '-c', 'reset halt',
-      '-c', `program {${normalizedOpenOcdPath(plan.artifact)}} verify`,
-      '-c', `verify_image {${normalizedOpenOcdPath(plan.artifact)}}`,
-      '-c', 'reset run',
-      '-c', 'shutdown'
+      '-c', `program {${normalizedOpenOcdPath(plan.artifact)}} verify reset exit`
     ];
     const transactionPlan: FirmwareFlashPlan = {
       ...plan,
       args,
       notes: [
         ...plan.notes,
-        'Flash, independent verify and reset execute inside one ST-Link lease and one OpenOCD process.'
+        'OpenOCD program helper performs flash, verify, reset and exit once inside one ST-Link lease, matching the upstream programming contract.'
       ]
     };
     const cwd = await this.paths.resolveExisting(options.workspace, options.projectPath ?? '.');

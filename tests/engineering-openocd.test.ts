@@ -169,9 +169,11 @@ test('STM32 flash plan emits bounded adapter speed before target init', async ()
     const firmware = new FirmwareAdapter(policy, paths, runner as never, new EngineeringResourceManager('owner'), hardware as never);
     const plan = await firmware.flashPlan({ workspace: 'w', projectPath: 'project', artifact: 'build/app.elf', provider: 'openocd', probeSerial: 'SN1', adapterSpeedKhz: 4000 });
     const speedIndex = plan.args.indexOf('adapter speed 4000');
-    const initIndex = plan.args.indexOf('init');
+    const programIndex = plan.args.findIndex(arg => arg.startsWith('program {') && arg.endsWith('} verify reset exit'));
     assert.ok(speedIndex > 0);
-    assert.ok(initIndex > speedIndex);
+    assert.ok(programIndex > speedIndex);
+    assert.equal(plan.args.includes('init'), false);
+    assert.equal(plan.args.some(arg => arg.startsWith('verify_image {')), false);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });
@@ -398,14 +400,12 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
     assert.ok(result.plan.args.includes('adapter serial SN1'));
     assert.ok(result.plan.args.includes('adapter speed 4000'));
 
-    const programIndex = result.plan.args.findIndex(arg => arg.startsWith('program {') && arg.endsWith('} verify'));
-    const verifyIndex = result.plan.args.findIndex(arg => arg.startsWith('verify_image {'));
-    const resetIndex = result.plan.args.indexOf('reset run');
-    const shutdownIndex = result.plan.args.indexOf('shutdown');
-    assert.ok(programIndex > 0);
-    assert.ok(verifyIndex > programIndex);
-    assert.ok(resetIndex > verifyIndex);
-    assert.ok(shutdownIndex > resetIndex);
+    const programArgs = result.plan.args.filter(arg => arg.startsWith('program {'));
+    assert.equal(programArgs.length, 1);
+    assert.match(programArgs[0]!, /^program \{.+\} verify reset exit$/);
+    assert.equal(result.plan.args.some(arg => arg.startsWith('verify_image {')), false, 'program ... verify already performs verification');
+    assert.equal(result.plan.args.includes('reset run'), false, 'program ... reset owns the reset stage');
+    assert.equal(result.plan.args.includes('shutdown'), false, 'program ... exit owns OpenOCD termination');
   } finally {
     process.env.PATH = oldPath;
     if (oldScripts === undefined) delete process.env.RWMCP_OPENOCD_SCRIPTS;

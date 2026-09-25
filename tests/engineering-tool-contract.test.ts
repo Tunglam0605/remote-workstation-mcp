@@ -36,7 +36,7 @@ test('v0.44 expands professional engineering and Office tooling on Action Schema
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 20;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.44\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.44\.1';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -158,6 +158,16 @@ test('v0.44 KiCad professional tools expose typed temporary diagnostics without 
   assert.match(kicad, /'Reference,Value,Footprint,QUANTITY,DNP'/);
   assert.doesNotMatch(engineeringTools, /kicad_script|kicad_plugin|python-bom/);
   assert.match(capabilities, /arbitrary BOM plugins\/scripts/);
+});
+
+test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {
+  const debug = await read('src/adapters/engineering/debug-session.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+  assert.match(debug, /kind: 'watchpoint', hardwareGuaranteed: access === 'read' \|\| access === 'access'/);
+  assert.doesNotMatch(debug, /kind: 'hardware-watchpoint'/);
+  assert.match(firmware, /program \{\$\{tclArtifact\}\} verify reset exit/);
+  const deploy = firmware.slice(firmware.indexOf('async deployVerifyReset'), firmware.indexOf('async flash(', firmware.indexOf('async deployVerifyReset')));
+  assert.doesNotMatch(deploy, /verify_image/);
 });
 
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {

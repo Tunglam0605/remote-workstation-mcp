@@ -301,14 +301,22 @@ export class Ros2Adapter {
     const name = validateRosName(topic, 'topic');
     if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 hz window must be in range 2..10000.');
     const result = await this.sample(workspace, cwd, ['topic', 'hz', name, '--window', String(window)], timeoutMs, runtime);
-    return { topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicHz(result.stdout) };
+    return {
+      topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicHz(result.stdout),
+      measurementSemantics: 'subscription-receive-rate' as const,
+      caveats: ['affected-by-qos', 'affected-by-host-load', 'not-publisher-clock-truth'] as const
+    };
   }
 
   async topicBandwidth(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
     const name = validateRosName(topic, 'topic');
     if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 bandwidth window must be in range 2..10000.');
     const result = await this.sample(workspace, cwd, ['topic', 'bw', name, '--window', String(window)], timeoutMs, runtime);
-    return { topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicBandwidth(result.stdout) };
+    return {
+      topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicBandwidth(result.stdout),
+      measurementSemantics: 'subscription-receive-bandwidth' as const,
+      caveats: ['affected-by-qos', 'affected-by-host-load', 'subscriber-observation-not-link-capacity'] as const
+    };
   }
 
   async tfLookup(workspace: string, sourceFrame: string, targetFrame: string, cwd = '.', timeoutMs = 4_000, runtime?: Ros2RuntimeContext) {

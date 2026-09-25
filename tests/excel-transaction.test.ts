@@ -66,6 +66,25 @@ test('Excel transaction rejects stale SHA and unsafe active/external content bef
   await assert.rejects(fs.stat(unsafe.stateRoot), /ENOENT/);
 });
 
+test('native Excel acceptance is blocked before COM when an existing formula can perform external side effects', async t => {
+  const fixture = await tempWorkbook({
+    'xl/worksheets/sheet1.xml': xml(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:B1"/><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>WEBSERVICE("https://example.com")</f><v>0</v></c></row></sheetData></worksheet>`)
+  });
+  t.after(async () => fs.rm(fixture.dir, { recursive: true, force: true }));
+  let nativeCalls = 0;
+  await assert.rejects(transactionalExcelEdit({
+    canonicalPath: fixture.file,
+    principalId: OWNER,
+    workSessionId: SESSION,
+    stateRoot: fixture.stateRoot,
+    nativeAdapter: { supported: () => true, validateAndRender: async () => { nativeCalls += 1; return { ok: true }; } },
+    operations: [{ type: 'set_cell_value', sheet: 'Data', cell: 'A1', value: 2 }],
+    acceptance: { nativeExcel: true, recalculate: true }
+  }), /EXCEL_NATIVE_RECALC_BLOCKED/);
+  assert.equal(nativeCalls, 0);
+  assert.equal(sha256Bytes(await fs.readFile(fixture.file)), sha256Bytes(fixture.original));
+});
+
 test('Excel rollback is Work Session owned and refuses to overwrite newer edits', async t => {
   const fixture = await tempWorkbook(); t.after(async () => fs.rm(fixture.dir, { recursive: true, force: true }));
   const applied = await transactionalExcelEdit({ canonicalPath: fixture.file, principalId: OWNER, workSessionId: SESSION, stateRoot: fixture.stateRoot, operations: [{ type: 'set_cell_value', sheet: 'Data', cell: 'A1', value: 2 }], acceptance: { nativeExcel: false } });

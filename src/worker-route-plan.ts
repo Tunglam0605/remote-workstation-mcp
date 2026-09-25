@@ -1,5 +1,11 @@
 import type { ExecutionPolicyStatus } from './execution-policy.js';
-import type { SetupSettings, WorkerRoutingProfile } from './setup/settings.js';
+import {
+  executionTargetsForMode,
+  type ExecutionTargetId,
+  type ExecutionTargetMode,
+  type SetupSettings,
+  type WorkerRoutingProfile
+} from './setup/settings.js';
 import type { WorkerProviderStatus } from './worker-provider.js';
 
 export const WORKER_ROUTING_INTENTS = [
@@ -13,7 +19,7 @@ export const WORKER_ROUTING_INTENTS = [
 ] as const;
 
 export type WorkerRoutingIntent = typeof WORKER_ROUTING_INTENTS[number];
-export type WorkerRouteTarget = 'rwmcp-direct' | 'codex-local' | 'antigravity-local' | 'stop';
+export type WorkerRouteTarget = ExecutionTargetId | 'stop';
 
 export interface WorkerRouteCandidate {
   target: WorkerRouteTarget;
@@ -23,9 +29,11 @@ export interface WorkerRouteCandidate {
 
 export interface WorkerRoutePlan {
   profile: WorkerRoutingProfile;
+  targetMode: ExecutionTargetMode;
   intent: WorkerRoutingIntent;
   selected: WorkerRouteTarget;
   canDispatchWorker: boolean;
+  affinityOrder: ExecutionTargetId[];
   fallbackChain: WorkerRouteTarget[];
   candidates: WorkerRouteCandidate[];
   effectiveMode: ExecutionPolicyStatus['effectiveMode'];
@@ -39,14 +47,32 @@ function providerReady(providers: WorkerProviderStatus[], id: 'codex-local' | 'a
   return Boolean(status && status.availability === 'available' && status.dispatchCapable);
 }
 
-function uniqueTargets(values: WorkerRouteTarget[]): WorkerRouteTarget[] {
-  return [...new Set(values)];
-}
-
 function codexBudgetAvailable(status: ExecutionPolicyStatus): boolean {
   if (status.maxCodexTasksPerDay > 0 && status.codexTasksToday >= status.maxCodexTasksPerDay) return false;
   if (status.maxCodexTasksPerSession > 0 && status.codexTasksThisSession >= status.maxCodexTasksPerSession) return false;
   return true;
+}
+
+export function affinityOrderForIntent(intent: WorkerRoutingIntent): ExecutionTargetId[] {
+  if (intent === 'frontend-ui') return ['antigravity-local', 'codex-local', 'rwmcp-direct'];
+  if (intent === 'coding' || intent === 'review' || intent === 'debug') {
+    return ['codex-local', 'antigravity-local', 'rwmcp-direct'];
+  }
+  return ['rwmcp-direct', 'codex-local', 'antigravity-local'];
+}
+
+function policyAllowsTarget(status: ExecutionPolicyStatus, target: ExecutionTargetId): boolean {
+  if (status.fallbackActive) return target === 'rwmcp-direct';
+  if (status.effectiveMode === 'rwmcp-only') return target === 'rwmcp-direct';
+  if (status.effectiveMode === 'codex-only') return target === 'codex-local';
+  return true;
+}
+
+export function allowedExecutionTargets(
+  settings: SetupSettings['execution'],
+  status: ExecutionPolicyStatus
+): ExecutionTargetId[] {
+  return executionTargetsForMode(settings.targetMode).filter(target => policyAllowsTarget(status, target));
 }
 
 export function planWorkerRoute(input: {
@@ -57,62 +83,44 @@ export function planWorkerRoute(input: {
 }): WorkerRoutePlan {
   const { settings, status, providers, intent } = input;
   const profile = settings.workerRoutingProfile;
-  const directIntent = intent === 'read' || intent === 'workstation';
-  const codexAllowed = status.effectiveMode !== 'rwmcp-only';
-  const antigravityAllowed = status.effectiveMode === 'both';
-  const codexReady = settings.codexEnabled && codexAllowed && !status.fallbackActive &&
+  const targetMode = settings.targetMode;
+  const affinityOrder = affinityOrderForIntent(intent);
+  const allowed = new Set(allowedExecutionTargets(settings, status));
+  const desired = affinityOrder.filter(target => allowed.has(target));
+  const fallbackChain: WorkerRouteTarget[] = desired.length > 0 ? desired : ['stop'];
+
+  const codexReady = settings.codexEnabled && allowed.has('codex-local') &&
     codexBudgetAvailable(status) && providerReady(providers, 'codex-local');
-  const antigravityReady = settings.antigravityEnabled && antigravityAllowed &&
+  const antigravityReady = settings.antigravityEnabled && allowed.has('antigravity-local') &&
     providerReady(providers, 'antigravity-local');
-  const fallback = settings.codexFallback === 'rwmcp-only' ? 'rwmcp-direct' as const : 'stop' as const;
 
-  let desired: WorkerRouteTarget[];
-  if (directIntent || profile === 'direct') {
-    desired = ['rwmcp-direct'];
-  } else if (profile === 'codex-assisted') {
-    desired = ['codex-local', fallback];
-  } else if (profile === 'smart') {
-    desired = intent === 'frontend-ui'
-      ? ['antigravity-local', 'codex-local', fallback]
-      : ['codex-local', 'antigravity-local', fallback];
-  } else if (status.effectiveMode === 'rwmcp-only') {
-    desired = ['rwmcp-direct'];
-  } else if (status.effectiveMode === 'codex-only') {
-    desired = ['codex-local', fallback];
-  } else if (intent === 'frontend-ui' && settings.antigravityEnabled) {
-    desired = ['antigravity-local', 'codex-local', fallback];
-  } else if (status.effectiveMode === 'both' && settings.antigravityEnabled) {
-    desired = ['codex-local', 'antigravity-local', fallback];
-  } else {
-    desired = ['codex-local', fallback];
-  }
-
-  const fallbackChain = uniqueTargets(desired);
   const candidates: WorkerRouteCandidate[] = fallbackChain.map(target => {
     if (target === 'rwmcp-direct') {
-      return { target, ready: true, reason: 'Direct RWMCP is available under the authenticated workstation policy.' };
+      return {
+        target,
+        ready: true,
+        reason: 'Direct RWMCP is an allowed peer execution target under the authenticated workstation policy.'
+      };
     }
     if (target === 'stop') {
-      return { target, ready: true, reason: 'Owner policy requires stopping instead of direct RWMCP fallback.' };
+      return { target, ready: true, reason: 'No execution target remains allowed by both owner target-set policy and the Work Session safety ceiling.' };
     }
     if (target === 'codex-local') {
       const reason = !settings.codexEnabled
         ? 'Codex is disabled by the local owner.'
-        : !codexAllowed
-          ? 'The effective Work Session execution mode blocks Codex dispatch.'
-          : status.fallbackActive
-            ? 'Codex dispatch is blocked by the active fallback latch.'
-            : !codexBudgetAvailable(status)
-              ? 'The configured Codex task budget is exhausted.'
-              : providerReady(providers, 'codex-local')
-                ? 'Codex is ready for bounded Work Session dispatch.'
-                : 'Codex is unavailable or not dispatch-capable.';
+        : !allowed.has('codex-local')
+          ? 'Codex is excluded by the target set or effective Work Session safety ceiling.'
+          : !codexBudgetAvailable(status)
+            ? 'The configured Codex task budget is exhausted.'
+            : providerReady(providers, 'codex-local')
+              ? 'Codex is ready for bounded Work Session dispatch.'
+              : 'Codex is unavailable or not dispatch-capable.';
       return { target, ready: codexReady, reason };
     }
     const reason = !settings.antigravityEnabled
       ? 'Antigravity is disabled by the local owner.'
-      : !antigravityAllowed
-        ? 'The effective Work Session execution mode does not allow the Antigravity route.'
+      : !allowed.has('antigravity-local')
+        ? 'Antigravity is excluded by the target set or effective Work Session safety ceiling.'
         : providerReady(providers, 'antigravity-local')
           ? 'Antigravity is ready for sandboxed Work Session dispatch.'
           : 'Antigravity is unavailable or not dispatch-capable.';
@@ -125,20 +133,22 @@ export function planWorkerRoute(input: {
 
   return {
     profile,
+    targetMode,
     intent,
     selected,
     canDispatchWorker: selected === 'codex-local' || selected === 'antigravity-local',
+    affinityOrder,
     fallbackChain,
     candidates,
     effectiveMode: status.effectiveMode,
     source: status.source,
     advisory: true,
     note: selected === 'antigravity-local'
-      ? 'Antigravity is the preferred general-purpose worker for frontend/UI affinity. Capacity or availability failures may fall through to Codex, but permissions are never widened automatically.'
+      ? 'Antigravity is preferred by this task affinity, not by a hard capability lock. Other allowed targets remain valid fallbacks without widening permissions.'
       : selected === 'codex-local'
-        ? 'Codex is the preferred general-purpose worker for coding/backend/engineering affinity. Capacity or availability failures may fall through to Antigravity while ChatGPT retains planning and acceptance authority.'
+        ? 'Codex is preferred by this task affinity, not by a hard capability lock. Other allowed targets remain valid fallbacks while ChatGPT retains planning and acceptance authority.'
         : selected === 'rwmcp-direct'
-          ? 'Use RWMCP directly; no AI worker provider should be dispatched for this task.'
-          : 'Stop and surface the owner-policy blocker instead of dispatching a worker.'
+          ? 'RWMCP direct is the preferred deterministic peer target for this affinity; AI workers remain alternates when the owner target set allows them.'
+          : 'Stop and surface the owner/session policy blocker instead of dispatching an unapproved target.'
   };
 }

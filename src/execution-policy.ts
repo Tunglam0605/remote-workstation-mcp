@@ -190,7 +190,7 @@ export class ExecutionPolicyService {
       effectiveMode = 'rwmcp-only';
       source = 'fallback-latch';
     }
-    if (!settings.execution.codexEnabled && effectiveMode !== 'rwmcp-only') {
+    if (!settings.execution.codexEnabled && effectiveMode === 'codex-only') {
       effectiveMode = 'rwmcp-only';
       source = 'owner-default';
     }

@@ -6,6 +6,7 @@ import type { WorkerProviderRegistry, WorkerDispatchResult } from './worker-prov
 import type { WorkSessionStore } from './work-session.js';
 import type { WorktreeManager, WorktreeState } from './worktree-manager.js';
 import { isWorkerCapacitySignal, type ExecutionPolicyService } from './execution-policy.js';
+import { executionTargetsForMode, inferExecutionTargetMode, type ExecutionTargetId } from './setup/settings.js';
 import type { DesktopNotificationService } from './desktop-notification.js';
 
 class TaskWorkflowOutcomeError extends Error {
@@ -43,6 +44,7 @@ function attemptStatus(error: unknown): Exclude<TaskAttemptStatus, 'running'> {
 }
 
 type AiWorkerProviderId = 'codex-local' | 'antigravity-local';
+type UnifiedExecutionTargetId = ExecutionTargetId;
 
 function aiWorkerProvider(value: string): value is AiWorkerProviderId {
   return value === 'codex-local' || value === 'antigravity-local';
@@ -167,25 +169,49 @@ export class TaskWorkflowExecutionService {
     }
   }
 
-  private async workerProviderChain(
+  private async workerTargetChain(
     preferredProviderId: string,
     workSessionId: string
   ): Promise<string[]> {
-    if (!aiWorkerProvider(preferredProviderId) || !this.executionPolicy || !this.workerProviders) {
-      return [preferredProviderId];
-    }
+    const unified = preferredProviderId === 'rwmcp-direct' || aiWorkerProvider(preferredProviderId);
+    if (!unified || !this.executionPolicy || !this.workerProviders) return [preferredProviderId];
+
     const [settings, status] = await Promise.all([
       this.executionPolicy.settings(),
       this.executionPolicy.status(workSessionId)
     ]);
-    if (status.effectiveMode !== 'both' || status.fallbackActive) return [preferredProviderId];
+    const targetMode = settings.execution.targetMode ?? inferExecutionTargetMode(settings.execution as unknown as Record<string, unknown>);
+    let allowed = executionTargetsForMode(targetMode);
+    if (status.fallbackActive || status.effectiveMode === 'rwmcp-only') {
+      allowed = allowed.filter(target => target === 'rwmcp-direct');
+    } else if (status.effectiveMode === 'codex-only') {
+      allowed = allowed.filter(target => target === 'codex-local');
+    }
 
-    const alternate = alternateAiWorker(preferredProviderId);
-    const alternateEnabled = alternate === 'codex-local'
-      ? settings.execution.codexEnabled
-      : settings.execution.antigravityEnabled;
-    if (!alternateEnabled || !this.workerProviders.descriptor(alternate)) return [preferredProviderId];
-    return [preferredProviderId, alternate];
+    const preference: UnifiedExecutionTargetId[] = preferredProviderId === 'antigravity-local'
+      ? ['antigravity-local', 'codex-local', 'rwmcp-direct']
+      : preferredProviderId === 'codex-local'
+        ? ['codex-local', 'antigravity-local', 'rwmcp-direct']
+        : ['rwmcp-direct', 'codex-local', 'antigravity-local'];
+
+    return preference.filter(target => {
+      if (!allowed.includes(target)) return false;
+      if (target === 'rwmcp-direct') return true;
+      if (target === 'codex-local') return settings.execution.codexEnabled !== false && Boolean(this.workerProviders!.descriptor(target));
+      return settings.execution.antigravityEnabled !== false && Boolean(this.workerProviders!.descriptor(target));
+    });
+  }
+
+  private async safeToCrossFallback(providerId: string, workSessionId: string): Promise<boolean> {
+    const descriptor = this.workerProviders?.descriptor(providerId);
+    if (!descriptor?.worktreeAssignment) return true;
+    if (!this.worktreeManager) return false;
+    try {
+      const state = await this.worktreeManager.status(workSessionId);
+      return state.dirty === false;
+    } catch {
+      return false;
+    }
   }
 
   private async executeWorker(objectiveId: string, task: WorkTask) {
@@ -200,9 +226,13 @@ export class TaskWorkflowExecutionService {
     const objective = await this.taskGraphs.get(objectiveId);
     const session = await this.workSessions.inspect(objective.workSessionId, true);
     const project = session.capsule.project;
-    const providerDescriptor = this.workerProviders.descriptor(binding.providerId);
+    const targetChain = await this.workerTargetChain(binding.providerId, objective.workSessionId);
+    const requiresWorktree = targetChain.some(target => this.workerProviders!.descriptor(target)?.worktreeAssignment === true);
     let liveWorktree: WorktreeState | undefined;
-    if (providerDescriptor?.worktreeAssignment && this.worktreeManager) {
+    if (requiresWorktree && !this.worktreeManager && !project?.worktreePath) {
+      throw new Error('TASK_WAITING_SESSION: WORKER_WORKTREE_REQUIRED.');
+    }
+    if (requiresWorktree && this.worktreeManager) {
       try {
         liveWorktree = await this.worktreeManager.status(objective.workSessionId);
       } catch {
@@ -241,7 +271,7 @@ export class TaskWorkflowExecutionService {
         objectiveId,
         task.id,
         async () => {
-          const providerChain = await this.workerProviderChain(binding.providerId, objective.workSessionId);
+          const providerChain = targetChain;
           const dispatchRequest = {
             version: 1 as const,
             workSessionId: objective.workSessionId,
@@ -261,6 +291,21 @@ export class TaskWorkflowExecutionService {
 
           for (const providerId of providerChain) {
             selectedProviderId = providerId;
+            if (providerId === 'rwmcp-direct') {
+              const hadWorkerAttempt = providerAttempts.some(item => aiWorkerProvider(item.providerId));
+              const summary = hadWorkerAttempt
+                ? `RWMCP_DIRECT_HANDOFF_REQUIRED: WORKER_FALLBACK_ACTIVE: allowed AI targets were exhausted or failed safely; continue this task through direct RWMCP tools. ${compactProviderTrace(providerAttempts)}`
+                : 'RWMCP_DIRECT_HANDOFF_REQUIRED: RWMCP direct is the preferred execution target for this task; continue through typed RWMCP tools.';
+              providerAttempts.push({ providerId, status: 'blocked', summary });
+              if (hadWorkerAttempt && this.executionPolicy) {
+                await this.executionPolicy.activateSessionFallback(
+                  objective.workSessionId,
+                  'workers-exhausted',
+                  compactProviderTrace(providerAttempts)
+                );
+              }
+              throw new WorkerProviderOutcomeError('blocked', providerId, undefined, summary);
+            }
             if (providerId === 'codex-local' && this.executionPolicy) {
               try {
                 await this.executionPolicy.beforeCodexDispatch(objective.workSessionId, { deferFallback: true });
@@ -276,12 +321,15 @@ export class TaskWorkflowExecutionService {
               providerResult = await this.workerProviders!.dispatch(providerId, dispatchRequest);
             } catch (error) {
               const summary = message(error);
-              if (!isWorkerCapacitySignal(summary)) {
-                providerAttempts.push({ providerId, status: 'failed', summary });
-                throw error;
+              if (isWorkerCapacitySignal(summary)) {
+                providerAttempts.push({ providerId, status: 'blocked', summary });
+                continue;
               }
-              providerAttempts.push({ providerId, status: 'blocked', summary });
-              continue;
+              providerAttempts.push({ providerId, status: 'failed', summary });
+              if (aiWorkerProvider(providerId) && await this.safeToCrossFallback(providerId, objective.workSessionId)) {
+                continue;
+              }
+              throw error;
             }
 
             if (providerResult.status === 'succeeded') {
@@ -310,6 +358,10 @@ export class TaskWorkflowExecutionService {
               ...(providerResult.runId ? { providerRunId: providerResult.runId } : {}),
               ...(providerResult.summary ? { summary: providerResult.summary } : {})
             });
+            if (providerResult.status === 'failed' && aiWorkerProvider(providerId) &&
+                await this.safeToCrossFallback(providerId, objective.workSessionId)) {
+              continue;
+            }
             throw new WorkerProviderOutcomeError(
               providerResult.status,
               providerId,
@@ -318,28 +370,12 @@ export class TaskWorkflowExecutionService {
             );
           }
 
-          const trace = compactProviderTrace(providerAttempts) || 'no AI worker route remained usable';
-          if (this.executionPolicy) {
-            const settings = await this.executionPolicy.settings();
-            if (settings.execution.codexFallback === 'rwmcp-only') {
-              await this.executionPolicy.activateSessionFallback(
-                objective.workSessionId,
-                'workers-exhausted',
-                trace
-              );
-              throw new WorkerProviderOutcomeError(
-                'blocked',
-                selectedProviderId,
-                providerResult?.runId,
-                `WORKER_FALLBACK_ACTIVE: all allowed AI workers exhausted capacity or availability; effective Work Session route switched to RWMCP direct. ${trace}`
-              );
-            }
-          }
+          const trace = compactProviderTrace(providerAttempts) || 'no execution target remained usable';
           throw new WorkerProviderOutcomeError(
             'blocked',
             selectedProviderId,
             providerResult?.runId,
-            `WORKER_CAPACITY_EXHAUSTED: all allowed AI workers exhausted capacity or availability; owner fallback policy is stop. ${trace}`
+            `WORKER_TARGETS_EXHAUSTED: every execution target allowed by the owner target set and Work Session safety ceiling was exhausted. ${trace}`
           );
         },
         {

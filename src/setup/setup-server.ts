@@ -41,6 +41,7 @@ import {
 } from './multi-node.js';
 import {
   ensureDefaultPolicy,
+  executionTargetModePreset,
   ensureHostsConfig,
   loadSetupSettings,
   normalizeSetupSettings,
@@ -48,6 +49,7 @@ import {
   setupSecretPath,
   setupConfigDir,
   setupSettingsPath,
+  type ExecutionTargetMode,
   type SetupSettings,
   type WorkerRoutingProfile
 } from './settings.js';
@@ -1287,6 +1289,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           antigravityModel?: string;
           defaultMode?: 'rwmcp-only' | 'codex-only' | 'both';
           workerRoutingProfile?: WorkerRoutingProfile;
+          targetMode?: ExecutionTargetMode;
           allowChatOverride?: boolean;
           codexFallback?: 'rwmcp-only' | 'stop';
           maxCodexTasksPerSession?: number;
@@ -1305,25 +1308,30 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const previousAntigravityModel = current.execution.antigravityModel;
         const previousBroker = current.execution.codexAccountBroker;
         const requestedProfile = body.workerRoutingProfile ?? current.execution.workerRoutingProfile;
-        const preset = requestedProfile === 'direct'
-          ? { workerRoutingProfile: requestedProfile, codexEnabled: false, antigravityEnabled: false, defaultMode: 'rwmcp-only' as const }
+        const legacyTargetMode: ExecutionTargetMode = requestedProfile === 'direct'
+          ? 'rwmcp-only'
           : requestedProfile === 'codex-assisted'
-            ? { workerRoutingProfile: requestedProfile, codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' as const }
+            ? 'rwmcp-codex'
             : requestedProfile === 'smart'
-              ? { workerRoutingProfile: requestedProfile, codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' as const }
-              : { workerRoutingProfile: 'custom' as const };
+              ? 'auto'
+              : current.execution.targetMode;
+        const requestedTargetMode = body.targetMode ?? legacyTargetMode;
+        const legacyCustom = body.targetMode === undefined && body.workerRoutingProfile === 'custom';
+        const preset = legacyCustom
+          ? { workerRoutingProfile: 'custom' as const, targetMode: undefined }
+          : executionTargetModePreset(requestedTargetMode);
         const settings = normalizeSetupSettings({
           ...current,
           execution: {
             ...current.execution,
             ...preset,
-            ...(requestedProfile === 'custom' && typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
+            ...(legacyCustom && typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
             ...(typeof body.codexModel === 'string' ? { codexModel: body.codexModel } : {}),
             ...(typeof body.codexAgentsEnabled === 'boolean' ? { codexAgentsEnabled: body.codexAgentsEnabled } : {}),
             ...(typeof body.codexSkillsEnabled === 'boolean' ? { codexSkillsEnabled: body.codexSkillsEnabled } : {}),
-            ...(requestedProfile === 'custom' && typeof body.antigravityEnabled === 'boolean' ? { antigravityEnabled: body.antigravityEnabled } : {}),
+            ...(legacyCustom && typeof body.antigravityEnabled === 'boolean' ? { antigravityEnabled: body.antigravityEnabled } : {}),
             ...(typeof body.antigravityModel === 'string' ? { antigravityModel: body.antigravityModel } : {}),
-            ...(requestedProfile === 'custom' && body.defaultMode ? { defaultMode: body.defaultMode } : {}),
+            ...(legacyCustom && body.defaultMode ? { defaultMode: body.defaultMode } : {}),
             ...(typeof body.allowChatOverride === 'boolean' ? { allowChatOverride: body.allowChatOverride } : {}),
             ...(body.codexFallback ? { codexFallback: body.codexFallback } : {}),
             ...(body.maxCodexTasksPerSession !== undefined ? { maxCodexTasksPerSession: body.maxCodexTasksPerSession } : {}),
@@ -1348,7 +1356,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           }
         }
         const enablingAntigravity = settings.execution.antigravityEnabled &&
-          (!previousAntigravityEnabled || body.antigravityEnabled === true || body.workerRoutingProfile === 'smart');
+          (!previousAntigravityEnabled || body.antigravityEnabled === true || body.workerRoutingProfile === 'smart' || body.targetMode !== undefined);
         if (enablingAntigravity) {
           const agy = await antigravityCliStatus(repoRoot, false);
           if (!agy.available || !agy.authenticated) {

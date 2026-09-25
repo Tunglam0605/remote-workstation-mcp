@@ -7,6 +7,80 @@ export const SETUP_SETTINGS_VERSION = 1 as const;
 export const DEFAULT_CONTROL_PORT = 8684 as const;
 export type ExecutionMode = 'rwmcp-only' | 'codex-only' | 'both';
 export type WorkerRoutingProfile = 'direct' | 'codex-assisted' | 'smart' | 'custom';
+export const EXECUTION_TARGET_MODES = [
+  'auto',
+  'rwmcp-only',
+  'codex-only',
+  'antigravity-only',
+  'rwmcp-codex',
+  'rwmcp-antigravity',
+  'codex-antigravity',
+  'all-three'
+] as const;
+export type ExecutionTargetMode = typeof EXECUTION_TARGET_MODES[number];
+export type ExecutionTargetId = 'rwmcp-direct' | 'codex-local' | 'antigravity-local';
+
+export function isExecutionTargetMode(value: unknown): value is ExecutionTargetMode {
+  return typeof value === 'string' && (EXECUTION_TARGET_MODES as readonly string[]).includes(value);
+}
+
+export function executionTargetsForMode(mode: ExecutionTargetMode): ExecutionTargetId[] {
+  switch (mode) {
+    case 'rwmcp-only': return ['rwmcp-direct'];
+    case 'codex-only': return ['codex-local'];
+    case 'antigravity-only': return ['antigravity-local'];
+    case 'rwmcp-codex': return ['rwmcp-direct', 'codex-local'];
+    case 'rwmcp-antigravity': return ['rwmcp-direct', 'antigravity-local'];
+    case 'codex-antigravity': return ['codex-local', 'antigravity-local'];
+    case 'auto':
+    case 'all-three':
+      return ['rwmcp-direct', 'codex-local', 'antigravity-local'];
+  }
+}
+
+export function executionTargetModePreset(mode: ExecutionTargetMode): {
+  targetMode: ExecutionTargetMode;
+  workerRoutingProfile: WorkerRoutingProfile;
+  codexEnabled: boolean;
+  antigravityEnabled: boolean;
+  defaultMode: ExecutionMode;
+} {
+  switch (mode) {
+    case 'rwmcp-only':
+      return { targetMode: mode, workerRoutingProfile: 'direct', codexEnabled: false, antigravityEnabled: false, defaultMode: 'rwmcp-only' };
+    case 'codex-only':
+      return { targetMode: mode, workerRoutingProfile: 'codex-assisted', codexEnabled: true, antigravityEnabled: false, defaultMode: 'codex-only' };
+    case 'antigravity-only':
+      return { targetMode: mode, workerRoutingProfile: 'custom', codexEnabled: false, antigravityEnabled: true, defaultMode: 'both' };
+    case 'rwmcp-codex':
+      return { targetMode: mode, workerRoutingProfile: 'codex-assisted', codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' };
+    case 'rwmcp-antigravity':
+      return { targetMode: mode, workerRoutingProfile: 'custom', codexEnabled: false, antigravityEnabled: true, defaultMode: 'both' };
+    case 'codex-antigravity':
+      return { targetMode: mode, workerRoutingProfile: 'custom', codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' };
+    case 'auto':
+    case 'all-three':
+      return { targetMode: mode, workerRoutingProfile: 'smart', codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' };
+  }
+}
+
+export function inferExecutionTargetMode(execution: Record<string, unknown> | undefined): ExecutionTargetMode {
+  if (isExecutionTargetMode(execution?.targetMode)) return execution.targetMode;
+
+  const profile = execution?.workerRoutingProfile;
+  const mode = execution?.defaultMode;
+  const codexEnabled = execution?.codexEnabled === true;
+  const antigravityEnabled = execution?.antigravityEnabled === true;
+
+  if (profile === 'direct' || mode === 'rwmcp-only') return 'rwmcp-only';
+  if (profile === 'smart' && codexEnabled && antigravityEnabled) return 'auto';
+  if (mode === 'codex-only') return 'codex-only';
+  if (profile === 'codex-assisted' && codexEnabled) return 'rwmcp-codex';
+  if (codexEnabled && antigravityEnabled) return 'auto';
+  if (codexEnabled) return 'rwmcp-codex';
+  if (antigravityEnabled) return 'rwmcp-antigravity';
+  return 'rwmcp-only';
+}
 
 export function inferWorkerRoutingProfile(execution: Record<string, unknown> | undefined): WorkerRoutingProfile {
   const configured = execution?.workerRoutingProfile;
@@ -16,9 +90,9 @@ export function inferWorkerRoutingProfile(execution: Record<string, unknown> | u
   const mode = execution?.defaultMode;
   const codexEnabled = execution?.codexEnabled;
   const antigravityEnabled = execution?.antigravityEnabled;
-  if (mode === 'rwmcp-only' || codexEnabled === false) return 'direct';
+  if (mode === 'rwmcp-only' || (codexEnabled === false && antigravityEnabled !== true)) return 'direct';
   if (codexEnabled === true && antigravityEnabled === true && mode === 'both') return 'smart';
-  if (codexEnabled === true && (mode === 'both' || mode === 'codex-only')) return 'codex-assisted';
+  if (codexEnabled === true && antigravityEnabled !== true && (mode === 'both' || mode === 'codex-only')) return 'codex-assisted';
   return 'custom';
 }
 
@@ -43,6 +117,7 @@ export const executionSettingsSchema = z.object({
   antigravityModel: z.string().trim().max(128).default(''),
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
   workerRoutingProfile: z.enum(['direct', 'codex-assisted', 'smart', 'custom']).default('direct'),
+  targetMode: z.enum(EXECUTION_TARGET_MODES).default('rwmcp-only'),
   allowChatOverride: z.boolean().default(true),
   codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
   maxCodexTasksPerSession: z.number().int().min(0).max(10000).default(0),
@@ -82,6 +157,7 @@ export const setupSettingsSchema = z.object({
     antigravityModel: '',
     defaultMode: 'rwmcp-only',
     workerRoutingProfile: 'direct',
+    targetMode: 'rwmcp-only',
     allowChatOverride: true,
     codexFallback: 'rwmcp-only',
     maxCodexTasksPerSession: 0,
@@ -147,7 +223,8 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     httpScopes: migratedScopes,
     execution: raw.execution && typeof raw.execution === 'object' ? {
       ...raw.execution,
-      workerRoutingProfile: inferWorkerRoutingProfile(raw.execution as Record<string, unknown>)
+      workerRoutingProfile: inferWorkerRoutingProfile(raw.execution as Record<string, unknown>),
+      targetMode: inferExecutionTargetMode(raw.execution as Record<string, unknown>)
     } : {
       codexEnabled: false,
       codexModel: 'gpt-6-sol',
@@ -157,6 +234,7 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
       antigravityModel: '',
       defaultMode: 'rwmcp-only',
       workerRoutingProfile: 'direct',
+      targetMode: 'rwmcp-only',
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',
       maxCodexTasksPerSession: 0,

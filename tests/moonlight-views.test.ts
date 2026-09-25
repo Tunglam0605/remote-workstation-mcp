@@ -44,6 +44,10 @@ test('opening a view reads store state without issuing an API request', async ()
   for (const mapping of ['Work: openWork', 'Agents: openExecution', 'Engineering: openEngineering', 'Office: openOffice', 'Web: openWeb', 'Devices: openDevices', 'Security: openAccess', 'System: openSystem']) assert.match(source, new RegExp(mapping.replace(/[.*+?^${}()|[\\]\\]/g, '\\  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);')));
   assert.match(source, /function capabilityDomain\(/);
   assert.match(source, /Advanced access scopes/);
+  assert.match(source, /security-summary/);
+  assert.match(source, /security-primary-grid/);
+  assert.match(source, /security-admin-section/);
+  assert.match(source, /Show command hash/);
   assert.match(source, /Pair a new device/);
   assert.match(source, /Advanced multi-node transfers/);
   assert.match(source, /live\('capabilities'\)/);
@@ -211,6 +215,32 @@ test('Agent Control saves the selected route and provider settings through the e
       maxCodexTasksPerDay: 0,
       codexAccountBroker: { enabled: true, mode: 'cockpit-api-pool' }
     });
+  } finally { dom.restore(); }
+});
+
+test('Security page balances primary controls and keeps advanced scopes full-width', () => {
+  const dom = installDom();
+  const pages: Array<{ title: string; content: InstanceType<typeof dom.Node> }> = [];
+  const state = {
+    permissions: { data: { mode: 'full_control', httpScopes: ['workstation.read', 'workstation.full_control'], allowHostFilesystem: true, allowRawShell: true, lease: undefined } },
+    admin: { data: { requests: [{ id: 'req-1', program: 'powershell.exe', state: 'pending', reason: 'Read-only diagnostic', commandHash: 'abc123' }] } },
+    status: { data: { platform: 'win32' } }
+  };
+  try {
+    setLanguage('en');
+    const views = createViews({ api: { request: async () => ({}) }, store: { getState: () => state }, openModal: () => {}, openPage: (_page: string, title: string, content: InstanceType<typeof dom.Node>) => pages.push({ title, content }), toast: () => {}, refresh: async () => {} });
+    views.open('Access');
+    const page = pages[0]!.content;
+    const rendered = page.textContent;
+    assert.match(rendered, /Security & access/);
+    assert.match(rendered, /Permission mode/);
+    assert.match(rendered, /Full-control lease/);
+    assert.match(rendered, /1 pending request/);
+    assert.match(rendered, /Advanced access scopes/);
+    assert.match(rendered, /Read-only diagnostic/);
+    assert.match(rendered, /Show command hash/);
+    assert.equal(dom.descendants(page).filter((node) => node.className.includes('security-primary-card')).length, 2);
+    assert.ok(dom.descendants(page).some((node) => node.className.includes('security-admin-section')));
   } finally { dom.restore(); }
 });
 

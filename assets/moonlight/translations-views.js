@@ -244,4 +244,25 @@ registerTranslations({
   "Pair a new device": "Gh\u00e9p n\u1ed1i thi\u1ebft b\u1ecb m\u1edbi",
   "Advanced multi-node transfers": "Truy\u1ec1n d\u1eef li\u1ec7u nhi\u1ec1u n\u00fat n\u00e2ng cao"
 
+  , /* v0.40.1 Security page balance */
+  "Control permissions, temporary full-control sessions, and administrative approvals without exposing advanced scopes unless you need them.": "Ki\u1ec3m so\u00e1t quy\u1ec1n, phi\u00ean to\u00e0n quy\u1ec1n t\u1ea1m th\u1eddi v\u00e0 ph\u00ea duy\u1ec7t qu\u1ea3n tr\u1ecb m\u00e0 kh\u00f4ng hi\u1ec7n ph\u1ea1m vi n\u00e2ng cao khi ch\u01b0a c\u1ea7n.",
+  "Current owner policy": "Ch\u00ednh s\u00e1ch ch\u1ee7 m\u00e1y hi\u1ec7n t\u1ea1i",
+  "No active lease": "Kh\u00f4ng c\u00f3 phi\u00ean to\u00e0n quy\u1ec1n",
+  "Nothing pending": "Kh\u00f4ng c\u00f3 y\u00eau c\u1ea7u ch\u1edd",
+  "Waiting for review": "\u0110ang ch\u1edd xem x\u00e9t",
+  "{seconds} seconds remaining": "C\u00f2n {seconds} gi\u00e2y",
+  "Choose the normal permission level for this workstation. The backend remains authoritative and may require a restart.": "Ch\u1ecdn m\u1ee9c quy\u1ec1n th\u00f4ng th\u01b0\u1eddng cho m\u00e1y tr\u1ea1m n\u00e0y. Backend v\u1eabn l\u00e0 ngu\u1ed3n quy\u1ebft \u0111\u1ecbnh v\u00e0 c\u00f3 th\u1ec3 y\u00eau c\u1ea7u kh\u1edfi \u0111\u1ed9ng l\u1ea1i.",
+  "Use the least privilege that still allows the work you need.": "Ch\u1ec9 d\u00f9ng m\u1ee9c quy\u1ec1n th\u1ea5p nh\u1ea5t v\u1eabn \u0111\u1ee7 cho c\u00f4ng vi\u1ec7c b\u1ea1n c\u1ea7n.",
+  "Request a temporary elevated session only when a task genuinely needs full-control tools.": "Ch\u1ec9 y\u00eau c\u1ea7u phi\u00ean n\u00e2ng quy\u1ec1n t\u1ea1m th\u1eddi khi t\u00e1c v\u1ee5 th\u1ef1c s\u1ef1 c\u1ea7n c\u00f4ng c\u1ee5 to\u00e0n quy\u1ec1n.",
+  "Lease active": "Phi\u00ean to\u00e0n quy\u1ec1n \u0111ang ho\u1ea1t \u0111\u1ed9ng",
+  "Request a temporary lease when required.": "Y\u00eau c\u1ea7u phi\u00ean t\u1ea1m th\u1eddi khi c\u1ea7n.",
+  "Only change raw scopes and local gates when you understand why a specific integration needs them.": "Ch\u1ec9 thay \u0111\u1ed5i ph\u1ea1m vi th\u00f4 v\u00e0 c\u1ed5ng c\u1ee5c b\u1ed9 khi b\u1ea1n hi\u1ec3u r\u00f5 t\u00edch h\u1ee3p n\u00e0o c\u1ea7n ch\u00fang.",
+  "Review the exact command and reason before authorizing Windows UAC.": "Ki\u1ec3m tra ch\u00ednh x\u00e1c l\u1ec7nh v\u00e0 l\u00fd do tr\u01b0\u1edbc khi cho ph\u00e9p Windows UAC.",
+  "{count} pending request(s)": "{count} y\u00eau c\u1ea7u \u0111ang ch\u1edd",
+  "No pending requests": "Kh\u00f4ng c\u00f3 y\u00eau c\u1ea7u ch\u1edd",
+  "Only approve requests you recognize and expect.": "Ch\u1ec9 ph\u00ea duy\u1ec7t y\u00eau c\u1ea7u b\u1ea1n nh\u1eadn ra v\u00e0 \u0111ang mong \u0111\u1ee3i.",
+  "Show command hash": "Hi\u1ec7n m\u00e3 b\u0103m l\u1ec7nh",
+  "Active": "\u0110ang ho\u1ea1t \u0111\u1ed9ng",
+  "Inactive": "Kh\u00f4ng ho\u1ea1t \u0111\u1ed9ng"
+
 });

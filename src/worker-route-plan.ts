@@ -29,6 +29,7 @@ export interface WorkerRouteCandidate {
 
 export interface WorkerRoutePlan {
   profile: WorkerRoutingProfile;
+  ownerTargetMode: ExecutionTargetMode;
   targetMode: ExecutionTargetMode;
   intent: WorkerRoutingIntent;
   selected: WorkerRouteTarget;
@@ -72,7 +73,7 @@ export function allowedExecutionTargets(
   settings: SetupSettings['execution'],
   status: ExecutionPolicyStatus
 ): ExecutionTargetId[] {
-  return executionTargetsForMode(settings.targetMode).filter(target => policyAllowsTarget(status, target));
+  return executionTargetsForMode(status.sessionTargetMode ?? settings.targetMode).filter(target => policyAllowsTarget(status, target));
 }
 
 export function planWorkerRoute(input: {
@@ -83,7 +84,8 @@ export function planWorkerRoute(input: {
 }): WorkerRoutePlan {
   const { settings, status, providers, intent } = input;
   const profile = settings.workerRoutingProfile;
-  const targetMode = settings.targetMode;
+  const ownerTargetMode = settings.targetMode;
+  const targetMode = status.sessionTargetMode ?? ownerTargetMode;
   const affinityOrder = affinityOrderForIntent(intent);
   const allowed = new Set(allowedExecutionTargets(settings, status));
   const desired = affinityOrder.filter(target => allowed.has(target));
@@ -133,6 +135,7 @@ export function planWorkerRoute(input: {
 
   return {
     profile,
+    ownerTargetMode,
     targetMode,
     intent,
     selected,

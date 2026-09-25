@@ -156,6 +156,19 @@ test('legacy Work Session safety ceiling narrows but never widens the owner targ
   assert.equal(blocked.selected, 'stop');
 });
 
+test('Work Session target-set override changes routing without mutating the owner target set', () => {
+  const routed = planWorkerRoute({
+    settings: execution({ targetMode: 'rwmcp-only' }),
+    status: status({ sessionTargetMode: 'antigravity-only', effectiveMode: 'both' }),
+    providers: readyProviders,
+    intent: 'coding'
+  });
+  assert.equal(routed.ownerTargetMode, 'rwmcp-only');
+  assert.equal(routed.targetMode, 'antigravity-only');
+  assert.equal(routed.selected, 'antigravity-local');
+  assert.deepEqual(routed.fallbackChain, ['antigravity-local']);
+});
+
 test('Antigravity-only remains usable with Codex disabled when safety ceiling is hybrid', () => {
   const routed = planWorkerRoute({
     settings: execution({ targetMode: 'antigravity-only', codexEnabled: false, workerRoutingProfile: 'custom' }),

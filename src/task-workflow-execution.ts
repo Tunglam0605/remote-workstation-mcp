@@ -180,7 +180,7 @@ export class TaskWorkflowExecutionService {
       this.executionPolicy.settings(),
       this.executionPolicy.status(workSessionId)
     ]);
-    const targetMode = settings.execution.targetMode ?? inferExecutionTargetMode(settings.execution as unknown as Record<string, unknown>);
+    const targetMode = status.sessionTargetMode ?? settings.execution.targetMode ?? inferExecutionTargetMode(settings.execution as unknown as Record<string, unknown>);
     let allowed = executionTargetsForMode(targetMode);
     if (status.fallbackActive || status.effectiveMode === 'rwmcp-only') {
       allowed = allowed.filter(target => target === 'rwmcp-direct');

@@ -230,7 +230,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openExecution() {
     const policy = live('execution');
     const antigravity = live('antigravity');
-    const content = pageRoot('Execution', 'AI Agent Orchestrator', 'Route bounded implementation work across Codex, Antigravity, and direct RWMCP using task affinity, symmetric worker fallback, and owner-controlled policy.');
+    const content = pageRoot('Execution', 'Unified Three-Target Orchestrator', 'RWMCP, Codex, and Antigravity are peer execution targets at the routing layer. Task affinity sets preference; owner policy, readiness, and safe handoff rules decide fallback.');
     unavailable('execution', content);
     if (!policy) return content;
 
@@ -255,30 +255,56 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
           limit: codexSessionLimit
         })
       : t('No Codex task cap');
-    const profileLabels = { direct: 'Direct', 'codex-assisted': 'Codex assisted', smart: 'Smart routing', custom: 'Custom' };
-    const selectedProfile = settings.workerRoutingProfile || (settings.defaultMode === 'rwmcp-only' || settings.codexEnabled === false
-      ? 'direct'
-      : settings.codexEnabled && settings.antigravityEnabled && settings.defaultMode === 'both'
-        ? 'smart'
-        : settings.codexEnabled ? 'codex-assisted' : 'custom');
-    const modeLabels = { 'rwmcp-only': 'RWMCP only', 'codex-only': 'Codex only', both: 'AI workers + RWMCP' };
+
+    const inferTargetMode = () => {
+      if (settings.targetMode) return settings.targetMode;
+      if (settings.workerRoutingProfile === 'direct' || settings.defaultMode === 'rwmcp-only') return 'rwmcp-only';
+      if (settings.workerRoutingProfile === 'smart' && settings.codexEnabled && settings.antigravityEnabled) return 'auto';
+      if (settings.defaultMode === 'codex-only') return 'codex-only';
+      if (settings.workerRoutingProfile === 'codex-assisted') return 'rwmcp-codex';
+      if (settings.codexEnabled && settings.antigravityEnabled) return 'auto';
+      if (settings.codexEnabled) return 'rwmcp-codex';
+      if (settings.antigravityEnabled) return 'rwmcp-antigravity';
+      return 'rwmcp-only';
+    };
+    const selectedTargetMode = inferTargetMode();
+    const targetModeLabels = {
+      auto: 'Auto / Smart',
+      'rwmcp-only': 'RWMCP only',
+      'codex-only': 'Codex only',
+      'antigravity-only': 'Antigravity only',
+      'rwmcp-codex': 'RWMCP + Codex',
+      'rwmcp-antigravity': 'RWMCP + Antigravity',
+      'codex-antigravity': 'Codex + Antigravity',
+      'all-three': 'All three'
+    };
+    const targetMembers = {
+      auto: ['rwmcp-direct', 'codex-local', 'antigravity-local'],
+      'rwmcp-only': ['rwmcp-direct'],
+      'codex-only': ['codex-local'],
+      'antigravity-only': ['antigravity-local'],
+      'rwmcp-codex': ['rwmcp-direct', 'codex-local'],
+      'rwmcp-antigravity': ['rwmcp-direct', 'antigravity-local'],
+      'codex-antigravity': ['codex-local', 'antigravity-local'],
+      'all-three': ['rwmcp-direct', 'codex-local', 'antigravity-local']
+    };
+    const allowedTargets = new Set(targetMembers[selectedTargetMode] || targetMembers.auto);
     const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
     const effective = status.effectiveMode || settings.defaultMode || 'rwmcp-only';
-    const routeText = effective === 'rwmcp-only'
-      ? 'ChatGPT uses typed RWMCP tools directly; no AI worker is dispatched.'
-      : effective === 'codex-only'
-        ? 'Only Codex may receive bounded worker tasks; Antigravity is excluded by this explicit owner mode.'
-        : 'Task affinity chooses a preferred AI worker, capacity/availability may cross-fallback to the other worker, and RWMCP is the final safe fallback.';
+    const routeText = status.fallbackActive
+      ? 'The affected Work Session is latched to direct RWMCP after worker exhaustion; reset only after the provider issue is understood.'
+      : 'Affinity selects a preferred peer target. A safe failure may hand off to the next allowed target; permissions and worktree ownership are never widened automatically.';
 
-    const route = section('Global route', 'This shows the owner-level route; Work Sessions can have different routes when overrides are allowed. Session fallbacks are not shown here.', 'moon-page-full agent-route-section');
+    const route = section('Global route', 'Owner target set plus the current safety ceiling. Work Session overrides can further change a session only when owner policy allows them.', 'moon-page-full agent-route-section');
     route.append(el('div', { class: 'agent-route-banner' },
       el('div', { class: 'agent-route-main' },
         el('span', { class: `pill ${status.fallbackActive ? 'warning' : 'success'}`, text: t(status.fallbackActive ? 'Fallback active' : 'Policy active') }),
-        el('div', {}, el('strong', { text: t(modeLabels[effective] || effective) }), el('p', { text: t(routeText) }))
+        el('div', {}, el('strong', { text: t(targetModeLabels[selectedTargetMode] || selectedTargetMode) }), el('p', { text: t(routeText) }))
       ),
       el('div', { class: 'agent-route-meta' },
         el('span', { text: `${t('Source')}: ${t(sourceLabels[status.source] || text(status.source))}` }),
-        el('span', { text: `${t('Routing profile')}: ${t(profileLabels[selectedProfile] || selectedProfile)}` }),
+        el('span', { text: `${t('Execution target set')}: ${t(targetModeLabels[selectedTargetMode] || selectedTargetMode)}` }),
+        el('span', { text: `${t('Safety ceiling')}: ${t(text(effective))}` }),
         el('span', { text: `${t('Chat overrides')}: ${settings.allowChatOverride ? t('Allowed') : t('Locked by owner')}` }),
         el('span', { text: `${t('Active overrides')}: ${text(status.activeSessionOverrides ?? 0)}` })
       )
@@ -288,7 +314,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
 
     const affinity = section(
       'Task affinity & fallback',
-      'Both Codex and Antigravity are general-purpose implementation workers. Affinity chooses the preferred worker; capacity and availability failures may fall through without widening permissions.',
+      'All three targets are replaceable execution choices at the router layer. Affinity is preference, not a hard capability lock; safe handoff uses the next allowed target.',
       'moon-page-full'
     );
     const chainCard = (title, subtitle, steps) => el('article', { class: 'agent-affinity-card' },
@@ -299,126 +325,99 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       el('div', { class: 'agent-route-chain' },
         ...steps.flatMap((step, index) => [
           el('span', { class: `agent-route-step ${step.kind || ''}`, text: t(step.label) }),
-          ...(index < steps.length - 1 ? [el('span', { class: 'agent-route-arrow', text: '→' })] : [])
+          ...(index < steps.length - 1 ? [el('span', { class: 'agent-route-arrow', text: '?' })] : [])
         ])
       )
     );
-    const affinityGrid = el('div', { class: 'agent-affinity-grid' },
-      chainCard('Frontend / UI', 'Antigravity preferred', [
-        { label: 'Antigravity', kind: 'preferred' },
-        { label: 'Codex', kind: 'fallback-worker' },
-        { label: 'RWMCP', kind: 'direct' }
-      ]),
-      chainCard('Backend / Code / Engineering', 'Codex preferred', [
-        { label: 'Codex', kind: 'preferred' },
-        { label: 'Antigravity', kind: 'fallback-worker' },
-        { label: 'RWMCP', kind: 'direct' }
-      ]),
-      chainCard('Read / Workstation / Deterministic', 'Direct typed tools', [
-        { label: 'RWMCP', kind: 'preferred direct' }
-      ])
-    );
     affinity.append(
-      affinityGrid,
-      el('p', { class: 'moon-muted', text: t('Cross-worker fallback is limited to capacity, quota, authentication, or provider availability failures. Ordinary implementation, build, and test failures stay with the worker that produced them.') })
+      el('div', { class: 'agent-affinity-grid' },
+        chainCard('Frontend / UI', 'Antigravity preferred', [
+          { label: 'Antigravity', kind: 'preferred' },
+          { label: 'Codex', kind: 'fallback-worker' },
+          { label: 'RWMCP', kind: 'direct' }
+        ]),
+        chainCard('Backend / Code / Engineering', 'Codex preferred', [
+          { label: 'Codex', kind: 'preferred' },
+          { label: 'Antigravity', kind: 'fallback-worker' },
+          { label: 'RWMCP', kind: 'direct' }
+        ]),
+        chainCard('Read / Workstation / Deterministic', 'RWMCP preferred', [
+          { label: 'RWMCP', kind: 'preferred direct' },
+          { label: 'Codex', kind: 'fallback-worker' },
+          { label: 'Antigravity', kind: 'fallback-worker' }
+        ])
+      ),
+      el('p', { class: 'moon-muted', text: t('Capacity, quota, authentication, and availability failures can hand off immediately. Ordinary AI failures may hand off only while isolated worktree ownership remains clean; dirty worktrees fail closed for review.') })
     );
     content.append(affinity);
 
-    const routing = section('Routing profile', 'Profiles are owner presets over the existing execution policy. They simplify routing but never grant extra authority.', 'moon-page-full');
-    const routingProfiles = [
-      ['direct', 'Direct', 'RWMCP only. Best for hardware, Office, diagnostics, and deterministic workstation actions.'],
-      ['codex-assisted', 'Codex assisted', 'Use Codex as the only AI worker for bounded implementation; RWMCP remains the safe fallback.'],
-      ['smart', 'Smart routing', 'Both AI workers are general-purpose: Antigravity is preferred for frontend/UI, Codex for code/backend/engineering, and each can capacity-fallback to the other before RWMCP.'],
-      ['custom', 'Custom', 'Keep manual control of the existing low-level execution mode and worker enablement.']
+    const targetSet = section('Execution target set', 'Choose which peer targets the router may use. Auto / Smart keeps all three available and applies task affinity automatically.', 'moon-page-full');
+    const targetModes = [
+      ['auto', 'Auto / Smart', 'All three targets are available. Affinity selects the preferred target and safe fallback order.'],
+      ['rwmcp-only', 'RWMCP only', 'Deterministic typed workstation execution only.'],
+      ['codex-only', 'Codex only', 'Bounded Codex worker execution only.'],
+      ['antigravity-only', 'Antigravity only', 'Bounded Antigravity worker execution only.'],
+      ['rwmcp-codex', 'RWMCP + Codex', 'Use deterministic RWMCP and Codex; Antigravity is excluded.'],
+      ['rwmcp-antigravity', 'RWMCP + Antigravity', 'Use deterministic RWMCP and Antigravity; Codex is excluded.'],
+      ['codex-antigravity', 'Codex + Antigravity', 'Use both AI workers; direct RWMCP is excluded from normal routing.'],
+      ['all-three', 'All three', 'Explicitly allow RWMCP, Codex, and Antigravity together with affinity ordering.']
     ];
-    const profileGrid = el('div', { class: 'agent-routing-grid' });
-    const profileInputs = [];
-    for (const [id, title, description] of routingProfiles) {
-      const input = el('input', { type: 'radio', name: 'worker-routing-profile', value: id, checked: id === selectedProfile });
-      profileInputs.push(input);
-      profileGrid.append(el('label', { class: `agent-strategy-card${id === selectedProfile ? ' selected' : ''}` }, input,
+    const targetGrid = el('div', { class: 'agent-routing-grid' });
+    const targetInputs = [];
+    for (const [id, title, description] of targetModes) {
+      const input = el('input', { type: 'radio', name: 'execution-target-mode', value: id, checked: id === selectedTargetMode });
+      targetInputs.push(input);
+      targetGrid.append(el('label', { class: `agent-strategy-card${id === selectedTargetMode ? ' selected' : ''}` }, input,
         el('div', {}, el('strong', { text: t(title) }), el('p', { text: t(description) }))
       ));
+      input.addEventListener('change', () => targetGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked)));
     }
-    routing.append(profileGrid, el('p', { class: 'moon-muted', text: t('The selected profile maps onto the existing policy controls below; Work Session overrides and provider sandbox rules remain authoritative.') }));
-    content.append(routing);
+    targetSet.append(targetGrid, el('p', { class: 'moon-muted', text: t('Target selection changes routing eligibility only. Each target keeps its own sandbox, permission, quota, and workstation security boundaries.') }));
+    content.append(targetSet);
 
-    const strategy = section('Default strategy', 'Low-level execution mode used by the routing profile and Work Session override system.', 'moon-page-full');
-    const selectedMode = settings.defaultMode || status.configuredMode || 'rwmcp-only';
-    const strategies = [
-      ['rwmcp-only', 'RWMCP only', 'Lowest worker usage. ChatGPT operates through typed RWMCP tools only.'],
-      ['codex-only', 'Codex only', 'Use Codex as the only AI worker for bounded coding tasks; RWMCP remains the control plane.'],
-      ['both', 'Hybrid', 'Let ChatGPT choose direct RWMCP or bounded workers per task.']
-    ];
-    const strategyGrid = el('div', { class: 'agent-strategy-grid' });
-    for (const [id, title, description] of strategies) {
-      const input = el('input', { type: 'radio', name: 'execution-strategy', value: id, checked: id === selectedMode });
-      strategyGrid.append(el('label', { class: `agent-strategy-card${id === selectedMode ? ' selected' : ''}` }, input,
-        el('div', {}, el('strong', { text: t(title) }), el('p', { text: t(description) }))
-      ));
-      input.addEventListener('change', () => strategyGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked)));
-    }
-    strategy.append(strategyGrid);
-    content.append(strategy);
-
-    const codexEnabled = el('input', { type: 'checkbox', checked: settings.codexEnabled });
-    const antiEnabled = el('input', { type: 'checkbox', checked: settings.antigravityEnabled });
-    const syncRoutingProfilePreview = () => {
-      const profile = profileInputs.find((input) => input.checked)?.value || selectedProfile;
-      profileGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked));
-      const custom = profile === 'custom';
-      if (!custom) {
-        const mode = profile === 'direct' ? 'rwmcp-only' : 'both';
-        const strategyInput = content.querySelector(`input[name="execution-strategy"][value="${mode}"]`);
-        if (strategyInput) strategyInput.checked = true;
-        strategyGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked));
-        codexEnabled.checked = profile !== 'direct';
-        antiEnabled.checked = profile === 'smart';
-      }
-      codexEnabled.disabled = !custom;
-      antiEnabled.disabled = !custom;
-      strategyGrid.querySelectorAll('input[name="execution-strategy"]').forEach((input) => { input.disabled = !custom; });
-    };
-    for (const input of profileInputs) input.addEventListener('change', syncRoutingProfilePreview);
-    syncRoutingProfilePreview();
-    const providers = section('Worker pool & capacity', 'Both workers can handle general implementation work. Preference is affinity, not a hard capability lock; availability never grants extra workstation authority.', 'moon-page-full');
-    const providerGrid = el('div', { class: 'agent-provider-grid' });
-    const providerCard = (kind, title, ready, enabledControl, facts, note) => el('article', { class: `agent-provider-card ${ready ? 'ready' : 'offline'}` },
+    const peers = section('Execution targets & capacity', 'RWMCP, Codex, and Antigravity are peers for routing selection, while their underlying execution mechanisms remain deliberately different.', 'moon-page-full');
+    const peerGrid = el('div', { class: 'agent-provider-grid' });
+    const peerCard = (kind, title, ready, enabled, facts, note) => el('article', { class: `agent-provider-card ${ready ? 'ready' : 'offline'}` },
       el('header', { class: 'agent-provider-header' },
         el('div', {}, el('span', { class: 'agent-provider-kicker', text: t(kind) }), el('h4', { text: title })),
-        el('span', { class: `pill ${ready ? 'success' : 'warning'}`, text: t(ready ? 'Ready' : enabledControl.checked ? 'Unavailable' : 'Disabled') })
+        el('span', { class: `pill ${ready ? 'success' : 'warning'}`, text: t(ready ? 'Ready' : enabled ? 'Unavailable' : 'Excluded') })
       ),
       el('div', { class: 'agent-provider-facts' }, ...facts.filter(Boolean).map(([label, value]) => el('div', {}, el('span', { text: t(label) }), el('strong', { text: t(text(value)) })) )),
-      el('p', { class: 'moon-muted', text: t(enabledControl.checked ? note : 'Worker is disabled by owner policy.') }),
-      el('label', { class: 'agent-enable-row' }, enabledControl, el('span', { text: t('Allow ChatGPT to use this worker') }))
+      el('p', { class: 'moon-muted', text: t(enabled ? note : 'Excluded by the selected execution target set.') })
     );
-    providerGrid.append(
-      providerCard('General-purpose · engineering preferred', 'OpenAI Codex', codexReady, codexEnabled, [
+    peerGrid.append(
+      peerCard('Deterministic peer ? workstation preferred', 'RWMCP Direct', true, allowedTargets.has('rwmcp-direct'), [
+        ['Mechanism', 'Typed deterministic tools'],
+        ['Preferred for', 'Read / workstation / Office / build / test'],
+        ['Fallback', 'Codex ? Antigravity'],
+        ['Authority', 'Authenticated workstation policy']
+      ], 'RWMCP is always locally available as a deterministic execution mechanism when the target set permits it.'),
+      peerCard('General-purpose AI ? engineering preferred', 'OpenAI Codex', codexReady, allowedTargets.has('codex-local'), [
         ['Version', codex.version],
         ['Model', settings.codexModel || 'gpt-6-sol'],
         ['Preferred for', 'Backend / code / engineering'],
         ['Capacity', codexCapacity],
-        ['Fallback', 'Antigravity → RWMCP'],
+        ['Fallback', 'Antigravity ? RWMCP'],
         ['Account routing', broker.effectiveBackend || broker.mode || settings.codexAccountBroker?.mode]
-      ], codexReady ? 'Codex is ready for bounded general-purpose Work Session tasks and is preferred for engineering-oriented work.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
-      providerCard('General-purpose · UI preferred', 'Google Antigravity', antigravityReady, antiEnabled, [
+      ], codexReady ? 'Codex is ready for bounded general-purpose Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
+      peerCard('General-purpose AI ? UI preferred', 'Google Antigravity', antigravityReady, allowedTargets.has('antigravity-local'), [
         ['Version', antigravity?.version],
         ['Model', antigravity?.model?.label || antigravity?.model?.id || settings.antigravityModel || 'Provider default'],
         ['Preferred for', 'Frontend / UI'],
         ['Capacity', antiCapacity],
-        ['Fallback', 'Codex → RWMCP'],
+        ['Fallback', 'Codex ? RWMCP'],
         ['Sandbox', antigravity?.available ? 'Required' : 'Unavailable']
-      ], antigravityReady ? 'Antigravity is ready for bounded general-purpose Work Session tasks and is preferred for frontend/UI work.' : (antigravity?.detail || 'Antigravity is not ready.'))
+      ], antigravityReady ? 'Antigravity is ready for bounded general-purpose Work Session tasks.' : (antigravity?.detail || 'Antigravity is not ready.'))
     );
-    providers.append(providerGrid);
-    content.append(providers);
+    peers.append(peerGrid);
+    content.append(peers);
 
     const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
     const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop worker routing']]);
-    const behavior = section('Fallback behavior', 'These controls define what ChatGPT may change temporarily and what happens only after the allowed AI worker chain is exhausted.', 'moon-page-full');
+    const behavior = section('Fallback behavior', 'Session override and legacy fallback-latch controls remain safety mechanisms; they never grant unavailable provider authority.', 'moon-page-full');
     behavior.append(el('div', { class: 'agent-behavior-grid' },
-      field('Work Session override', chatOverride, 'Allows ChatGPT to choose RWMCP only, Codex only, or Hybrid routing for one isolated Work Session.'),
-      field('When all AI workers are exhausted', fallback, 'RWMCP fallback switches only the affected Work Session after the allowed AI worker chain has exhausted capacity or availability; Stop leaves the worker task blocked.')
+      field('Work Session override', chatOverride, 'Allows bounded per-session routing overrides when the owner enables this control.'),
+      field('When AI targets are exhausted', fallback, 'RWMCP fallback latches only the affected Work Session after allowed AI targets are exhausted; Stop leaves the task blocked.')
     ));
     content.append(behavior);
 
@@ -453,18 +452,14 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     content.append(advanced);
 
     content.append(el('div', { class: 'agent-save-bar moon-page-full' },
-      el('div', {}, el('strong', { text: t('Owner policy') }), el('span', { text: t('Changes affect future worker routing; provider/runtime changes may require a managed restart.') })),
+      el('div', {}, el('strong', { text: t('Owner policy') }), el('span', { text: t('Target-set changes affect future routing; provider enablement is derived by the runtime to avoid contradictory states.') })),
       button('Save Agent Control', async () => {
         if (!confirm(t('Save this execution policy?'))) return;
-        const selected = content.querySelector('input[name="execution-strategy"]:checked')?.value || 'rwmcp-only';
         const body = {
-          workerRoutingProfile: content.querySelector('input[name="worker-routing-profile"]:checked')?.value || selectedProfile,
-          defaultMode: selected,
-          codexEnabled: codexEnabled.checked,
+          targetMode: content.querySelector('input[name="execution-target-mode"]:checked')?.value || selectedTargetMode,
           codexModel: codexModel.value,
           codexAgentsEnabled: codexAgentsEnabled.checked,
           codexSkillsEnabled: codexSkillsEnabled.checked,
-          antigravityEnabled: antiEnabled.checked,
           antigravityModel: antiModel.value,
           allowChatOverride: chatOverride.checked,
           codexFallback: fallback.value,

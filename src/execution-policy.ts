@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadSetupSettings, setupConfigDir, type ExecutionMode, type SetupSettings } from './setup/settings.js';
+import { executionTargetModePreset, isExecutionTargetMode, loadSetupSettings, setupConfigDir, type ExecutionMode, type ExecutionTargetMode, type SetupSettings } from './setup/settings.js';
 
 export type ExecutionPolicySource = 'owner-default' | 'work-session-override' | 'fallback-latch';
 
 interface SessionOverride {
-  mode: ExecutionMode;
+  mode?: ExecutionMode;
+  targetMode?: ExecutionTargetMode;
   setAt: string;
 }
 
@@ -31,6 +32,7 @@ export interface ExecutionPolicyStatus {
   fallbackActivatedAt?: string;
   workSessionId?: string;
   sessionOverride?: ExecutionMode;
+  sessionTargetMode?: ExecutionTargetMode;
   codexTasksToday: number;
   codexTasksThisSession: number;
   maxCodexTasksPerDay: number;
@@ -81,8 +83,11 @@ export class ExecutionPolicyService {
 
       const overrides: Record<string, SessionOverride> = {};
       for (const [sessionId, entry] of Object.entries(raw.overrides ?? {})) {
-        if (!entry || !validMode(entry.mode) || typeof entry.setAt !== 'string') continue;
-        overrides[sessionId] = { mode: entry.mode, setAt: entry.setAt };
+        if (!entry || typeof entry.setAt !== 'string') continue;
+        const mode = validMode(entry.mode) ? entry.mode : undefined;
+        const targetMode = isExecutionTargetMode(entry.targetMode) ? entry.targetMode : undefined;
+        if (!mode && !targetMode) continue;
+        overrides[sessionId] = { ...(mode ? { mode } : {}), ...(targetMode ? { targetMode } : {}), setAt: entry.setAt };
       }
 
       const sessionCodexTasks: Record<string, number> = {};
@@ -172,7 +177,9 @@ export class ExecutionPolicyService {
   async status(workSessionId?: string): Promise<ExecutionPolicyStatus> {
     const [settings, state] = await Promise.all([this.loadSettings(), this.load()]);
     const configuredMode = settings.execution.defaultMode;
-    const sessionOverride = workSessionId ? state.overrides?.[workSessionId]?.mode : undefined;
+    const sessionEntry = workSessionId ? state.overrides?.[workSessionId] : undefined;
+    const sessionOverride = sessionEntry?.mode;
+    const sessionTargetMode = sessionEntry?.targetMode;
     const globalFallbackActive = state.fallback?.active === true && settings.execution.codexFallback === 'rwmcp-only';
     const sessionFallback = workSessionId && settings.execution.codexFallback === 'rwmcp-only'
       ? state.sessionFallbacks?.[workSessionId]
@@ -184,6 +191,10 @@ export class ExecutionPolicyService {
 
     if (settings.execution.allowChatOverride && sessionOverride) {
       effectiveMode = sessionOverride;
+      source = 'work-session-override';
+    }
+    if (settings.execution.allowChatOverride && sessionTargetMode) {
+      effectiveMode = executionTargetModePreset(sessionTargetMode).defaultMode;
       source = 'work-session-override';
     }
     if (fallbackActive) {
@@ -215,6 +226,7 @@ export class ExecutionPolicyService {
         : sessionFallback?.activatedAt ? { fallbackActivatedAt: sessionFallback.activatedAt } : {}),
       ...(workSessionId ? { workSessionId } : {}),
       ...(sessionOverride ? { sessionOverride } : {}),
+      ...(sessionTargetMode ? { sessionTargetMode } : {}),
       codexTasksToday,
       codexTasksThisSession: workSessionId ? (state.sessionCodexTasks?.[workSessionId] ?? 0) : 0,
       maxCodexTasksPerDay: settings.execution.maxCodexTasksPerDay,
@@ -233,6 +245,19 @@ export class ExecutionPolicyService {
       state.overrides ??= {};
       if (mode === null) delete state.overrides[workSessionId];
       else state.overrides[workSessionId] = { mode, setAt: this.now().toISOString() };
+    });
+    return await this.status(workSessionId);
+  }
+
+  async setSessionTargetModeOverride(workSessionId: string, targetMode: ExecutionTargetMode | null): Promise<ExecutionPolicyStatus> {
+    const settings = await this.loadSettings();
+    if (!settings.execution.allowChatOverride) {
+      throw new Error('EXECUTION_POLICY_CHAT_OVERRIDE_DISABLED: owner disabled chat/session execution overrides in Control Center.');
+    }
+    await this.mutate(state => {
+      state.overrides ??= {};
+      if (targetMode === null) delete state.overrides[workSessionId];
+      else state.overrides[workSessionId] = { targetMode, setAt: this.now().toISOString() };
     });
     return await this.status(workSessionId);
   }

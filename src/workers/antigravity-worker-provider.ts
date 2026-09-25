@@ -9,6 +9,7 @@ import { buildSafeEnvironment } from '../security/env-filter.js';
 import { ProcessTreeSupervisor } from '../adapters/process-tree-supervisor.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import type {
+  WorkerDispatchContext,
   WorkerDispatchRequest,
   WorkerDispatchResult,
   WorkerProvider,
@@ -66,6 +67,7 @@ interface RunnerLike {
 
 export interface AntigravityProcessResult {
   exitCode: number | null;
+  aborted?: boolean;
   stdout: string;
   stderr: string;
   timedOut: boolean;
@@ -83,7 +85,8 @@ export interface AntigravityWorkerOptions {
     cwd: string,
     input: string,
     timeoutMs: number,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    signal?: AbortSignal
   ) => Promise<AntigravityProcessResult>;
 }
 
@@ -295,7 +298,8 @@ async function defaultProcessRunner(
   cwd: string,
   input: string,
   timeoutMs: number,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal
 ): Promise<AntigravityProcessResult> {
   const tree = new ProcessTreeSupervisor();
   const started = Date.now();
@@ -303,6 +307,7 @@ async function defaultProcessRunner(
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
     let settled = false;
     let child;
     try {
@@ -318,6 +323,13 @@ async function defaultProcessRunner(
       reject(error);
       return;
     }
+    const abort = () => {
+      if (settled) return;
+      aborted = true;
+      void tree.terminate(child);
+    };
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
     const append = (current: string, chunk: Buffer) =>
       boundedTail(current + chunk.toString('utf8'), MAX_CAPTURE_BYTES);
     child.stdout.on('data', chunk => { stdout = append(stdout, chunk as Buffer); });
@@ -326,13 +338,15 @@ async function defaultProcessRunner(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       reject(error);
     });
     child.on('close', code => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ exitCode: code, stdout, stderr, timedOut, durationMs: Date.now() - started });
+      signal?.removeEventListener('abort', abort);
+      resolve({ exitCode: code, stdout, stderr, timedOut, aborted, durationMs: Date.now() - started });
     });
     child.stdin.end(input, 'utf8');
     const timer = setTimeout(() => {
@@ -577,7 +591,7 @@ export class AntigravityWorkerProvider implements WorkerProvider {
     displayName: 'Google Antigravity CLI (local)',
     worktreeAssignment: true,
     progressReporting: false,
-    cancellationIntent: false
+    cancellationIntent: true
   };
 
   private readonly env: NodeJS.ProcessEnv;
@@ -629,7 +643,7 @@ export class AntigravityWorkerProvider implements WorkerProvider {
     return { availability: 'available' as const, detail: status.detail };
   }
 
-  async dispatch(request: WorkerDispatchRequest): Promise<WorkerDispatchResult> {
+  async dispatch(request: WorkerDispatchRequest, context?: WorkerDispatchContext): Promise<WorkerDispatchResult> {
     this.policy.assertEngineeringExecute();
     const project = request.project;
     if (!project?.workspace || !project.worktreePath) {
@@ -676,7 +690,7 @@ export class AntigravityWorkerProvider implements WorkerProvider {
     ];
     const input = JSON.stringify({ event: 'user', message: { content: prompt } }) + '\n';
     const childEnv = antigravityEnvironment(this.policy.config.process.inheritEnv, this.env);
-    const result = await this.processRunner(executable, args, cwd, input, timeoutLimit, childEnv);
+    const result = await this.processRunner(executable, args, cwd, input, timeoutLimit, childEnv, context?.signal);
     const afterStatus = await this.runner.run(git, ['status', '--short'], cwd, 10_000);
     const afterDiff = await this.runner.run(git, ['diff', '--stat', '--'], cwd, 10_000);
     const evidence = [
@@ -691,6 +705,13 @@ export class AntigravityWorkerProvider implements WorkerProvider {
       MAX_EVIDENCE_BYTES
     );
 
+    if (result.aborted || context?.signal.aborted) {
+      return {
+        status: 'cancelled',
+        ...(stream.conversationId ? { runId: stream.conversationId } : {}),
+        summary: boundedTail(`ANTIGRAVITY_CANCELLED; ${summary}`, MAX_EVIDENCE_BYTES)
+      };
+    }
     const failureText = `${result.stdout}\n${result.stderr}\n${stream.error ?? ''}`;
     if (/authentication required|sign[ -]?in required|not authenticated|log in/i.test(failureText)) {
       return {

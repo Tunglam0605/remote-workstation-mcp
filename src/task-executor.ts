@@ -15,6 +15,7 @@ export interface TaskExecutionResult<T> {
 
 export interface TaskExecutionHooks {
   onStarted?: (task: WorkTask) => void | Promise<void>;
+  classifyError?: (error: unknown) => 'failed' | 'cancelled';
 }
 
 function errorMessage(error: unknown): string {
@@ -80,7 +81,8 @@ export class TaskExecutionCoordinator {
           return { task, result };
         } catch (error) {
           try {
-            await this.store.finishTask(objectiveId, taskId, 'failed', errorMessage(error));
+            const outcome = hooks.classifyError?.(error) ?? 'failed';
+            await this.store.finishTask(objectiveId, taskId, outcome, errorMessage(error));
           } catch {
             // If persistence itself fails, restart reconciliation remains the recovery boundary.
           }

@@ -433,6 +433,21 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     }))
   )));
 
+  server.registerTool('work_objective_execution_timeline', {
+    description: 'Return a bounded mechanically derived execution timeline for one caller-owned Work Objective. It exposes task-attempt stages, selected/fallback execution targets, cancellation requests and terminal outcomes without granting execution authority or inventing percentage progress.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      taskId: z.string().uuid().optional(),
+      limit: z.number().int().min(1).max(500).default(100)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskId, limit }) => result(await audited(ctx.audit, 'work_objective_execution_timeline', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.executionTimeline.timeline(objectiveId, { taskId, limit })
+    )
+  )));
+
   server.registerTool('work_objective_mutate', {
     description: 'Edit Task Graph structure only. This tool may add a task or replace task dependencies; it cannot mark work running/succeeded/failed and cannot acquire permissions, leases or interlocks.',
     inputSchema: z.object({

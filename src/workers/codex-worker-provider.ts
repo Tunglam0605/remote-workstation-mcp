@@ -11,6 +11,7 @@ import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import type { CodexAccountBroker } from './codex-account-broker.js';
 import type {
+  WorkerDispatchContext,
   WorkerDispatchRequest,
   WorkerDispatchResult,
   WorkerProvider,
@@ -202,6 +203,7 @@ interface RunnerLike {
 
 interface CodexExecResult {
   exitCode: number | null;
+  aborted?: boolean;
   stdout: string;
   stderr: string;
   timedOut: boolean;
@@ -221,7 +223,8 @@ interface CodexWorkerOptions {
     cwd: string,
     input: string,
     timeoutMs: number,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    signal?: AbortSignal
   ) => Promise<CodexExecResult>;
 }
 
@@ -333,7 +336,8 @@ async function defaultProcessRunner(
   cwd: string,
   input: string,
   timeoutMs: number,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal
 ): Promise<CodexExecResult> {
   const tree = new ProcessTreeSupervisor();
   const started = Date.now();
@@ -342,6 +346,7 @@ async function defaultProcessRunner(
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
     let settled = false;
     let child;
     try {
@@ -358,6 +363,13 @@ async function defaultProcessRunner(
       reject(error);
       return;
     }
+    const abort = () => {
+      if (settled) return;
+      aborted = true;
+      void tree.terminate(child);
+    };
+    if (signal?.aborted) abort();
+    else signal?.addEventListener('abort', abort, { once: true });
     const append = (current: string, chunk: Buffer) =>
       boundedTail(current + chunk.toString('utf8'), MAX_CAPTURE_BYTES);
     child.stdout.on('data', chunk => { stdout = append(stdout, chunk as Buffer); });
@@ -366,13 +378,15 @@ async function defaultProcessRunner(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       reject(error);
     });
     child.on('close', code => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ exitCode: code, stdout, stderr, timedOut, durationMs: Date.now() - started });
+      signal?.removeEventListener('abort', abort);
+      resolve({ exitCode: code, stdout, stderr, timedOut, aborted, durationMs: Date.now() - started });
     });
     child.stdin.end(input, 'utf8');
     const timer = setTimeout(() => {
@@ -390,7 +404,7 @@ export class CodexWorkerProvider implements WorkerProvider {
     displayName: 'OpenAI Codex CLI (local)',
     worktreeAssignment: true,
     progressReporting: false,
-    cancellationIntent: false
+    cancellationIntent: true
   };
 
   private readonly env: NodeJS.ProcessEnv;
@@ -477,7 +491,7 @@ export class CodexWorkerProvider implements WorkerProvider {
     }
   }
 
-  async dispatch(request: WorkerDispatchRequest): Promise<WorkerDispatchResult> {
+  async dispatch(request: WorkerDispatchRequest, context?: WorkerDispatchContext): Promise<WorkerDispatchResult> {
     this.policy.assertEngineeringExecute();
     const project = request.project;
     if (!project?.workspace || !project.worktreePath) {
@@ -576,9 +590,13 @@ export class CodexWorkerProvider implements WorkerProvider {
         cwd,
         attestationPrompt,
         Math.min(timeoutLimit, 60_000),
-        baseChildEnv
+        baseChildEnv,
+        context?.signal
       );
       const attestationText = `${attestation.stdout}\n${attestation.stderr}`;
+      if (attestation.aborted || context?.signal.aborted) {
+        return { status: 'cancelled', summary: 'CODEX_CANCELLED; sandbox attestation was cancelled by request.' };
+      }
       if (attestation.timedOut || attestation.exitCode !== 0) {
         if (/\b401\b|unauthorized|incorrect api key|authentication required|not authenticated|log[ -]?in required/i.test(attestationText)) {
           return { status: 'blocked', summary: 'CODEX_AUTH_REQUIRED; sandbox attestation failed.' };
@@ -624,7 +642,7 @@ export class CodexWorkerProvider implements WorkerProvider {
     ];
     let result: CodexExecResult;
     try {
-      result = await this.processRunner(executable, args, cwd, prompt, timeoutLimit, childEnv);
+      result = await this.processRunner(executable, args, cwd, prompt, timeoutLimit, childEnv, context?.signal);
     } finally {
       if (skillSnapshot) await skillSnapshot.cleanup().catch(() => undefined);
     }
@@ -646,6 +664,9 @@ export class CodexWorkerProvider implements WorkerProvider {
       MAX_EVIDENCE_BYTES
     );
 
+    if (result.aborted || context?.signal.aborted) {
+      return { status: 'cancelled', ...(runId ? { runId } : {}), summary: boundedTail(`CODEX_CANCELLED; ${summary}`, MAX_EVIDENCE_BYTES) };
+    }
     if (result.timedOut || result.exitCode !== 0) {
       const failureText = `${result.stdout}\n${result.stderr}`;
       if (/\b401\b|unauthorized|incorrect api key|authentication required|not authenticated|log[ -]?in required/i.test(failureText)) {

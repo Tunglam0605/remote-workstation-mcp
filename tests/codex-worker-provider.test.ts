@@ -103,7 +103,7 @@ test('Codex registration is default-empty and explicit opt-in only', () => {
     displayName: 'OpenAI Codex CLI (local)',
     worktreeAssignment: true,
     progressReporting: false,
-    cancellationIntent: false
+    cancellationIntent: true
   }]);
 });
 

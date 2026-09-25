@@ -334,6 +334,48 @@ test('running cancellation records intent without falsely claiming provider pree
 });
 
 
+test('running worker cancellation aborts the matching provider and persists cancelled task plus attempt', async t => {
+  let entered!: () => void;
+  const running = new Promise<void>(resolve => { entered = resolve; });
+  const fx = await fixture(t, async () => { throw new Error('workflow should not run'); });
+  fx.workerProviders.register({
+    descriptor: {
+      id: 'codex-local', kind: 'codex', displayName: 'Codex Local',
+      worktreeAssignment: false, progressReporting: false, cancellationIntent: true
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async (_request, context) => {
+      entered();
+      await new Promise<void>(resolve => {
+        if (context?.signal.aborted) return resolve();
+        context?.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return { status: 'cancelled' as const, runId: 'cancel-run', summary: 'cancelled by signal' };
+    }
+  });
+  const session = await fx.workSessions.create({ name: 'cancel-worker', workspace: 'projects', projectPath: 'repo' });
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({ name: 'Cancel worker', objective: 'Preempt one provider safely' });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Long AI task', concurrency: { operation: 'project.inspect' }, execution: workerBinding('codex-local')
+    });
+    const execution = fx.taskWorkflowExecution.execute(objective.id, task.id);
+    await running;
+    const cancellation = await fx.taskWorkflowExecution.cancel(objective.id, task.id);
+    assert.equal(cancellation.cancellationRequested, true);
+    assert.equal(cancellation.providerCancellationRequested, true);
+    assert.deepEqual(cancellation.providerIds, ['codex-local']);
+    await assert.rejects(execution, /status=cancelled/);
+    const state = await fx.taskGraphs.get(objective.id);
+    assert.equal(state.tasks.find(item => item.id === task.id)?.status, 'cancelled');
+    const persisted = await fx.taskAttempts.getForGeneration(objective.id, task.id, 1);
+    assert.equal(persisted?.status, 'cancelled');
+    assert.ok(persisted?.cancelRequestedAt);
+    assert.equal(persisted?.providerId, 'codex-local');
+    assert.equal(persisted?.providerAttempts?.at(-1)?.status, 'cancelled');
+  });
+});
+
 test('worker-provider task dispatches through the coordinator and replays one durable attempt per generation', async t => {
   let calls = 0;
   let captured: any;

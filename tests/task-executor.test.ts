@@ -165,3 +165,25 @@ test('node-exclusive execution owns a lifecycle interlock only for the callback 
     assert.equal((await store.get(objective.id)).tasks[0]?.status, 'succeeded');
   });
 });
+
+
+test('executor persists a typed cancellation outcome without relabeling it as failure', async t => {
+  const { store, executor } = await fixture(t);
+  await runWithWorkSession(SESSION, async () => {
+    const objective = await store.create({ name: 'cancel', objective: 'Preserve cancellation semantics' });
+    const task = await store.addTask(objective.id, {
+      title: 'cancellable', concurrency: { operation: 'project.inspect' }, execution: EXECUTION
+    });
+    await assert.rejects(
+      executor.execute(objective.id, task.id, async () => {
+        throw new Error('cancelled-by-provider');
+      }, { classifyError: () => 'cancelled' }),
+      /cancelled-by-provider/
+    );
+    const state = await store.get(objective.id);
+    const persisted = state.tasks.find(item => item.id === task.id);
+    assert.equal(persisted?.status, 'cancelled');
+    assert.equal(persisted?.error, 'cancelled-by-provider');
+    assert.notEqual(state.status, 'failed');
+  });
+});

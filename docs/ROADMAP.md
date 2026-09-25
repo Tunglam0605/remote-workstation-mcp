@@ -2,6 +2,27 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.42.0 - Generic Three-Target Execution Policy
+
+- make `targetPolicy` the canonical owner policy for `rwmcp-direct`, `codex-local`, and `antigravity-local`;
+- store enabled targets, terminal fallback and per-target session/day budgets in one provider-neutral structure;
+- enforce Codex and Antigravity budgets through the same `beforeTargetDispatch` guard;
+- keep Work Session target-set overrides and legacy safety ceilings narrowing-only;
+- migrate legacy Codex-centric settings automatically and dual-write Codex counters so rollback to v0.41 retains budget history;
+- keep the Control Center simple for normal use while exposing separate Codex/Antigravity budgets under Technical details;
+- retain direct RWMCP as deterministic execution rather than modeling it as an AI worker;
+- advance Action Schema to 18 for the additive public policy/status contract and keep Engineering API at 5.
+
+## v0.41.0 - Agent Execution Experience / Observability
+
+- add `work_objective_execution_timeline` with stage-only mechanically derived execution evidence;
+- add task-generation-scoped cancellation for Codex and Antigravity through AbortSignal and supervised process-tree termination;
+- preserve `cancelled` as a distinct durable Task Graph and Task Attempt terminal state;
+- record live selected-provider and fallback evidence without inventing percentage progress;
+- expose execution-experience capability metadata to the owner-local Control Center without leaking caller-owned Work Session timelines;
+- add Agent activity & control UX while keeping RWMCP Direct deterministic/direct;
+- advance Action Schema to 17 and keep Engineering API at 5.
+
 ## v0.40.1 - Security page balance patch
 
 - make the Security & access header more compact and reduce decorative visual weight;

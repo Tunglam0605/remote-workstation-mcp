@@ -182,7 +182,9 @@ export class TaskWorkflowExecutionService {
       this.executionPolicy.status(workSessionId)
     ]);
     const targetMode = status.sessionTargetMode ?? settings.execution.targetMode ?? inferExecutionTargetMode(settings.execution as unknown as Record<string, unknown>);
-    let allowed = executionTargetsForMode(targetMode);
+    let allowed = status.sessionTargetMode
+      ? executionTargetsForMode(targetMode)
+      : [...(settings.execution.targetPolicy?.enabledTargets ?? executionTargetsForMode(targetMode))];
     if (status.fallbackActive || status.effectiveMode === 'rwmcp-only') {
       allowed = allowed.filter(target => target === 'rwmcp-direct');
     } else if (status.effectiveMode === 'codex-only') {
@@ -198,8 +200,7 @@ export class TaskWorkflowExecutionService {
     return preference.filter(target => {
       if (!allowed.includes(target)) return false;
       if (target === 'rwmcp-direct') return true;
-      if (target === 'codex-local') return settings.execution.codexEnabled !== false && Boolean(this.workerProviders!.descriptor(target));
-      return settings.execution.antigravityEnabled !== false && Boolean(this.workerProviders!.descriptor(target));
+      return (settings.execution.targetPolicy?.enabledTargets ?? executionTargetsForMode(targetMode)).includes(target) && Boolean(this.workerProviders!.descriptor(target));
     });
   }
 
@@ -307,9 +308,19 @@ export class TaskWorkflowExecutionService {
               }
               throw new WorkerProviderOutcomeError('blocked', providerId, undefined, summary);
             }
-            if (providerId === 'codex-local' && this.executionPolicy) {
+            if (aiWorkerProvider(providerId) && this.executionPolicy) {
               try {
-                await this.executionPolicy.beforeCodexDispatch(objective.workSessionId, { deferFallback: true });
+                const genericGuard = (this.executionPolicy as ExecutionPolicyService & {
+                  beforeTargetDispatch?: (target: 'codex-local' | 'antigravity-local', workSessionId: string, options?: { deferFallback?: boolean }) => Promise<unknown>;
+                  beforeCodexDispatch?: (workSessionId: string, options?: { deferFallback?: boolean }) => Promise<unknown>;
+                }).beforeTargetDispatch;
+                if (genericGuard) {
+                  await genericGuard.call(this.executionPolicy, providerId, objective.workSessionId, { deferFallback: true });
+                } else if (providerId === 'codex-local') {
+                  await (this.executionPolicy as ExecutionPolicyService & {
+                    beforeCodexDispatch?: (workSessionId: string, options?: { deferFallback?: boolean }) => Promise<unknown>;
+                  }).beforeCodexDispatch?.(objective.workSessionId, { deferFallback: true });
+                }
               } catch (error) {
                 const summary = message(error);
                 if (!isWorkerCapacitySignal(summary)) throw error;

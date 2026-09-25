@@ -32,11 +32,19 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.41 adds execution observability while retaining unified routing on Action Schema v17 and Engineering API v5', async () => {
+test('v0.42 generalizes three-target execution policy on Action Schema v18 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 17;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 18;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.41\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.42\.0';/);
+  const settings = await read('src/setup/settings.ts');
+  const policy = await read('src/execution-policy.ts');
+  const routes = await read('src/worker-route-plan.ts');
+  assert.match(settings, /targetPolicy/);
+  assert.match(settings, /inferExecutionTargetPolicy/);
+  assert.match(policy, /beforeTargetDispatch/);
+  assert.match(policy, /sessionTargetTasks/);
+  assert.match(routes, /targetBudgetAvailable/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -214,7 +222,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v17 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v18 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -222,7 +230,7 @@ test('current runtime retains Work Session routing under Action Schema v17 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 17;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 18;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

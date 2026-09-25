@@ -281,4 +281,7 @@ registerTranslations({
   "Detailed Work Session execution history remains scoped to the caller that owns that session.": "L\u1ecbch s\u1eed th\u1ef1c thi chi ti\u1ebft c\u1ee7a Work Session v\u1eabn ch\u1ec9 thu\u1ed9c ph\u1ea1m vi ng\u01b0\u1eddi g\u1ecdi s\u1edf h\u1eefu phi\u00ean \u0111\u00f3.",
   "Deterministic": "X\u00e1c \u0111\u1ecbnh", "Direct": "Tr\u1ef1c ti\u1ebfp"
 
+  , "Max Antigravity tasks / session": "T\u1ed1i \u0111a t\u00e1c v\u1ee5 Antigravity / phi\u00ean",
+  "Max Antigravity tasks / day": "T\u1ed1i \u0111a t\u00e1c v\u1ee5 Antigravity / ng\u00e0y"
+
 });

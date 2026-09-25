@@ -48,9 +48,37 @@ function providerReady(providers: WorkerProviderStatus[], id: 'codex-local' | 'a
   return Boolean(status && status.availability === 'available' && status.dispatchCapable);
 }
 
-function codexBudgetAvailable(status: ExecutionPolicyStatus): boolean {
-  if (status.maxCodexTasksPerDay > 0 && status.codexTasksToday >= status.maxCodexTasksPerDay) return false;
-  if (status.maxCodexTasksPerSession > 0 && status.codexTasksThisSession >= status.maxCodexTasksPerSession) return false;
+function targetBudgetRuntime(status: ExecutionPolicyStatus, target: ExecutionTargetId): {
+  enabled: boolean;
+  tasksToday: number;
+  tasksThisSession: number;
+  maxTasksPerDay: number;
+  maxTasksPerSession: number;
+} {
+  const generic = status.targetPolicy?.targets?.[target];
+  if (generic) return generic;
+  if (target === 'codex-local') {
+    return {
+      enabled: status.codexEnabled,
+      tasksToday: status.codexTasksToday,
+      tasksThisSession: status.codexTasksThisSession,
+      maxTasksPerDay: status.maxCodexTasksPerDay,
+      maxTasksPerSession: status.maxCodexTasksPerSession
+    };
+  }
+  return {
+    enabled: true,
+    tasksToday: 0,
+    tasksThisSession: 0,
+    maxTasksPerDay: 0,
+    maxTasksPerSession: 0
+  };
+}
+
+function targetBudgetAvailable(status: ExecutionPolicyStatus, target: ExecutionTargetId): boolean {
+  const runtime = targetBudgetRuntime(status, target);
+  if (runtime.maxTasksPerDay > 0 && runtime.tasksToday >= runtime.maxTasksPerDay) return false;
+  if (runtime.maxTasksPerSession > 0 && runtime.tasksThisSession >= runtime.maxTasksPerSession) return false;
   return true;
 }
 
@@ -73,7 +101,10 @@ export function allowedExecutionTargets(
   settings: SetupSettings['execution'],
   status: ExecutionPolicyStatus
 ): ExecutionTargetId[] {
-  return executionTargetsForMode(status.sessionTargetMode ?? settings.targetMode).filter(target => policyAllowsTarget(status, target));
+  const configured = status.sessionTargetMode
+    ? executionTargetsForMode(status.sessionTargetMode)
+    : settings.targetPolicy?.enabledTargets ?? executionTargetsForMode(settings.targetMode);
+  return configured.filter(target => policyAllowsTarget(status, target));
 }
 
 export function planWorkerRoute(input: {
@@ -91,10 +122,10 @@ export function planWorkerRoute(input: {
   const desired = affinityOrder.filter(target => allowed.has(target));
   const fallbackChain: WorkerRouteTarget[] = desired.length > 0 ? desired : ['stop'];
 
-  const codexReady = settings.codexEnabled && allowed.has('codex-local') &&
-    codexBudgetAvailable(status) && providerReady(providers, 'codex-local');
-  const antigravityReady = settings.antigravityEnabled && allowed.has('antigravity-local') &&
-    providerReady(providers, 'antigravity-local');
+  const codexReady = targetBudgetRuntime(status, 'codex-local').enabled && allowed.has('codex-local') &&
+    targetBudgetAvailable(status, 'codex-local') && providerReady(providers, 'codex-local');
+  const antigravityReady = targetBudgetRuntime(status, 'antigravity-local').enabled && allowed.has('antigravity-local') &&
+    targetBudgetAvailable(status, 'antigravity-local') && providerReady(providers, 'antigravity-local');
 
   const candidates: WorkerRouteCandidate[] = fallbackChain.map(target => {
     if (target === 'rwmcp-direct') {
@@ -108,21 +139,23 @@ export function planWorkerRoute(input: {
       return { target, ready: true, reason: 'No execution target remains allowed by both owner target-set policy and the Work Session safety ceiling.' };
     }
     if (target === 'codex-local') {
-      const reason = !settings.codexEnabled
-        ? 'Codex is disabled by the local owner.'
+      const reason = !targetBudgetRuntime(status, 'codex-local').enabled
+        ? 'Codex is disabled by the generic target policy.'
         : !allowed.has('codex-local')
           ? 'Codex is excluded by the target set or effective Work Session safety ceiling.'
-          : !codexBudgetAvailable(status)
-            ? 'The configured Codex task budget is exhausted.'
+          : !targetBudgetAvailable(status, 'codex-local')
+            ? 'The configured Codex target budget is exhausted.'
             : providerReady(providers, 'codex-local')
               ? 'Codex is ready for bounded Work Session dispatch.'
               : 'Codex is unavailable or not dispatch-capable.';
       return { target, ready: codexReady, reason };
     }
-    const reason = !settings.antigravityEnabled
-      ? 'Antigravity is disabled by the local owner.'
+    const reason = !targetBudgetRuntime(status, 'antigravity-local').enabled
+      ? 'Antigravity is disabled by the generic target policy.'
       : !allowed.has('antigravity-local')
         ? 'Antigravity is excluded by the target set or effective Work Session safety ceiling.'
+        : !targetBudgetAvailable(status, 'antigravity-local')
+        ? 'The configured Antigravity target budget is exhausted.'
         : providerReady(providers, 'antigravity-local')
           ? 'Antigravity is ready for sandboxed Work Session dispatch.'
           : 'Antigravity is unavailable or not dispatch-capable.';

@@ -95,7 +95,7 @@ def qos_for_topic(node, topic, qosmod, depth):
 def topic_sample(args, bandwidth=False):
     validate_topic(args.topic)
     rclpy, qosmod, serialize_message, get_message, _ = load_ros(False)
-    rclpy.init(args=None)
+    rclpy.init(args=[])
     node = rclpy.create_node(f"_rwmcp_diag_{os.getpid()}")
     timestamps = deque(maxlen=args.window)
     sizes = deque(maxlen=args.window)
@@ -190,7 +190,7 @@ def tf_lookup(args):
         emit({"ok": False, "schemaVersion": SCHEMA_VERSION, "errorCode": "IDENTICAL_FRAMES"}, 64)
     rclpy, _, _, _, tf_bundle = load_ros(True)
     tf2_ros, Time = tf_bundle
-    rclpy.init(args=None)
+    rclpy.init(args=[])
     node = rclpy.create_node(f"_rwmcp_tf_{os.getpid()}")
     buffer = tf2_ros.Buffer()
     listener = tf2_ros.TransformListener(buffer, node, spin_thread=False)

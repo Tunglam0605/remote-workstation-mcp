@@ -237,6 +237,28 @@ function parsePeripheral(element: XmlElement, warnings: string[]): { peripheral?
   };
 }
 
+function capPeripheralFields(peripheral: Stm32SvdPeripheral, remainingFields: number): number {
+  let used = 0;
+  for (const register of peripheral.registers) {
+    const available = Math.max(0, remainingFields - used);
+    if (register.fields.length > available) {
+      register.fields = register.fields.slice(0, available);
+      register.fieldsTruncated = true;
+    }
+    used += register.fields.length;
+    if (used >= remainingFields) {
+      for (const later of peripheral.registers.slice(peripheral.registers.indexOf(register) + 1)) {
+        if (later.fields.length) {
+          later.fields = [];
+          later.fieldsTruncated = true;
+        }
+      }
+      break;
+    }
+  }
+  return used;
+}
+
 function cpuInfo(device: XmlElement): Stm32SvdInspection['device']['cpu'] | undefined {
   const cpu = directChild(device, 'cpu');
   if (!cpu) return undefined;
@@ -286,8 +308,10 @@ export function parseStm32SvdText(file: string, size: number, xml: string): Stm3
       truncated = true;
     }
     registerTotal += parsed.peripheral.registers.length;
-    fieldTotal += Math.min(parsed.fieldTotal, Math.max(0, MAX_FIELDS_TOTAL - fieldTotal));
-    if (parsed.fieldTotal > MAX_FIELDS_TOTAL - fieldTotal) truncated = true;
+    const remainingFields = Math.max(0, MAX_FIELDS_TOTAL - fieldTotal);
+    const usedFields = capPeripheralFields(parsed.peripheral, remainingFields);
+    if (usedFields < parsed.fieldTotal) truncated = true;
+    fieldTotal += usedFields;
     peripherals.push(parsed.peripheral);
   }
 

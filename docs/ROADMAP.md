@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.45.0 - Professional Tools Expansion II
+
+- replace scattered regex-oriented GDB/MI parsing with a bounded recursive MI parser that handles strings, tuples, lists and nested result records without widening debugger authority;
+- route stack frames, registers, locals, disassembly, breakpoint/watchpoint identifiers, expression values and memory-read results through the shared parser;
+- add an optional ROS 2 native diagnostic helper using `rclpy` for typed topic rate/bandwidth and TF lookup JSON when an explicit ROS distro is configured;
+- retain the bounded `ros2`/`tf2_echo` CLI path as compatibility fallback when native Python ROS imports are unavailable, and keep action-goal dispatch deferred;
+- add read-only project-scoped CMSIS-SVD inspection for STM32 device/CPU, peripheral, register, cluster, array and bit-field metadata;
+- reject SVD DTD/entity declarations, enforce package/count bounds, and expose no target connection, arbitrary GDB command or register-write surface;
+- advance Action Schema to 21 for the new `stm32_svd_inspect` MCP action while keeping Engineering API at 5 because high-level workflow contracts remain unchanged.
+
 ## v0.44.1 - Vendor Reference Hardening
 
 - audit existing STM32/OpenOCD/GDB, ROS 2, KiCad and Microsoft Office/Open XML tooling against official vendor documentation and upstream repositories;

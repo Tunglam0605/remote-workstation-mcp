@@ -46,4 +46,4 @@ if (uncovered.length || stale.length) {
   process.exit(1);
 }
 
-console.log(`Install-script policy valid: ${installScriptPackages.length} dependency package(s), ${Object.keys(policy).length} explicit policy entries.`);
+console.error(`Install-script policy valid: ${installScriptPackages.length} dependency package(s), ${Object.keys(policy).length} explicit policy entries.`);

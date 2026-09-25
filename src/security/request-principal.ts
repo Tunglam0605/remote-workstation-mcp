@@ -94,6 +94,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   worker_route_plan: 'workstation.read',
   execution_policy_status: 'workstation.read',
   execution_policy_set_override: 'workstation.write',
+  execution_target_set_override: 'workstation.write',
   work_objective_create: 'workstation.write',
   work_objective_inspect: 'workstation.read',
   work_objective_mutate: 'workstation.write',

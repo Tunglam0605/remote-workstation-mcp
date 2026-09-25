@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.39.0 - Unified Three-Target Orchestrator
+
+- treat `rwmcp-direct`, `codex-local`, and `antigravity-local` as peer execution targets at the router layer while preserving their different underlying security and execution mechanisms;
+- add eight owner target sets: Auto/Smart, RWMCP only, Codex only, Antigravity only, every two-target pair, and All three;
+- use affinity rather than hard capability locks: Antigravity first for frontend/UI, Codex first for code/backend/engineering/debug/review, and RWMCP first for read/workstation/Office/build/test/deterministic work;
+- add `execution_target_set_override` so an owner-authorized Work Session can use the same target-set model without mutating global provider enablement or workstation permissions;
+- allow ordinary AI failure to cross-fallback only while isolated worktree ownership remains clean; dirty worktrees fail closed for explicit review;
+- record direct RWMCP handoff and provider-attempt traces instead of converting fallback into fake worker success;
+- redesign the Moonlight Execution page around target sets, peer targets, affinity chains, readiness/capacity and the effective safety ceiling, including corrected Vietnamese labels;
+- retain legacy execution-mode/profile migration, Codex broker budgets/fallback, v0.38.1 Windows headless Antigravity hardening and all existing permission/sandbox boundaries;
+- advance Action Schema to 16 for the additive Work Session target-set override tool; keep Engineering API at 5.
+
 ## v0.38.1 - Windows headless Antigravity hardening
 
 - keep Windows headless Antigravity work file-scoped inside the assigned sandboxed worktree;

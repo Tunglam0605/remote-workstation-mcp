@@ -52,7 +52,7 @@ test('execution policy uses owner default unless an explicitly allowed Work Sess
   );
 });
 
-test('disabled Codex always forces effective rwmcp-only even if owner default requests Codex', async () => {
+test('disabled Codex does not collapse a hybrid safety ceiling when unified routing can still choose another target', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-execution-policy-'));
   const owner = settings({ codexEnabled: false, defaultMode: 'both' });
   const service = new ExecutionPolicyService({
@@ -61,8 +61,48 @@ test('disabled Codex always forces effective rwmcp-only even if owner default re
   });
   const status = await service.status();
   assert.equal(status.configuredMode, 'both');
-  assert.equal(status.effectiveMode, 'rwmcp-only');
+  assert.equal(status.effectiveMode, 'both');
   assert.equal(status.codexEnabled, false);
+  assert.equal(owner.execution.targetMode, 'rwmcp-only');
+});
+
+test('unified Work Session target-set override supports Antigravity-only and clears independently of owner defaults', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-execution-policy-target-'));
+  let owner = settings({
+    codexEnabled: true,
+    antigravityEnabled: true,
+    defaultMode: 'both',
+    workerRoutingProfile: 'smart',
+    targetMode: 'auto'
+  });
+  const service = new ExecutionPolicyService({
+    file: path.join(root, 'state.json'),
+    loadSettings: async () => owner
+  });
+  const sessionId = '55555555-5555-4555-8555-555555555555';
+
+  const overridden = await service.setSessionTargetModeOverride(sessionId, 'antigravity-only');
+  assert.equal(overridden.sessionTargetMode, 'antigravity-only');
+  assert.equal(overridden.effectiveMode, 'both');
+  assert.equal(overridden.source, 'work-session-override');
+  assert.equal(overridden.activeSessionOverrides, 1);
+
+  const pair = await service.setSessionTargetModeOverride(sessionId, 'codex-antigravity');
+  assert.equal(pair.sessionTargetMode, 'codex-antigravity');
+  assert.equal(pair.effectiveMode, 'both');
+
+  const codexOnly = await service.setSessionTargetModeOverride(sessionId, 'codex-only');
+  assert.equal(codexOnly.sessionTargetMode, 'codex-only');
+  assert.equal(codexOnly.effectiveMode, 'codex-only');
+
+  const cleared = await service.setSessionTargetModeOverride(sessionId, null);
+  assert.equal(cleared.sessionTargetMode, undefined);
+  assert.equal(cleared.effectiveMode, 'both');
+  assert.equal(cleared.source, 'owner-default');
+  assert.equal(cleared.activeSessionOverrides, 0);
+
+  owner = settings({ allowChatOverride: false, targetMode: 'auto', defaultMode: 'both', antigravityEnabled: true });
+  await assert.rejects(() => service.setSessionTargetModeOverride(sessionId, 'all-three'), /CHAT_OVERRIDE_DISABLED/);
 });
 
 test('Codex Work Session budget activates a durable rwmcp-only fallback latch', async () => {

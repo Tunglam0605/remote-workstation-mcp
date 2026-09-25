@@ -106,7 +106,7 @@ test('Execution distinguishes global route from Work Session overrides and unava
   const pages: Array<InstanceType<typeof dom.Node>> = [];
   const state = {
     execution: { data: {
-      settings: { defaultMode: 'rwmcp-only', workerRoutingProfile: 'custom', codexEnabled: true, antigravityEnabled: false, allowChatOverride: true, codexFallback: 'stop' },
+      settings: { targetMode: 'rwmcp-only', defaultMode: 'rwmcp-only', workerRoutingProfile: 'custom', codexEnabled: true, antigravityEnabled: false, allowChatOverride: true, codexFallback: 'stop' },
       status: { effectiveMode: 'rwmcp-only', source: 'owner-default', activeSessionOverrides: 2 },
       codex: { installed: true, authenticated: true }, accountBroker: { effectiveBackend: 'blocked', pool: { detail: 'Pool unreachable' } }
     } },
@@ -118,25 +118,33 @@ test('Execution distinguishes global route from Work Session overrides and unava
       openModal: () => {}, openPage: (_page: string, _title: string, content: InstanceType<typeof dom.Node>) => { pages.push(content); }, toast: () => {}, refresh: async () => {} });
     views.open('Execution');
     const rendered = pages[0]!.textContent;
-    assert.match(rendered, /AI Agent Orchestrator/);
+    assert.match(rendered, /Unified Three-Target Orchestrator/);
     assert.match(rendered, /Global route/);
+    assert.match(rendered, /Execution target set/);
+    assert.match(rendered, /Auto \/ Smart/);
+    assert.match(rendered, /Antigravity only/);
+    assert.match(rendered, /RWMCP \+ Codex/);
+    assert.match(rendered, /Codex \+ Antigravity/);
+    assert.match(rendered, /All three/);
     assert.match(rendered, /Task affinity & fallback/);
     assert.match(rendered, /Frontend \/ UI/);
     assert.match(rendered, /Antigravity preferred/);
     assert.match(rendered, /Backend \/ Code \/ Engineering/);
     assert.match(rendered, /Codex preferred/);
-    assert.match(rendered, /Worker pool & capacity/);
-    assert.match(rendered, /General-purpose · engineering preferred/);
-    assert.match(rendered, /General-purpose · UI preferred/);
-    assert.match(rendered, /Cross-worker fallback is limited to capacity/);
-    assert.match(rendered, /Pool unreachable/);
-    assert.match(rendered, /Disabled/);
-    assert.match(rendered, /When all AI workers are exhausted/);
-    assert.doesNotMatch(rendered, /When Codex reaches a limit/);
+    assert.match(rendered, /Read \/ Workstation \/ Deterministic/);
+    assert.match(rendered, /RWMCP preferred/);
+    assert.match(rendered, /Execution targets & capacity/);
+    assert.match(rendered, /RWMCP Direct/);
+    assert.match(rendered, /OpenAI Codex/);
+    assert.match(rendered, /Google Antigravity/);
+    assert.match(rendered, /dirty worktrees fail closed for review/);
+    assert.match(rendered, /Account routingblocked/);
+    assert.match(rendered, /Excluded by the selected execution target set/);
+    assert.match(rendered, /When AI targets are exhausted/);
     setLanguage('vi');
-    assert.equal(t('Task affinity & fallback'), 'Độ phù hợp tác vụ & dự phòng');
-    assert.equal(t('When all AI workers are exhausted'), 'Khi tất cả tác nhân AI hết năng lực');
-    assert.equal(t('{percent}% weekly remaining', { percent: 95 }), 'Còn 95% hạn mức tuần');
+    assert.equal(t('Execution target set'), 'T\u1eadp t\u00e1c nh\u00e2n th\u1ef1c thi');
+    assert.equal(t('RWMCP preferred'), '\u01afu ti\u00ean RWMCP');
+    assert.equal(t('Task affinity & fallback'), '\u0110\u1ed9 ph\u00f9 h\u1ee3p t\u00e1c v\u1ee5 & d\u1ef1 ph\u00f2ng');
   } finally { dom.restore(); }
 });
 
@@ -148,6 +156,7 @@ test('Agent Control saves the selected route and provider settings through the e
   const state = {
     execution: { data: {
       settings: {
+        targetMode: 'auto',
         defaultMode: 'both',
         workerRoutingProfile: 'smart',
         codexEnabled: true,
@@ -190,13 +199,10 @@ test('Agent Control saves the selected route and provider settings through the e
     assert.ok(request);
     assert.equal(request.options.method, 'POST');
     assert.deepEqual(request.options.body, {
-      workerRoutingProfile: 'smart',
-      defaultMode: 'both',
-      codexEnabled: true,
+      targetMode: 'auto',
       codexModel: 'gpt-6-sol',
       codexAgentsEnabled: true,
       codexSkillsEnabled: true,
-      antigravityEnabled: true,
       antigravityModel: '',
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',

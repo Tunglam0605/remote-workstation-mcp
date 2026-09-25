@@ -840,14 +840,14 @@ test('all AI worker capacity failures activate Work Session RWMCP fallback after
     assert.equal(attempts[0]?.status, 'blocked');
     assert.deepEqual(
       attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]),
-      [['codex-local', 'blocked'], ['antigravity-local', 'blocked']]
+      [['codex-local', 'blocked'], ['antigravity-local', 'blocked'], ['rwmcp-direct', 'blocked']]
     );
     assert.equal(notices[0]?.title, 'AI workers đã chuyển sang RWMCP');
     assert.equal(notices[0]?.kind, 'warning');
   });
 });
 
-test('ordinary worker task failure does not cross-fallback to the alternate AI worker', async t => {
+test('ordinary worker task failure cross-falls to an alternate AI worker only when ownership remains safe', async t => {
   let antigravityCalls = 0;
   const executionPolicy = {
     async settings() {
@@ -916,16 +916,71 @@ test('ordinary worker task failure does not cross-fallback to the alternate AI w
       execution: workerBinding('codex-local')
     });
 
-    await assert.rejects(
-      fx.taskWorkflowExecution.execute(objective.id, task.id),
-      /compile failed with exit code 2/
-    );
-    assert.equal(antigravityCalls, 0);
+    const output = await fx.taskWorkflowExecution.execute(objective.id, task.id);
+    assert.equal(output.task.status, 'succeeded');
+    assert.equal(antigravityCalls, 1);
     const attempts = await fx.taskAttempts.list({ taskId: task.id });
     assert.deepEqual(
       attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]),
-      [['codex-local', 'failed']]
+      [['codex-local', 'failed'], ['antigravity-local', 'succeeded']]
     );
+  });
+});
+
+test('ordinary AI failure does not cross-fallback when the assigned worktree became dirty', async t => {
+  let antigravityCalls = 0;
+  const executionPolicy = {
+    async settings() {
+      return { execution: { codexEnabled: true, antigravityEnabled: true, targetMode: 'all-three', codexFallback: 'rwmcp-only' } };
+    },
+    async status() { return { effectiveMode: 'both', fallbackActive: false }; },
+    async beforeCodexDispatch() { return {}; },
+    async activateSessionFallback() { return {}; }
+  };
+  const fx = await fixture(t, async () => {
+    throw new Error('engineering workflow path should not run');
+  }, {
+    executionPolicy,
+    worktreeStatus: async sessionId => ({
+      sessionId,
+      workspace: 'projects',
+      repoPath: 'repo',
+      worktreePath: 'repo.rwmcp-dirty',
+      branch: 'rwmcp/session/dirty',
+      commit: 'cccccccccccccccccccccccccccccccccccccccc',
+      buildDir: 'repo.rwmcp-dirty/build',
+      dirty: true
+    })
+  });
+  fx.workerProviders.register({
+    descriptor: { id: 'codex-local', kind: 'codex', displayName: 'Codex Local', worktreeAssignment: true, progressReporting: false, cancellationIntent: false },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => ({ status: 'failed' as const, runId: 'codex-dirty-fail', summary: 'implementation failed after editing files' })
+  });
+  fx.workerProviders.register({
+    descriptor: { id: 'antigravity-local', kind: 'antigravity', displayName: 'Antigravity Local', worktreeAssignment: true, progressReporting: false, cancellationIntent: false },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async () => { antigravityCalls += 1; return { status: 'succeeded' as const, runId: 'anti-must-not-run' }; }
+  });
+  const session = await fx.workSessions.create({ name: 'dirty-fallback-session', workspace: 'projects', projectPath: 'repo' });
+  await fx.workSessions.updateProject(session.id, {
+    repoPath: 'repo',
+    worktreePath: 'repo.rwmcp-dirty',
+    buildDir: 'repo.rwmcp-dirty/build',
+    branch: 'rwmcp/session/dirty',
+    commit: 'cccccccccccccccccccccccccccccccccccccccc'
+  });
+  await runWithWorkSession(session.id, async () => {
+    const objective = await fx.taskGraphs.create({ name: 'Dirty worktree fallback guard', objective: 'Do not transfer dirty ownership between AI workers' });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Implementation with partial edits',
+      concurrency: { operation: 'source.edit', key: 'repo.rwmcp-dirty' },
+      execution: workerBinding('codex-local')
+    });
+    await assert.rejects(fx.taskWorkflowExecution.execute(objective.id, task.id), /implementation failed after editing files/);
+    assert.equal(antigravityCalls, 0);
+    const attempts = await fx.taskAttempts.list({ taskId: task.id });
+    assert.deepEqual(attempts[0]?.providerAttempts?.map(item => [item.providerId, item.status]), [['codex-local', 'failed']]);
   });
 });
 

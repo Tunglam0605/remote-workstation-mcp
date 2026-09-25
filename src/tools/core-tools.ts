@@ -6,6 +6,7 @@ import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, capabilitiesForPlat
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
+import { EXECUTION_TARGET_MODES } from '../setup/settings.js';
 import { planWorkerRoute, WORKER_ROUTING_INTENTS } from '../worker-route-plan.js';
 
 const result = (value: unknown) => ({
@@ -328,6 +329,17 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, async ({ workSessionId, mode }) => result(await audited(ctx.audit, 'execution_policy_set_override', undefined, () =>
     ctx.runInWorkSession(workSessionId, () => ctx.executionPolicy.setSessionOverride(workSessionId, mode))
+  )));
+
+  server.registerTool('execution_target_set_override', {
+    description: 'Set or clear the unified execution-target-set override for one caller-owned Work Session when the local owner allows chat overrides. Target sets cover RWMCP direct, Codex and Antigravity singles, pairs, Auto/Smart, and All three. This never enables a provider globally, widens workstation permissions, or mutates owner defaults.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      targetMode: z.enum(EXECUTION_TARGET_MODES).nullable()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, targetMode }) => result(await audited(ctx.audit, 'execution_target_set_override', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () => ctx.executionPolicy.setSessionTargetModeOverride(workSessionId, targetMode))
   )));
 
   server.registerTool('codex_account_broker_status', {

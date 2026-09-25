@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   ensureDefaultPolicy,
   loadSetupSettings,
+  executionTargetModePreset,
   normalizeSetupSettings,
   saveSetupSettings,
   setupSettingsPath
@@ -26,6 +27,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.equal(settings.execution.defaultMode, 'rwmcp-only');
   assert.equal(settings.execution.workerRoutingProfile, 'direct');
+  assert.equal(settings.execution.targetMode, 'rwmcp-only');
   assert.equal(settings.execution.codexEnabled, false);
   assert.equal(settings.execution.codexModel, 'gpt-6-sol');
   assert.equal(settings.execution.codexAgentsEnabled, false);
@@ -86,6 +88,27 @@ test('setup settings infer routing profiles for pre-v0.35 execution settings', (
   assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' } }).execution.workerRoutingProfile, 'codex-assisted');
   assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' } }).execution.workerRoutingProfile, 'smart');
   assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'codex-only', workerRoutingProfile: 'custom' } }).execution.workerRoutingProfile, 'custom');
+});
+
+test('execution target presets derive compatible provider enablement and safety ceilings', () => {
+  assert.deepEqual(executionTargetModePreset('rwmcp-only'), { targetMode: 'rwmcp-only', workerRoutingProfile: 'direct', codexEnabled: false, antigravityEnabled: false, defaultMode: 'rwmcp-only' });
+  assert.deepEqual(executionTargetModePreset('codex-only'), { targetMode: 'codex-only', workerRoutingProfile: 'codex-assisted', codexEnabled: true, antigravityEnabled: false, defaultMode: 'codex-only' });
+  assert.deepEqual(executionTargetModePreset('antigravity-only'), { targetMode: 'antigravity-only', workerRoutingProfile: 'custom', codexEnabled: false, antigravityEnabled: true, defaultMode: 'both' });
+  assert.deepEqual(executionTargetModePreset('rwmcp-codex'), { targetMode: 'rwmcp-codex', workerRoutingProfile: 'codex-assisted', codexEnabled: true, antigravityEnabled: false, defaultMode: 'both' });
+  assert.deepEqual(executionTargetModePreset('rwmcp-antigravity'), { targetMode: 'rwmcp-antigravity', workerRoutingProfile: 'custom', codexEnabled: false, antigravityEnabled: true, defaultMode: 'both' });
+  assert.deepEqual(executionTargetModePreset('codex-antigravity'), { targetMode: 'codex-antigravity', workerRoutingProfile: 'custom', codexEnabled: true, antigravityEnabled: true, defaultMode: 'both' });
+  assert.equal(executionTargetModePreset('auto').workerRoutingProfile, 'smart');
+  assert.equal(executionTargetModePreset('all-three').workerRoutingProfile, 'smart');
+});
+
+test('setup settings migrate legacy routing into unified three-target modes', () => {
+  const workspace = path.resolve('tmp-workspace-target-routing');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: false, antigravityEnabled: false, defaultMode: 'rwmcp-only' } }).execution.targetMode, 'rwmcp-only');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: false, defaultMode: 'both', workerRoutingProfile: 'codex-assisted' } }).execution.targetMode, 'rwmcp-codex');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: false, antigravityEnabled: true, defaultMode: 'both', workerRoutingProfile: 'custom' } }).execution.targetMode, 'rwmcp-antigravity');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'both', workerRoutingProfile: 'smart' } }).execution.targetMode, 'auto');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: true, antigravityEnabled: true, defaultMode: 'both', targetMode: 'codex-antigravity' } }).execution.targetMode, 'codex-antigravity');
+  assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: false, antigravityEnabled: true, defaultMode: 'both', targetMode: 'antigravity-only' } }).execution.targetMode, 'antigravity-only');
 });
 
 test('setup settings tolerate a UTF-8 BOM written by Windows PowerShell', async () => {

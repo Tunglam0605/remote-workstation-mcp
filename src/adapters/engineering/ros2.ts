@@ -8,7 +8,7 @@ import { PathGuard } from '../../security/path-guard.js';
 import { ProcessManager } from '../process-manager.js';
 import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
-import { parseRos2LifecycleState, parseRos2TopicBandwidth, parseRos2TopicHz, parseTf2Echo } from './ros2-analysis.js';
+import { parseRos2LifecycleState, parseRos2NativeBandwidthPayload, parseRos2NativeRatePayload, parseRos2NativeTransformPayload, parseRos2TopicBandwidth, parseRos2TopicHz, parseTf2Echo } from './ros2-analysis.js';
 
 export interface Ros2RuntimeContext {
   distro?: string;
@@ -71,6 +71,51 @@ export class Ros2Adapter {
     const ros2 = await resolveFirstExecutable(['ros2']);
     if (!ros2) throw new Error('ROS 2 CLI (ros2) is unavailable in the RWMCP runtime environment.');
     return ros2.path;
+  }
+
+  private async nativeDiagnostic(
+    workspace: string,
+    cwdRelative: string,
+    args: string[],
+    timeoutMs: number,
+    runtime?: Ros2RuntimeContext
+  ): Promise<Record<string, unknown> | undefined> {
+    if (os.platform() === 'win32' || !runtime?.distro) return undefined;
+    this.policy.assertEngineeringEnabled();
+    validateRuntime(runtime);
+    const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
+    const distroSetup = `/opt/ros/${runtime.distro}/setup.bash`;
+    try { await fs.access(distroSetup); } catch { throw new Error(`ROS 2 distro setup was not found: ${distroSetup}`); }
+    const workspaceSetup = runtime.workspaceSetup ? await this.paths.resolveExisting(workspace, runtime.workspaceSetup) : '';
+    const bash = await resolveFirstExecutable(['bash']);
+    if (!bash) throw new Error('bash is required for ROS 2 native diagnostic helper.');
+    const result = await this.runner.run(
+      bash.path,
+      [
+        helperPath('ros2-python-run.sh'),
+        distroSetup,
+        workspaceSetup,
+        runtime.domainId === undefined ? '' : String(runtime.domainId),
+        helperPath('ros2-native-diagnostics.py'),
+        ...args
+      ],
+      cwd,
+      Math.min(timeoutMs + 2_000, 22_000)
+    );
+    if (!result.timedOut && result.exitCode === 69) return undefined;
+    if (result.timedOut || result.exitCode !== 0) {
+      const detail = result.stdout.trim().split(/\r?\n/).at(-1) || result.stderr.trim() || (result.timedOut ? 'timed out' : `exit=${result.exitCode}`);
+      throw new Error(`ROS 2 native diagnostic failed: ${detail.slice(0, 2048)}`);
+    }
+    const line = result.stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+    if (!line) throw new Error('ROS 2 native diagnostic returned no JSON payload.');
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); }
+    catch { throw new Error('ROS 2 native diagnostic returned invalid JSON.'); }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('ROS 2 native diagnostic payload must be an object.');
+    const record = parsed as Record<string, unknown>;
+    if (record.schemaVersion !== 1 || record.ok !== true) throw new Error('ROS 2 native diagnostic returned an unsupported payload contract.');
+    return record;
   }
 
   private async prepareCommand(
@@ -300,9 +345,20 @@ export class Ros2Adapter {
   async topicHz(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
     const name = validateRosName(topic, 'topic');
     if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 hz window must be in range 2..10000.');
+    const native = await this.nativeDiagnostic(workspace, cwd, ['topic-hz', '--topic', name, '--timeout-ms', String(timeoutMs), '--window', String(window)], timeoutMs, runtime);
+    if (native) {
+      return {
+        topic: name, timeoutMs, requestedWindow: window, sample: parseRos2NativeRatePayload(native),
+        provider: 'rclpy-native' as const,
+        messageType: typeof native.messageType === 'string' ? native.messageType.slice(0, 256) : undefined,
+        measurementSemantics: 'subscription-receive-rate' as const,
+        caveats: ['affected-by-qos', 'affected-by-host-load', 'not-publisher-clock-truth'] as const
+      };
+    }
     const result = await this.sample(workspace, cwd, ['topic', 'hz', name, '--window', String(window)], timeoutMs, runtime);
     return {
       topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicHz(result.stdout),
+      provider: 'ros2-cli' as const,
       measurementSemantics: 'subscription-receive-rate' as const,
       caveats: ['affected-by-qos', 'affected-by-host-load', 'not-publisher-clock-truth'] as const
     };
@@ -311,9 +367,20 @@ export class Ros2Adapter {
   async topicBandwidth(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
     const name = validateRosName(topic, 'topic');
     if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 bandwidth window must be in range 2..10000.');
+    const native = await this.nativeDiagnostic(workspace, cwd, ['topic-bw', '--topic', name, '--timeout-ms', String(timeoutMs), '--window', String(window)], timeoutMs, runtime);
+    if (native) {
+      return {
+        topic: name, timeoutMs, requestedWindow: window, sample: parseRos2NativeBandwidthPayload(native),
+        provider: 'rclpy-native' as const,
+        messageType: typeof native.messageType === 'string' ? native.messageType.slice(0, 256) : undefined,
+        measurementSemantics: 'subscription-receive-bandwidth' as const,
+        caveats: ['affected-by-qos', 'affected-by-host-load', 'subscriber-observation-not-link-capacity'] as const
+      };
+    }
     const result = await this.sample(workspace, cwd, ['topic', 'bw', name, '--window', String(window)], timeoutMs, runtime);
     return {
       topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicBandwidth(result.stdout),
+      provider: 'ros2-cli' as const,
       measurementSemantics: 'subscription-receive-bandwidth' as const,
       caveats: ['affected-by-qos', 'affected-by-host-load', 'subscriber-observation-not-link-capacity'] as const
     };
@@ -323,10 +390,14 @@ export class Ros2Adapter {
     const source = validateTfFrame(sourceFrame, 'source');
     const target = validateTfFrame(targetFrame, 'target');
     if (source === target) throw new Error('TF source and target frames must differ.');
+    const native = await this.nativeDiagnostic(workspace, cwd, ['tf-lookup', '--source-frame', source, '--target-frame', target, '--timeout-ms', String(timeoutMs)], timeoutMs, runtime);
+    if (native) {
+      return { sourceFrame: source, targetFrame: target, timeoutMs, provider: 'rclpy-native' as const, transform: parseRos2NativeTransformPayload(native) };
+    }
     const result = await this.sample(workspace, cwd, ['run', 'tf2_ros', 'tf2_echo', source, target], timeoutMs, runtime);
     const transform = parseTf2Echo(result.stdout);
     if (!transform) throw new Error(`TF lookup did not produce a parseable transform within ${timeoutMs} ms.`);
-    return { sourceFrame: source, targetFrame: target, timeoutMs, transform };
+    return { sourceFrame: source, targetFrame: target, timeoutMs, provider: 'tf2_echo' as const, transform };
   }
 
   async lifecycleGet(workspace: string, node: string, cwd = '.', runtime?: Ros2RuntimeContext) {

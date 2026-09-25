@@ -537,13 +537,17 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     content.append(activity);
 
     const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
-    const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop worker routing']]);
+    const fallback = selectValue(settings.targetPolicy?.fallback || (settings.codexFallback === 'stop' ? 'stop' : 'rwmcp-direct'), [['rwmcp-direct', 'Return to RWMCP'], ['stop', 'Stop worker routing']]);
     const codexModel = el('input', { value: settings.codexModel || 'gpt-6-sol', placeholder: 'gpt-6-sol' });
     const antiModel = el('input', { value: settings.antigravityModel || '', placeholder: t('Provider configured model') });
     const codexAgentsEnabled = el('input', { type: 'checkbox', checked: settings.codexAgentsEnabled });
     const codexSkillsEnabled = el('input', { type: 'checkbox', checked: settings.codexSkillsEnabled });
-    const maxSession = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerSession ?? '' });
-    const maxDay = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerDay ?? '' });
+    const codexBudget = settings.targetPolicy?.budgets?.['codex-local'] || {};
+    const antiBudget = settings.targetPolicy?.budgets?.['antigravity-local'] || {};
+    const maxSession = el('input', { type: 'number', min: '0', value: codexBudget.maxTasksPerSession ?? settings.maxCodexTasksPerSession ?? '' });
+    const maxDay = el('input', { type: 'number', min: '0', value: codexBudget.maxTasksPerDay ?? settings.maxCodexTasksPerDay ?? '' });
+    const antiMaxSession = el('input', { type: 'number', min: '0', value: antiBudget.maxTasksPerSession ?? '' });
+    const antiMaxDay = el('input', { type: 'number', min: '0', value: antiBudget.maxTasksPerDay ?? '' });
     const brokerEnabled = el('input', { type: 'checkbox', checked: settings.codexAccountBroker?.enabled });
     const brokerMode = selectValue(settings.codexAccountBroker?.mode || 'native', [['native', 'Native'], ['cockpit-api-pool', 'Cockpit API pool']]);
     const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
@@ -564,6 +568,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         field('Codex model', codexModel), field('Antigravity model', antiModel),
         field('Enable Codex EAS agents', codexAgentsEnabled), field('Share Codex skills with RWMCP workers', codexSkillsEnabled),
         field('Max Codex tasks / session', maxSession, '0 means unlimited.'), field('Max Codex tasks / day', maxDay, '0 means unlimited.'),
+        field('Max Antigravity tasks / session', antiMaxSession, '0 means unlimited.'), field('Max Antigravity tasks / day', antiMaxDay, '0 means unlimited.'),
         field('Enable account broker', brokerEnabled), field('Broker mode', brokerMode)
       ),
       el('div', { class: 'agent-danger-zone' },
@@ -588,9 +593,23 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
           codexSkillsEnabled: codexSkillsEnabled.checked,
           antigravityModel: antiModel.value,
           allowChatOverride: chatOverride.checked,
-          codexFallback: fallback.value,
-          maxCodexTasksPerSession: maxSession.value === '' ? undefined : Number(maxSession.value),
-          maxCodexTasksPerDay: maxDay.value === '' ? undefined : Number(maxDay.value),
+          targetPolicy: {
+            fallback: fallback.value,
+            budgets: {
+              'codex-local': {
+                maxTasksPerSession: maxSession.value === '' ? 0 : Number(maxSession.value),
+                maxTasksPerDay: maxDay.value === '' ? 0 : Number(maxDay.value)
+              },
+              'antigravity-local': {
+                maxTasksPerSession: antiMaxSession.value === '' ? 0 : Number(antiMaxSession.value),
+                maxTasksPerDay: antiMaxDay.value === '' ? 0 : Number(antiMaxDay.value)
+              }
+            }
+          },
+          // v0.41 compatibility projection retained for one release line.
+          codexFallback: fallback.value === 'stop' ? 'stop' : 'rwmcp-only',
+          maxCodexTasksPerSession: maxSession.value === '' ? 0 : Number(maxSession.value),
+          maxCodexTasksPerDay: maxDay.value === '' ? 0 : Number(maxDay.value),
           codexAccountBroker: { enabled: brokerEnabled.checked, mode: brokerMode.value }
         };
         const result = await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'AI routing settings saved.');

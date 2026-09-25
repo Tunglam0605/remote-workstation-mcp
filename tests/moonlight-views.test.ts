@@ -230,6 +230,13 @@ test('Agent Control saves the selected route and provider settings through the e
       codexSkillsEnabled: true,
       antigravityModel: '',
       allowChatOverride: true,
+      targetPolicy: {
+        fallback: 'rwmcp-direct',
+        budgets: {
+          'codex-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+          'antigravity-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 }
+        }
+      },
       codexFallback: 'rwmcp-only',
       maxCodexTasksPerSession: 0,
       maxCodexTasksPerDay: 0,

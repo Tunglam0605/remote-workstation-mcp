@@ -42,6 +42,7 @@ import {
 import {
   ensureDefaultPolicy,
   executionTargetModePreset,
+  executionTargetsForMode,
   ensureHostsConfig,
   loadSetupSettings,
   normalizeSetupSettings,
@@ -1307,6 +1308,13 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           codexFallback?: 'rwmcp-only' | 'stop';
           maxCodexTasksPerSession?: number;
           maxCodexTasksPerDay?: number;
+          targetPolicy?: {
+            fallback?: 'rwmcp-direct' | 'stop';
+            budgets?: Partial<Record<'rwmcp-direct' | 'codex-local' | 'antigravity-local', {
+              maxTasksPerSession?: number;
+              maxTasksPerDay?: number;
+            }>>;
+          };
           codexAccountBroker?: {
             enabled?: boolean;
             mode?: 'native' | 'cockpit-api-pool';
@@ -1333,11 +1341,37 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         const preset = legacyCustom
           ? { workerRoutingProfile: 'custom' as const, targetMode: undefined }
           : executionTargetModePreset(requestedTargetMode);
+        const requestedFallback = body.targetPolicy?.fallback ??
+          (body.codexFallback ? (body.codexFallback === 'stop' ? 'stop' : 'rwmcp-direct') : current.execution.targetPolicy.fallback);
+        const requestedBudgets = {
+          'rwmcp-direct': {
+            ...current.execution.targetPolicy.budgets['rwmcp-direct'],
+            ...(body.targetPolicy?.budgets?.['rwmcp-direct'] ?? {})
+          },
+          'codex-local': {
+            ...current.execution.targetPolicy.budgets['codex-local'],
+            ...(body.targetPolicy?.budgets?.['codex-local'] ?? {}),
+            ...(body.maxCodexTasksPerSession !== undefined ? { maxTasksPerSession: body.maxCodexTasksPerSession } : {}),
+            ...(body.maxCodexTasksPerDay !== undefined ? { maxTasksPerDay: body.maxCodexTasksPerDay } : {})
+          },
+          'antigravity-local': {
+            ...current.execution.targetPolicy.budgets['antigravity-local'],
+            ...(body.targetPolicy?.budgets?.['antigravity-local'] ?? {})
+          }
+        };
+        const targetPolicy = {
+          enabledTargets: legacyCustom
+            ? current.execution.targetPolicy.enabledTargets
+            : executionTargetsForMode(requestedTargetMode),
+          fallback: requestedFallback,
+          budgets: requestedBudgets
+        };
         const settings = normalizeSetupSettings({
           ...current,
           execution: {
             ...current.execution,
             ...preset,
+            targetPolicy,
             ...(legacyCustom && typeof body.codexEnabled === 'boolean' ? { codexEnabled: body.codexEnabled } : {}),
             ...(typeof body.codexModel === 'string' ? { codexModel: body.codexModel } : {}),
             ...(typeof body.codexAgentsEnabled === 'boolean' ? { codexAgentsEnabled: body.codexAgentsEnabled } : {}),

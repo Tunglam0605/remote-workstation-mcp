@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { executionTargetModePreset, isExecutionTargetMode, loadSetupSettings, setupConfigDir, type ExecutionMode, type ExecutionTargetMode, type SetupSettings } from './setup/settings.js';
+import { executionTargetModePreset, isExecutionTargetMode, loadSetupSettings, setupConfigDir, type ExecutionMode, type ExecutionTargetId, type ExecutionTargetMode, type SetupSettings } from './setup/settings.js';
 
 export type ExecutionPolicySource = 'owner-default' | 'work-session-override' | 'fallback-latch';
 
@@ -15,14 +15,29 @@ interface ExecutionPolicyStateV1 {
   fallback?: { active: boolean; reason?: string; detail?: string; activatedAt?: string };
   daily?: { date: string; codexTasks: number };
   sessionCodexTasks?: Record<string, number>;
+  targetDaily?: Partial<Record<ExecutionTargetId, { date: string; tasks: number }>>;
+  sessionTargetTasks?: Record<string, Partial<Record<ExecutionTargetId, number>>>;
   overrides?: Record<string, SessionOverride>;
   sessionFallbacks?: Record<string, { reason: string; detail?: string; activatedAt: string }>;
+}
+
+export interface ExecutionTargetRuntimePolicyStatus {
+  enabledTargets: ExecutionTargetId[];
+  fallback: 'rwmcp-direct' | 'stop';
+  targets: Record<ExecutionTargetId, {
+    enabled: boolean;
+    tasksToday: number;
+    tasksThisSession: number;
+    maxTasksPerDay: number;
+    maxTasksPerSession: number;
+  }>;
 }
 
 export interface ExecutionPolicyStatus {
   configuredMode: ExecutionMode;
   effectiveMode: ExecutionMode;
   source: ExecutionPolicySource;
+  targetPolicy: ExecutionTargetRuntimePolicyStatus;
   codexEnabled: boolean;
   allowChatOverride: boolean;
   codexFallback: 'rwmcp-only' | 'stop';
@@ -73,7 +88,7 @@ export class ExecutionPolicyService {
   }
 
   private empty(): ExecutionPolicyStateV1 {
-    return { version: 1, fallback: { active: false }, sessionCodexTasks: {}, overrides: {}, sessionFallbacks: {} };
+    return { version: 1, fallback: { active: false }, sessionCodexTasks: {}, targetDaily: {}, sessionTargetTasks: {}, overrides: {}, sessionFallbacks: {} };
   }
 
   private async load(): Promise<ExecutionPolicyStateV1> {
@@ -93,6 +108,32 @@ export class ExecutionPolicyService {
       const sessionCodexTasks: Record<string, number> = {};
       for (const [sessionId, count] of Object.entries(raw.sessionCodexTasks ?? {})) {
         if (Number.isSafeInteger(count) && count >= 0) sessionCodexTasks[sessionId] = count;
+      }
+
+      const targetDaily: Partial<Record<ExecutionTargetId, { date: string; tasks: number }>> = {};
+      for (const target of ['rwmcp-direct', 'codex-local', 'antigravity-local'] as const) {
+        const entry = raw.targetDaily?.[target];
+        if (entry && typeof entry.date === 'string' && Number.isSafeInteger(entry.tasks) && entry.tasks >= 0) {
+          targetDaily[target] = { date: entry.date, tasks: entry.tasks };
+        }
+      }
+      if (!targetDaily['codex-local'] && raw.daily && typeof raw.daily.date === 'string' && Number.isSafeInteger(raw.daily.codexTasks) && raw.daily.codexTasks >= 0) {
+        targetDaily['codex-local'] = { date: raw.daily.date, tasks: raw.daily.codexTasks };
+      }
+
+      const sessionTargetTasks: Record<string, Partial<Record<ExecutionTargetId, number>>> = {};
+      for (const [sessionId, counts] of Object.entries(raw.sessionTargetTasks ?? {})) {
+        if (!counts || typeof counts !== 'object') continue;
+        const clean: Partial<Record<ExecutionTargetId, number>> = {};
+        for (const target of ['rwmcp-direct', 'codex-local', 'antigravity-local'] as const) {
+          const count = counts[target];
+          if (Number.isSafeInteger(count) && Number(count) >= 0) clean[target] = Number(count);
+        }
+        if (Object.keys(clean).length) sessionTargetTasks[sessionId] = clean;
+      }
+      for (const [sessionId, count] of Object.entries(sessionCodexTasks)) {
+        sessionTargetTasks[sessionId] ??= {};
+        if (sessionTargetTasks[sessionId]!['codex-local'] === undefined) sessionTargetTasks[sessionId]!['codex-local'] = count;
       }
 
       const sessionFallbacks: Record<string, { reason: string; detail?: string; activatedAt: string }> = {};
@@ -125,6 +166,8 @@ export class ExecutionPolicyService {
           ? { daily: { date: raw.daily.date, codexTasks: raw.daily.codexTasks } }
           : {}),
         sessionCodexTasks,
+        targetDaily,
+        sessionTargetTasks,
         overrides,
         sessionFallbacks
       };
@@ -137,6 +180,8 @@ export class ExecutionPolicyService {
   private async save(state: ExecutionPolicyStateV1): Promise<void> {
     const sessionEntries = Object.entries(state.sessionCodexTasks ?? {});
     if (sessionEntries.length > 256) state.sessionCodexTasks = Object.fromEntries(sessionEntries.slice(-256));
+    const targetSessionEntries = Object.entries(state.sessionTargetTasks ?? {});
+    if (targetSessionEntries.length > 256) state.sessionTargetTasks = Object.fromEntries(targetSessionEntries.slice(-256));
     const overrideEntries = Object.entries(state.overrides ?? {});
     if (overrideEntries.length > 256) state.overrides = Object.fromEntries(overrideEntries.slice(-256));
     const fallbackEntries = Object.entries(state.sessionFallbacks ?? {});
@@ -174,14 +219,23 @@ export class ExecutionPolicyService {
     return state.daily;
   }
 
+  private targetTasksToday(state: ExecutionPolicyStateV1, target: ExecutionTargetId): number {
+    const entry = state.targetDaily?.[target];
+    return entry?.date === this.today() ? entry.tasks : 0;
+  }
+
+  private targetTasksThisSession(state: ExecutionPolicyStateV1, workSessionId: string | undefined, target: ExecutionTargetId): number {
+    return workSessionId ? (state.sessionTargetTasks?.[workSessionId]?.[target] ?? 0) : 0;
+  }
+
   async status(workSessionId?: string): Promise<ExecutionPolicyStatus> {
     const [settings, state] = await Promise.all([this.loadSettings(), this.load()]);
     const configuredMode = settings.execution.defaultMode;
     const sessionEntry = workSessionId ? state.overrides?.[workSessionId] : undefined;
     const sessionOverride = sessionEntry?.mode;
     const sessionTargetMode = sessionEntry?.targetMode;
-    const globalFallbackActive = state.fallback?.active === true && settings.execution.codexFallback === 'rwmcp-only';
-    const sessionFallback = workSessionId && settings.execution.codexFallback === 'rwmcp-only'
+    const globalFallbackActive = state.fallback?.active === true && settings.execution.targetPolicy.fallback === 'rwmcp-direct';
+    const sessionFallback = workSessionId && settings.execution.targetPolicy.fallback === 'rwmcp-direct'
       ? state.sessionFallbacks?.[workSessionId]
       : undefined;
     const fallbackActive = globalFallbackActive || Boolean(sessionFallback);
@@ -206,11 +260,27 @@ export class ExecutionPolicyService {
       source = 'owner-default';
     }
 
-    const codexTasksToday = state.daily?.date === this.today() ? state.daily.codexTasks : 0;
+    const targetRuntime = Object.fromEntries((['rwmcp-direct', 'codex-local', 'antigravity-local'] as const).map(target => {
+      const budget = settings.execution.targetPolicy.budgets[target];
+      return [target, {
+        enabled: settings.execution.targetPolicy.enabledTargets.includes(target),
+        tasksToday: this.targetTasksToday(state, target),
+        tasksThisSession: this.targetTasksThisSession(state, workSessionId, target),
+        maxTasksPerDay: budget.maxTasksPerDay,
+        maxTasksPerSession: budget.maxTasksPerSession
+      }];
+    })) as ExecutionTargetRuntimePolicyStatus['targets'];
+    const targetPolicy: ExecutionTargetRuntimePolicyStatus = {
+      enabledTargets: [...settings.execution.targetPolicy.enabledTargets],
+      fallback: settings.execution.targetPolicy.fallback,
+      targets: targetRuntime
+    };
+    const codexTasksToday = targetRuntime['codex-local'].tasksToday;
     return {
       configuredMode,
       effectiveMode,
       source,
+      targetPolicy,
       codexEnabled: settings.execution.codexEnabled,
       allowChatOverride: settings.execution.allowChatOverride,
       codexFallback: settings.execution.codexFallback,
@@ -228,9 +298,9 @@ export class ExecutionPolicyService {
       ...(sessionOverride ? { sessionOverride } : {}),
       ...(sessionTargetMode ? { sessionTargetMode } : {}),
       codexTasksToday,
-      codexTasksThisSession: workSessionId ? (state.sessionCodexTasks?.[workSessionId] ?? 0) : 0,
-      maxCodexTasksPerDay: settings.execution.maxCodexTasksPerDay,
-      maxCodexTasksPerSession: settings.execution.maxCodexTasksPerSession,
+      codexTasksThisSession: targetRuntime['codex-local'].tasksThisSession,
+      maxCodexTasksPerDay: targetRuntime['codex-local'].maxTasksPerDay,
+      maxCodexTasksPerSession: targetRuntime['codex-local'].maxTasksPerSession,
       activeSessionOverrides: Object.keys(state.overrides ?? {}).length,
       activeSessionFallbacks: Object.keys(state.sessionFallbacks ?? {}).length
     };
@@ -267,47 +337,79 @@ export class ExecutionPolicyService {
     return await this.status();
   }
 
-  async beforeCodexDispatch(
+  async beforeTargetDispatch(
+    target: Exclude<ExecutionTargetId, 'rwmcp-direct'>,
     workSessionId: string,
     options: { deferFallback?: boolean } = {}
   ): Promise<ExecutionPolicyStatus> {
     const status = await this.status(workSessionId);
-    if (!status.codexEnabled || status.effectiveMode === 'rwmcp-only') {
-      throw new Error('EXECUTION_POLICY_RWMCP_ONLY: Codex worker dispatch is disabled by the effective execution policy.');
+    const runtime = status.targetPolicy.targets[target];
+    if (!runtime.enabled || status.fallbackActive || status.effectiveMode === 'rwmcp-only') {
+      throw new Error(`EXECUTION_POLICY_TARGET_DISABLED: ${target} is disabled by the effective target policy.`);
     }
-    if (status.maxCodexTasksPerSession > 0 && status.codexTasksThisSession >= status.maxCodexTasksPerSession) {
+    if (status.effectiveMode === 'codex-only' && target !== 'codex-local') {
+      throw new Error(`EXECUTION_POLICY_TARGET_DISABLED: ${target} is excluded by the legacy Work Session safety ceiling.`);
+    }
+    const label = target === 'codex-local' ? 'Codex' : 'Antigravity';
+    if (runtime.maxTasksPerSession > 0 && runtime.tasksThisSession >= runtime.maxTasksPerSession) {
       if (options.deferFallback === true) {
-        throw new Error('CODEX_BUDGET_REACHED: session Codex task budget reached; alternate worker routing may continue.');
+        throw new Error(`TARGET_BUDGET_REACHED: ${target} Work Session task budget reached; alternate routing may continue.`);
       }
-      await this.activateSessionFallback(workSessionId, 'session-budget', 'Codex task budget for this Work Session was reached.');
+      await this.activateSessionFallback(workSessionId, 'session-budget', `${label} task budget for this Work Session was reached.`);
       const after = await this.status(workSessionId);
       throw new Error(after.fallbackActive
-        ? 'CODEX_FALLBACK_ACTIVE: session Codex task budget reached; effective mode switched to rwmcp-only.'
-        : 'CODEX_BUDGET_REACHED: session Codex task budget reached; fallback policy is stop.');
+        ? `TARGET_FALLBACK_ACTIVE: ${target} Work Session budget reached; effective route switched to rwmcp-direct.`
+        : `TARGET_BUDGET_REACHED: ${target} Work Session budget reached; fallback policy is stop.`);
     }
-    if (status.maxCodexTasksPerDay > 0 && status.codexTasksToday >= status.maxCodexTasksPerDay) {
+    if (runtime.maxTasksPerDay > 0 && runtime.tasksToday >= runtime.maxTasksPerDay) {
       if (options.deferFallback === true) {
-        throw new Error('CODEX_BUDGET_REACHED: daily Codex task budget reached; alternate worker routing may continue.');
+        throw new Error(`TARGET_BUDGET_REACHED: ${target} daily task budget reached; alternate routing may continue.`);
       }
-      await this.activateFallback('daily-budget', 'Daily Codex task budget was reached.');
+      await this.activateFallback('daily-budget', `Daily ${label} task budget was reached.`);
       const after = await this.status(workSessionId);
       throw new Error(after.fallbackActive
-        ? 'CODEX_FALLBACK_ACTIVE: daily Codex task budget reached; effective mode switched to rwmcp-only.'
-        : 'CODEX_BUDGET_REACHED: daily Codex task budget reached; fallback policy is stop.');
+        ? `TARGET_FALLBACK_ACTIVE: ${target} daily budget reached; effective route switched to rwmcp-direct.`
+        : `TARGET_BUDGET_REACHED: ${target} daily budget reached; fallback policy is stop.`);
     }
 
     await this.mutate(state => {
-      const daily = this.normalizeDaily(state);
-      daily.codexTasks += 1;
-      state.sessionCodexTasks ??= {};
-      state.sessionCodexTasks[workSessionId] = (state.sessionCodexTasks[workSessionId] ?? 0) + 1;
+      const date = this.today();
+      state.targetDaily ??= {};
+      const currentDaily = state.targetDaily[target];
+      if (!currentDaily || currentDaily.date !== date) state.targetDaily[target] = { date, tasks: 0 };
+      state.targetDaily[target]!.tasks += 1;
+      state.sessionTargetTasks ??= {};
+      state.sessionTargetTasks[workSessionId] ??= {};
+      state.sessionTargetTasks[workSessionId]![target] = (state.sessionTargetTasks[workSessionId]![target] ?? 0) + 1;
+
+      // v0.41 rollback compatibility: keep legacy Codex counters in sync.
+      if (target === 'codex-local') {
+        const daily = this.normalizeDaily(state);
+        daily.codexTasks += 1;
+        state.sessionCodexTasks ??= {};
+        state.sessionCodexTasks[workSessionId] = (state.sessionCodexTasks[workSessionId] ?? 0) + 1;
+      }
     });
     return await this.status(workSessionId);
   }
 
+  async beforeCodexDispatch(
+    workSessionId: string,
+    options: { deferFallback?: boolean } = {}
+  ): Promise<ExecutionPolicyStatus> {
+    try {
+      return await this.beforeTargetDispatch('codex-local', workSessionId, options);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (text.startsWith('TARGET_BUDGET_REACHED:')) throw new Error(text.replace('TARGET_BUDGET_REACHED:', 'CODEX_BUDGET_REACHED:'));
+      if (text.startsWith('TARGET_FALLBACK_ACTIVE:')) throw new Error(text.replace('TARGET_FALLBACK_ACTIVE:', 'CODEX_FALLBACK_ACTIVE:'));
+      throw error;
+    }
+  }
+
   async activateSessionFallback(workSessionId: string, reason: string, detail?: string): Promise<void> {
     const settings = await this.loadSettings();
-    if (settings.execution.codexFallback !== 'rwmcp-only') return;
+    if (settings.execution.targetPolicy.fallback !== 'rwmcp-direct') return;
     const safeReason = boundedDetail(reason, 128);
     const safeDetail = boundedDetail(detail);
     if (!safeReason) return;
@@ -323,7 +425,7 @@ export class ExecutionPolicyService {
 
   async activateFallback(reason: string, detail?: string): Promise<void> {
     const settings = await this.loadSettings();
-    if (settings.execution.codexFallback !== 'rwmcp-only') return;
+    if (settings.execution.targetPolicy.fallback !== 'rwmcp-direct') return;
     const safeReason = boundedDetail(reason, 128);
     const safeDetail = boundedDetail(detail);
     await this.mutate(state => {
@@ -353,6 +455,7 @@ export function isWorkerCapacitySignal(value: string | undefined): boolean {
   }
   return /\b429\b|rate[ -]?limit|usage[ -]?limit|quota|limit reached|reached (?:your|the) .*limit|too many requests|usage cap|out of credits|resource[ -]?exhausted/.test(text) ||
     /codex_(?:limit_reached|budget_reached|auth_required|account_pool_unavailable)/.test(text) ||
+    /target_(?:budget_reached|fallback_active)/.test(text) ||
     /antigravity_(?:limit_reached|auth_required)/.test(text) ||
     /worker provider .+ is not available/.test(text) ||
     /(?:codex|antigravity).+(?:authentication unavailable|not authenticated|sign[ -]?in required)/.test(text);

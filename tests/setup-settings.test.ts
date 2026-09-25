@@ -111,6 +111,49 @@ test('setup settings migrate legacy routing into unified three-target modes', ()
   assert.equal(normalizeSetupSettings({ workspaceRoot: workspace, execution: { codexEnabled: false, antigravityEnabled: true, defaultMode: 'both', targetMode: 'antigravity-only' } }).execution.targetMode, 'antigravity-only');
 });
 
+test('generic target policy migrates legacy Codex settings and preserves explicit Antigravity budgets', () => {
+  const workspace = path.resolve('tmp-workspace-target-policy');
+  const legacy = normalizeSetupSettings({
+    workspaceRoot: workspace,
+    execution: {
+      codexEnabled: true,
+      antigravityEnabled: true,
+      defaultMode: 'both',
+      workerRoutingProfile: 'smart',
+      targetMode: 'auto',
+      codexFallback: 'stop',
+      maxCodexTasksPerSession: 4,
+      maxCodexTasksPerDay: 12
+    }
+  });
+  assert.deepEqual(legacy.execution.targetPolicy.enabledTargets, ['rwmcp-direct', 'codex-local', 'antigravity-local']);
+  assert.equal(legacy.execution.targetPolicy.fallback, 'stop');
+  assert.deepEqual(legacy.execution.targetPolicy.budgets['codex-local'], { maxTasksPerSession: 4, maxTasksPerDay: 12 });
+  assert.deepEqual(legacy.execution.targetPolicy.budgets['antigravity-local'], { maxTasksPerSession: 0, maxTasksPerDay: 0 });
+
+  const generic = normalizeSetupSettings({
+    workspaceRoot: workspace,
+    execution: {
+      targetMode: 'all-three',
+      targetPolicy: {
+        enabledTargets: ['rwmcp-direct', 'codex-local', 'antigravity-local'],
+        fallback: 'rwmcp-direct',
+        budgets: {
+          'rwmcp-direct': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+          'codex-local': { maxTasksPerSession: 2, maxTasksPerDay: 8 },
+          'antigravity-local': { maxTasksPerSession: 3, maxTasksPerDay: 9 }
+        }
+      }
+    }
+  });
+  assert.equal(generic.execution.codexEnabled, true);
+  assert.equal(generic.execution.antigravityEnabled, true);
+  assert.equal(generic.execution.codexFallback, 'rwmcp-only');
+  assert.equal(generic.execution.maxCodexTasksPerSession, 2);
+  assert.equal(generic.execution.maxCodexTasksPerDay, 8);
+  assert.deepEqual(generic.execution.targetPolicy.budgets['antigravity-local'], { maxTasksPerSession: 3, maxTasksPerDay: 9 });
+});
+
 test('setup settings tolerate a UTF-8 BOM written by Windows PowerShell', async () => {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-settings-bom-'));
   const options = { env: { XDG_CONFIG_HOME: base } as NodeJS.ProcessEnv, platform: 'linux' as NodeJS.Platform, homeDir: base };

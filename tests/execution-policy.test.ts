@@ -186,3 +186,36 @@ test('fallback policy stop never creates an rwmcp-only latch when budget is reac
   assert.equal(status.fallbackActive, false);
   assert.equal(status.effectiveMode, 'codex-only');
 });
+
+
+test('Antigravity budget is enforced independently from Codex and uses generic fallback policy', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-execution-policy-antigravity-'));
+  const owner = settings({
+    targetMode: 'all-three',
+    codexEnabled: true,
+    antigravityEnabled: true,
+    defaultMode: 'both',
+    targetPolicy: {
+      enabledTargets: ['rwmcp-direct', 'codex-local', 'antigravity-local'],
+      fallback: 'rwmcp-direct',
+      budgets: {
+        'rwmcp-direct': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+        'codex-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+        'antigravity-local': { maxTasksPerSession: 1, maxTasksPerDay: 0 }
+      }
+    }
+  });
+  const service = new ExecutionPolicyService({ file: path.join(root, 'state.json'), loadSettings: async () => owner });
+  const sessionId = '77777777-7777-4777-8777-777777777777';
+
+  const first = await service.beforeTargetDispatch('antigravity-local', sessionId, { deferFallback: true });
+  assert.equal(first.targetPolicy.targets['antigravity-local'].tasksThisSession, 1);
+  assert.equal(first.targetPolicy.targets['codex-local'].tasksThisSession, 0);
+  await assert.rejects(
+    () => service.beforeTargetDispatch('antigravity-local', sessionId, { deferFallback: true }),
+    /TARGET_BUDGET_REACHED/
+  );
+  const codex = await service.beforeTargetDispatch('codex-local', sessionId, { deferFallback: true });
+  assert.equal(codex.targetPolicy.targets['codex-local'].tasksThisSession, 1);
+  assert.equal(codex.fallbackActive, false);
+});

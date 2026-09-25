@@ -18,7 +18,9 @@ export const EXECUTION_TARGET_MODES = [
   'all-three'
 ] as const;
 export type ExecutionTargetMode = typeof EXECUTION_TARGET_MODES[number];
-export type ExecutionTargetId = 'rwmcp-direct' | 'codex-local' | 'antigravity-local';
+export const EXECUTION_TARGET_IDS = ['rwmcp-direct', 'codex-local', 'antigravity-local'] as const;
+export type ExecutionTargetId = typeof EXECUTION_TARGET_IDS[number];
+export type ExecutionFallbackPolicy = 'rwmcp-direct' | 'stop';
 
 export function isExecutionTargetMode(value: unknown): value is ExecutionTargetMode {
   return typeof value === 'string' && (EXECUTION_TARGET_MODES as readonly string[]).includes(value);
@@ -96,6 +98,62 @@ export function inferWorkerRoutingProfile(execution: Record<string, unknown> | u
   return 'custom';
 }
 
+export interface ExecutionTargetBudgetSettings {
+  maxTasksPerSession: number;
+  maxTasksPerDay: number;
+}
+
+export interface ExecutionTargetPolicySettings {
+  enabledTargets: ExecutionTargetId[];
+  fallback: ExecutionFallbackPolicy;
+  budgets: Record<ExecutionTargetId, ExecutionTargetBudgetSettings>;
+}
+
+function validExecutionTargetId(value: unknown): value is ExecutionTargetId {
+  return typeof value === 'string' && (EXECUTION_TARGET_IDS as readonly string[]).includes(value);
+}
+
+function targetBudgetFrom(value: unknown, fallback: ExecutionTargetBudgetSettings): ExecutionTargetBudgetSettings {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const session = Number.isSafeInteger(raw.maxTasksPerSession) && Number(raw.maxTasksPerSession) >= 0
+    ? Math.min(Number(raw.maxTasksPerSession), 10000)
+    : fallback.maxTasksPerSession;
+  const day = Number.isSafeInteger(raw.maxTasksPerDay) && Number(raw.maxTasksPerDay) >= 0
+    ? Math.min(Number(raw.maxTasksPerDay), 100000)
+    : fallback.maxTasksPerDay;
+  return { maxTasksPerSession: session, maxTasksPerDay: day };
+}
+
+export function inferExecutionTargetPolicy(execution: Record<string, unknown> | undefined): ExecutionTargetPolicySettings {
+  const raw = execution ?? {};
+  const targetMode = inferExecutionTargetMode(raw);
+  const configured = raw.targetPolicy && typeof raw.targetPolicy === 'object'
+    ? raw.targetPolicy as Record<string, unknown>
+    : {};
+  const configuredBudgets = configured.budgets && typeof configured.budgets === 'object'
+    ? configured.budgets as Record<string, unknown>
+    : {};
+  const enabledTargets = Array.isArray(configured.enabledTargets)
+    ? [...new Set(configured.enabledTargets.filter(validExecutionTargetId))]
+    : executionTargetsForMode(targetMode);
+  const fallback: ExecutionFallbackPolicy = configured.fallback === 'stop' || configured.fallback === 'rwmcp-direct'
+    ? configured.fallback
+    : raw.codexFallback === 'stop' ? 'stop' : 'rwmcp-direct';
+  const codexLegacy = {
+    maxTasksPerSession: Number.isSafeInteger(raw.maxCodexTasksPerSession) ? Number(raw.maxCodexTasksPerSession) : 0,
+    maxTasksPerDay: Number.isSafeInteger(raw.maxCodexTasksPerDay) ? Number(raw.maxCodexTasksPerDay) : 0
+  };
+  return {
+    enabledTargets: enabledTargets.length ? enabledTargets : executionTargetsForMode(targetMode),
+    fallback,
+    budgets: {
+      'rwmcp-direct': targetBudgetFrom(configuredBudgets['rwmcp-direct'], { maxTasksPerSession: 0, maxTasksPerDay: 0 }),
+      'codex-local': targetBudgetFrom(configuredBudgets['codex-local'], codexLegacy),
+      'antigravity-local': targetBudgetFrom(configuredBudgets['antigravity-local'], { maxTasksPerSession: 0, maxTasksPerDay: 0 })
+    }
+  };
+}
+
 export const DEFAULT_HTTP_SCOPES = [
   'workstation.read',
   'workstation.write',
@@ -108,6 +166,22 @@ const codexAccountBrokerSettingsSchema = z.object({
   mode: z.enum(['native', 'cockpit-api-pool']).default('native')
 });
 
+const executionTargetBudgetSchema = z.object({
+  maxTasksPerSession: z.number().int().min(0).max(10000).default(0),
+  maxTasksPerDay: z.number().int().min(0).max(100000).default(0)
+});
+
+const executionTargetPolicySchema = z.object({
+  enabledTargets: z.array(z.enum(EXECUTION_TARGET_IDS)).min(1).max(3)
+    .refine(values => new Set(values).size === values.length, { message: 'targetPolicy.enabledTargets must not contain duplicates.' }),
+  fallback: z.enum(['rwmcp-direct', 'stop']).default('rwmcp-direct'),
+  budgets: z.object({
+    'rwmcp-direct': executionTargetBudgetSchema.default({ maxTasksPerSession: 0, maxTasksPerDay: 0 }),
+    'codex-local': executionTargetBudgetSchema.default({ maxTasksPerSession: 0, maxTasksPerDay: 0 }),
+    'antigravity-local': executionTargetBudgetSchema.default({ maxTasksPerSession: 0, maxTasksPerDay: 0 })
+  })
+});
+
 export const executionSettingsSchema = z.object({
   codexEnabled: z.boolean().default(false),
   codexModel: z.string().trim().regex(/^[A-Za-z0-9._-]{1,128}$/).default('gpt-6-sol'),
@@ -118,6 +192,7 @@ export const executionSettingsSchema = z.object({
   defaultMode: z.enum(['rwmcp-only', 'codex-only', 'both']).default('rwmcp-only'),
   workerRoutingProfile: z.enum(['direct', 'codex-assisted', 'smart', 'custom']).default('direct'),
   targetMode: z.enum(EXECUTION_TARGET_MODES).default('rwmcp-only'),
+  targetPolicy: executionTargetPolicySchema,
   allowChatOverride: z.boolean().default(true),
   codexFallback: z.enum(['rwmcp-only', 'stop']).default('rwmcp-only'),
   maxCodexTasksPerSession: z.number().int().min(0).max(10000).default(0),
@@ -158,6 +233,15 @@ export const setupSettingsSchema = z.object({
     defaultMode: 'rwmcp-only',
     workerRoutingProfile: 'direct',
     targetMode: 'rwmcp-only',
+    targetPolicy: {
+      enabledTargets: ['rwmcp-direct'],
+      fallback: 'rwmcp-direct',
+      budgets: {
+        'rwmcp-direct': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+        'codex-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+        'antigravity-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 }
+      }
+    },
     allowChatOverride: true,
     codexFallback: 'rwmcp-only',
     maxCodexTasksPerSession: 0,
@@ -221,11 +305,22 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     cloudflaredManaged: raw.cloudflaredManaged ?? false,
     controlPort: migratedControlPort,
     httpScopes: migratedScopes,
-    execution: raw.execution && typeof raw.execution === 'object' ? {
-      ...raw.execution,
-      workerRoutingProfile: inferWorkerRoutingProfile(raw.execution as Record<string, unknown>),
-      targetMode: inferExecutionTargetMode(raw.execution as Record<string, unknown>)
-    } : {
+    execution: raw.execution && typeof raw.execution === 'object' ? (() => {
+      const legacy = raw.execution as Record<string, unknown>;
+      const targetMode = inferExecutionTargetMode(legacy);
+      const targetPolicy = inferExecutionTargetPolicy({ ...legacy, targetMode });
+      return {
+        ...legacy,
+        targetMode,
+        targetPolicy,
+        workerRoutingProfile: inferWorkerRoutingProfile(legacy),
+        codexEnabled: targetPolicy.enabledTargets.includes('codex-local'),
+        antigravityEnabled: targetPolicy.enabledTargets.includes('antigravity-local'),
+        codexFallback: targetPolicy.fallback === 'stop' ? 'stop' : 'rwmcp-only',
+        maxCodexTasksPerSession: targetPolicy.budgets['codex-local'].maxTasksPerSession,
+        maxCodexTasksPerDay: targetPolicy.budgets['codex-local'].maxTasksPerDay
+      };
+    })() : {
       codexEnabled: false,
       codexModel: 'gpt-6-sol',
       codexAgentsEnabled: false,
@@ -235,6 +330,15 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
       defaultMode: 'rwmcp-only',
       workerRoutingProfile: 'direct',
       targetMode: 'rwmcp-only',
+      targetPolicy: {
+        enabledTargets: ['rwmcp-direct'],
+        fallback: 'rwmcp-direct',
+        budgets: {
+          'rwmcp-direct': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+          'codex-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+          'antigravity-local': { maxTasksPerSession: 0, maxTasksPerDay: 0 }
+        }
+      },
       allowChatOverride: true,
       codexFallback: 'rwmcp-only',
       maxCodexTasksPerSession: 0,

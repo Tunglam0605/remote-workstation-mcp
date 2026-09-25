@@ -240,4 +240,8 @@ registerTranslations({
   "Security & access": "B\u1ea3o m\u1eadt & truy c\u1eadp", "Control permissions and approvals. Full-control options remain explicit and owner-managed.": "Ki\u1ec3m so\u00e1t quy\u1ec1n v\u00e0 ph\u00ea duy\u1ec7t. T\u00f9y ch\u1ecdn to\u00e0n quy\u1ec1n v\u1eabn t\u00e1ch b\u1ea1ch v\u00e0 do ch\u1ee7 m\u00e1y qu\u1ea3n l\u00fd.",
   "Project coordination": "Ph\u1ed1i h\u1ee3p d\u1ef1 \u00e1n", "Objectives & tasks": "M\u1ee5c ti\u00eau & t\u00e1c v\u1ee5", "Files": "T\u1ec7p", "Git": "Git", "Browser automation": "T\u1ef1 \u0111\u1ed9ng h\u00f3a tr\u00ecnh duy\u1ec7t", "Debugging": "G\u1ee1 l\u1ed7i", "Containers": "Container", "Engineering workflows": "Workflow k\u1ef9 thu\u1eadt", "Build diagnostics": "Ch\u1ea9n \u0111o\u00e1n build", "Code intelligence": "Ph\u00e2n t\u00edch code"
 
+  , "Advanced access scopes": "Ph\u1ea1m vi truy c\u1eadp n\u00e2ng cao",
+  "Pair a new device": "Gh\u00e9p n\u1ed1i thi\u1ebft b\u1ecb m\u1edbi",
+  "Advanced multi-node transfers": "Truy\u1ec1n d\u1eef li\u1ec7u nhi\u1ec1u n\u00fat n\u00e2ng cao"
+
 });

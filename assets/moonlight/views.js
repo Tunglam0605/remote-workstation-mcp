@@ -227,7 +227,9 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       const httpScopes = [...scopeList.querySelectorAll('input:checked')].map((input) => input.value);
       if (!confirm(t('Save the selected access scopes?'))) return;
       await mutate('/api/permissions/config', { httpScopes, allowHostFilesystem: hostFs.checked, allowRawShell: rawShell.checked }, ['permissions'], 'Access scopes saved.'); openAccess();
-    }, 'primary-button'))); content.append(scopeSection);
+    }, 'primary-button')));
+    const scopeDetails = el('details', { class: 'agent-advanced security-advanced' }, el('summary', { text: t('Advanced access scopes') }));
+    scopeDetails.append(scopeSection); content.append(scopeDetails);
     const leaseSection = section('Full-control lease', 'A lease is permitted only when the backend local gate is enabled.');
     const lease = state.lease;
     const leaseStatusClass = lease?.active ? 'moon-status' : 'moon-status inactive';
@@ -464,7 +466,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const pairingSection = section('Create pairing code', 'Pairing codes are shown only here and are never saved by the browser.');
     pairingSection.append(field('Requested name', name), field('Bootstrap host', host), field('Expires in', ttl));
     pairingSection.append(actions(button('Create code', async () => { const result = await mutate('/api/devices/pairing-code', { requestedName: name.value || undefined, bootstrapHostId: host.value || undefined, ttlSeconds: Number(ttl.value) }, ['pairing'], 'Pairing code created.'); const codeBox = el('div', { class: 'moon-secret' }, el('strong', { text: t('Pairing code (copy now)') }), el('code', { text: text(result.code) }), el('small', { text: t('Expires {value}', { value: text(result.expiresAt) }) })); pairingSection.append(codeBox); }, 'primary-button')));
-    content.append(pairingSection);
+    const pairingDetails = el('details', { class: 'agent-advanced device-advanced' }, el('summary', { text: t('Pair a new device') }));
+    pairingDetails.append(pairingSection);
     if ((pairing.bootstrapHosts || []).length) {
       const bootstrap = section('Bootstrap an SSH host', 'Send an already-created pairing code to a configured SSH bootstrap host. The credential is never displayed.');
       const bootstrapHost = selectValue(pairing.bootstrapHosts[0]?.id, pairing.bootstrapHosts.map((item) => [item.id, `${item.name || item.hostname} (${item.hostname})`]));
@@ -476,8 +479,9 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         try { await mutate('/api/devices/bootstrap-ssh', { hostId: bootstrapHost.value, code: bootstrapCode.value, name: bootstrapName.value || undefined }, ['pairing'], 'SSH bootstrap completed.'); openDevices(); }
         finally { bootstrapCode.value = ''; }
       }, 'primary-button')));
-      content.append(bootstrap);
+      pairingDetails.append(bootstrap);
     }
+    content.append(pairingDetails);
     if (multi) {
       const multiSection = section('Multi-node transfer', t('Required scope: {scope}. Configuration consistency: {consistent}.', { scope: text(multi.requiredScope), consistent: text(multi.configurationConsistent) }), 'moon-page-full');
       const enabled = el('input', { type: 'checkbox', checked: multi.enabled });
@@ -498,7 +502,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         field('Destination workspace', destinationWorkspace)
       );
       multiSection.append(el('h4', { class: 'moon-subheading', text: t('Add grant') }), addGrantForm, actions(button('Add transfer grant', async () => { const allowedExtensions = extensions.value.split(',').map((item) => item.trim()).filter(Boolean); if (!allowedExtensions.length) { toast(t('Provide at least one allowed extension.')); return; } if (!confirm(t('Add this cross-node transfer grant?'))) return; await mutate('/api/multi-node/grants', { id: grantId.value, sourceNodeId: source.value, destinationNodeId: destination.value, sourceWorkspace: sourceWorkspace.value, destinationWorkspace: destinationWorkspace.value, sourcePathPrefixes: ['.'], destinationBasePaths: ['.'], allowedExtensions, maxBytes: 536870912, transports: ['direct'] }, ['multiNode'], 'Transfer grant added.'); openDevices(); }, 'primary-button')));
-      content.append(multiSection);
+      const multiDetails = el('details', { class: 'agent-advanced device-advanced' }, el('summary', { text: t('Advanced multi-node transfers') }));
+      multiDetails.append(multiSection); content.append(multiDetails);
     }
     return content;
   }

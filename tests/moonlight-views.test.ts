@@ -43,6 +43,9 @@ test('opening a view reads store state without issuing an API request', async ()
   assert.match(source, /function open\(page\)/);
   for (const mapping of ['Work: openWork', 'Agents: openExecution', 'Engineering: openEngineering', 'Office: openOffice', 'Web: openWeb', 'Devices: openDevices', 'Security: openAccess', 'System: openSystem']) assert.match(source, new RegExp(mapping.replace(/[.*+?^${}()|[\\]\\]/g, '\\  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);')));
   assert.match(source, /function capabilityDomain\(/);
+  assert.match(source, /Advanced access scopes/);
+  assert.match(source, /Pair a new device/);
+  assert.match(source, /Advanced multi-node transfers/);
   assert.match(source, /live\('capabilities'\)/);
   assert.match(source, /function live\(name\) \{ return resource\(store, name\)\.data; \}/);
   assert.match(source, /deriveNotifications\(store\.getState\(\)\)/);

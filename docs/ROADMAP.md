@@ -2,6 +2,17 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.40.1 - Security page balance patch
+
+- make the Security & access header more compact and reduce decorative visual weight;
+- add three high-signal summaries for permission mode, full-control lease, and pending admin requests;
+- place Permission mode and Full-control lease in two equal primary cards with responsive stacking;
+- move Advanced access scopes into one full-width collapsed block instead of an empty-looking side card;
+- move Admin requests into a full-width section with program/reason first, state badge, collapsed command hash, and approve/deny actions;
+- use denser Security-specific panels so the Mid-Autumn background remains visible without overpowering security controls;
+- clean visible Access-view mojibake without changing backend request values or permissions;
+- retain Action Schema 16 and Engineering API 5.
+
 ## v0.40.0 - Control Center UX Simplification
 
 - preserve the nine stable routes and all v0.39 backend/security contracts while visually grouping navigation into Home, Work, AI, Tools, and System;

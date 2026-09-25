@@ -207,53 +207,149 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   }
 
   function openAccess() {
-    const state = live('permissions'); const admin = live('admin'); const platform = live('status')?.platform;
-    const content = pageRoot('Access', 'Security & access', 'Control permissions and approvals. Full-control options remain explicit and owner-managed.'); unavailable('permissions', content);
+    const state = live('permissions');
+    const admin = live('admin');
+    const platform = live('status')?.platform;
+    const content = pageRoot('Access', 'Security & access', 'Control permissions, temporary full-control sessions, and administrative approvals without exposing advanced scopes unless you need them.');
+    unavailable('permissions', content);
     if (!state) return content;
+
+    const requests = admin?.requests || [];
+    const pendingRequests = requests.filter((item) => item.state === 'pending');
+    const lease = state.lease;
+    const modeLabel = t({ read_only: 'Read only', workspace: 'Workspace', full_control: 'Full control' }[state.mode] || state.mode);
+
+    const summary = el('div', { class: 'security-summary moon-page-full' },
+      el('div', { class: 'security-summary-item' },
+        el('span', { text: t('Permission mode') }),
+        el('strong', { text: modeLabel }),
+        el('small', { text: t('Current owner policy') })
+      ),
+      el('div', { class: 'security-summary-item' },
+        el('span', { text: t('Full-control lease') }),
+        el('strong', { text: lease?.active ? t('Active') : t('Inactive') }),
+        el('small', { text: lease?.active ? t('{seconds} seconds remaining', { seconds: text(lease.remainingSeconds) }) : t('No active lease') })
+      ),
+      el('div', { class: `security-summary-item${pendingRequests.length ? ' needs-attention' : ''}` },
+        el('span', { text: t('Admin requests') }),
+        el('strong', { text: text(pendingRequests.length) }),
+        el('small', { text: pendingRequests.length ? t('Waiting for review') : t('Nothing pending') })
+      )
+    );
+    content.append(summary);
+
+    const primary = el('div', { class: 'security-primary-grid moon-page-full' });
+
     const mode = selectValue(state.mode, [['read_only', 'Read only'], ['workspace', 'Workspace'], ['full_control', 'Full control']]);
-    const modeSection = section('Permission mode', 'The backend is authoritative and may require a restart.');
-    modeSection.append(field('Current mode', mode), actions(button('Apply mode', async () => {
-      const modeLabel = t({ read_only: 'Read only', workspace: 'Workspace', full_control: 'Full control' }[mode.value] || mode.value);
-      if (!confirm(t('Apply {mode} permissions?', { mode: modeLabel }))) return;
-      await mutate('/api/permissions/mode', { mode: mode.value }, ['permissions'], 'Permission mode saved.'); openAccess();
-    }, 'primary-button'))); content.append(modeSection);
+    const modeSection = section('Permission mode', 'Choose the normal permission level for this workstation. The backend remains authoritative and may require a restart.', 'security-primary-card');
+    modeSection.append(
+      field('Current mode', mode),
+      el('div', { class: 'security-mode-note' },
+        el('span', { class: 'pill info', text: modeLabel }),
+        el('p', { text: t('Use the least privilege that still allows the work you need.') })
+      ),
+      actions(button('Apply mode', async () => {
+        const nextModeLabel = t({ read_only: 'Read only', workspace: 'Workspace', full_control: 'Full control' }[mode.value] || mode.value);
+        if (!confirm(t('Apply {mode} permissions?', { mode: nextModeLabel }))) return;
+        await mutate('/api/permissions/mode', { mode: mode.value }, ['permissions'], 'Permission mode saved.');
+        openAccess();
+      }, 'primary-button'))
+    );
+
+    const leaseSection = section('Full-control lease', 'Request a temporary elevated session only when a task genuinely needs full-control tools.', 'security-primary-card');
+    const leaseStatusClass = lease?.active ? 'moon-status security-lease-status active' : 'moon-status inactive security-lease-status';
+    leaseSection.append(el('div', { class: leaseStatusClass },
+      el('strong', { text: lease?.active ? t('Lease active') : t('No active lease') }),
+      el('span', { text: lease?.active ? t('{seconds} seconds remaining', { seconds: text(lease.remainingSeconds) }) : t('Request a temporary lease when required.') })
+    ));
+    const duration = selectValue('30', [['10', '10 minutes'], ['30', '30 minutes'], ['60', '60 minutes']]);
+    leaseSection.append(
+      field('Duration', duration),
+      actions(lease?.active
+        ? button('Revoke lease', async () => {
+            if (!confirm(t('Revoke the active full-control lease?'))) return;
+            await mutate('/api/permissions/lease', undefined, ['permissions'], 'Lease revoked.', 'DELETE');
+            openAccess();
+          }, 'secondary-button danger-button')
+        : button('Request lease', async () => {
+            if (!confirm(t('Request a full-control lease?'))) return;
+            await mutate('/api/permissions/lease', { ttlMinutes: Number(duration.value) }, ['permissions'], 'Lease requested.');
+            openAccess();
+          }, 'primary-button'))
+    );
+
+    primary.append(modeSection, leaseSection);
+    content.append(primary);
+
     const scopeChoices = [['workstation.read', 'Read'], ['workstation.write', 'Write'], ['workstation.execute', 'Execute'], ['workstation.admin_request', 'Admin request'], ['workstation.full_control', 'Full control'], ['workstation.cross_node_transfer', 'Cross-node transfer']];
-    const scopes = new Set(state.httpScopes || []); const scopeSection = section('HTTP scopes', 'Choose only the scopes required for this local owner session.');
+    const scopes = new Set(state.httpScopes || []);
+    const scopeDetails = el('details', { class: 'agent-advanced security-advanced security-advanced-full moon-page-full' },
+      el('summary', { text: t('Advanced access scopes') })
+    );
+    const scopeSection = section('HTTP scopes', 'Only change raw scopes and local gates when you understand why a specific integration needs them.', 'security-scope-section');
     const scopeList = el('div', { class: 'moon-check-grid' });
-    for (const [id, label] of scopeChoices) { const box = el('input', { type: 'checkbox', value: id, checked: scopes.has(id) }); scopeList.append(field(label, box)); }
-    const hostFs = el('input', { type: 'checkbox', checked: state.allowHostFilesystem }); const rawShell = el('input', { type: 'checkbox', checked: state.allowRawShell });
+    for (const [id, label] of scopeChoices) {
+      const box = el('input', { type: 'checkbox', value: id, checked: scopes.has(id) });
+      scopeList.append(field(label, box));
+    }
+    const hostFs = el('input', { type: 'checkbox', checked: state.allowHostFilesystem });
+    const rawShell = el('input', { type: 'checkbox', checked: state.allowRawShell });
     const localGates = el('div', { class: 'moon-toggle-grid' }, field('Allow host filesystem', hostFs), field('Allow raw shell', rawShell));
     scopeSection.append(scopeList, localGates, actions(button('Save scopes', async () => {
       const httpScopes = [...scopeList.querySelectorAll('input:checked')].map((input) => input.value);
       if (!confirm(t('Save the selected access scopes?'))) return;
-      await mutate('/api/permissions/config', { httpScopes, allowHostFilesystem: hostFs.checked, allowRawShell: rawShell.checked }, ['permissions'], 'Access scopes saved.'); openAccess();
+      await mutate('/api/permissions/config', { httpScopes, allowHostFilesystem: hostFs.checked, allowRawShell: rawShell.checked }, ['permissions'], 'Access scopes saved.');
+      openAccess();
     }, 'primary-button')));
-    const scopeDetails = el('details', { class: 'agent-advanced security-advanced' }, el('summary', { text: t('Advanced access scopes') }));
-    scopeDetails.append(scopeSection); content.append(scopeDetails);
-    const leaseSection = section('Full-control lease', 'A lease is permitted only when the backend local gate is enabled.');
-    const lease = state.lease;
-    const leaseStatusClass = lease?.active ? 'moon-status' : 'moon-status inactive';
-    leaseSection.append(el('p', { class: leaseStatusClass, text: lease?.active ? t('Active Â· {seconds} seconds remaining', { seconds: text(lease.remainingSeconds) }) : t('No active lease.') }));
-    const duration = selectValue('30', [['10', '10 minutes'], ['30', '30 minutes'], ['60', '60 minutes']]);
-    leaseSection.append(field('Duration', duration), actions(lease?.active ? button('Revoke lease', async () => { if (!confirm(t('Revoke the active full-control lease?'))) return; await mutate('/api/permissions/lease', undefined, ['permissions'], 'Lease revoked.', 'DELETE'); openAccess(); }, 'secondary-button danger-button') : button('Request lease', async () => { if (!confirm(t('Request a full-control lease?'))) return; await mutate('/api/permissions/lease', { ttlMinutes: Number(duration.value) }, ['permissions'], 'Lease requested.'); openAccess(); }, 'primary-button'))); content.append(leaseSection);
-    const requests = admin?.requests || []; const adminSection = section('Admin requests', 'Review the exact command hash before authorizing the Windows UAC flow.');
+    scopeDetails.append(scopeSection);
+    content.append(scopeDetails);
+
+    const adminSection = section('Admin requests', 'Review the exact command and reason before authorizing Windows UAC.', 'moon-page-full security-admin-section');
+    const adminSummary = el('div', { class: 'security-admin-summary' },
+      el('div', {},
+        el('strong', { text: pendingRequests.length ? t('{count} pending request(s)', { count: pendingRequests.length }) : t('No pending requests') }),
+        el('span', { text: t('Only approve requests you recognize and expect.') })
+      )
+    );
+    adminSection.append(adminSummary);
     if (!requests.length) adminSection.append(emptyState('No pending admin requests.'));
+    const requestList = el('div', { class: 'security-admin-list' });
     for (const item of requests) {
-      const row = el('article', { class: 'moon-row' },
-        el('div', { class: 'admin-request-header' },
-          el('strong', { text: text(item.program) }),
-          el('span', { class: `pill ${item.state === 'pending' ? 'warning' : 'info'}`, text: `${text(item.state)} Â· ${text(item.reason)}` })
+      const row = el('article', { class: `security-admin-request${item.state === 'pending' ? ' pending' : ''}` },
+        el('div', { class: 'security-admin-request-head' },
+          el('div', { class: 'security-admin-program' },
+            el('strong', { text: text(item.program) }),
+            el('span', { text: text(item.reason) })
+          ),
+          el('span', { class: `pill ${item.state === 'pending' ? 'warning' : 'info'}`, text: t(text(item.state)) })
         ),
-        el('code', { text: text(item.commandHash) })
+        el('details', { class: 'security-request-hash' },
+          el('summary', { text: t('Show command hash') }),
+          el('code', { text: text(item.commandHash) })
+        )
       );
       if (item.state === 'pending') {
-        const requestActions = [button('Deny', async () => { if (!confirm(t('Deny this admin request?'))) return; await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/deny`, undefined, ['admin'], 'Request denied.'); openAccess(); }, 'secondary-button danger-button')];
-        if (/^win/i.test(String(platform || ''))) requestActions.unshift(button('Approve + UAC', async () => { if (!confirm(t('Approve this exact command and trigger UAC?'))) return; await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/approve`, { expectedCommandHash: item.commandHash }, ['admin'], 'UAC approval requested.'); openAccess(); }, 'primary-button'));
-        else row.append(el('small', { class: 'moon-muted', text: t('Approval is available through the platform owner interface.') }));
+        const requestActions = [button('Deny', async () => {
+          if (!confirm(t('Deny this admin request?'))) return;
+          await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/deny`, undefined, ['admin'], 'Request denied.');
+          openAccess();
+        }, 'secondary-button danger-button')];
+        if (/^win/i.test(String(platform || ''))) {
+          requestActions.unshift(button('Approve + UAC', async () => {
+            if (!confirm(t('Approve this exact command and trigger UAC?'))) return;
+            await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/approve`, { expectedCommandHash: item.commandHash }, ['admin'], 'UAC approval requested.');
+            openAccess();
+          }, 'primary-button'));
+        } else {
+          row.append(el('small', { class: 'moon-muted', text: t('Approval is available through the platform owner interface.') }));
+        }
         row.append(actions(...requestActions));
       }
-      adminSection.append(row);
-    } content.append(adminSection); return content;
+      requestList.append(row);
+    }
+    adminSection.append(requestList);
+    content.append(adminSection);
+    return content;
   }
 
   function openExecution() {

@@ -44,6 +44,33 @@ const workObjectiveMutation = z.discriminatedUnion('action', [
   })
 ]);
 
+const decompositionTaskKey = z.string().min(1).max(64).regex(/^[a-z][a-z0-9._-]{0,63}$/);
+const decompositionExecution = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('auto-worker') }).strict(),
+  z.object({
+    kind: z.literal('worker-provider'),
+    providerId: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/)
+  }).strict(),
+  z.object({
+    kind: z.literal('engineering-workflow'),
+    workspace: z.string().min(1).max(128),
+    projectPath: z.string().min(1).max(1024).default('.'),
+    workflow: engineeringWorkflowIdSchema,
+    parameters: persistedWorkflowParametersSchema
+  }).strict()
+]);
+const objectiveDecompositionTask = z.object({
+  key: decompositionTaskKey,
+  title: z.string().min(1).max(256),
+  description: z.string().min(1).max(2048).optional(),
+  intent: z.enum(WORKER_ROUTING_INTENTS),
+  priority: z.number().int().min(-1000).max(1000).default(0),
+  dependsOn: z.array(decompositionTaskKey).max(64).default([]),
+  concurrencyOperation: z.enum(CONCURRENCY_OPERATIONS).optional(),
+  concurrencyKey: z.string().min(1).max(512).optional(),
+  execution: decompositionExecution
+}).strict();
+
 const projectSessionGroupMutation = z.discriminatedUnion('action', [
   z.object({ action: z.literal('add_session'), sessionId: z.string().uuid() }),
   z.object({ action: z.literal('remove_session'), sessionId: z.string().uuid() }),
@@ -448,6 +475,21 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     )
   )));
 
+  server.registerTool('work_objective_decompose', {
+    description: 'Persist one ChatGPT-supplied decomposition as an atomic bounded DAG inside a caller-owned Work Objective. Local task keys are resolved to durable ids in one transaction. auto-worker assignments use the effective owner/session target policy plus task affinity; RWMCP does not run an internal planner model and never widens authority.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      tasks: z.array(objectiveDecompositionTask).min(1).max(64),
+      requireEmpty: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, tasks, requireEmpty }) => result(await audited(ctx.audit, 'work_objective_decompose', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.objectiveDecomposition.decompose(objectiveId, { tasks, requireEmpty })
+    )
+  )));
+
   server.registerTool('work_objective_mutate', {
     description: 'Edit Task Graph structure only. This tool may add a task or replace task dependencies; it cannot mark work running/succeeded/failed and cannot acquire permissions, leases or interlocks.',
     inputSchema: z.object({
@@ -510,6 +552,21 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       executionActive: false,
       note: 'Scheduler awareness reports live contention and session/worktree state. It is not permission to execute; policy, typed workflow validation, resource leases and node interlocks remain authoritative at execution time.'
     }))
+  )));
+
+  server.registerTool('work_objective_execute_wave', {
+    description: 'Execute one bounded scheduler-ready wave from a caller-owned Work Objective. Worker-provider tasks are serialized within the Work Session shared worktree; compatible deterministic tasks may run in parallel. This call never loops until completion and never bypasses scheduler awareness, leases, node interlocks, target policy, cancellation, or Task Attempt persistence.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      limit: z.number().int().min(1).max(64).default(16),
+      maxParallel: z.number().int().min(1).max(4).default(2)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, limit, maxParallel }) => result(await audited(ctx.audit, 'work_objective_execute_wave', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.objectiveWaveExecution.executeWave(objectiveId, { limit, maxParallel })
+    )
   )));
 
   server.registerTool('work_objective_execute_task', {

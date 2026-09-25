@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.43.0 - Objective Decomposition / Multi-Agent Waves
+
+- add `work_objective_decompose` so ChatGPT can persist a bounded planner-supplied DAG atomically using local task keys instead of manually creating tasks one-by-one;
+- reject duplicate/unknown/self dependencies and dependency cycles before partial Task Graph persistence;
+- assign `auto-worker` tasks deterministically from task intent, current provider readiness and the effective v0.42 target policy without running an internal planner model inside RWMCP;
+- infer the Work Session worktree as the concurrency identity for source-edit worker tasks and fail closed when an isolated worktree is required but unavailable;
+- add `work_objective_execute_wave` to execute exactly one scheduler-ready bounded wave per call rather than autonomously looping an objective to completion;
+- serialize AI worker tasks that share one Work Session worktree while allowing compatible deterministic typed tasks to run in parallel when concurrency identities do not conflict;
+- retain Scheduler Awareness, TaskExecutionCoordinator, leases, node interlocks, target budgets/fallback, durable attempts, safe cancellation and caller-owned Work Session privacy as the execution boundaries;
+- add a responsive Work-page explanation of Objective -> Decompose -> DAG -> Route -> Wave -> Acceptance without exposing another session's task data in owner-local Control Center;
+- advance Action Schema to 19 and keep Engineering API at 5.
+
 ## v0.42.0 - Generic Three-Target Execution Policy
 
 - make `targetPolicy` the canonical owner policy for `rwmcp-direct`, `codex-local`, and `antigravity-local`;

@@ -290,3 +290,51 @@ test('cancellation blocks dependents and explicit retry advances generation with
     );
   });
 });
+
+
+test('Task Graph atomically adds a keyed decomposition batch and resolves local dependencies', async t => {
+  const { store } = await fixture(t);
+  await runWithWorkSession(SESSION_A, async () => {
+    const objective = await store.create({ name: 'Batch DAG', objective: 'Persist one decomposition atomically' });
+    const result = await store.addTaskBatch(objective.id, {
+      tasks: [
+        { key: 'frontend', task: { title: 'Frontend', priority: 10, planning: { source: 'decomposition', key: 'frontend', intent: 'frontend-ui', preferredTarget: 'antigravity-local' }, concurrency: { operation: 'source.edit', key: 'wt' }, execution: { kind: 'worker-provider', providerId: 'antigravity-local' } } },
+        { key: 'backend', task: { title: 'Backend', priority: 9, planning: { source: 'decomposition', key: 'backend', intent: 'coding', preferredTarget: 'codex-local' }, concurrency: { operation: 'source.edit', key: 'wt' }, execution: { kind: 'worker-provider', providerId: 'codex-local' } } },
+        { key: 'verify', dependsOn: ['frontend', 'backend'], task: { title: 'Verify', concurrency: { operation: 'project.inspect' }, execution: EXECUTION } }
+      ]
+    });
+    assert.deepEqual(Object.keys(result.keyMap).sort(), ['backend', 'frontend', 'verify']);
+    assert.equal(result.tasks.length, 3);
+    const frontend = result.tasks.find(task => task.planning?.key === 'frontend')!;
+    const backend = result.tasks.find(task => task.planning?.key === 'backend')!;
+    const verify = result.tasks.find(task => task.planning?.key === 'verify')!;
+    assert.equal(frontend.status, 'ready');
+    assert.equal(backend.status, 'ready');
+    assert.equal(verify.status, 'pending');
+    assert.deepEqual(new Set(verify.dependencies), new Set([frontend.id, backend.id]));
+    assert.equal(frontend.execution?.kind, 'worker-provider');
+    assert.equal(frontend.planning?.preferredTarget, 'antigravity-local');
+  });
+});
+
+test('Task Graph decomposition batch is atomic on cycle and unknown dependency failures', async t => {
+  const { store } = await fixture(t);
+  await runWithWorkSession(SESSION_A, async () => {
+    const objective = await store.create({ name: 'Atomic', objective: 'Reject invalid batch without partial persistence' });
+    await assert.rejects(
+      store.addTaskBatch(objective.id, {
+        tasks: [
+          { key: 'a', dependsOn: ['b'], task: { title: 'A' } },
+          { key: 'b', dependsOn: ['a'], task: { title: 'B' } }
+        ]
+      }),
+      /cycle/i
+    );
+    assert.equal((await store.get(objective.id)).tasks.length, 0);
+    await assert.rejects(
+      store.addTaskBatch(objective.id, { tasks: [{ key: 'a', dependsOn: ['missing'], task: { title: 'A' } }] }),
+      /unknown task key/i
+    );
+    assert.equal((await store.get(objective.id)).tasks.length, 0);
+  });
+});

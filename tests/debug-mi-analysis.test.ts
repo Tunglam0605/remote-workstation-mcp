@@ -23,3 +23,18 @@ test('debug breakpoint/watchpoint number parser accepts nested MI records and re
   assert.equal(parseDebugBreakpointNumber('bkpt={number="7",type="hw breakpoint"}'), 7);
   assert.throws(() => parseDebugBreakpointNumber('wpt={exp="state"}'), /valid breakpoint\/watchpoint number/);
 });
+
+
+test('debug MI parser handles nested tuples and escaped strings without regex truncation', () => {
+  const payload = 'variables=[{name="msg",arg="0",type="char *",value="hello \\"robot\\" \\\\ path"},{name="nested",arg="0",value="{a={b=1}}"}]';
+  assert.deepEqual(parseDebugLocals(payload), [
+    { name: 'msg', value: 'hello "robot" \\ path', type: 'char *', argument: false },
+    { name: 'nested', value: '{a={b=1}}', argument: false }
+  ]);
+});
+
+test('debug MI parser fails closed on malformed and over-bounded payloads', () => {
+  assert.throws(() => parseDebugLocals('variables=[{name="x",value="1"}'), /Unterminated MI list|Malformed MI/);
+  const huge = 'variables=[' + 'x'.repeat(1024 * 1024) + ']';
+  assert.throws(() => parseDebugLocals(huge), /exceeds 1 MiB/);
+});

@@ -74,6 +74,74 @@ export interface FirmwareProjectInfo {
   kicad?: KicadProjectFiles;
 }
 
+
+export interface Stm32SvdArray {
+  count: number;
+  increment: number;
+  indexes?: string[];
+}
+
+export interface Stm32SvdField {
+  name: string;
+  description?: string;
+  bitOffset: number;
+  bitWidth: number;
+  access?: string;
+}
+
+export interface Stm32SvdRegister {
+  name: string;
+  description?: string;
+  addressOffset: number;
+  absoluteAddress: number;
+  sizeBits?: number;
+  access?: string;
+  resetValue?: number;
+  derivedFrom?: string;
+  clusterPath?: string;
+  array?: Stm32SvdArray;
+  fields: Stm32SvdField[];
+  fieldsTruncated: boolean;
+}
+
+export interface Stm32SvdPeripheral {
+  name: string;
+  description?: string;
+  groupName?: string;
+  baseAddress: number;
+  derivedFrom?: string;
+  registers: Stm32SvdRegister[];
+  registersTruncated: boolean;
+}
+
+export interface Stm32SvdInspection {
+  file: string;
+  size: number;
+  device: {
+    name?: string;
+    version?: string;
+    description?: string;
+    addressUnitBits?: number;
+    width?: number;
+    cpu?: {
+      name?: string;
+      revision?: string;
+      endian?: string;
+      mpuPresent?: boolean;
+      fpuPresent?: boolean;
+      nvicPrioBits?: number;
+    };
+  };
+  peripherals: Stm32SvdPeripheral[];
+  counts: {
+    peripherals: number;
+    registers: number;
+    fields: number;
+  };
+  truncated: boolean;
+  warnings: string[];
+}
+
 export interface Stm32IocPin {
   pin: string;
   kind: 'physical' | 'virtual';

@@ -103,3 +103,79 @@ export function parseRos2LifecycleState(text: string): { label?: string; id?: nu
   const id = Number(match[2]);
   return { label: match[1]!.trim().slice(0, 128), ...(Number.isInteger(id) ? { id } : {}), raw };
 }
+
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('ROS 2 native helper returned a non-object payload.');
+  return value as Record<string, unknown>;
+}
+
+function numberField(record: Record<string, unknown>, name: string): number | undefined {
+  const value = record[name];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+export function parseRos2NativeRatePayload(value: unknown): Ros2TopicRateSample {
+  const root = objectRecord(value);
+  const sample = objectRecord(root.sample);
+  const averageHz = numberField(sample, 'averageHz');
+  const minPeriodSeconds = numberField(sample, 'minPeriodSeconds');
+  const maxPeriodSeconds = numberField(sample, 'maxPeriodSeconds');
+  const stdDevSeconds = numberField(sample, 'stdDevSeconds');
+  const window = numberField(sample, 'window');
+  if (averageHz === undefined || minPeriodSeconds === undefined || maxPeriodSeconds === undefined || stdDevSeconds === undefined || window === undefined) {
+    throw new Error('ROS 2 native rate payload is missing required numeric fields.');
+  }
+  return {
+    averageHz,
+    minPeriodSeconds,
+    maxPeriodSeconds,
+    stdDevSeconds,
+    window: Math.trunc(window),
+    raw: ''
+  };
+}
+
+export function parseRos2NativeBandwidthPayload(value: unknown): Ros2TopicBandwidthSample {
+  const root = objectRecord(value);
+  const sample = objectRecord(root.sample);
+  const bytesPerSecond = numberField(sample, 'bytesPerSecond');
+  const messageCount = numberField(sample, 'messageCount');
+  const meanMessageBytes = numberField(sample, 'meanMessageBytes');
+  const minMessageBytes = numberField(sample, 'minMessageBytes');
+  const maxMessageBytes = numberField(sample, 'maxMessageBytes');
+  if (bytesPerSecond === undefined || messageCount === undefined || meanMessageBytes === undefined || minMessageBytes === undefined || maxMessageBytes === undefined) {
+    throw new Error('ROS 2 native bandwidth payload is missing required numeric fields.');
+  }
+  return {
+    bytesPerSecond,
+    messageCount: Math.trunc(messageCount),
+    meanMessageBytes,
+    minMessageBytes,
+    maxMessageBytes,
+    raw: ''
+  };
+}
+
+export function parseRos2NativeTransformPayload(value: unknown): Ros2TransformSample {
+  const root = objectRecord(value);
+  const transform = objectRecord(root.transform);
+  const translation = objectRecord(transform.translation);
+  const rotation = objectRecord(transform.rotationQuaternion);
+  const x = numberField(translation, 'x');
+  const y = numberField(translation, 'y');
+  const z = numberField(translation, 'z');
+  const qx = numberField(rotation, 'x');
+  const qy = numberField(rotation, 'y');
+  const qz = numberField(rotation, 'z');
+  const qw = numberField(rotation, 'w');
+  if ([x, y, z, qx, qy, qz, qw].some(item => item === undefined)) {
+    throw new Error('ROS 2 native TF payload is missing required numeric fields.');
+  }
+  const time = typeof transform.time === 'string' ? transform.time.slice(0, 128) : undefined;
+  return {
+    translation: { x: x!, y: y!, z: z! },
+    rotationQuaternion: { x: qx!, y: qy!, z: qz!, w: qw! },
+    ...(time ? { time } : {})
+  };
+}

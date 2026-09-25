@@ -10,6 +10,7 @@ import { DebugSessionManager } from './adapters/engineering/debug-session.js';
 import { DockerAdapter } from './adapters/engineering/docker.js';
 import { SystemdAdapter } from './adapters/engineering/systemd.js';
 import { Stm32IocAdapter } from './adapters/engineering/stm32-ioc.js';
+import { Stm32SvdAdapter } from './adapters/engineering/stm32-svd.js';
 import { FirmwareAdapter } from './adapters/engineering/firmware.js';
 import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
 import { KicadAdapter } from './adapters/engineering/kicad.js';
@@ -177,6 +178,7 @@ export async function createContext() {
   const engineeringArtifactTransfer = new ArtifactTransferAdapter(policy, paths, engineeringArtifacts);
   const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
   const engineeringStm32Ioc = new Stm32IocAdapter(paths);
+  const engineeringStm32Svd = new Stm32SvdAdapter(paths);
   const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
   const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
   const browser = new BrowserCore(new PlaywrightBrowserProvider());
@@ -306,6 +308,7 @@ export async function createContext() {
       terminals: engineeringTerminals,
       firmware: engineeringFirmware,
       stm32Ioc: engineeringStm32Ioc,
+      stm32Svd: engineeringStm32Svd,
       artifacts: engineeringArtifacts,
       artifactTransfer: engineeringArtifactTransfer,
       profiles: engineeringProfiles,

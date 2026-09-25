@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.44 expands professional engineering and Office tooling on Action Schema v20 and Engineering API v5', async () => {
+test('v0.45 expands professional tooling on Action Schema v21 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 20;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 21;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.44\.1';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.45\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -55,7 +55,7 @@ test('v0.44 expands professional engineering and Office tooling on Action Schema
   assert.match(taskGraph, /addTaskBatch/);
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const officeTools = await read('src/tools/office-tools.ts');
-  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
     assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
   for (const tool of ['excel_inspect', 'excel_edit', 'powerpoint_inspect', 'powerpoint_edit']) {
@@ -224,7 +224,7 @@ test('STM32 IOC inspection is a bounded read-only typed surface', async () => {
   const capabilities = await read('src/capabilities.ts');
 
   const start = tools.indexOf("server.registerTool('stm32_ioc_inspect'");
-  const end = tools.indexOf("server.registerTool('firmware_project_inspect'", start);
+  const end = tools.indexOf("server.registerTool('stm32_svd_inspect'", start);
   assert.ok(start >= 0 && end > start);
   const block = tools.slice(start, end);
   assert.match(block, /readOnlyHint: true/);
@@ -234,6 +234,27 @@ test('STM32 IOC inspection is a bounded read-only typed surface', async () => {
   assert.match(adapter, /Multiple STM32 CubeMX \.ioc files/);
   assert.match(adapter, /iocFile must be a project-root \.ioc basename/);
   assert.match(capabilities, /'stm32_ioc_inspect'/);
+});
+
+
+test('STM32 SVD inspection is project-scoped, bounded and read-only', async () => {
+  const tools = await read('src/tools/engineering-tools.ts');
+  const adapter = await read('src/adapters/engineering/stm32-svd.ts');
+  const capabilities = await read('src/capabilities.ts');
+  const scopes = await read('src/security/request-principal.ts');
+
+  const start = tools.indexOf("server.registerTool('stm32_svd_inspect'");
+  const end = tools.indexOf("server.registerTool('firmware_project_inspect'", start);
+  assert.ok(start >= 0 && end > start);
+  const block = tools.slice(start, end);
+  assert.match(block, /readOnlyHint: true/);
+  assert.match(block, /ctx\.engineering\.stm32Svd\.inspect/);
+  assert.doesNotMatch(block, /runInWorkSession|assertHardwareMutation|memoryWrite|firmware_flash|target_reset/);
+  assert.match(adapter, /MAX_SVD_BYTES = 16 \* 1024 \* 1024/);
+  assert.match(adapter, /SVD_XML_UNSAFE/);
+  assert.match(adapter, /svdFile must be a project-relative \.svd path/);
+  assert.match(capabilities, /'stm32_svd_inspect'/);
+  assert.match(scopes, /stm32_svd_inspect: 'workstation\.read'/);
 });
 
 test('Ubuntu host reboot remains a typed owner-approved action rather than a generic Linux root shell', async () => {
@@ -309,7 +330,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v20 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v21 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -317,7 +338,7 @@ test('current runtime retains Work Session routing under Action Schema v20 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 20;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 21;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

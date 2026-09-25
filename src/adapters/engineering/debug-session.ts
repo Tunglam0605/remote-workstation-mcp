@@ -16,6 +16,7 @@ import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-in
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 import { parseDebugBreakpointNumber, parseDebugDisassembly, parseDebugLocals } from './debug-mi-analysis.js';
+import { miList, miResultField, miString, miTuple, parseMiResults, type MiValue } from './gdb-mi-parser.js';
 
 interface MiResult { token: number; resultClass: string; payload: string; raw: string; }
 interface AsyncRecord { prefix: string; body: string; raw: string; }
@@ -34,12 +35,6 @@ function safeBreakpoint(value: string): void {
   if (!/^(?:[A-Za-z_][A-Za-z0-9_:]*|[A-Za-z0-9_.-]+:[1-9][0-9]*)$/.test(value)) {
     throw new Error('Breakpoint must be a function name or basename:line.');
   }
-}
-
-function miField(payload: string, field: string): string | undefined {
-  const match = payload.match(new RegExp(`(?:^|,)${field}="((?:\\\\.|[^"\\\\])*)"`));
-  if (!match) return undefined;
-  return match[1]!.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 }
 
 class GdbMiClient {
@@ -81,7 +76,7 @@ class GdbMiClient {
       clearTimeout(pending.timer);
       this.pending.delete(token);
       const value = { token, resultClass: result[2]!, payload: result[3] ?? '', raw: line };
-      if (value.resultClass === 'error') pending.reject(new Error(miField(value.payload, 'msg') ?? value.raw));
+      if (value.resultClass === 'error') pending.reject(new Error(miResultField(value.payload, 'msg') ?? value.raw));
       else pending.resolve(value);
       return;
     }
@@ -304,28 +299,48 @@ export class DebugSessionManager {
   async stack(id: string, maxFrames = 16) {
     if (!Number.isInteger(maxFrames) || maxFrames < 1 || maxFrames > 64) throw new Error('maxFrames must be in range 1..64.');
     const result = await this.owned(id).gdb.command(`-stack-list-frames 0 ${maxFrames - 1}`);
-    return [...result.payload.matchAll(/frame=\{([^{}]*)\}/g)].map(match => ({
-      level: Number(miField(match[1]!, 'level') ?? 0),
-      address: miField(match[1]!, 'addr'), function: miField(match[1]!, 'func'), file: miField(match[1]!, 'file'),
-      fullname: miField(match[1]!, 'fullname'), line: miField(match[1]!, 'line') ? Number(miField(match[1]!, 'line')) : undefined
-    }));
+    const root = parseMiResults(result.payload);
+    const stack = miList(root.stack) ?? [];
+    return stack.flatMap(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item) || !('key' in item) || item.key !== 'frame') return [];
+      const frame = miTuple(item.value);
+      if (!frame) return [];
+      const levelRaw = miString(frame.level);
+      const lineRaw = miString(frame.line);
+      return [{
+        level: levelRaw && /^\d+$/.test(levelRaw) ? Number(levelRaw) : 0,
+        address: miString(frame.addr),
+        function: miString(frame.func),
+        file: miString(frame.file),
+        fullname: miString(frame.fullname),
+        line: lineRaw && /^\d+$/.test(lineRaw) ? Number(lineRaw) : undefined
+      }];
+    }).slice(0, maxFrames);
   }
 
   async registers(id: string) {
     const session = this.owned(id);
     const names = await session.gdb.command('-data-list-register-names');
     const values = await session.gdb.command('-data-list-register-values x');
-    const nameList = [...names.payload.matchAll(/"((?:\\.|[^"\\])*)"/g)].map(match => match[1] ?? '');
-    return [...values.payload.matchAll(/\{number="([0-9]+)",value="((?:\\.|[^"\\])*)"\}/g)].map(match => {
-      const number = Number(match[1]);
-      return { number, name: nameList[number] || `reg${number}`, value: match[2] };
+    const nameRoot = parseMiResults(names.payload);
+    const valueRoot = parseMiResults(values.payload);
+    const nameList = (miList(nameRoot['register-names']) ?? []).map(item => typeof item === 'string' ? item : '');
+    const rows = miList(valueRoot['register-values']) ?? [];
+    return rows.flatMap(item => {
+      const row = miTuple(item as MiValue);
+      if (!row) return [];
+      const numberRaw = miString(row.number);
+      const value = miString(row.value);
+      if (!numberRaw || !/^\d+$/.test(numberRaw) || value === undefined) return [];
+      const number = Number(numberRaw);
+      return [{ number, name: nameList[number] || `reg${number}`, value }];
     });
   }
 
   async variable(id: string, expression: string) {
     safeExpression(expression);
     const result = await this.owned(id).gdb.command(`-data-evaluate-expression "${quoteMi(expression)}"`);
-    return { expression, value: miField(result.payload, 'value') };
+    return { expression, value: miResultField(result.payload, 'value') };
   }
 
   async locals(id: string, maxVariables = 64) {
@@ -373,8 +388,7 @@ export class DebugSessionManager {
     this.policy.assertHardwareMutation();
     safeBreakpoint(location);
     const result = await this.owned(id).gdb.command(`-break-insert -h "${quoteMi(location)}"`);
-    const number = Number(miField(result.payload, 'number'));
-    if (!Number.isFinite(number)) throw new Error('GDB did not return a breakpoint number.');
+    const number = parseDebugBreakpointNumber(result.payload);
     return { number, location, kind: 'hardware-breakpoint' };
   }
 
@@ -389,7 +403,11 @@ export class DebugSessionManager {
     if (!Number.isInteger(address) || address < 0 || address > 0xffffffff) throw new Error('address must be a 32-bit unsigned integer.');
     if (!Number.isInteger(length) || length < 1 || length > 4096) throw new Error('length must be in range 1..4096.');
     const result = await this.owned(id).gdb.command(`-data-read-memory-bytes 0x${address.toString(16)} ${length}`);
-    const contents = miField(result.payload, 'contents');
+    const root = parseMiResults(result.payload);
+    const memory = miList(root.memory);
+    const first = memory?.[0];
+    const row = miTuple(first as MiValue);
+    const contents = row ? miString(row.contents) : miResultField(result.payload, 'contents');
     if (!contents || !/^[0-9a-fA-F]+$/.test(contents)) throw new Error('GDB did not return a valid memory byte string.');
     return { address, length, hex: contents.toLowerCase() };
   }

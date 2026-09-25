@@ -445,6 +445,47 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   server.registerTool('ros2_param_set', { description: 'Set one ROS 2 parameter. Requires hardware-mutation permission.', inputSchema: z.object({ workspace: z.string(), node: z.string(), parameter: z.string(), value: z.string(), cwd: z.string().default('.') }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, node, parameter, value, cwd }) => result(await audited(ctx.audit, 'ros2_param_set', workspace, () => ctx.engineering.ros2.paramSet(workspace, node, parameter, value, cwd))));
   server.registerTool('ros2_bag_record', { description: 'Start a caller-owned ros2 bag record process for explicit topics. Stop it with process_stop.', inputSchema: z.object({ workspace: z.string(), topics: z.array(z.string()).min(1).max(100), output: z.string(), cwd: z.string().default('.'), workSessionId: z.string().uuid().optional() }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, topics, output, cwd, workSessionId }) => result(await audited(ctx.audit, 'ros2_bag_record', workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.ros2.bagRecord(workspace, topics, output, cwd)))));
 
+  const kicadProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
+
+  server.registerTool('kicad_provider_status', {
+    description: 'Inspect the resolved KiCad CLI provider/version without modifying project files.',
+    inputSchema: kicadProject,
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'kicad_provider_status', workspace, () => ctx.engineering.kicad.version(workspace, projectPath))));
+
+  server.registerTool('kicad_board_stats', {
+    description: 'Export bounded JSON board statistics for one explicit .kicad_pcb file into a temporary report; project sources are not saved or upgraded.',
+    inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, board }) => result(await audited(ctx.audit, 'kicad_board_stats', workspace, () => ctx.engineering.kicad.boardStats(workspace, projectPath, board))));
+
+  server.registerTool('kicad_drc', {
+    description: 'Run KiCad PCB Design Rule Check (DRC) into a temporary JSON report and return bounded structured violations without editing the board.',
+    inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, board }) => result(await audited(ctx.audit, 'kicad_drc', workspace, () => ctx.engineering.kicad.drc(workspace, projectPath, board))));
+
+  server.registerTool('kicad_erc', {
+    description: 'Run KiCad schematic Electrical Rules Check (ERC) into a temporary JSON report and return bounded structured violations without editing the schematic.',
+    inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic }) => result(await audited(ctx.audit, 'kicad_erc', workspace, () => ctx.engineering.kicad.erc(workspace, projectPath, schematic))));
+
+  server.registerTool('kicad_validate', {
+    description: 'Run bounded ERC and/or DRC for explicit KiCad source files in parallel without source mutation.',
+    inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024).optional(), board: z.string().min(1).max(1024).optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic, board }) => {
+    if (!schematic && !board) throw new Error('kicad_validate requires schematic and/or board.');
+    return result(await audited(ctx.audit, 'kicad_validate', workspace, () => ctx.engineering.kicad.validate(workspace, projectPath, { ...(schematic ? { schematic } : {}), ...(board ? { board } : {}), jobsets: [] })));
+  });
+
+  server.registerTool('kicad_bom_report', {
+    description: 'Export a bounded temporary schematic BOM with a fixed field contract (Refs, Value, Footprint, Qty, DNP) and return a typed report. No BOM plugin or arbitrary script is executed.',
+    inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024), maxRows: z.number().int().min(1).max(5000).default(500) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic, maxRows }) => result(await audited(ctx.audit, 'kicad_bom_report', workspace, () => ctx.engineering.kicad.bomReport(workspace, projectPath, schematic, maxRows))));
+
   const dockerBase = z.object({ workspace: z.string(), cwd: z.string().default('.') });
   server.registerTool('container_list', { description: 'List Docker containers with structured JSON output.', inputSchema: dockerBase.extend({ all: z.boolean().default(true) }), annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd, all }) => result({ containers: await audited(ctx.audit, 'container_list', workspace, () => ctx.engineering.docker.list(workspace, all, cwd)) }));
   server.registerTool('container_inspect', { description: 'Inspect one Docker container and return bounded structured risk classification for host-level privileges, namespaces, mounts, devices and daemon context.', inputSchema: dockerBase.extend({ container: z.string() }), annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd, container }) => result({ inspect: await audited(ctx.audit, 'container_inspect', workspace, () => ctx.engineering.docker.inspect(workspace, container, cwd)) }));

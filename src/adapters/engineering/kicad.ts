@@ -8,6 +8,7 @@ import { PathGuard } from '../../security/path-guard.js';
 import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { resolveExistingProjectPath } from './project-path.js';
+import { parseKicadBomCsv } from './kicad-bom.js';
 
 const MAX_REPORT_BYTES = 2 * 1024 * 1024;
 const MAX_VIOLATIONS = 200;
@@ -292,6 +293,42 @@ export class KicadAdapter {
   async erc(workspace: string, projectPath: string, schematic: string) {
     const result = await this.runJsonReport(workspace, projectPath, ['sch', 'erc', '--format', 'json', '--severity-all'], schematic, 'erc.json');
     return { schematic, command: result.command, report: summarizeErc(result.report) };
+  }
+
+  async bomReport(workspace: string, projectPath: string, schematic: string, maxRows = 500) {
+    this.policy.assertEngineeringExecute();
+    if (!Number.isInteger(maxRows) || maxRows < 1 || maxRows > 5000) throw new Error('KiCad BOM maxRows must be in range 1..5000.');
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, schematic, 'KiCad schematic file');
+    if (path.extname(input).toLowerCase() !== '.kicad_sch') throw new Error('KiCad BOM report requires a .kicad_sch schematic file.');
+    const cli = await discoverKicadCli();
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-bom-'));
+    const output = path.join(temp, 'bom.csv');
+    const args = [
+      'sch', 'export', 'bom',
+      '--fields', 'Reference,Value,Footprint,QUANTITY,DNP',
+      '--labels', 'Refs,Value,Footprint,Qty,DNP',
+      '--output', output,
+      input
+    ];
+    try {
+      const result = await this.runner.run(cli.path, args, cwd, 120_000);
+      if (result.exitCode !== 0 || result.timedOut) throw new Error(`KiCad BOM export failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+      const stat = await fs.stat(output);
+      if (!stat.isFile()) throw new Error('KiCad BOM output is not a regular file.');
+      if (stat.size > 4 * 1024 * 1024) throw new Error('KiCad BOM output exceeds the 4 MiB limit.');
+      const report = parseKicadBomCsv(await fs.readFile(output, 'utf8'), maxRows);
+      return {
+        schematic,
+        command: {
+          program: cli.path,
+          args: args.map(arg => arg === output ? '<temp-bom.csv>' : arg === input ? schematic : arg)
+        },
+        report
+      };
+    } finally {
+      await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   async diagnostics(workspace: string, projectPath: string, files: KicadProjectFiles) {

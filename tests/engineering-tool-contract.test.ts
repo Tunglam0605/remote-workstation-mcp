@@ -136,6 +136,22 @@ test('v0.44 ROS2 professional diagnostics stay bounded and defer unsafe action-g
   assert.match(capabilities, /Action goal dispatch is intentionally deferred until RWMCP can guarantee goal-handle cancellation on timeout/);
 });
 
+test('v0.44 KiCad professional tools expose typed temporary diagnostics without arbitrary plugins', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicad = await read('src/adapters/engineering/kicad.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  for (const tool of ['kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(scopes, new RegExp(`${tool}: 'workstation\\.read'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(kicad, /'sch', 'export', 'bom'/);
+  assert.match(kicad, /'Reference,Value,Footprint,QUANTITY,DNP'/);
+  assert.doesNotMatch(engineeringTools, /kicad_script|kicad_plugin|python-bom/);
+  assert.match(capabilities, /arbitrary BOM plugins\/scripts/);
+});
+
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
   const coreTools = await read('src/tools/core-tools.ts');
   const scopes = await read('src/security/request-principal.ts');

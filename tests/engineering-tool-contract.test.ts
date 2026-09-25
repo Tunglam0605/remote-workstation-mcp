@@ -160,6 +160,16 @@ test('v0.44 KiCad professional tools expose typed temporary diagnostics without 
   assert.match(capabilities, /arbitrary BOM plugins\/scripts/);
 });
 
+test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {
+  const debug = await read('src/adapters/engineering/debug-session.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+  assert.match(debug, /kind: 'watchpoint', hardwareGuaranteed: access === 'read' \|\| access === 'access'/);
+  assert.doesNotMatch(debug, /kind: 'hardware-watchpoint'/);
+  assert.match(firmware, /program \{\$\{tclArtifact\}\} verify reset exit/);
+  const deploy = firmware.slice(firmware.indexOf('async deployVerifyReset'), firmware.indexOf('async flash(', firmware.indexOf('async deployVerifyReset')));
+  assert.doesNotMatch(deploy, /verify_image/);
+});
+
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
   const coreTools = await read('src/tools/core-tools.ts');
   const scopes = await read('src/security/request-principal.ts');

@@ -55,6 +55,10 @@ function severitySummary(values: unknown[]) {
   return summary;
 }
 
+function activeItems(items: unknown[]): unknown[] {
+  return items.filter(item => asRecord(item).excluded !== true);
+}
+
 function summarizeDrc(value: unknown) {
   const report = asRecord(value);
   const violations = asArray(report.violations);
@@ -75,6 +79,13 @@ function summarizeDrc(value: unknown) {
       total: all.length,
       excluded: all.filter(item => asRecord(item).excluded === true).length,
       bySeverity: severitySummary(all),
+      active: {
+        violations: activeItems(violations).length,
+        unconnected: activeItems(unconnected).length,
+        schematicParity: activeItems(parity).length,
+        total: activeItems(all).length,
+        bySeverity: severitySummary(activeItems(all))
+      },
       ignoredChecks: asArray(report.ignored_checks).length
     },
     violations: bounded,
@@ -105,7 +116,11 @@ function summarizeErc(value: unknown) {
       sheets: sheets.length,
       violations: violations.length,
       excluded: violations.filter(item => asRecord(item).excluded === true).length,
-      bySeverity: severitySummary(violations)
+      bySeverity: severitySummary(violations),
+      active: {
+        violations: activeItems(violations).length,
+        bySeverity: severitySummary(activeItems(violations))
+      }
     },
     sheets: sheetSummary,
     violations: bounded,
@@ -285,8 +300,14 @@ export class KicadAdapter {
     return { board, ...result };
   }
 
-  async drc(workspace: string, projectPath: string, board: string) {
-    const result = await this.runJsonReport(workspace, projectPath, ['pcb', 'drc', '--format', 'json', '--severity-all'], board, 'drc.json');
+  async drc(workspace: string, projectPath: string, board: string, schematicParity = false) {
+    const result = await this.runJsonReport(
+      workspace,
+      projectPath,
+      ['pcb', 'drc', '--format', 'json', '--severity-all', ...(schematicParity ? ['--schematic-parity'] : [])],
+      board,
+      'drc.json'
+    );
     return { board, command: result.command, report: summarizeDrc(result.report) };
   }
 
@@ -342,7 +363,7 @@ export class KicadAdapter {
     this.policy.assertEngineeringExecute();
     if (!files.board && !files.schematic) throw new Error('KiCad validation requires a .kicad_pcb or .kicad_sch file.');
     const [drc, erc] = await Promise.all([
-      files.board ? this.drc(workspace, projectPath, files.board) : Promise.resolve(undefined),
+      files.board ? this.drc(workspace, projectPath, files.board, Boolean(files.schematic)) : Promise.resolve(undefined),
       files.schematic ? this.erc(workspace, projectPath, files.schematic) : Promise.resolve(undefined)
     ]);
     return { files, ...(drc ? { drc } : {}), ...(erc ? { erc } : {}) };
@@ -359,10 +380,14 @@ export class KicadAdapter {
     if (!files.board) throw new Error('KiCad fabrication export requires a .kicad_pcb board file.');
 
     const validation = await this.validate(workspace, projectPath, files);
-    const drcErrors = Number(validation.drc?.report.counts.bySeverity.error ?? 0);
-    const ercErrors = Number(validation.erc?.report.counts.bySeverity.error ?? 0);
-    if (drcErrors + ercErrors > 0) {
-      throw new Error(`KiCad fabrication export blocked by validation errors: DRC=${drcErrors}, ERC=${ercErrors}.`);
+    const drcErrors = Number(validation.drc?.report.counts.active.bySeverity.error ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.active.bySeverity.error ?? 0);
+    const unconnected = Number(validation.drc?.report.counts.active.unconnected ?? 0);
+    const schematicParity = Number(validation.drc?.report.counts.active.schematicParity ?? 0);
+    if (drcErrors + ercErrors + unconnected + schematicParity > 0) {
+      throw new Error(
+        `KiCad fabrication export blocked by active validation findings: DRC errors=${drcErrors}, ERC errors=${ercErrors}, unconnected=${unconnected}, schematicParity=${schematicParity}.`
+      );
     }
 
     const projectRoot = await this.paths.resolveExisting(workspace, projectPath);

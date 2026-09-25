@@ -2,7 +2,8 @@ import path from 'node:path';
 import { DOMParser, XMLSerializer, type Document, type Element, type Node } from '@xmldom/xmldom';
 import { readOoxmlPackage, requirePackageEntry, type OoxmlPackage } from '../backends/ooxml/package-reader.js';
 import { writeOoxmlPackage } from '../backends/ooxml/package-writer.js';
-import { excelColumnNumber, parseExcelAddress } from './inspector.js';
+import { parseExcelAddress } from './inspector.js';
+import { assertExcelFormulaSafe } from './formula-policy.js';
 
 const S_NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -78,12 +79,6 @@ function sheetMap(pkg: OoxmlPackage, workbookDoc: Document): Map<string, { part:
 }
 
 
-function validateFormula(formula: string): string {
-  const value = formula.startsWith('=') ? formula.slice(1) : formula;
-  if (!value || value.length > 32_768 || /[\0\r\n]/.test(value)) throw new Error('Excel formula must contain 1..32768 safe characters.');
-  if (/\[[^\]]+\]/.test(value)) throw new Error('EXCEL_EXTERNAL_FORMULA_BLOCKED: external workbook references are not allowed in mutation v1.');
-  return value;
-}
 
 function columnLetters(column: number): string {
   let value = column; let out = '';
@@ -147,7 +142,7 @@ function setPrimitive(doc: Document, cell: Element, value: ExcelPrimitive): void
 
 function setFormula(doc: Document, cell: Element, formula: string): void {
   clearCellContent(cell);
-  const f = doc.createElementNS(S_NS, 'f'); f.appendChild(doc.createTextNode(validateFormula(formula))); cell.appendChild(f);
+  const f = doc.createElementNS(S_NS, 'f'); f.appendChild(doc.createTextNode(assertExcelFormulaSafe(formula))); cell.appendChild(f);
 }
 
 function updateDimension(doc: Document, cellAddress: string): void {

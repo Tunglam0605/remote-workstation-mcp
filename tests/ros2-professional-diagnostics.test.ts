@@ -55,8 +55,14 @@ test('ROS 2 professional diagnostics use only fixed typed argv and accept timeou
     const engine = new PolicyEngine(config(root));
     const adapter = new Ros2Adapter(engine, new PathGuard(engine), runner as never, {} as never);
     assert.match((await adapter.nodeInfo('w', '/controller')).output, /cmd_vel/);
-    assert.equal((await adapter.topicHz('w', '/odom', '.', 3000, 50)).sample.averageHz, 100);
-    assert.equal((await adapter.topicBandwidth('w', '/camera/image', '.', 3000, 50)).sample.bytesPerSecond, 2_000_000);
+    const hz = await adapter.topicHz('w', '/odom', '.', 3000, 50);
+    assert.equal(hz.sample.averageHz, 100);
+    assert.equal(hz.measurementSemantics, 'subscription-receive-rate');
+    assert.deepEqual(hz.caveats, ['affected-by-qos', 'affected-by-host-load', 'not-publisher-clock-truth']);
+    const bw = await adapter.topicBandwidth('w', '/camera/image', '.', 3000, 50);
+    assert.equal(bw.sample.bytesPerSecond, 2_000_000);
+    assert.equal(bw.measurementSemantics, 'subscription-receive-bandwidth');
+    assert.deepEqual(bw.caveats, ['affected-by-qos', 'affected-by-host-load', 'subscriber-observation-not-link-capacity']);
     const tf = await adapter.tfLookup('w', 'map', 'base_link', '.', 3000);
     assert.deepEqual(tf.transform.translation, { x: 0.1, y: 0.2, z: 0.3 });
     assert.deepEqual((await adapter.lifecycleGet('w', '/amcl')).state, { label: 'active', id: 3, raw: 'active [3]' });

@@ -76,6 +76,9 @@ export async function transactionalExcelEdit(input: TransactionalExcelEditInput)
       { id: 'formula_count', passed: inspection.totals.formulas >= (acceptance.minFormulaCount ?? 0), expected: acceptance.minFormulaCount ?? 0, actual: inspection.totals.formulas }
     ];
     if (acceptance.nativeExcel) {
+      if (inspection.security.riskyFormulaCount > 0) {
+        throw new Error(`EXCEL_NATIVE_RECALC_BLOCKED: workbook contains ${inspection.security.riskyFormulaCount} external/side-effect formula candidate(s); native Excel open/recalculation is refused.`);
+      }
       const adapter = input.nativeAdapter ?? new NativeExcelAdapter(); if (!adapter.supported()) throw new Error('EXCEL_COM_UNAVAILABLE: native Excel acceptance was required but this node is not Windows.');
       tx = appendOfficeTransactionBackend(tx, 'windows-com'); native = await adapter.validateAndRender(workingPath, pdfPath, { recalculate: acceptance.recalculate ?? true, exportPdf: acceptance.exportPdf ?? false });
       tx = transitionOfficeTransaction(tx, 'app-opened'); tx = appendOfficeEvidence(tx, { kind: 'application-open', createdAt: new Date().toISOString(), backend: 'windows-com' }); assertions.push({ id: 'workbook_opens', passed: native.ok, expected: true, actual: native.ok });

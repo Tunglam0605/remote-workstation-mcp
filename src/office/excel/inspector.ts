@@ -2,6 +2,7 @@ import path from 'node:path';
 import { DOMParser, type Document, type Element, type Node } from '@xmldom/xmldom';
 import { createOfficeDocumentIdentity, type OfficeDocumentIdentity } from '../common/document-identity.js';
 import { readOoxmlPackage, requirePackageEntry, type OoxmlPackage } from '../backends/ooxml/package-reader.js';
+import { analyzeExcelFormulaRisk, type ExcelFormulaRiskFinding } from './formula-policy.js';
 
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const MAX_SHARED_STRINGS = 200_000;
@@ -26,6 +27,8 @@ export interface ExcelSheetAst {
   cells: ExcelCellAst[];
   totalCells: number;
   formulaCount: number;
+  riskyFormulaCount: number;
+  riskyFormulaExamples: Array<{ address: string; formula: string; findings: ExcelFormulaRiskFinding[] }>;
   cellsTruncated: boolean;
 }
 
@@ -42,6 +45,8 @@ export interface ExcelInspectionResult {
     externalRelationships: Array<{ id: string; type: string; target: string }>;
     embeddedObjectsPresent: boolean;
     activeXPresent: boolean;
+    riskyFormulaCount: number;
+    riskyFormulaExamples: Array<{ sheet: string; address: string; formula: string; findings: ExcelFormulaRiskFinding[] }>;
   };
   package: { entryCount: number; expandedBytes: number; workbookPart: string; warnings: string[] };
 }
@@ -179,21 +184,33 @@ function inspectSheet(pkg: OoxmlPackage, part: string, name: string, sheetId: nu
   const dimension = attr(elements(doc, 'dimension')[0] ?? doc.documentElement, 'ref');
   const allCells = elements(doc, 'c');
   let formulas = 0;
+  let riskyFormulaCount = 0;
+  const riskyFormulaExamples: ExcelSheetAst['riskyFormulaExamples'] = [];
+  for (const cell of allCells) {
+    const formula = direct(cell, 'f')[0]?.textContent ?? undefined;
+    if (formula === undefined) continue;
+    formulas += 1;
+    const findings = analyzeExcelFormulaRisk(formula);
+    if (findings.length) {
+      riskyFormulaCount += 1;
+      if (riskyFormulaExamples.length < 32) riskyFormulaExamples.push({
+        address: (attr(cell, 'r') ?? '').toUpperCase().slice(0, 32),
+        formula: formula.slice(0, 2048),
+        findings
+      });
+    }
+  }
   const cells: ExcelCellAst[] = [];
   for (const cell of allCells.slice(0, maxCells)) {
     const address = (attr(cell, 'r') ?? '').toUpperCase();
     if (!address) continue;
     const pos = parseExcelAddress(address);
     const formula = direct(cell, 'f')[0]?.textContent ?? undefined;
-    if (formula !== undefined) formulas += 1;
     const styleRaw = attr(cell, 's');
     const styleIndex = styleRaw && /^\d+$/.test(styleRaw) ? Number(styleRaw) : undefined;
     cells.push({ address, ...pos, ...cellValue(cell, strings), ...(formula !== undefined ? { formula: formula.slice(0, 32_768) } : {}), ...(styleIndex !== undefined ? { styleIndex } : {}) });
   }
-  if (allCells.length > maxCells) {
-    formulas += allCells.slice(maxCells).filter(cell => direct(cell, 'f').length > 0).length;
-  }
-  return { name, ...(sheetId !== undefined ? { sheetId } : {}), part, ...(state ? { state } : {}), ...(dimension ? { dimension } : {}), cells, totalCells: allCells.length, formulaCount: formulas, cellsTruncated: allCells.length > cells.length };
+  return { name, ...(sheetId !== undefined ? { sheetId } : {}), part, ...(state ? { state } : {}), ...(dimension ? { dimension } : {}), cells, totalCells: allCells.length, formulaCount: formulas, riskyFormulaCount, riskyFormulaExamples, cellsTruncated: allCells.length > cells.length };
 }
 
 export function inspectExcelWorkbook(input: { canonicalPath: string; bytes: Uint8Array; modifiedTimeMs?: number; maxCellsPerSheet?: number }): ExcelInspectionResult {
@@ -225,7 +242,16 @@ export function inspectExcelWorkbook(input: { canonicalPath: string; bytes: Uint
       ...(attr(item, 'hidden') ? { hidden: attr(item, 'hidden') === '1' } : {})
     };
   }).filter(item => item.name);
-  const externalRelationships = [...rootRelationships(pkg), ...rels].filter(item => item.targetMode?.toLowerCase() === 'external').map(item => ({ id: item.id, type: item.type, target: item.target.slice(0, 2048) }));
+  const definedNameRisks = definedNames.flatMap(item => {
+    const findings = analyzeExcelFormulaRisk(item.value);
+    return findings.length ? [{ sheet: '<defined-name>', address: item.name, formula: item.value.slice(0, 2048), findings }] : [];
+  });
+  const riskyFormulaExamples = [
+    ...sheets.flatMap(sheet => sheet.riskyFormulaExamples.map(item => ({ sheet: sheet.name, ...item }))),
+    ...definedNameRisks
+  ].slice(0, 64);
+  const riskyFormulaCount = sheets.reduce((sum, sheet) => sum + sheet.riskyFormulaCount, 0) + definedNameRisks.length;
+    const externalRelationships = [...rootRelationships(pkg), ...rels].filter(item => item.targetMode?.toLowerCase() === 'external').map(item => ({ id: item.id, type: item.type, target: item.target.slice(0, 2048) }));
   const entries = [...pkg.entries.keys()];
   const identity = createOfficeDocumentIdentity({ canonicalPath: input.canonicalPath, bytes: input.bytes, modifiedTimeMs: input.modifiedTimeMs });
   return {
@@ -240,7 +266,9 @@ export function inspectExcelWorkbook(input: { canonicalPath: string; bytes: Uint
       externalLinksPresent: entries.some(name => name.startsWith('xl/externalLinks/')) || externalRelationships.length > 0,
       externalRelationships,
       embeddedObjectsPresent: entries.some(name => name.startsWith('xl/embeddings/')),
-      activeXPresent: entries.some(name => name.startsWith('xl/activeX/'))
+      activeXPresent: entries.some(name => name.startsWith('xl/activeX/')),
+      riskyFormulaCount,
+      riskyFormulaExamples
     },
     package: { entryCount: pkg.manifest.length, expandedBytes: pkg.expandedBytes, workbookPart: workbook, warnings: sheets.length === 0 ? ['Workbook has no resolved worksheet parts.'] : [] }
   };

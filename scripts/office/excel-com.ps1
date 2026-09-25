@@ -2,6 +2,8 @@ param([Parameter(Mandatory=$true)][string]$InputPath)
 $ErrorActionPreference = 'Stop'
 $excel = $null
 $workbook = $null
+$oldAutomationSecurity = $null
+$automationSecurityChanged = $false
 $release = { param($obj) if ($null -ne $obj) { try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($obj) } catch {} } }
 try {
   $request = Get-Content -LiteralPath $InputPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -13,8 +15,16 @@ try {
   $excel.DisplayAlerts = $false
   $excel.EnableEvents = $false
   try { $excel.AskToUpdateLinks = $false } catch {}
-  try { $excel.AutomationSecurity = 3 } catch {} # msoAutomationSecurityForceDisable
-  $workbook = $excel.Workbooks.Open($workbookPath, 0, $true, 5, '', '', $true)
+  try {
+    $oldAutomationSecurity = $excel.AutomationSecurity
+    $excel.AutomationSecurity = 3 # msoAutomationSecurityForceDisable
+    $automationSecurityChanged = $true
+  } catch {}
+  try {
+    $workbook = $excel.Workbooks.Open($workbookPath, 0, $true, 5, '', '', $true)
+  } finally {
+    if ($automationSecurityChanged) { try { $excel.AutomationSecurity = $oldAutomationSecurity } catch {} ; $automationSecurityChanged = $false }
+  }
   if ([bool]$request.recalculate) {
     $excel.CalculateFullRebuild()
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -47,6 +57,7 @@ try {
   [pscustomobject]@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
   exit 2
 } finally {
+  if ($automationSecurityChanged -and $null -ne $excel) { try { $excel.AutomationSecurity = $oldAutomationSecurity } catch {} }
   if ($null -ne $workbook) { try { $workbook.Close($false) } catch {} }
   & $release $workbook
   if ($null -ne $excel) { try { $excel.Quit() } catch {} }

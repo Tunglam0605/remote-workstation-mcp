@@ -1274,6 +1274,19 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           status: await executionPolicy.status(),
           codex: await codexCliStatus(repoRoot),
           accountBroker: await codexAccountBrokerStatus(settings),
+          executionExperience: {
+            timeline: {
+              tool: 'work_objective_execution_timeline',
+              progressModel: 'stage-only',
+              authority: 'caller-owned-work-session-read-only'
+            },
+            cancellation: {
+              providerIds: ['codex-local', 'antigravity-local'],
+              mechanism: 'abort-signal-process-tree',
+              terminalStateAuthoritative: true
+            },
+            ownerUiSessionTimeline: false
+          },
           authority: 'owner-local-default-with-bounded-work-session-overrides'
         });
         return;

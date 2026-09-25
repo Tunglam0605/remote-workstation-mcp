@@ -89,6 +89,25 @@ test('Setup & Control Center requires the ephemeral token for API access', async
     assert.ok(Number.isInteger(body.settings.mcpPort));
     assert.equal(typeof body.onboardingRequired, 'boolean');
 
+    const executionPolicyResponse = await fetch(`${base}/api/execution-policy`, { headers: { 'x-rwmcp-setup-token': token } });
+    assert.equal(executionPolicyResponse.status, 200);
+    const executionPolicy = await executionPolicyResponse.json() as {
+      executionExperience: {
+        timeline: { tool: string; progressModel: string; authority: string };
+        cancellation: { providerIds: string[]; mechanism: string; terminalStateAuthoritative: boolean };
+        ownerUiSessionTimeline: boolean;
+      };
+    };
+    assert.deepEqual(executionPolicy.executionExperience.timeline, {
+      tool: 'work_objective_execution_timeline',
+      progressModel: 'stage-only',
+      authority: 'caller-owned-work-session-read-only'
+    });
+    assert.deepEqual(executionPolicy.executionExperience.cancellation.providerIds, ['codex-local', 'antigravity-local']);
+    assert.equal(executionPolicy.executionExperience.cancellation.mechanism, 'abort-signal-process-tree');
+    assert.equal(executionPolicy.executionExperience.cancellation.terminalStateAuthoritative, true);
+    assert.equal(executionPolicy.executionExperience.ownerUiSessionTimeline, false);
+
     const catalogResponse = await fetch(`${base}/api/execution`, { headers: { 'x-rwmcp-setup-token': token } });
     assert.equal(catalogResponse.status, 200);
     const catalog = await catalogResponse.json() as { authority: string; node: { id: string }; operations: string[] };

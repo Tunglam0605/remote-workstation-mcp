@@ -203,6 +203,7 @@ test('firmware provider preflight reports OpenOCD version and locked dangerous s
     const status = await firmware.providerStatus('openocd');
     assert.equal(status.available, true);
     assert.equal(status.version, '0.12.0');
+    assert.equal(status.provenance?.status, 'release');
     assert.ok(status.intentionallyUnavailable.includes('mass-erase'));
     assert.ok(status.intentionallyUnavailable.includes('arbitrary-tcl'));
   } finally {

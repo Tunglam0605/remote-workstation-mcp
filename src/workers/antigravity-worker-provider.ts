@@ -741,6 +741,20 @@ export class AntigravityWorkerProvider implements WorkerProvider {
         summary
       };
     }
+    const noObservableWork = beforeStatus.stdout === afterStatus.stdout && beforeDiff.stdout === afterDiff.stdout;
+    const suspiciousEmptySuccess = !stream.response?.trim()
+      && !stream.error?.trim()
+      && stream.toolCalls === 0
+      && stream.subagents === 0
+      && (stream.totalTokens ?? 0) === 0
+      && noObservableWork;
+    if (suspiciousEmptySuccess) {
+      return {
+        status: 'failed',
+        ...(stream.conversationId ? { runId: stream.conversationId } : {}),
+        summary: boundedTail(`ANTIGRAVITY_EMPTY_SUCCESS; ${summary}`, MAX_EVIDENCE_BYTES)
+      };
+    }
     return {
       status: 'succeeded',
       ...(stream.conversationId ? { runId: stream.conversationId } : {}),

@@ -292,6 +292,41 @@ test('Antigravity explicit headless permission denial fails closed even when agy
   }
 });
 
+test('Antigravity suspicious empty SUCCESS fails closed when no work is observable', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-agy-empty-success-'));
+  try {
+    await fs.mkdir(path.join(temp, '.git'));
+    const provider = new AntigravityWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => temp } as any,
+      { run: async () => commandResult() } as any,
+      {
+        resolveExecutable: async command => command === 'git' ? 'git' : 'agy',
+        processRunner: async () => ({
+          exitCode: 0,
+          stdout: JSON.stringify({
+            event: 'result',
+            result: {
+              conversation_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+              status: 'SUCCESS',
+              response: '',
+              usage: { total_tokens: 0 }
+            }
+          }) + '\n',
+          stderr: '',
+          timedOut: false,
+          durationMs: 3
+        })
+      }
+    );
+    const result = await provider.dispatch(request());
+    assert.equal(result.status, 'failed');
+    assert.match(result.summary ?? '', /ANTIGRAVITY_EMPTY_SUCCESS/);
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
 test('Antigravity quota/rate-limit errors fail closed as blocked work', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-agy-limit-'));
   try {

@@ -139,6 +139,11 @@ export interface Stm32SvdInspection {
     fields: number;
   };
   truncated: boolean;
+  inheritance: {
+    derivedFromPresent: boolean;
+    resolved: boolean;
+    note?: string;
+  };
   warnings: string[];
 }
 
@@ -238,6 +243,10 @@ export interface FirmwareProviderStatus {
   executableSource?: 'owner-override' | 'path' | 'known-install';
   scriptSearchPath?: string;
   version?: string;
+  provenance?: {
+    status: 'release' | 'development' | 'dirty-development' | 'unknown';
+    warning?: string;
+  };
   licenseStatus?: 'ok' | 'error' | 'unknown';
   licenseMessage?: string;
   diagnostic?: OpenOcdDiagnostic;

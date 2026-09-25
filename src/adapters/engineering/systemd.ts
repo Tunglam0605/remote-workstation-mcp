@@ -92,6 +92,7 @@ export class SystemdAdapter {
     const journalctl = await resolveFirstExecutable(['journalctl']);
     let journal: {
       available: boolean;
+      state?: 'ok' | 'degraded';
       format?: 'json';
       entries?: ReturnType<typeof parseJournalEntries>;
       stdout?: string;
@@ -105,6 +106,7 @@ export class SystemdAdapter {
       const result = await this.runner.run(journalctl.path, journalArgs, cwd, 15_000);
       journal = {
         available: true,
+        state: !result.timedOut && result.exitCode === 0 ? 'ok' : 'degraded',
         format: 'json',
         entries: parseJournalEntries(result.stdout),
         stdout: result.stdout,

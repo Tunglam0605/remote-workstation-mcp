@@ -83,6 +83,8 @@ test('STM32 SVD parser returns bounded device, peripheral, register, cluster and
   assert.equal(result.counts.peripherals, 1);
   assert.equal(result.counts.registers, 3);
   assert.equal(result.counts.fields, 3);
+  assert.equal(result.inheritance.derivedFromPresent, false);
+  assert.equal(result.inheritance.resolved, true);
 
   const gpio = result.peripherals[0]!;
   assert.equal(gpio.baseAddress, 0x58020000);
@@ -104,6 +106,20 @@ test('STM32 SVD parser returns bounded device, peripheral, register, cluster and
   assert.equal(cluster.addressOffset, 0x104);
   assert.equal(cluster.absoluteAddress, 0x58020104);
   assert.equal(cluster.fields[0]?.name, 'EN');
+});
+
+test('STM32 SVD parser exposes unresolved derivedFrom inheritance instead of overclaiming completeness', () => {
+  const inherited = `<device><name>STM32X</name><peripherals>
+    <peripheral><name>GPIOA</name><baseAddress>0x40000000</baseAddress><registers>
+      <register><name>BASE</name><addressOffset>0</addressOffset></register>
+    </registers></peripheral>
+    <peripheral derivedFrom="GPIOA"><name>GPIOB</name><baseAddress>0x40000400</baseAddress></peripheral>
+  </peripherals></device>`;
+  const result = parseStm32SvdText('derived.svd', Buffer.byteLength(inherited), inherited);
+  assert.equal(result.inheritance.derivedFromPresent, true);
+  assert.equal(result.inheritance.resolved, false);
+  assert.match(result.inheritance.note ?? '', /not materialized/i);
+  assert.ok(result.warnings.some(item => /derivedFrom inheritance/i.test(item)));
 });
 
 test('STM32 SVD parser rejects DTD/entity declarations instead of expanding external XML', () => {

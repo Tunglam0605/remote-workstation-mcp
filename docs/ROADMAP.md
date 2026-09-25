@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.45.1 - Trust & Reliability Hardening
+
+- complete a full v0.45.0 capability-family trust audit against official vendor/specification documentation, upstream source, machine CLI/API contracts, failure semantics, version portability and production evidence;
+- move Git status to the documented `--porcelain=v2 --branch` machine contract and update WorktreeManager clean/dirty detection accordingly;
+- capability-probe optional KiCad board-statistics/BOM commands and degrade diagnostics clearly when a detected KiCad version lacks them;
+- expose OpenOCD provider provenance so release, development, dirty-development and unknown builds do not receive identical trust treatment;
+- reject suspicious empty Antigravity `SUCCESS` outcomes when there is no response, token/tool activity or Git-observable work;
+- classify journal collection as `ok` or `degraded` instead of equating executable presence with successful systemd journal evidence;
+- enforce an explicit allowlist for dependency install-script-bearing packages in CI and prepack;
+- expose unresolved CMSIS-SVD `derivedFrom` inheritance and prohibit treating incomplete inspection metadata as authoritative live-register-write metadata;
+- retain Action Schema 21 and Engineering API 5 because this patch hardens trust semantics without adding public execution authority.
+
 ## v0.45.0 - Professional Tools Expansion II
 
 - replace scattered regex-oriented GDB/MI parsing with a bounded recursive MI parser that handles strings, tuples, lists and nested result records without widening debugger authority;

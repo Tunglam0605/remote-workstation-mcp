@@ -529,6 +529,7 @@ test('KiCad diagnostics and validation use bounded JSON reports without source m
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
       if (args[0] === 'version') return command(program, args, cwd, '10.0.6\n');
+      if (args.at(-1) === '--help') return command(program, args, cwd, 'Usage: supported\n');
       const outputIndex = args.indexOf('--output');
       const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
       if (!output) return command(program, args, cwd, '', 'missing output', 2);
@@ -600,6 +601,7 @@ test('KiCad fabrication export gates on ERC/DRC and emits isolated SHA-256 manif
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
       if (args[0] === 'version') return command(program, args, cwd, '10.0.6\n');
+      if (args.at(-1) === '--help') return command(program, args, cwd, 'Usage: supported\n');
       const outputIndex = args.indexOf('--output');
       const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
       if (args.includes('drc')) {
@@ -773,6 +775,7 @@ test('systemd adapter diagnostics are bounded and restart remains exact-allowlis
     const before = await adapter.diagnostics('w', 'robot-gateway.service', '.', false, 25);
     assert.equal(before.properties.ActiveState, 'active');
     assert.equal(before.properties.NRestarts, '2');
+    assert.equal(before.journal.state, 'ok');
     assert.equal(before.journal.format, 'json');
     assert.equal(before.journal.entries?.[0]?.message, 'ready');
     assert.equal(before.journal.entries?.[0]?.invocationId, 'fixture-invocation');

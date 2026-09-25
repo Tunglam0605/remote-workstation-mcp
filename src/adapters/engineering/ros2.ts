@@ -8,6 +8,7 @@ import { PathGuard } from '../../security/path-guard.js';
 import { ProcessManager } from '../process-manager.js';
 import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
+import { parseRos2LifecycleState, parseRos2TopicBandwidth, parseRos2TopicHz, parseTf2Echo } from './ros2-analysis.js';
 
 export interface Ros2RuntimeContext {
   distro?: string;
@@ -42,6 +43,22 @@ function validateRuntime(runtime: Ros2RuntimeContext | undefined): void {
   }
 }
 
+function validateRosName(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!/^\/[A-Za-z0-9_\/]+$/.test(trimmed) || trimmed.length > 256 || trimmed.includes('//')) {
+    throw new Error(`Invalid ROS 2 ${label} name.`);
+  }
+  return trimmed;
+}
+
+function validateTfFrame(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 256 || !/^[A-Za-z0-9_./-]+$/.test(trimmed) || trimmed.includes('..')) {
+    throw new Error(`Invalid TF ${label} frame.`);
+  }
+  return trimmed.replace(/^\/+/, '');
+}
+
 export class Ros2Adapter {
   constructor(
     private readonly policy: PolicyEngine,
@@ -56,6 +73,35 @@ export class Ros2Adapter {
     return ros2.path;
   }
 
+  private async prepareCommand(
+    workspace: string,
+    cwdRelative: string,
+    args: string[],
+    runtime?: Ros2RuntimeContext
+  ): Promise<{ program: string; args: string[]; cwd: string }> {
+    this.policy.assertEngineeringEnabled();
+    validateRuntime(runtime);
+    const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
+    if (!runtime || (!runtime.distro && !runtime.workspaceSetup && runtime.domainId === undefined)) {
+      return { program: await this.command(), args, cwd };
+    }
+    this.policy.assertEngineeringExecute();
+    if (os.platform() === 'win32') {
+      throw new Error('ROS 2 project environment bootstrap is currently supported on POSIX hosts only; configure ros2 on PATH for Windows.');
+    }
+    if (!runtime.distro) throw new Error('ros2.distro is required when project environment bootstrap is enabled.');
+    const distroSetup = `/opt/ros/${runtime.distro}/setup.bash`;
+    try { await fs.access(distroSetup); } catch { throw new Error(`ROS 2 distro setup was not found: ${distroSetup}`); }
+    const workspaceSetup = runtime.workspaceSetup ? await this.paths.resolveExisting(workspace, runtime.workspaceSetup) : '';
+    const bash = await resolveFirstExecutable(['bash']);
+    if (!bash) throw new Error('bash is required for ROS 2 environment bootstrap.');
+    return {
+      program: bash.path,
+      args: [helperPath('ros2-run.sh'), distroSetup, workspaceSetup, runtime.domainId === undefined ? '' : String(runtime.domainId), ...args],
+      cwd
+    };
+  }
+
   private async run(
     workspace: string,
     cwdRelative: string,
@@ -63,48 +109,29 @@ export class Ros2Adapter {
     timeoutMs = 15_000,
     runtime?: Ros2RuntimeContext
   ) {
-    this.policy.assertEngineeringEnabled();
-    validateRuntime(runtime);
-    const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
-
-    let program: string;
-    let commandArgs: string[];
-
-    if (!runtime || (!runtime.distro && !runtime.workspaceSetup && runtime.domainId === undefined)) {
-      program = await this.command();
-      commandArgs = args;
-    } else {
-      this.policy.assertEngineeringExecute();
-      if (os.platform() === 'win32') {
-        throw new Error('ROS 2 project environment bootstrap is currently supported on POSIX hosts only; configure ros2 on PATH for Windows.');
-      }
-      if (!runtime.distro) {
-        throw new Error('ros2.distro is required when project environment bootstrap is enabled.');
-      }
-      const distroSetup = `/opt/ros/${runtime.distro}/setup.bash`;
-      try {
-        await fs.access(distroSetup);
-      } catch {
-        throw new Error(`ROS 2 distro setup was not found: ${distroSetup}`);
-      }
-      const workspaceSetup = runtime.workspaceSetup
-        ? await this.paths.resolveExisting(workspace, runtime.workspaceSetup)
-        : '';
-      const bash = await resolveFirstExecutable(['bash']);
-      if (!bash) throw new Error('bash is required for ROS 2 environment bootstrap.');
-      program = bash.path;
-      commandArgs = [
-        helperPath('ros2-run.sh'),
-        distroSetup,
-        workspaceSetup,
-        runtime.domainId === undefined ? '' : String(runtime.domainId),
-        ...args
-      ];
+    const command = await this.prepareCommand(workspace, cwdRelative, args, runtime);
+    const result = await this.runner.run(command.program, command.args, command.cwd, timeoutMs);
+    if (result.exitCode !== 0 || result.timedOut) {
+      throw new Error(`ros2 ${args.slice(0, 2).join(' ')} failed: ${result.stderr || result.stdout || (result.timedOut ? 'timed out' : `exit=${result.exitCode}`)}`);
     }
+    return result;
+  }
 
-    const result = await this.runner.run(program, commandArgs, cwd, timeoutMs);
-    if (result.exitCode !== 0) {
-      throw new Error(`ros2 ${args.slice(0, 2).join(' ')} failed: ${result.stderr || result.stdout}`);
+  private async sample(
+    workspace: string,
+    cwdRelative: string,
+    args: string[],
+    timeoutMs: number,
+    runtime?: Ros2RuntimeContext
+  ) {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 20_000) throw new Error('ROS 2 sample timeout must be in range 1000..20000 ms.');
+    const command = await this.prepareCommand(workspace, cwdRelative, args, runtime);
+    const result = await this.runner.run(command.program, command.args, command.cwd, timeoutMs);
+    if (!result.timedOut && result.exitCode !== 0) {
+      throw new Error(`ros2 ${args.slice(0, 2).join(' ')} failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+    }
+    if (!result.stdout.trim()) {
+      throw new Error(`ros2 ${args.slice(0, 2).join(' ')} produced no sample within ${timeoutMs} ms.${result.stderr ? ` ${result.stderr.trim()}` : ''}`);
     }
     return result;
   }
@@ -264,10 +291,65 @@ export class Ros2Adapter {
     };
   }
 
+  async nodeInfo(workspace: string, node: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const name = validateRosName(node, 'node');
+    const result = await this.run(workspace, cwd, ['node', 'info', name], 15_000, runtime);
+    return { node: name, output: result.stdout.trim() };
+  }
+
+  async topicHz(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
+    const name = validateRosName(topic, 'topic');
+    if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 hz window must be in range 2..10000.');
+    const result = await this.sample(workspace, cwd, ['topic', 'hz', name, '--window', String(window)], timeoutMs, runtime);
+    return { topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicHz(result.stdout) };
+  }
+
+  async topicBandwidth(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
+    const name = validateRosName(topic, 'topic');
+    if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 bandwidth window must be in range 2..10000.');
+    const result = await this.sample(workspace, cwd, ['topic', 'bw', name, '--window', String(window)], timeoutMs, runtime);
+    return { topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicBandwidth(result.stdout) };
+  }
+
+  async tfLookup(workspace: string, sourceFrame: string, targetFrame: string, cwd = '.', timeoutMs = 4_000, runtime?: Ros2RuntimeContext) {
+    const source = validateTfFrame(sourceFrame, 'source');
+    const target = validateTfFrame(targetFrame, 'target');
+    if (source === target) throw new Error('TF source and target frames must differ.');
+    const result = await this.sample(workspace, cwd, ['run', 'tf2_ros', 'tf2_echo', source, target], timeoutMs, runtime);
+    const transform = parseTf2Echo(result.stdout);
+    if (!transform) throw new Error(`TF lookup did not produce a parseable transform within ${timeoutMs} ms.`);
+    return { sourceFrame: source, targetFrame: target, timeoutMs, transform };
+  }
+
+  async lifecycleGet(workspace: string, node: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const name = validateRosName(node, 'node');
+    const result = await this.run(workspace, cwd, ['lifecycle', 'get', name], 15_000, runtime);
+    return { node: name, state: parseRos2LifecycleState(result.stdout) };
+  }
+
+  async lifecycleList(workspace: string, node: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const name = validateRosName(node, 'node');
+    const result = await this.run(workspace, cwd, ['lifecycle', 'list', name], 15_000, runtime);
+    return { node: name, transitions: lines(result.stdout), raw: result.stdout.trim().slice(-16_384) };
+  }
+
+  async lifecycleSet(workspace: string, node: string, transition: 'configure' | 'cleanup' | 'activate' | 'deactivate' | 'shutdown', cwd = '.', runtime?: Ros2RuntimeContext) {
+    this.policy.assertHardwareMutation();
+    const name = validateRosName(node, 'node');
+    const result = await this.run(workspace, cwd, ['lifecycle', 'set', name, transition], 30_000, runtime);
+    return { node: name, transition, output: result.stdout.trim() };
+  }
+
+  async actionInfo(workspace: string, action: string, cwd = '.', runtime?: Ros2RuntimeContext) {
+    const name = validateRosName(action, 'action');
+    const result = await this.run(workspace, cwd, ['action', 'info', name], 15_000, runtime);
+    return { action: name, output: result.stdout.trim() };
+  }
+
   async topicInfo(workspace: string, topic: string, cwd = '.', runtime?: Ros2RuntimeContext) {
-    if (!/^\/[A-Za-z0-9_\/]+$/.test(topic)) throw new Error('Invalid ROS 2 topic name.');
-    const result = await this.run(workspace, cwd, ['topic', 'info', topic, '--verbose'], 15_000, runtime);
-    return { topic, output: result.stdout.trim() };
+    const name = validateRosName(topic, 'topic');
+    const result = await this.run(workspace, cwd, ['topic', 'info', name, '--verbose'], 15_000, runtime);
+    return { topic: name, output: result.stdout.trim() };
   }
 
   async nodeList(workspace: string, cwd = '.', runtime?: Ros2RuntimeContext) {

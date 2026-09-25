@@ -2,6 +2,17 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.44.0 - Professional Tooling Expansion
+
+- expand STM32/embedded diagnostics with `firmware_memory_report`, halted-frame `debug_locals`, bounded `debug_disassemble`, and safe-expression hardware watchpoint add/remove while retaining no arbitrary GDB command or memory-write surface;
+- expand ROS 2/robotics diagnostics with node/action info, bounded topic Hz/bandwidth sampling, TF2 lookup, lifecycle state/list and an allowlisted lifecycle transition mutation; intentionally defer action-goal dispatch until durable goal-handle cancellation/recovery is available;
+- expose direct typed KiCad provider/version, board statistics, DRC, ERC, validation and fixed-field BOM reports using temporary outputs without source mutation or arbitrary plugins/scripts;
+- add transactional Excel `.xlsx` inspection/editing with typed cell/range/formula operations, SHA-256 optimistic concurrency, Work Session ownership, file leases, owner-scoped rollback and optional native Excel recalculation/formula-error/PDF acceptance;
+- add transactional PowerPoint `.pptx` inspection/editing for existing title/shape text with structural count invariants, SHA-256 optimistic concurrency, Work Session ownership, file leases, owner-scoped rollback and optional native PowerPoint read-only open/PDF acceptance;
+- keep macro-enabled/template Office formats inspection-only for mutation v1; native automation forces macro disable and does not expose raw COM/VBA or arbitrary shell;
+- verify native Excel 16.0 recalculation/PDF and PowerPoint 16.0 read-only open/PDF on Windows production hardware before release;
+- advance Action Schema to 20 for the additive professional-tool MCP surface and keep Engineering API at 5 because the Engineering Workflow contract remains unchanged.
+
 ## v0.43.0 - Objective Decomposition / Multi-Agent Waves
 
 - add `work_objective_decompose` so ChatGPT can persist a bounded planner-supplied DAG atomically using local task keys instead of manually creating tasks one-by-one;

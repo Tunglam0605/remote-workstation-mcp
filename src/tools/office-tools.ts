@@ -9,6 +9,12 @@ import { OFFICE_PACK_API_VERSION } from '../office/common/contracts.js';
 import { OfficeResourceManager } from '../office/common/resource-manager.js';
 import { officeFileResourceKey } from '../office/common/resource-keys.js';
 import type { WordEditOperation } from '../office/word/editor.js';
+import type { ExcelEditOperation } from '../office/excel/editor.js';
+import { inspectExcelWorkbook } from '../office/excel/inspector.js';
+import { rollbackExcelTransaction, transactionalExcelEdit } from '../office/excel/transactional-edit.js';
+import type { PowerPointEditOperation } from '../office/powerpoint/editor.js';
+import { inspectPowerPointPresentation } from '../office/powerpoint/inspector.js';
+import { rollbackPowerPointTransaction, transactionalPowerPointEdit } from '../office/powerpoint/transactional-edit.js';
 import { wordLinearTextToOmml } from '../office/word/equation.js';
 import { inspectWordDocx } from '../office/word/inspector.js';
 import { rollbackWordTransaction, transactionalWordEdit } from '../office/word/transactional-edit.js';
@@ -21,6 +27,8 @@ const result = (value: unknown) => ({
 });
 
 const WORD_INSPECTION_EXTENSIONS = new Set(['.docx', '.docm', '.dotx', '.dotm']);
+const EXCEL_INSPECTION_EXTENSIONS = new Set(['.xlsx', '.xlsm', '.xltx', '.xltm']);
+const POWERPOINT_INSPECTION_EXTENSIONS = new Set(['.pptx', '.pptm', '.potx', '.potm', '.ppsx', '.ppsm']);
 const locatorSchema = z.object({
   stableId: z.string().regex(/^w14:paraId:[0-9A-Fa-f]{8}$/).optional(),
   paraId: z.string().regex(/^[0-9A-Fa-f]{8}$/).optional(),
@@ -58,6 +66,19 @@ const wordOperationSchema = z.discriminatedUnion('type', [
     widthTwips: z.number().int().min(1000).max(100_000), heightTwips: z.number().int().min(1000).max(100_000),
     orientation: z.enum(['portrait', 'landscape']).optional()
   })
+]);
+
+const excelPrimitiveSchema = z.union([z.string().max(1_000_000), z.number().finite(), z.boolean(), z.null()]);
+const excelOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('set_cell_value'), sheet: z.string().min(1).max(31), cell: z.string().regex(/^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/), value: excelPrimitiveSchema }),
+  z.object({ type: z.literal('set_cell_formula'), sheet: z.string().min(1).max(31), cell: z.string().regex(/^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/), formula: z.string().min(1).max(32_769) }),
+  z.object({ type: z.literal('clear_cell'), sheet: z.string().min(1).max(31), cell: z.string().regex(/^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/) }),
+  z.object({ type: z.literal('set_range_values'), sheet: z.string().min(1).max(31), topLeft: z.string().regex(/^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/), values: z.array(z.array(excelPrimitiveSchema).min(1).max(200)).min(1).max(200) })
+]);
+
+const powerpointOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('set_shape_text'), slideIndex: z.number().int().min(1).max(100_000), shapeId: z.number().int().min(1).max(1_000_000), text: z.string().max(1_000_000) }),
+  z.object({ type: z.literal('set_slide_title'), slideIndex: z.number().int().min(1).max(100_000), text: z.string().max(1_000_000) })
 ]);
 
 type ToolWordOperation = z.infer<typeof wordOperationSchema>;
@@ -99,14 +120,14 @@ export function registerOfficeTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'office_capabilities', undefined, async () => ({
     officeApiVersion: OFFICE_PACK_API_VERSION,
-    phase: 'E-word-transactional-acceptance',
+    phase: 'G-powerpoint-transactional-acceptance',
     executionModel: 'deterministic-capability-pack',
     reasoningProvider: false,
     platform: os.platform(),
     domains: {
       word: { status: 'transactional-edit-available', mutation: 'typed-and-transactional' },
-      excel: { status: 'deferred-until-word-acceptance' },
-      powerpoint: { status: 'deferred-until-excel-acceptance' }
+      excel: { status: 'transactional-edit-available', mutation: 'typed-and-transactional' },
+      powerpoint: { status: 'transactional-edit-available', mutation: 'typed-text-only-and-transactional' }
     },
     backends: currentOfficeCapabilityMatrix(os.platform()).list(),
     security: {
@@ -124,8 +145,8 @@ export function registerOfficeTools(server: McpServer, ctx: AppContext): void {
       optimisticConcurrency: 'sha256',
       backup: true,
       workingCopy: true,
-      nativeAcceptance: 'Windows-only; native Word acceptance is enabled by default and may be explicitly disabled only for bounded OOXML-only operations',
-      rollback: 'same word_edit tool, action=rollback'
+      nativeAcceptance: 'Windows-only; native Word/Excel/PowerPoint acceptance is enabled by default and may be explicitly disabled only for bounded OOXML-only operations',
+      rollback: 'same domain edit tool (word_edit/excel_edit/powerpoint_edit), action=rollback'
     }
   }))));
 
@@ -175,6 +196,117 @@ export function registerOfficeTools(server: McpServer, ctx: AppContext): void {
         };
       });
     }))));
+
+  server.registerTool('excel_inspect', {
+    description: 'Inspect an authorized Excel OOXML workbook into bounded sheet/cell/formula/name/security metadata. Read-only: never runs macros, follows external links, starts Excel, or mutates the file.',
+    inputSchema: z.object({
+      workspace: z.string().min(1).max(128), path: z.string().min(1).max(1024), workSessionId: z.string().uuid().optional(),
+      maxCellsPerSheet: z.number().int().min(1).max(50_000).default(5000)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, path: workbookPath, workSessionId, maxCellsPerSheet }) =>
+    result(await audited(ctx.audit, 'excel_inspect', workspace, async () => ctx.runInWorkSession(workSessionId, async () => {
+      const extension = path.extname(workbookPath).toLowerCase();
+      if (!EXCEL_INSPECTION_EXTENSIONS.has(extension)) throw new Error('excel_inspect supports only .xlsx, .xlsm, .xltx, .xltm.');
+      const absolutePath = await ctx.paths.resolveExisting(workspace, workbookPath);
+      return await resources.withLease(officeFileResourceKey(absolutePath), 'read', async () => {
+        const stat = await fs.stat(absolutePath);
+        if (!stat.isFile()) throw new Error('excel_inspect requires a regular file.');
+        if (stat.size > ctx.policy.config.filesystem.maxReadBytes) throw new Error(`Excel workbook exceeds maxReadBytes (${ctx.policy.config.filesystem.maxReadBytes}).`);
+        const bytes = await fs.readFile(absolutePath);
+        return inspectExcelWorkbook({ canonicalPath: absolutePath, bytes, modifiedTimeMs: stat.mtimeMs, maxCellsPerSheet });
+      });
+    }))));
+
+  server.registerTool('excel_edit', {
+    description: 'Apply or roll back bounded typed Excel .xlsx edits transactionally. Apply uses an explicit Work Session, file lease, backup/working copy, SHA-256 conflict check and structural acceptance; native Excel can recalculate, count formula errors and optionally render PDF with macros/events/links disabled.',
+    inputSchema: z.discriminatedUnion('action', [
+      z.object({
+        action: z.literal('apply'), workspace: z.string().min(1).max(128), path: z.string().min(1).max(1024), workSessionId: z.string().uuid(),
+        expectedSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(), operations: z.array(excelOperationSchema).min(1).max(100),
+        acceptance: z.object({
+          nativeExcel: z.boolean().optional(), recalculate: z.boolean().default(true), exportPdf: z.boolean().default(false),
+          preserveSheetNames: z.array(z.string().min(1).max(31)).max(1024).default([]), minFormulaCount: z.number().int().min(0).max(10_000_000).optional(),
+          maxFormulaErrors: z.number().int().min(0).max(10_000_000).optional()
+        }).default({ recalculate: true, exportPdf: false, preserveSheetNames: [] })
+      }),
+      z.object({ action: z.literal('rollback'), workspace: z.string().min(1).max(128), path: z.string().min(1).max(1024), workSessionId: z.string().uuid(), transactionId: z.string().uuid() })
+    ]),
+    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: false }
+  }, async input => result(await audited(ctx.audit, 'excel_edit', input.workspace, async () => {
+    ctx.policy.assertWrite(input.workspace);
+    return await ctx.runInWorkSession(input.workSessionId, async () => {
+      const absolutePath = await ctx.paths.resolveExisting(input.workspace, input.path);
+      return await resources.withLease(officeFileResourceKey(absolutePath), 'write', async () => {
+        if (input.action === 'rollback') return await rollbackExcelTransaction({ canonicalPath: absolutePath, transactionId: input.transactionId, principalId: currentClientId(), workSessionId: input.workSessionId });
+        const nativeExcel = input.acceptance.nativeExcel ?? process.platform === 'win32';
+        if (nativeExcel && !principalCanExecuteNativeOffice()) throw new Error('excel_edit native acceptance requires workstation.execute (or workstation.full_control) in addition to write authority.');
+        const stat = await fs.stat(absolutePath);
+        if (!stat.isFile()) throw new Error('excel_edit requires a regular file.');
+        if (stat.size > ctx.policy.config.filesystem.maxReadBytes) throw new Error(`Excel workbook exceeds maxReadBytes (${ctx.policy.config.filesystem.maxReadBytes}).`);
+        return await transactionalExcelEdit({
+          canonicalPath: absolutePath, principalId: currentClientId(), workSessionId: input.workSessionId,
+          operations: input.operations as ExcelEditOperation[], expectedSha256: input.expectedSha256, maxWriteBytes: ctx.policy.config.filesystem.maxWriteBytes,
+          acceptance: { nativeExcel, recalculate: input.acceptance.recalculate, exportPdf: input.acceptance.exportPdf, preserveSheetNames: input.acceptance.preserveSheetNames, minFormulaCount: input.acceptance.minFormulaCount, maxFormulaErrors: input.acceptance.maxFormulaErrors }
+        });
+      });
+    });
+  })));
+
+  server.registerTool('powerpoint_inspect', {
+    description: 'Inspect an authorized PowerPoint OOXML presentation into bounded slide/title/shape/image/table/chart/security metadata. Read-only: never runs macros, follows external relationships, starts PowerPoint, or mutates the file.',
+    inputSchema: z.object({
+      workspace: z.string().min(1).max(128), path: z.string().min(1).max(1024), workSessionId: z.string().uuid().optional(),
+      maxShapesPerSlide: z.number().int().min(1).max(5000).default(500)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, path: presentationPath, workSessionId, maxShapesPerSlide }) =>
+    result(await audited(ctx.audit, 'powerpoint_inspect', workspace, async () => ctx.runInWorkSession(workSessionId, async () => {
+      const extension = path.extname(presentationPath).toLowerCase();
+      if (!POWERPOINT_INSPECTION_EXTENSIONS.has(extension)) throw new Error('powerpoint_inspect supports only .pptx, .pptm, .potx, .potm, .ppsx, .ppsm.');
+      const absolutePath = await ctx.paths.resolveExisting(workspace, presentationPath);
+      return await resources.withLease(officeFileResourceKey(absolutePath), 'read', async () => {
+        const stat = await fs.stat(absolutePath);
+        if (!stat.isFile()) throw new Error('powerpoint_inspect requires a regular file.');
+        if (stat.size > ctx.policy.config.filesystem.maxReadBytes) throw new Error(`PowerPoint presentation exceeds maxReadBytes (${ctx.policy.config.filesystem.maxReadBytes}).`);
+        const bytes = await fs.readFile(absolutePath);
+        return inspectPowerPointPresentation({ canonicalPath: absolutePath, bytes, modifiedTimeMs: stat.mtimeMs, maxShapesPerSlide });
+      });
+    }))));
+
+  server.registerTool('powerpoint_edit', {
+    description: 'Apply or roll back bounded existing-shape/title text edits to .pptx transactionally. Apply uses an explicit Work Session, file lease, backup/working copy, SHA-256 conflict check and structural acceptance; native PowerPoint can open read-only and optionally render PDF with macro execution disabled.',
+    inputSchema: z.discriminatedUnion('action', [
+      z.object({
+        action: z.literal('apply'), workspace: z.string().min(1).max(128), path: z.string().min(1).max(1024), workSessionId: z.string().uuid(),
+        expectedSha256: z.string().regex(/^[0-9a-f]{64}$/).optional(), operations: z.array(powerpointOperationSchema).min(1).max(100),
+        acceptance: z.object({
+          nativePowerPoint: z.boolean().optional(), exportPdf: z.boolean().default(true),
+          minSlideCount: z.number().int().min(0).max(100_000).optional(), minShapeCount: z.number().int().min(0).max(10_000_000).optional()
+        }).default({ exportPdf: true })
+      }),
+      z.object({ action: z.literal('rollback'), workspace: z.string().min(1).max(128), path: z.string().min(1).max(1024), workSessionId: z.string().uuid(), transactionId: z.string().uuid() })
+    ]),
+    annotations: { readOnlyHint: false, idempotentHint: false, destructiveHint: true, openWorldHint: false }
+  }, async input => result(await audited(ctx.audit, 'powerpoint_edit', input.workspace, async () => {
+    ctx.policy.assertWrite(input.workspace);
+    return await ctx.runInWorkSession(input.workSessionId, async () => {
+      const absolutePath = await ctx.paths.resolveExisting(input.workspace, input.path);
+      return await resources.withLease(officeFileResourceKey(absolutePath), 'write', async () => {
+        if (input.action === 'rollback') return await rollbackPowerPointTransaction({ canonicalPath: absolutePath, transactionId: input.transactionId, principalId: currentClientId(), workSessionId: input.workSessionId });
+        const nativePowerPoint = input.acceptance.nativePowerPoint ?? process.platform === 'win32';
+        if (nativePowerPoint && !principalCanExecuteNativeOffice()) throw new Error('powerpoint_edit native acceptance requires workstation.execute (or workstation.full_control) in addition to write authority.');
+        const stat = await fs.stat(absolutePath);
+        if (!stat.isFile()) throw new Error('powerpoint_edit requires a regular file.');
+        if (stat.size > ctx.policy.config.filesystem.maxReadBytes) throw new Error(`PowerPoint presentation exceeds maxReadBytes (${ctx.policy.config.filesystem.maxReadBytes}).`);
+        return await transactionalPowerPointEdit({
+          canonicalPath: absolutePath, principalId: currentClientId(), workSessionId: input.workSessionId,
+          operations: input.operations as PowerPointEditOperation[], expectedSha256: input.expectedSha256, maxWriteBytes: ctx.policy.config.filesystem.maxWriteBytes,
+          acceptance: { nativePowerPoint, exportPdf: input.acceptance.exportPdf, minSlideCount: input.acceptance.minSlideCount, minShapeCount: input.acceptance.minShapeCount }
+        });
+      });
+    });
+  })));
 
   server.registerTool('word_edit', {
     description: 'Apply or roll back bounded typed Word edits transactionally. Apply requires an explicit Work Session, file lease, backup/working copy, SHA-256 conflict check and structural acceptance; native Word open/PDF/OMath acceptance can be required on Windows.',

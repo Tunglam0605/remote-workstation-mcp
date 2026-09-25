@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.43 adds objective decomposition and bounded multi-agent waves on Action Schema v19 and Engineering API v5', async () => {
+test('v0.44 expands professional engineering and Office tooling on Action Schema v20 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 19;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 20;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.43\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.44\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -53,6 +53,14 @@ test('v0.43 adds objective decomposition and bounded multi-agent waves on Action
   assert.match(waveExecution, /ObjectiveWaveExecutionService/);
   assert.match(waveExecution, /bounded-wave-execution/);
   assert.match(taskGraph, /addTaskBatch/);
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const officeTools = await read('src/tools/office-tools.ts');
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+  }
+  for (const tool of ['excel_inspect', 'excel_edit', 'powerpoint_inspect', 'powerpoint_edit']) {
+    assert.match(officeTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+  }
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -95,6 +103,61 @@ test('v0.43 adds objective decomposition and bounded multi-agent waves on Action
   assert.match(views, /Show command hash/);
   assert.match(views, /Multi-agent objective flow/);
   assert.match(views, /work_objective_execute_wave/);
+});
+
+test('v0.44 embedded diagnostics remain typed and do not expose arbitrary debugger or firmware execution', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const debug = await read('src/adapters/engineering/debug-session.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_disassemble', 'debug_watchpoint_add', 'debug_watchpoint_remove']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(scopes, new RegExp(`${tool}: 'workstation\\.(?:read|execute)'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(firmware, /arm-none-eabi-size/);
+  assert.match(firmware, /arm-none-eabi-nm/);
+  assert.match(debug, /-stack-list-variables --simple-values/);
+  assert.match(debug, /-data-disassemble -s/);
+  assert.match(debug, /-break-watch/);
+  assert.doesNotMatch(engineeringTools, /debug_command|gdb_command|memory_write|firmware_shell/);
+  assert.match(debug, /intentionallyUnavailable: \['arbitrary-gdb-command', 'arbitrary-tcl-command', 'memory-write', 'gdb-flash'\]/);
+});
+
+test('v0.44 ROS2 professional diagnostics stay bounded and defer unsafe action-goal dispatch', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const ros2 = await read('src/adapters/engineering/ros2.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  for (const tool of ['ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_list', 'ros2_lifecycle_set', 'ros2_action_info']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(scopes, new RegExp(`${tool}: 'workstation\\.(?:read|execute)'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(ros2, /\['topic', 'hz', name, '--window'/);
+  assert.match(ros2, /\['topic', 'bw', name, '--window'/);
+  assert.match(ros2, /\['run', 'tf2_ros', 'tf2_echo'/);
+  assert.match(engineeringTools, /z\.enum\(\['configure', 'cleanup', 'activate', 'deactivate', 'shutdown'\]\)/);
+  assert.doesNotMatch(engineeringTools, /ros2_action_send_goal|ros2_shell|ros2_command/);
+  assert.match(capabilities, /Action goal dispatch is intentionally deferred until RWMCP can guarantee goal-handle cancellation on timeout/);
+});
+
+test('v0.44 KiCad professional tools expose typed temporary diagnostics without arbitrary plugins', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicad = await read('src/adapters/engineering/kicad.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  for (const tool of ['kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(scopes, new RegExp(`${tool}: 'workstation\\.read'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(kicad, /'sch', 'export', 'bom'/);
+  assert.match(kicad, /'Reference,Value,Footprint,QUANTITY,DNP'/);
+  assert.doesNotMatch(engineeringTools, /kicad_script|kicad_plugin|python-bom/);
+  assert.match(capabilities, /arbitrary BOM plugins\/scripts/);
 });
 
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
@@ -236,7 +299,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v19 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v20 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -244,7 +307,7 @@ test('current runtime retains Work Session routing under Action Schema v19 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 19;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 20;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

@@ -315,6 +315,7 @@ export async function createContext() {
       ros2: engineeringRos2,
       docker: engineeringDocker,
       systemd: engineeringSystemd,
+      kicad: engineeringKicad,
       platformio: engineeringPlatformio
     },
     updates: new UpdateAdapter(SERVER_VERSION)

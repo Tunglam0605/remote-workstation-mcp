@@ -215,6 +215,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result({ artifacts: await audited(ctx.audit, 'firmware_artifacts', workspace, () => ctx.engineering.firmware.listArtifacts(workspace, projectPath)) }));
 
+  server.registerTool('firmware_memory_report', {
+    description: 'Analyze one ELF/AXF firmware artifact with an allowlisted size/nm toolchain and return bounded Flash/RAM totals, sections and largest symbols without executing project code or touching target hardware.',
+    inputSchema: workspacePath.extend({ artifact: z.string().min(1).max(1024).optional(), topSymbols: z.number().int().min(1).max(100).default(25) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, artifact, topSymbols }) => result(await audited(ctx.audit, 'firmware_memory_report', workspace, () => ctx.engineering.firmware.memoryReport(workspace, projectPath, artifact, topSymbols))));
+
   server.registerTool('firmware_provider_status', {
     description: 'Preflight the constrained firmware provider and report availability, version and intentionally unavailable dangerous surfaces.',
     inputSchema: z.object({ provider: z.enum(['openocd', 'keil']).default('openocd') }),
@@ -294,6 +300,30 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, expression, workSessionId }) => result(await audited(ctx.audit, 'debug_variable', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.variable(id, expression)))));
 
+  server.registerTool('debug_locals', {
+    description: 'Read bounded local variables from the currently selected halted stack frame through GDB/MI.',
+    inputSchema: z.object({ id: z.string().uuid(), maxVariables: z.number().int().min(1).max(128).default(64), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, maxVariables, workSessionId }) => result({ variables: await audited(ctx.audit, 'debug_locals', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.locals(id, maxVariables))) }));
+
+  server.registerTool('debug_disassemble', {
+    description: 'Read bounded disassembly around the current PC or one explicit 32-bit address through GDB/MI. No arbitrary GDB command or memory write is exposed.',
+    inputSchema: z.object({ id: z.string().uuid(), address: z.number().int().min(0).max(0xffffffff).optional(), beforeBytes: z.number().int().min(0).max(256).default(32), afterBytes: z.number().int().min(2).max(512).default(96), maxInstructions: z.number().int().min(1).max(256).default(128), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, address, beforeBytes, afterBytes, maxInstructions, workSessionId }) => result(await audited(ctx.audit, 'debug_disassemble', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.disassemble(id, { address, beforeBytes, afterBytes, maxInstructions })))));
+
+  server.registerTool('debug_watchpoint_add', {
+    description: 'Add one hardware data watchpoint for a safe variable/member/index expression. Access mode is bounded to write, read, or access.',
+    inputSchema: z.object({ id: z.string().uuid(), expression: z.string().min(1).max(256), access: z.enum(['write', 'read', 'access']).default('write'), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ id, expression, access, workSessionId }) => result(await audited(ctx.audit, 'debug_watchpoint_add', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.addWatchpoint(id, expression, access)))));
+
+  server.registerTool('debug_watchpoint_remove', {
+    description: 'Remove one GDB hardware watchpoint by its bounded breakpoint/watchpoint number.',
+    inputSchema: z.object({ id: z.string().uuid(), number: z.number().int().min(1).max(9999), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, number, workSessionId }) => result(await audited(ctx.audit, 'debug_watchpoint_remove', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.removeWatchpoint(id, number)))));
+
   server.registerTool('debug_breakpoint_add', {
     description: 'Add one hardware breakpoint at a function or basename:line location.',
     inputSchema: z.object({ id: z.string().uuid(), location: z.string().min(1).max(256), workSessionId: z.string().uuid().optional() }),
@@ -348,6 +378,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     ))
   ));
 
+  server.registerTool('ros2_node_info', {
+    description: 'Inspect publishers, subscribers, services and actions attached to one explicit ROS 2 node.',
+    inputSchema: z.object({ workspace: z.string(), node: z.string().min(1).max(256), cwd: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, node, cwd }) => result(await audited(ctx.audit, 'ros2_node_info', workspace, () => ctx.engineering.ros2.nodeInfo(workspace, node, cwd))));
+
   server.registerTool('ros2_topic_info', {
     description: 'Read verbose ROS 2 topic endpoint/QoS information for one absolute topic name.',
     inputSchema: z.object({ workspace: z.string(), topic: z.string(), cwd: z.string().default('.') }),
@@ -359,13 +395,96 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   server.registerTool('ros2_node_list', { description: 'List ROS 2 nodes using bounded ros2cli execution.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ nodes: await audited(ctx.audit, 'ros2_node_list', workspace, () => ctx.engineering.ros2.nodeList(workspace, cwd)) }));
   server.registerTool('ros2_topic_list', { description: 'List ROS 2 topics and reported types.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ topics: await audited(ctx.audit, 'ros2_topic_list', workspace, () => ctx.engineering.ros2.topicList(workspace, cwd)) }));
   server.registerTool('ros2_topic_echo', { description: 'Echo one ROS 2 topic message with --once and a bounded timeout.', inputSchema: z.object({ workspace: z.string(), topic: z.string(), cwd: z.string().default('.'), timeoutMs: z.number().int().min(500).max(60_000).default(10_000) }), annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, topic, cwd, timeoutMs }) => result(await audited(ctx.audit, 'ros2_topic_echo', workspace, () => ctx.engineering.ros2.topicEchoOnce(workspace, topic, cwd, timeoutMs))));
+  server.registerTool('ros2_topic_hz', {
+    description: 'Measure a bounded ROS 2 topic frequency sample. The diagnostic subprocess is terminated after timeout and only bounded rate statistics are returned.',
+    inputSchema: z.object({ workspace: z.string(), topic: z.string().min(1).max(256), cwd: z.string().default('.'), timeoutMs: z.number().int().min(1000).max(20000).default(5000), window: z.number().int().min(2).max(10000).default(100) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, topic, cwd, timeoutMs, window }) => result(await audited(ctx.audit, 'ros2_topic_hz', workspace, () => ctx.engineering.ros2.topicHz(workspace, topic, cwd, timeoutMs, window))));
+
+  server.registerTool('ros2_topic_bw', {
+    description: 'Measure a bounded ROS 2 topic bandwidth sample and normalize throughput/message sizes to bytes.',
+    inputSchema: z.object({ workspace: z.string(), topic: z.string().min(1).max(256), cwd: z.string().default('.'), timeoutMs: z.number().int().min(1000).max(20000).default(5000), window: z.number().int().min(2).max(10000).default(100) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, topic, cwd, timeoutMs, window }) => result(await audited(ctx.audit, 'ros2_topic_bw', workspace, () => ctx.engineering.ros2.topicBandwidth(workspace, topic, cwd, timeoutMs, window))));
+
+  server.registerTool('ros2_tf_lookup', {
+    description: 'Sample one TF2 transform between explicit frame names through tf2_echo with a bounded diagnostic timeout.',
+    inputSchema: z.object({ workspace: z.string(), sourceFrame: z.string().min(1).max(256), targetFrame: z.string().min(1).max(256), cwd: z.string().default('.'), timeoutMs: z.number().int().min(1000).max(20000).default(4000) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, sourceFrame, targetFrame, cwd, timeoutMs }) => result(await audited(ctx.audit, 'ros2_tf_lookup', workspace, () => ctx.engineering.ros2.tfLookup(workspace, sourceFrame, targetFrame, cwd, timeoutMs))));
+
+  server.registerTool('ros2_lifecycle_get', {
+    description: 'Read the current lifecycle state of one explicit ROS 2 lifecycle node.',
+    inputSchema: z.object({ workspace: z.string(), node: z.string().min(1).max(256), cwd: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, node, cwd }) => result(await audited(ctx.audit, 'ros2_lifecycle_get', workspace, () => ctx.engineering.ros2.lifecycleGet(workspace, node, cwd))));
+
+  server.registerTool('ros2_lifecycle_list', {
+    description: 'List available lifecycle transitions for one explicit ROS 2 lifecycle node.',
+    inputSchema: z.object({ workspace: z.string(), node: z.string().min(1).max(256), cwd: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, node, cwd }) => result(await audited(ctx.audit, 'ros2_lifecycle_list', workspace, () => ctx.engineering.ros2.lifecycleList(workspace, node, cwd))));
+
+  server.registerTool('ros2_lifecycle_set', {
+    description: 'Request one allowlisted ROS 2 lifecycle transition. This is a hardware/runtime mutation and requires execute authority.',
+    inputSchema: z.object({ workspace: z.string(), node: z.string().min(1).max(256), transition: z.enum(['configure', 'cleanup', 'activate', 'deactivate', 'shutdown']), cwd: z.string().default('.') }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, node, transition, cwd }) => result(await audited(ctx.audit, 'ros2_lifecycle_set', workspace, () => ctx.engineering.ros2.lifecycleSet(workspace, node, transition, cwd))));
+
   server.registerTool('ros2_service_list', { description: 'List ROS 2 services and reported types.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ services: await audited(ctx.audit, 'ros2_service_list', workspace, () => ctx.engineering.ros2.serviceList(workspace, cwd)) }));
   server.registerTool('ros2_service_call', { description: 'Call one explicitly named ROS 2 service with structured JSON payload. Requires hardware-mutation permission.', inputSchema: z.object({ workspace: z.string(), service: z.string(), type: z.string(), request: z.unknown().default({}), cwd: z.string().default('.') }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, service, type, request, cwd }) => result(await audited(ctx.audit, 'ros2_service_call', workspace, () => ctx.engineering.ros2.serviceCall(workspace, service, type, request, cwd))));
   server.registerTool('ros2_action_list', { description: 'List ROS 2 actions and reported types.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ actions: await audited(ctx.audit, 'ros2_action_list', workspace, () => ctx.engineering.ros2.actionList(workspace, cwd)) }));
+  server.registerTool('ros2_action_info', {
+    description: 'Inspect clients and servers for one explicit ROS 2 action without sending a goal.',
+    inputSchema: z.object({ workspace: z.string(), action: z.string().min(1).max(256), cwd: z.string().default('.') }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, action, cwd }) => result(await audited(ctx.audit, 'ros2_action_info', workspace, () => ctx.engineering.ros2.actionInfo(workspace, action, cwd))));
+
   server.registerTool('ros2_param_list', { description: 'List parameters for one ROS 2 node.', inputSchema: z.object({ workspace: z.string(), node: z.string(), cwd: z.string().default('.') }), annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, node, cwd }) => result({ parameters: await audited(ctx.audit, 'ros2_param_list', workspace, () => ctx.engineering.ros2.paramList(workspace, node, cwd)) }));
   server.registerTool('ros2_param_get', { description: 'Read one ROS 2 parameter.', inputSchema: z.object({ workspace: z.string(), node: z.string(), parameter: z.string(), cwd: z.string().default('.') }), annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, node, parameter, cwd }) => result(await audited(ctx.audit, 'ros2_param_get', workspace, () => ctx.engineering.ros2.paramGet(workspace, node, parameter, cwd))));
   server.registerTool('ros2_param_set', { description: 'Set one ROS 2 parameter. Requires hardware-mutation permission.', inputSchema: z.object({ workspace: z.string(), node: z.string(), parameter: z.string(), value: z.string(), cwd: z.string().default('.') }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, node, parameter, value, cwd }) => result(await audited(ctx.audit, 'ros2_param_set', workspace, () => ctx.engineering.ros2.paramSet(workspace, node, parameter, value, cwd))));
   server.registerTool('ros2_bag_record', { description: 'Start a caller-owned ros2 bag record process for explicit topics. Stop it with process_stop.', inputSchema: z.object({ workspace: z.string(), topics: z.array(z.string()).min(1).max(100), output: z.string(), cwd: z.string().default('.'), workSessionId: z.string().uuid().optional() }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, topics, output, cwd, workSessionId }) => result(await audited(ctx.audit, 'ros2_bag_record', workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.ros2.bagRecord(workspace, topics, output, cwd)))));
+
+  const kicadProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
+
+  server.registerTool('kicad_provider_status', {
+    description: 'Inspect the resolved KiCad CLI provider/version without modifying project files.',
+    inputSchema: kicadProject,
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'kicad_provider_status', workspace, () => ctx.engineering.kicad.version(workspace, projectPath))));
+
+  server.registerTool('kicad_board_stats', {
+    description: 'Export bounded JSON board statistics for one explicit .kicad_pcb file into a temporary report; project sources are not saved or upgraded.',
+    inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, board }) => result(await audited(ctx.audit, 'kicad_board_stats', workspace, () => ctx.engineering.kicad.boardStats(workspace, projectPath, board))));
+
+  server.registerTool('kicad_drc', {
+    description: 'Run KiCad PCB Design Rule Check (DRC) into a temporary JSON report and return bounded structured violations without editing the board.',
+    inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, board }) => result(await audited(ctx.audit, 'kicad_drc', workspace, () => ctx.engineering.kicad.drc(workspace, projectPath, board))));
+
+  server.registerTool('kicad_erc', {
+    description: 'Run KiCad schematic Electrical Rules Check (ERC) into a temporary JSON report and return bounded structured violations without editing the schematic.',
+    inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic }) => result(await audited(ctx.audit, 'kicad_erc', workspace, () => ctx.engineering.kicad.erc(workspace, projectPath, schematic))));
+
+  server.registerTool('kicad_validate', {
+    description: 'Run bounded ERC and/or DRC for explicit KiCad source files in parallel without source mutation.',
+    inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024).optional(), board: z.string().min(1).max(1024).optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic, board }) => {
+    if (!schematic && !board) throw new Error('kicad_validate requires schematic and/or board.');
+    return result(await audited(ctx.audit, 'kicad_validate', workspace, () => ctx.engineering.kicad.validate(workspace, projectPath, { ...(schematic ? { schematic } : {}), ...(board ? { board } : {}), jobsets: [] })));
+  });
+
+  server.registerTool('kicad_bom_report', {
+    description: 'Export a bounded temporary schematic BOM with a fixed field contract (Refs, Value, Footprint, Qty, DNP) and return a typed report. No BOM plugin or arbitrary script is executed.',
+    inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024), maxRows: z.number().int().min(1).max(5000).default(500) }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic, maxRows }) => result(await audited(ctx.audit, 'kicad_bom_report', workspace, () => ctx.engineering.kicad.bomReport(workspace, projectPath, schematic, maxRows))));
 
   const dockerBase = z.object({ workspace: z.string(), cwd: z.string().default('.') });
   server.registerTool('container_list', { description: 'List Docker containers with structured JSON output.', inputSchema: dockerBase.extend({ all: z.boolean().default(true) }), annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd, all }) => result({ containers: await audited(ctx.audit, 'container_list', workspace, () => ctx.engineering.docker.list(workspace, all, cwd)) }));

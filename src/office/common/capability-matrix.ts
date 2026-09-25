@@ -52,21 +52,21 @@ export function currentOfficeCapabilityMatrix(platform = process.platform): Offi
     {
       id: 'ooxml',
       status: 'available',
-      domains: ['word'],
-      capabilities: ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml'],
+      domains: ['word', 'excel'],
+      capabilities: ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml', 'excel.inspect', 'excel.edit'],
       nativeApplication: false,
       headless: true,
-      reason: 'OOXML backend provides bounded package preflight, structural Word inspection and typed working-copy mutation including OMML equations.'
+      reason: 'OOXML backend provides bounded package preflight plus structural Word/Excel inspection and typed working-copy mutation; Word includes OMML equations and Excel includes bounded cell/range/formula edits.'
     },
     {
       id: 'windows-com',
       status: platform === 'win32' ? 'available' : 'unavailable',
       domains: ['word', 'excel', 'powerpoint'],
-      capabilities: platform === 'win32' ? ['word.inspect', 'word.equation.native-verify', 'word.render.pdf'] : [],
+      capabilities: platform === 'win32' ? ['word.inspect', 'word.equation.native-verify', 'word.render.pdf', 'excel.calculate', 'excel.render.pdf'] : [],
       nativeApplication: true,
       headless: false,
       reason: platform === 'win32'
-        ? 'Native Word COM acceptance supports isolated open, OMath count, PDF render and deterministic cleanup.'
+        ? 'Native Office COM acceptance supports isolated Word open/OMath/PDF plus Excel recalculation/formula-error inspection/PDF with deterministic cleanup.'
         : 'Microsoft Office COM automation is Windows-specific.'
     },
     {

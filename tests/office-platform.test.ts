@@ -16,6 +16,8 @@ test('Office capability pack is exposed only on Windows hosts', () => {
 
   assert.ok(windows.some(capability => capability.id === 'office.core'));
   assert.ok(windows.some(capability => capability.tools.includes('word_edit')));
+  assert.ok(windows.some(capability => capability.tools.includes('excel_inspect')));
+  assert.ok(windows.some(capability => capability.tools.includes('excel_edit')));
   assert.equal(linux.some(capability => capability.id.startsWith('office.')), false);
   assert.equal(darwin.some(capability => capability.id.startsWith('office.')), false);
 

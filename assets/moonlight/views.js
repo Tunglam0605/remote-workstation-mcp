@@ -90,24 +90,51 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   }
 
+  function capabilityLabel(id) {
+    const value = String(id || '');
+    const known = [
+      ['office.word', 'Word'], ['office.excel', 'Excel'], ['office.powerpoint', 'PowerPoint'],
+      ['web.notebooklm', 'NotebookLM'], ['web.existing_chrome', 'Existing Chrome'], ['web.browser', 'Browser automation'], ['web.automation', 'Browser automation'],
+      ['engineering.hardware', 'Hardware'], ['engineering.firmware', 'Firmware'], ['engineering.debug', 'Debugging'], ['engineering.ros2', 'ROS 2'], ['engineering.container', 'Containers'], ['engineering.workflow', 'Engineering workflows'],
+      ['build.diagnostics', 'Build diagnostics'], ['code.semantic', 'Code intelligence'],
+      ['work_session.', 'Work Sessions'], ['project_session_group.', 'Project coordination'], ['project.', 'Projects'], ['work_objective.', 'Objectives & tasks'], ['task.', 'Tasks'], ['filesystem.', 'Files'], ['git.', 'Git']
+    ];
+    const matched = known.find(([prefix]) => value.startsWith(prefix));
+    if (matched) return matched[1];
+    const readable = value.replace(/^[^.]+\./, '').replace(/[._-]+/g, ' ').trim();
+    return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : value;
+  }
+
   function capabilityDomain(page, title, description, prefixes, emptyMessage, extraActions = []) {
     const content = pageRoot(page, title, description);
     unavailable('capabilities', content);
     const entries = capabilityEntries(prefixes);
-    const summary = section('Capability groups', 'Capabilities are discovered from the running backend. Provider and implementation details stay below the domain layer.', 'moon-page-full');
+    const available = entries.filter((item) => item.status === 'available').length;
+    const summary = section('What you can do', 'This page shows the capabilities available on this workstation. Technical IDs and provider notes stay collapsed unless you need them.', 'moon-page-full capability-friendly-section');
+    summary.append(el('div', { class: 'capability-summary-strip' },
+      el('div', {}, el('strong', { text: text(available) }), el('span', { text: t('available groups') })),
+      el('div', {}, el('strong', { text: text(entries.reduce((total, item) => total + (Array.isArray(item.tools) ? item.tools.length : 0), 0)) }), el('span', { text: t('typed actions') }))
+    ));
+    if (extraActions.length) summary.append(actions(...extraActions));
     if (!entries.length) summary.append(emptyState(emptyMessage));
+    const grid = el('div', { class: 'capability-friendly-grid' });
     for (const item of entries) {
       const tools = Array.isArray(item.tools) ? item.tools : [];
-      summary.append(el('article', { class: 'moon-row' },
+      const details = el('details', { class: 'capability-technical' }, el('summary', { text: t('Technical details') }));
+      details.append(
+        el('code', { text: text(item.id) }),
+        item.note && el('p', { class: 'moon-muted', text: text(item.note) })
+      );
+      grid.append(el('article', { class: 'capability-friendly-card' },
         el('div', { class: 'device-row-header' },
-          el('strong', { text: text(item.id) }),
-          el('span', { class: `pill ${item.status === 'available' ? 'success' : 'warning'}`, text: t(text(item.status || 'Unavailable')) })
+          el('strong', { text: t(capabilityLabel(item.id)) }),
+          el('span', { class: `pill ${item.status === 'available' ? 'success' : 'warning'}`, text: t(item.status === 'available' ? 'Ready' : text(item.status || 'Unavailable')) })
         ),
-        el('span', { text: t('{count} typed tools', { count: tools.length }) }),
-        item.note && el('small', { class: 'moon-muted', text: text(item.note) })
+        el('p', { text: t('{count} typed actions available', { count: tools.length }) }),
+        details
       ));
     }
-    if (extraActions.length) summary.append(actions(...extraActions));
+    summary.append(grid);
     content.append(summary);
     return content;
   }
@@ -115,8 +142,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openWork() {
     return capabilityDomain(
       'Work',
-      'Work',
-      'Projects, Work Sessions, tasks, objectives, and artifacts belong here. Execution providers stay separate under Agents.',
+      'Work & projects',
+      'Create or resume Work Sessions, inspect files and Git, and run permitted project tasks from one place.',
       ['work_session.', 'project.', 'project_session_group.', 'work_objective.', 'task.', 'filesystem.', 'git.'],
       'No work-management capabilities are currently advertised by the backend.',
       [button('Open Execution Console', () => openExecutionConsole(), 'primary-button')]
@@ -126,8 +153,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openEngineering() {
     return capabilityDomain(
       'Engineering',
-      'Engineering',
-      'Hardware, firmware, debugging, ROS 2, containers, build diagnostics, and engineering workflows.',
+      'Engineering tools',
+      'Build, flash, debug, inspect hardware, work with ROS 2, and run typed engineering diagnostics.',
       ['engineering.', 'build.diagnostics', 'code.semantic'],
       'No engineering capabilities are currently advertised by the backend.'
     );
@@ -136,8 +163,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openOffice() {
     return capabilityDomain(
       'Office',
-      'Office',
-      'Word, Excel, and PowerPoint capabilities stay in one Office domain while OOXML and COM remain implementation details.',
+      'Office tools',
+      'Inspect and edit Word, Excel, and PowerPoint files with safe typed operations.',
       ['office.'],
       'No Office capabilities are currently advertised by the backend.'
     );
@@ -146,8 +173,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openWeb() {
     return capabilityDomain(
       'Web',
-      'Web',
-      'Managed browsers, Existing Chrome, and site adapters such as NotebookLM belong to one web automation domain.',
+      'Web & NotebookLM',
+      'Use managed browser sessions and supported web workflows such as NotebookLM from one place.',
       ['web.'],
       'No web automation capabilities are currently advertised by the backend.'
     );
@@ -156,8 +183,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openSystem() {
     const content = pageRoot(
       'System',
-      'System',
-      'Runtime, updates, recovery, diagnostics, and local platform maintenance.'
+      'System & updates',
+      'Check runtime health, update versions, recovery, diagnostics, and local platform maintenance.'
     );
     const runtime = live('runtime');
     const updates = live('updates');
@@ -181,7 +208,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
 
   function openAccess() {
     const state = live('permissions'); const admin = live('admin'); const platform = live('status')?.platform;
-    const content = pageRoot('Access', 'Access & owner controls', 'Review local owner permissions, leases, and approval requests.'); unavailable('permissions', content);
+    const content = pageRoot('Access', 'Security & access', 'Control permissions and approvals. Full-control options remain explicit and owner-managed.'); unavailable('permissions', content);
     if (!state) return content;
     const mode = selectValue(state.mode, [['read_only', 'Read only'], ['workspace', 'Workspace'], ['full_control', 'Full control']]);
     const modeSection = section('Permission mode', 'The backend is authoritative and may require a restart.');
@@ -416,7 +443,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   }
 
   function openDevices() {
-    const pairing = live('pairing'); const multi = live('multiNode'); const content = pageRoot('Devices', 'Devices & multi-node', 'Pair trusted devices and manage explicit transfer grants.'); unavailable('pairing', content); if (!pairing) return content;
+    const pairing = live('pairing'); const multi = live('multiNode'); const content = pageRoot('Devices', 'Devices & connections', 'See trusted workstations and manage multi-node connections only when you need them.'); unavailable('pairing', content); if (!pairing) return content;
     const devices = section('Paired devices', 'Pairing records do not report device liveness.');
     if (!(pairing.devices || []).length) devices.append(emptyState('No paired devices.'));
     for (const device of pairing.devices || []) {

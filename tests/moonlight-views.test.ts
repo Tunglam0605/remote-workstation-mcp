@@ -233,7 +233,7 @@ test('Vietnamese views localize interactive text while retaining backend request
     views.open('Settings');
     const rendered = pages.map((page) => page.content.textContent).join('\n');
     const placeholders = pages.flatMap((page) => dom.descendants(page.content)).map((node) => node.attributes.get('placeholder'));
-    assert.match(rendered, /Quyền truy cập và kiểm soát chủ sở hữu/);
+    assert.match(rendered, /B\u1ea3o m\u1eadt & truy c\u1eadp/);
     assert.ok(placeholders.includes('Tên thiết bị tùy chọn'));
     assert.ok(placeholders.includes('Để trống để giữ khóa hiện tại'));
     const saveScopes = pages.flatMap((page) => dom.descendants(page.content)).find((node) => node.textContent === 'Lưu phạm vi' && node.listeners.has('click'));
@@ -275,6 +275,9 @@ test('domain pages are capability-driven and keep providers below their domain',
     views.open('Web');
     views.open('System');
 
+    assert.match(pages[0]!.content.textContent, /What you can do/);
+    assert.match(pages[0]!.content.textContent, /Hardware/);
+    assert.match(pages[0]!.content.textContent, /Technical details/);
     assert.match(pages[0]!.content.textContent, /engineering\.hardware/);
     assert.doesNotMatch(pages[0]!.content.textContent, /agent\.antigravity_worker/);
     assert.match(pages[1]!.content.textContent, /office\.word\.inspect/);

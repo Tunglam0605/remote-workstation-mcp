@@ -44,8 +44,14 @@ export interface WorkerDispatchRequest {
   };
 }
 
+export type WorkerDispatchStatus = 'succeeded' | 'failed' | 'blocked' | 'cancelled';
+
+export interface WorkerDispatchContext {
+  signal: AbortSignal;
+}
+
 export interface WorkerDispatchResult {
-  status: 'succeeded' | 'failed' | 'blocked';
+  status: WorkerDispatchStatus;
   runId?: string;
   summary?: string;
 }
@@ -53,7 +59,7 @@ export interface WorkerDispatchResult {
 export interface WorkerProvider {
   descriptor: WorkerProviderDescriptor;
   status(): Promise<{ availability: WorkerProviderAvailability; detail?: string }>;
-  dispatch?(request: WorkerDispatchRequest): Promise<WorkerDispatchResult>;
+  dispatch?(request: WorkerDispatchRequest, context?: WorkerDispatchContext): Promise<WorkerDispatchResult>;
 }
 
 const PROVIDER_KINDS = new Set<WorkerProviderKind>(['codex', 'antigravity', 'claude', 'openhands', 'custom']);
@@ -127,7 +133,7 @@ function normalizeDispatchRequest(request: WorkerDispatchRequest): WorkerDispatc
 }
 
 function normalizeDispatchResult(result: WorkerDispatchResult): WorkerDispatchResult {
-  if (!result || !['succeeded', 'failed', 'blocked'].includes(result.status)) {
+  if (!result || !['succeeded', 'failed', 'blocked', 'cancelled'].includes(result.status)) {
     throw new Error('Worker provider returned an invalid dispatch status.');
   }
   const runId = result.runId?.trim();
@@ -142,6 +148,12 @@ function normalizeDispatchResult(result: WorkerDispatchResult): WorkerDispatchRe
 export class WorkerProviderRegistry {
   private readonly providers = new Map<string, WorkerProvider>();
   private readonly activeDispatchCounts = new Map<string, number>();
+  private readonly activeDispatches = new Map<string, {
+    providerId: string;
+    request: WorkerDispatchRequest;
+    controller: AbortController;
+    startedAt: string;
+  }>();
 
   constructor(
     private readonly maxProviders = 16,
@@ -191,7 +203,7 @@ export class WorkerProviderRegistry {
     this.providers.set(id, {
       descriptor: normalizedDescriptor,
       status: () => provider.status(),
-      ...(provider.dispatch ? { dispatch: (request: WorkerDispatchRequest) => provider.dispatch!(request) } : {})
+      ...(provider.dispatch ? { dispatch: (request: WorkerDispatchRequest, context?: WorkerDispatchContext) => provider.dispatch!(request, context) } : {})
     });
   }
 
@@ -278,14 +290,50 @@ export class WorkerProviderRegistry {
     if (provider.descriptor.worktreeAssignment && !normalized.project?.worktreePath) {
       throw new Error('Worker provider ' + id + ' requires an isolated Work Session worktree before dispatch.');
     }
+    const dispatchKey = [
+      id, normalized.workSessionId, normalized.objective.id, normalized.task.id, String(normalized.task.generation)
+    ].join(':');
+    if (this.activeDispatches.has(dispatchKey)) {
+      throw new Error('Worker provider dispatch is already active for this task generation.');
+    }
+    const controller = new AbortController();
     const active = (this.activeDispatchCounts.get(id) ?? 0) + 1;
     this.activeDispatchCounts.set(id, active);
+    this.activeDispatches.set(dispatchKey, {
+      providerId: id,
+      request: structuredClone(normalized),
+      controller,
+      startedAt: new Date().toISOString()
+    });
     try {
-      return normalizeDispatchResult(await provider.dispatch(normalized));
+      return normalizeDispatchResult(await provider.dispatch(normalized, { signal: controller.signal }));
     } finally {
+      this.activeDispatches.delete(dispatchKey);
       const remaining = Math.max(0, (this.activeDispatchCounts.get(id) ?? 1) - 1);
       if (remaining === 0) this.activeDispatchCounts.delete(id);
       else this.activeDispatchCounts.set(id, remaining);
     }
+  }
+
+  cancelTaskDispatch(
+    workSessionId: string,
+    objectiveId: string,
+    taskId: string,
+    generation: number
+  ): { requested: boolean; providerIds: string[]; activeDispatches: number } {
+    const providers = new Set<string>();
+    let activeDispatches = 0;
+    for (const active of this.activeDispatches.values()) {
+      if (
+        active.request.workSessionId !== workSessionId ||
+        active.request.objective.id !== objectiveId ||
+        active.request.task.id !== taskId ||
+        active.request.task.generation !== generation
+      ) continue;
+      activeDispatches += 1;
+      providers.add(active.providerId);
+      if (!active.controller.signal.aborted) active.controller.abort('cancelled-by-request');
+    }
+    return { requested: activeDispatches > 0, providerIds: [...providers].sort(), activeDispatches };
   }
 }

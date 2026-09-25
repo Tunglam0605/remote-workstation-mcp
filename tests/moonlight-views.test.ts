@@ -115,7 +115,12 @@ test('Execution leads with simple routing choices while retaining advanced modes
     execution: { data: {
       settings: { targetMode: 'rwmcp-only', defaultMode: 'rwmcp-only', workerRoutingProfile: 'custom', codexEnabled: true, antigravityEnabled: false, allowChatOverride: true, codexFallback: 'stop' },
       status: { effectiveMode: 'rwmcp-only', source: 'owner-default', activeSessionOverrides: 2 },
-      codex: { installed: true, authenticated: true }, accountBroker: { effectiveBackend: 'blocked', pool: { detail: 'Pool unreachable' } }
+      codex: { installed: true, authenticated: true }, accountBroker: { effectiveBackend: 'blocked', pool: { detail: 'Pool unreachable' } },
+      executionExperience: {
+        timeline: { tool: 'work_objective_execution_timeline', progressModel: 'stage-only', authority: 'caller-owned-work-session-read-only' },
+        cancellation: { providerIds: ['codex-local', 'antigravity-local'], mechanism: 'abort-signal-process-tree', terminalStateAuthoritative: true },
+        ownerUiSessionTimeline: false
+      }
     } },
     antigravity: { data: { available: true, authenticated: true, quotaGroups: [{ buckets: [{ window: 'weekly', remainingFraction: 0.95 }] }] } }
   };
@@ -145,6 +150,16 @@ test('Execution leads with simple routing choices while retaining advanced modes
     assert.match(rendered, /OpenAI Codex/);
     assert.match(rendered, /Google Antigravity/);
     assert.match(rendered, /Not selected/);
+    assert.match(rendered, /Agent activity & control/);
+    assert.match(rendered, /Safe cancel/);
+    assert.match(rendered, /Stage timeline/);
+    assert.match(rendered, /Started/);
+    assert.match(rendered, /Current target/);
+    assert.match(rendered, /Fallback \/ result/);
+    assert.match(rendered, /Final outcome/);
+    assert.match(rendered, /work_objective_execution_timeline/);
+    assert.match(rendered, /owner-local Control Center intentionally does not expose another session/);
+    assert.doesNotMatch(rendered, /[0-9]+% complete/);
     assert.match(rendered, /Technical details/);
     assert.match(rendered, /When AI targets are exhausted/);
     setLanguage('vi');
@@ -178,7 +193,12 @@ test('Agent Control saves the selected route and provider settings through the e
       },
       status: { effectiveMode: 'both', configuredMode: 'both', source: 'owner-default', activeSessionOverrides: 0 },
       codex: { installed: true, authenticated: true, version: 'codex-cli test' },
-      accountBroker: { effectiveBackend: 'cockpit-api-pool' }
+      accountBroker: { effectiveBackend: 'cockpit-api-pool' },
+      executionExperience: {
+        timeline: { tool: 'work_objective_execution_timeline', progressModel: 'stage-only', authority: 'caller-owned-work-session-read-only' },
+        cancellation: { providerIds: ['codex-local', 'antigravity-local'], mechanism: 'abort-signal-process-tree', terminalStateAuthoritative: true },
+        ownerUiSessionTimeline: false
+      }
     } },
     antigravity: { data: { available: true, authenticated: true, version: '1.2.9', model: { id: 'test-model' }, quotaGroups: [{ buckets: [{ window: 'weekly', remainingFraction: 0.8 }] }] } }
   };

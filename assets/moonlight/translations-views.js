@@ -265,4 +265,20 @@ registerTranslations({
   "Active": "\u0110ang ho\u1ea1t \u0111\u1ed9ng",
   "Inactive": "Kh\u00f4ng ho\u1ea1t \u0111\u1ed9ng"
 
+  , /* v0.41 agent execution experience */
+  "Agent activity & control": "Ho\u1ea1t \u0111\u1ed9ng & \u0111i\u1ec1u khi\u1ec3n t\u00e1c nh\u00e2n",
+  "Execution evidence is stage-based and mechanically derived. The system does not invent percentage progress for AI workers.": "B\u1eb1ng ch\u1ee9ng th\u1ef1c thi \u0111\u01b0\u1ee3c suy ra theo t\u1eebng giai \u0111o\u1ea1n. H\u1ec7 th\u1ed1ng kh\u00f4ng t\u1ef1 b\u1ecba ph\u1ea7n tr\u0103m ti\u1ebfn \u0111\u1ed9 cho AI worker.",
+  "Started": "B\u1eaft \u0111\u1ea7u", "Current target": "T\u00e1c nh\u00e2n hi\u1ec7n t\u1ea1i", "Fallback / result": "D\u1ef1 ph\u00f2ng / k\u1ebft qu\u1ea3", "Final outcome": "K\u1ebft qu\u1ea3 cu\u1ed1i",
+  "Safe cancel": "H\u1ee7y an to\u00e0n", "Stage timeline": "D\u00f2ng th\u1eddi gian theo giai \u0111o\u1ea1n", "Legacy runtime": "Runtime c\u0169",
+  "Stop a running AI task safely": "D\u1eebng t\u00e1c v\u1ee5 AI \u0111ang ch\u1ea1y m\u1ed9t c\u00e1ch an to\u00e0n",
+  "Codex and Antigravity can receive a cancellation request that aborts the active provider process tree. The final task state is recorded only after the provider exits.": "Codex v\u00e0 Antigravity c\u00f3 th\u1ec3 nh\u1eadn y\u00eau c\u1ea7u h\u1ee7y \u0111\u1ec3 d\u1eebng c\u00e2y ti\u1ebfn tr\u00ecnh provider \u0111ang ch\u1ea1y. Tr\u1ea1ng th\u00e1i cu\u1ed1i ch\u1ec9 \u0111\u01b0\u1ee3c ghi sau khi provider tho\u00e1t.",
+  "This runtime does not advertise cancellable AI worker dispatches yet.": "Runtime n\u00e0y ch\u01b0a c\u00f4ng b\u1ed1 kh\u1ea3 n\u0103ng h\u1ee7y AI worker \u0111ang ch\u1ea1y.",
+  "See what target actually handled the task": "Xem t\u00e1c nh\u00e2n n\u00e0o th\u1ef1c s\u1ef1 x\u1eed l\u00fd t\u00e1c v\u1ee5",
+  "The durable timeline records the planned target, current provider, safe fallback evidence, cancellation requests, and the final outcome without fake percentages.": "D\u00f2ng th\u1eddi gian b\u1ec1n v\u1eefng ghi t\u00e1c nh\u00e2n d\u1ef1 ki\u1ebfn, provider hi\u1ec7n t\u1ea1i, b\u1eb1ng ch\u1ee9ng fallback an to\u00e0n, y\u00eau c\u1ea7u h\u1ee7y v\u00e0 k\u1ebft qu\u1ea3 cu\u1ed1i m\u00e0 kh\u00f4ng b\u1ecba ph\u1ea7n tr\u0103m ti\u1ebfn \u0111\u1ed9.",
+  "Detailed execution timeline metadata is not available on this runtime.": "Runtime n\u00e0y ch\u01b0a c\u00f3 metadata d\u00f2ng th\u1eddi gian th\u1ef1c thi chi ti\u1ebft.",
+  "Work Session privacy boundary": "Ranh gi\u1edbi ri\u00eang t\u01b0 c\u1ee7a Work Session",
+  "Detailed per-task execution history stays inside the caller-owned ChatGPT Work Session. Use work_objective_execution_timeline there; the owner-local Control Center intentionally does not expose another session?s timeline.": "L\u1ecbch s\u1eed th\u1ef1c thi chi ti\u1ebft theo t\u00e1c v\u1ee5 ch\u1ec9 n\u1eb1m trong ChatGPT Work Session c\u1ee7a ng\u01b0\u1eddi g\u1ecdi. D\u00f9ng work_objective_execution_timeline trong phi\u00ean \u0111\u00f3; Control Center c\u1ee5c b\u1ed9 c\u1ee7a ch\u1ee7 m\u00e1y c\u1ed1 \u00fd kh\u00f4ng hi\u1ec7n timeline c\u1ee7a phi\u00ean kh\u00e1c.",
+  "Detailed Work Session execution history remains scoped to the caller that owns that session.": "L\u1ecbch s\u1eed th\u1ef1c thi chi ti\u1ebft c\u1ee7a Work Session v\u1eabn ch\u1ec9 thu\u1ed9c ph\u1ea1m vi ng\u01b0\u1eddi g\u1ecdi s\u1edf h\u1eefu phi\u00ean \u0111\u00f3.",
+  "Deterministic": "X\u00e1c \u0111\u1ecbnh", "Direct": "Tr\u1ef1c ti\u1ebfp"
+
 });

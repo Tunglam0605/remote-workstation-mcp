@@ -52,6 +52,7 @@ import { EngineeringWorkflowExecutionService } from './engineering-workflow-exec
 import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
 import { ObjectiveProgressService } from './objective-progress.js';
+import { ExecutionTimelineService } from './execution-timeline.js';
 import { ProjectSessionGroupService, ProjectSessionGroupStore } from './project-session-group.js';
 import { ProjectCoordinationService } from './project-coordination.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
@@ -210,6 +211,7 @@ export async function createContext() {
     schedulerAwareness,
     workSessions
   );
+  const executionTimeline = new ExecutionTimelineService(taskGraphs, taskAttempts);
 
   const taskExecutor = new TaskExecutionCoordinator(
     taskGraphs,
@@ -267,6 +269,7 @@ export async function createContext() {
     taskScheduler,
     schedulerAwareness,
     objectiveProgress,
+    executionTimeline,
     taskExecutor,
     taskWorkflowExecution,
     reconciledWorkTasks,

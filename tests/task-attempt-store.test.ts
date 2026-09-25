@@ -90,3 +90,27 @@ test('Task Attempt cancellation intent is durable but final real outcome remains
   assert.ok(finished.cancelRequestedAt);
   assert.equal(finished.workflowRunId, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
 });
+
+
+test('Task Attempt store updates live provider stage and accepts a cancelled provider trace', async t => {
+  const { store } = await fixture(t);
+  await runWithWorkSession(SESSION_A, async () => {
+    const attempt = (await store.begin(OBJECTIVE, TASK, 1, { providerId: 'codex-local' })).attempt;
+    const running = await store.updateRunning(attempt.id, {
+      providerId: 'antigravity-local',
+      providerAttempts: [{ providerId: 'codex-local', status: 'failed', summary: 'clean fallback' }]
+    });
+    assert.equal(running.status, 'running');
+    assert.equal(running.providerId, 'antigravity-local');
+    assert.deepEqual(running.providerAttempts?.map(item => [item.providerId, item.status]), [['codex-local', 'failed']]);
+    const finished = await store.finish(attempt.id, 'cancelled', {
+      providerId: 'antigravity-local',
+      providerAttempts: [
+        { providerId: 'codex-local', status: 'failed', summary: 'clean fallback' },
+        { providerId: 'antigravity-local', status: 'cancelled', summary: 'cancelled-by-request' }
+      ]
+    });
+    assert.equal(finished.status, 'cancelled');
+    assert.deepEqual(finished.providerAttempts?.map(item => item.status), ['failed', 'cancelled']);
+  });
+});

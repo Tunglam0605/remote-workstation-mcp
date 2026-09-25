@@ -20,7 +20,7 @@ class TaskWorkflowOutcomeError extends Error {
 
 class WorkerProviderOutcomeError extends Error {
   constructor(
-    readonly providerStatus: 'blocked' | 'failed',
+    readonly providerStatus: 'blocked' | 'failed' | 'cancelled',
     readonly providerId: string,
     readonly providerRunId?: string,
     readonly providerSummary?: string
@@ -40,6 +40,7 @@ function message(error: unknown): string {
 function attemptStatus(error: unknown): Exclude<TaskAttemptStatus, 'running'> {
   if (error instanceof TaskWorkflowOutcomeError && error.workflowStatus === 'blocked') return 'blocked';
   if (error instanceof WorkerProviderOutcomeError && error.providerStatus === 'blocked') return 'blocked';
+  if (error instanceof WorkerProviderOutcomeError && error.providerStatus === 'cancelled') return 'cancelled';
   return 'failed';
 }
 
@@ -317,6 +318,12 @@ export class TaskWorkflowExecutionService {
               }
             }
 
+            if (attempt) {
+              await this.taskAttempts.updateRunning(attempt.id, {
+                providerId,
+                providerAttempts
+              }).catch(() => undefined);
+            }
             try {
               providerResult = await this.workerProviders!.dispatch(providerId, dispatchRequest);
             } catch (error) {
@@ -340,6 +347,23 @@ export class TaskWorkflowExecutionService {
                 ...(providerResult.summary ? { summary: providerResult.summary } : {})
               });
               return providerResult;
+            }
+
+            if (providerResult.status === 'cancelled') {
+              providerAttempts.push({
+                providerId,
+                status: 'cancelled',
+                ...(providerResult.runId ? { providerRunId: providerResult.runId } : {}),
+                ...(providerResult.summary ? { summary: providerResult.summary } : {})
+              });
+              if (attempt) {
+                await this.taskAttempts.updateRunning(attempt.id, {
+                  providerId,
+                  providerRunId: providerResult.runId,
+                  providerAttempts
+                }).catch(() => undefined);
+              }
+              throw new WorkerProviderOutcomeError('cancelled', providerId, providerResult.runId, providerResult.summary);
             }
 
             if (isWorkerCapacitySignal(providerResult.summary)) {
@@ -379,6 +403,10 @@ export class TaskWorkflowExecutionService {
           );
         },
         {
+          classifyError: error =>
+            error instanceof WorkerProviderOutcomeError && error.providerStatus === 'cancelled'
+              ? 'cancelled'
+              : 'failed',
           onStarted: async started => {
             const begun = await this.taskAttempts.begin(
               objectiveId,
@@ -473,14 +501,24 @@ export class TaskWorkflowExecutionService {
         taskId,
         task.generation
       );
+      const providerCancellation = this.workerProviders?.cancelTaskDispatch(
+        (await this.taskGraphs.get(objectiveId)).workSessionId,
+        objectiveId,
+        taskId,
+        task.generation
+      ) ?? { requested: false, providerIds: [], activeDispatches: 0 };
       return {
         task,
         attempt: attempt ?? existing ?? null,
         cancellationRequested: attempt !== undefined,
+        providerCancellationRequested: providerCancellation.requested,
+        providerIds: providerCancellation.providerIds,
         preempted: false,
-        note: attempt
-          ? 'Cancellation request recorded. The generic task-execution contract does not claim provider preemption; the real execution outcome remains authoritative.'
-          : 'Task is running but its durable attempt has not been created yet; no provider preemption was claimed.'
+        note: providerCancellation.requested
+          ? 'Cancellation request recorded and an abort signal was delivered to the active worker provider. Final task/attempt state remains authoritative after the provider exits.'
+          : attempt
+            ? 'Cancellation request recorded. No cancellable worker dispatch was active; final execution outcome remains authoritative.'
+            : 'Task is running but its durable attempt has not been created yet; no provider preemption was claimed.'
       };
     }
 

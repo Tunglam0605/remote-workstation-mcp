@@ -14,7 +14,7 @@ export type TaskAttemptStatus =
 
 export interface TaskProviderAttemptRecord {
   providerId: string;
-  status: 'succeeded' | 'failed' | 'blocked';
+  status: 'succeeded' | 'failed' | 'blocked' | 'cancelled';
   providerRunId?: string;
   summary?: string;
 }
@@ -115,7 +115,7 @@ export class TaskAttemptStore {
           entry &&
           typeof entry === 'object' &&
           typeof entry.providerId === 'string' &&
-          ['succeeded', 'failed', 'blocked'].includes(entry.status) &&
+          ['succeeded', 'failed', 'blocked', 'cancelled'].includes(entry.status) &&
           (entry.providerRunId === undefined || typeof entry.providerRunId === 'string') &&
           (entry.summary === undefined || typeof entry.summary === 'string')
         )
@@ -287,6 +287,47 @@ export class TaskAttemptStore {
         attempt.updatedAt = timestamp;
         await this.save(state);
       }
+      return structuredClone(attempt);
+    });
+  }
+
+  async updateRunning(
+    attemptId: string,
+    options: {
+      providerId?: string;
+      providerRunId?: string;
+      providerAttempts?: TaskProviderAttemptRecord[];
+    } = {}
+  ): Promise<TaskAttemptRecord> {
+    const owner = this.owner();
+    const normalizedId = bounded(attemptId, 'attemptId', 64);
+    return this.mutate(async () => {
+      const state = await this.load();
+      const attempt = state.attempts.find(item =>
+        item.id === normalizedId &&
+        item.principalId === owner.principalId &&
+        item.workSessionId === owner.workSessionId
+      );
+      if (!attempt) throw new Error(`Unknown Task Attempt '${normalizedId}'.`);
+      if (attempt.status !== 'running') return structuredClone(attempt);
+      const providerId = options.providerId?.trim();
+      if (providerId) attempt.providerId = bounded(providerId, 'providerId', 64);
+      const providerRunId = options.providerRunId?.trim();
+      if (providerRunId) attempt.providerRunId = bounded(providerRunId, 'providerRunId', 128);
+      if (options.providerAttempts) {
+        attempt.providerAttempts = options.providerAttempts.slice(0, 8).map(entry => ({
+          providerId: bounded(entry.providerId, 'providerAttempts.providerId', 64),
+          status: entry.status,
+          ...(entry.providerRunId?.trim()
+            ? { providerRunId: bounded(entry.providerRunId, 'providerAttempts.providerRunId', 128) }
+            : {}),
+          ...(entry.summary?.trim()
+            ? { summary: bounded(entry.summary, 'providerAttempts.summary', 1024) }
+            : {})
+        }));
+      }
+      attempt.updatedAt = this.now().toISOString();
+      await this.save(state);
       return structuredClone(attempt);
     });
   }

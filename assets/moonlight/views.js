@@ -363,6 +363,11 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const status = policy.status || {};
     const codex = policy.codex || {};
     const broker = policy.accountBroker || settings.codexAccountBroker || {};
+    const executionExperience = policy.executionExperience || {};
+    const timelineExperience = executionExperience.timeline || {};
+    const cancellationExperience = executionExperience.cancellation || {};
+    const cancellableProviders = new Set(cancellationExperience.providerIds || []);
+    const stageTimelineAvailable = timelineExperience.tool === 'work_objective_execution_timeline';
     const codexAvailable = Boolean(codex.installed && codex.authenticated);
     const antigravityAvailable = Boolean(antigravity?.available && antigravity?.authenticated);
     const codexReady = Boolean(settings.codexEnabled && codexAvailable && broker.effectiveBackend !== 'blocked');
@@ -455,11 +460,15 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
 
     const peers = section('Available execution targets', 'These are the three execution targets the router can use. Selection changes routing eligibility; each target keeps its own security boundary.', 'moon-page-full');
     const peerGrid = el('div', { class: 'agent-provider-grid agent-simple-provider-grid' });
-    const peerCard = (title, ready, enabled, preference, capacity, note) => {
+    const peerCard = (title, ready, enabled, preference, capacity, note, badges = []) => {
       const stateText = !enabled ? 'Not selected' : ready ? 'Ready' : 'Unavailable';
       const tone = !enabled ? 'muted' : ready ? 'success' : 'warning';
+      const capabilityRow = el('div', { class: 'agent-provider-capabilities' },
+        ...badges.map((badge) => el('span', { class: 'agent-capability-badge', text: t(badge) }))
+      );
       return el('article', { class: `agent-provider-card ${ready && enabled ? 'ready' : 'offline'}` },
         el('header', { class: 'agent-provider-header' }, el('div', {}, el('span', { class: 'agent-provider-kicker', text: t('Execution target') }), el('h4', { text: title })), el('span', { class: `pill ${tone}`, text: t(stateText) })),
+        capabilityRow,
         el('div', { class: 'agent-provider-facts agent-simple-facts' },
           el('div', {}, el('span', { text: t('Best for') }), el('strong', { text: t(preference) })),
           el('div', {}, el('span', { text: t('Capacity') }), el('strong', { text: t(text(capacity)) }))
@@ -467,13 +476,65 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         el('p', { class: 'moon-muted', text: t(note) })
       );
     };
+    const workerBadges = (providerId) => [
+      ...(cancellableProviders.has(providerId) ? ['Safe cancel'] : []),
+      ...(stageTimelineAvailable ? ['Stage timeline'] : [])
+    ];
     peerGrid.append(
-      peerCard('RWMCP Direct', true, allowedTargets.has('rwmcp-direct'), 'Workstation / Office / deterministic work', 'Local', 'Direct typed workstation execution. Always local when the selected mode allows it.'),
-      peerCard('OpenAI Codex', codexReady, allowedTargets.has('codex-local'), 'Code / backend / engineering', codexCapacity, codexReady ? 'Codex is ready for bounded Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
-      peerCard('Google Antigravity', antigravityReady, allowedTargets.has('antigravity-local'), 'Frontend / UI', antiCapacity, antigravityReady ? 'Antigravity is ready for bounded Work Session tasks.' : (antigravity?.detail || 'Antigravity is not ready.'))
+      peerCard('RWMCP Direct', true, allowedTargets.has('rwmcp-direct'), 'Workstation / Office / deterministic work', 'Local', 'Direct typed workstation execution. Always local when the selected mode allows it.', ['Deterministic', 'Direct']),
+      peerCard('OpenAI Codex', codexReady, allowedTargets.has('codex-local'), 'Code / backend / engineering', codexCapacity, codexReady ? 'Codex is ready for bounded Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.'), workerBadges('codex-local')),
+      peerCard('Google Antigravity', antigravityReady, allowedTargets.has('antigravity-local'), 'Frontend / UI', antiCapacity, antigravityReady ? 'Antigravity is ready for bounded Work Session tasks.' : (antigravity?.detail || 'Antigravity is not ready.'), workerBadges('antigravity-local'))
     );
     peers.append(peerGrid);
     content.append(peers);
+
+    const activity = section(
+      'Agent activity & control',
+      'Execution evidence is stage-based and mechanically derived. The system does not invent percentage progress for AI workers.',
+      'moon-page-full agent-activity-section'
+    );
+    const stageLabels = ['Started', 'Current target', 'Fallback / result', 'Final outcome'];
+    const stageFlow = el('div', { class: 'agent-stage-flow' },
+      ...stageLabels.flatMap((label, index) => [
+        el('div', { class: 'agent-stage-node' },
+          el('span', { class: 'agent-stage-index', text: String(index + 1) }),
+          el('strong', { text: t(label) })
+        ),
+        ...(index < stageLabels.length - 1 ? [el('span', { class: 'agent-stage-arrow', text: '?' })] : [])
+      ])
+    );
+    const safeCancelEnabled = cancellableProviders.has('codex-local') || cancellableProviders.has('antigravity-local');
+    const activityCards = el('div', { class: 'agent-activity-grid' },
+      el('article', { class: 'agent-activity-card' },
+        el('div', { class: 'agent-activity-card-head' },
+          el('span', { class: `pill ${safeCancelEnabled ? 'success' : 'muted'}`, text: t(safeCancelEnabled ? 'Safe cancel' : 'Legacy runtime') }),
+          el('strong', { text: t('Stop a running AI task safely') })
+        ),
+        el('p', { text: t(safeCancelEnabled
+          ? 'Codex and Antigravity can receive a cancellation request that aborts the active provider process tree. The final task state is recorded only after the provider exits.'
+          : 'This runtime does not advertise cancellable AI worker dispatches yet.') })
+      ),
+      el('article', { class: 'agent-activity-card' },
+        el('div', { class: 'agent-activity-card-head' },
+          el('span', { class: `pill ${stageTimelineAvailable ? 'success' : 'muted'}`, text: t(stageTimelineAvailable ? 'Stage timeline' : 'Legacy runtime') }),
+          el('strong', { text: t('See what target actually handled the task') })
+        ),
+        el('p', { text: t(stageTimelineAvailable
+          ? 'The durable timeline records the planned target, current provider, safe fallback evidence, cancellation requests, and the final outcome without fake percentages.'
+          : 'Detailed execution timeline metadata is not available on this runtime.') })
+      )
+    );
+    const ownershipNote = el('div', { class: 'agent-activity-boundary' },
+      el('span', { class: 'agent-preference-icon' }, el('i', { 'data-lucide': 'shield-check' })),
+      el('div', {},
+        el('strong', { text: t('Work Session privacy boundary') }),
+        el('p', { text: t(stageTimelineAvailable
+          ? 'Detailed per-task execution history stays inside the caller-owned ChatGPT Work Session. Use work_objective_execution_timeline there; the owner-local Control Center intentionally does not expose another session?s timeline.'
+          : 'Detailed Work Session execution history remains scoped to the caller that owns that session.') })
+      )
+    );
+    activity.append(stageFlow, activityCards, ownershipNote);
+    content.append(activity);
 
     const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
     const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop worker routing']]);

@@ -127,7 +127,7 @@ test('Antigravity registration is owner opt-in only and uses a dedicated provide
     displayName: 'Google Antigravity CLI (local)',
     worktreeAssignment: true,
     progressReporting: false,
-    cancellationIntent: false
+    cancellationIntent: true
   }]);
 });
 
@@ -272,7 +272,7 @@ test('Antigravity explicit headless permission denial fails closed even when agy
               result: {
                 conversation_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
                 status: 'SUCCESS',
-                response: 'no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.',
+                response: 'no output produced â€” a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied.',
                 usage: { total_tokens: 321 }
               }
             })

@@ -463,7 +463,7 @@ export class TaskGraphStore {
   async finishTask(
     objectiveId: string,
     taskId: string,
-    status: 'succeeded' | 'failed',
+    status: 'succeeded' | 'failed' | 'cancelled',
     error?: string
   ): Promise<WorkTask> {
     return this.mutate(async () => {
@@ -478,6 +478,7 @@ export class TaskGraphStore {
       task.endedAt = timestamp;
       const normalizedError = boundedOptional(error, 'error', 1024);
       if (status === 'failed') task.error = normalizedError ?? 'task-failed';
+      else if (status === 'cancelled') task.error = normalizedError ?? 'cancelled-by-request';
       else delete task.error;
       normalizeGraph(objective, timestamp);
       await this.save(state);

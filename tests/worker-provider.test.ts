@@ -168,3 +168,44 @@ test('Worker Provider Registry reports bounded active dispatch state only for th
   assert.equal(completed.executionActive, false);
   assert.equal(completed.activeDispatches, 0);
 });
+
+
+test('Worker Provider Registry aborts only the matching task generation and clears active state', async () => {
+  let entered!: () => void;
+  const running = new Promise<void>(resolve => { entered = resolve; });
+  const registry = new WorkerProviderRegistry();
+  registry.register({
+    descriptor: {
+      id: 'cancel-worker', kind: 'custom', displayName: 'Cancel Worker',
+      worktreeAssignment: false, progressReporting: false, cancellationIntent: true
+    },
+    status: async () => ({ availability: 'available' as const }),
+    dispatch: async (_request, context) => {
+      entered();
+      await new Promise<void>(resolve => {
+        if (context?.signal.aborted) return resolve();
+        context?.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return { status: context?.signal.aborted ? 'cancelled' as const : 'succeeded' as const, summary: 'provider-exit' };
+    }
+  });
+  const request = {
+    version: 1 as const,
+    workSessionId: '55555555-5555-4555-8555-555555555555',
+    objective: { id: 'objective-1', name: 'Objective', objective: 'Do bounded work' },
+    task: { id: 'task-1', generation: 3, title: 'Task' }
+  };
+  const execution = registry.dispatch('cancel-worker', request);
+  await running;
+  assert.equal((await registry.listStatus())[0]?.activeDispatches, 1);
+  assert.deepEqual(
+    registry.cancelTaskDispatch(request.workSessionId, request.objective.id, request.task.id, 2),
+    { requested: false, providerIds: [], activeDispatches: 0 }
+  );
+  const cancel = registry.cancelTaskDispatch(request.workSessionId, request.objective.id, request.task.id, 3);
+  assert.equal(cancel.requested, true);
+  assert.deepEqual(cancel.providerIds, ['cancel-worker']);
+  assert.equal(cancel.activeDispatches, 1);
+  assert.equal((await execution).status, 'cancelled');
+  assert.equal((await registry.listStatus())[0]?.activeDispatches, 0);
+});

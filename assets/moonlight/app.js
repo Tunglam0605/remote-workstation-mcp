@@ -40,13 +40,19 @@ function paintIcons() { globalThis.lucide?.createIcons?.(); }
 function renderNavigation() {
   const root = $('#main-nav');
   root.replaceChildren();
+  let activeGroup = null;
   for (const item of NAVIGATION) {
+    if (item.group !== activeGroup) {
+      activeGroup = item.group;
+      root.append(element('div', { class: 'nav-group-label', 'data-nav-group': activeGroup, text: tr(activeGroup) }));
+    }
     const button = element('button', {
       class: `nav-item${item.id === activePage ? ' active' : ''}`,
       type: 'button',
       'data-page': item.id,
       'data-route': item.route,
-      title: item.children?.length ? item.children.map((child) => tr(child)).join(' · ') : tr(item.label),
+      'data-label': item.label,
+      title: item.children?.length ? item.children.map((child) => tr(child)).join(' ? ') : tr(item.label),
       onclick: () => navigate(item.id)
     }, icon(item.icon), element('span', { text: tr(item.label) }));
     if (item.id === 'System') button.append(element('span', { class: 'badge', hidden: '' }));
@@ -155,6 +161,65 @@ function renderCards(cards) {
   searchCards(); paintIcons();
 }
 
+const TARGET_MODE_LABELS = Object.freeze({
+  auto: 'Auto / Smart',
+  'rwmcp-only': 'RWMCP only',
+  'codex-only': 'Codex only',
+  'antigravity-only': 'Antigravity only',
+  'rwmcp-codex': 'RWMCP + Codex',
+  'rwmcp-antigravity': 'RWMCP + Antigravity',
+  'codex-antigravity': 'Codex + Antigravity',
+  'all-three': 'All three'
+});
+
+function inferOverviewTargetMode(execution) {
+  const settings = execution?.settings ?? {};
+  if (settings.targetMode) return settings.targetMode;
+  if (settings.workerRoutingProfile === 'smart') return 'auto';
+  if (settings.defaultMode === 'rwmcp-only') return 'rwmcp-only';
+  if (settings.defaultMode === 'codex-only') return 'codex-only';
+  if (settings.codexEnabled && settings.antigravityEnabled) return 'auto';
+  if (settings.codexEnabled) return 'rwmcp-codex';
+  if (settings.antigravityEnabled) return 'rwmcp-antigravity';
+  return 'rwmcp-only';
+}
+
+function setOverviewCard(id, value, detail, tone = '') {
+  const card = $(`#${id}-card`);
+  const valueNode = $(`#${id}`);
+  const detailNode = $(`#${id}-detail`);
+  if (!card || !valueNode || !detailNode) return;
+  card.classList.remove('is-good', 'is-warning', 'is-danger', 'is-loading');
+  if (tone) card.classList.add(tone);
+  valueNode.textContent = value;
+  detailNode.textContent = detail;
+}
+
+function renderOverviewSummary(resources, notifications) {
+  const runtimeResource = resources.runtime ?? {};
+  const runtime = runtimeResource.data ?? {};
+  const executionResource = resources.execution ?? {};
+  const execution = executionResource.data ?? {};
+  if (runtimeResource.loading && !runtimeResource.data) {
+    setOverviewCard('overview-health', tr('Checking...'), tr('Checking runtime and tunnel...'), 'is-loading');
+  } else {
+    const known = Boolean(runtimeResource.data) || Boolean(runtimeResource.error);
+    const healthy = !runtimeResource.error && runtime.mcpHealthy === true && runtime.tunnelReady !== false;
+    setOverviewCard('overview-health', tr(!known ? 'Unavailable' : healthy ? 'Ready' : 'Needs attention'), tr(!known ? 'Runtime status is not available yet.' : healthy ? 'Runtime and secure tunnel are ready.' : 'Runtime or secure tunnel needs attention.'), !known ? 'is-warning' : healthy ? 'is-good' : 'is-danger');
+  }
+  if (executionResource.loading && !executionResource.data) {
+    setOverviewCard('overview-ai-mode', tr('Checking...'), tr('Checking routing policy...'), 'is-loading');
+  } else {
+    const targetMode = inferOverviewTargetMode(execution);
+    const fallbackActive = Boolean(execution.status?.fallbackActive);
+    setOverviewCard('overview-ai-mode', tr(TARGET_MODE_LABELS[targetMode] ?? targetMode), tr(fallbackActive ? 'Fallback is active for the current session.' : targetMode === 'auto' ? 'Task affinity chooses between RWMCP, Codex and Antigravity automatically.' : 'Routing follows the execution target set you selected.'), fallbackActive ? 'is-warning' : 'is-good');
+  }
+  const unread = notifications.filter((notice) => !notice.read);
+  const urgent = unread.filter((notice) => notice.level === 'error' || notice.level === 'warning');
+  const first = urgent[0] ?? unread[0];
+  setOverviewCard('overview-attention', unread.length ? tr('{count} item(s)', { count: unread.length }) : tr('Nothing urgent'), first ? tr(first.title) : tr('No action is required right now.'), urgent.some((notice) => notice.level === 'error') ? 'is-danger' : urgent.length || unread.length ? 'is-warning' : 'is-good');
+}
+
 function renderMetrics(metrics, resources) {
   const root = $('#metrics'); root.replaceChildren();
   for (const metric of metrics) root.append(element('div', {}, element('strong', { text: metric.value }), element('span', { text: tr(metric.label) })));
@@ -223,12 +288,13 @@ function render() {
   const resources = store.getState();
   const cards = deriveCards(resources);
   const notices = deriveNotifications(resources, readIds());
-  renderCards(cards); renderMetrics(deriveMetrics(resources), resources); renderActivities(deriveActivities(resources)); renderNotifications(notices); renderConsole(resources); renderIdentity(resources);
+  renderOverviewSummary(resources, notices); renderCards(cards); renderMetrics(deriveMetrics(resources), resources); renderActivities(deriveActivities(resources)); renderNotifications(notices); renderConsole(resources); renderIdentity(resources);
 }
 
 function localizeShell() {
   document.documentElement.lang = getLanguage();
-  $$('.nav-item').forEach((item) => { const span = $('span', item); if (span) span.textContent = tr(item.dataset.page); const nav = NAVIGATION.find((entry) => entry.id === item.dataset.page); if (nav) item.title = nav.children?.length ? nav.children.map((child) => tr(child)).join(' · ') : tr(nav.label); });
+  $$('.nav-group-label').forEach((item) => { item.textContent = tr(item.dataset.navGroup); });
+  $$('.nav-item').forEach((item) => { const span = $('span', item); const nav = NAVIGATION.find((entry) => entry.id === item.dataset.page); if (nav && span) span.textContent = tr(nav.label); if (nav) item.title = nav.children?.length ? nav.children.map((child) => tr(child)).join(' ? ') : tr(nav.label); });
   $('#language-toggle').textContent = getLanguage() === 'vi' ? 'EN' : 'VI'; $('#language-toggle').setAttribute('aria-label', tr('Language'));
   $('#search').placeholder = tr('Search workstations, devices, commands…'); $('#search').setAttribute('aria-label', tr('Search workstations, devices, commands…'));
   $('#no-results').textContent = tr('No matching workstations. Try “Ubuntu” or “Windows”.');
@@ -379,6 +445,18 @@ function tick() {
   $$('#countdown b').forEach((node, index) => { node.textContent = String(values[index]).padStart(2, '0'); });
 }
 
+$$('[data-quick-page]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.quickPage)));
+$('#overview-refresh').addEventListener('click', async () => {
+  const button = $('#overview-refresh');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await store.refresh(['status', 'runtime', 'execution', 'antigravity', 'updates', 'admin']);
+    toast(tr('Overview refreshed.'));
+  } finally {
+    button.disabled = false;
+  }
+});
 $('#close-modal').addEventListener('click', () => modal.close());
 modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
 $('#search').addEventListener('input', searchCards);

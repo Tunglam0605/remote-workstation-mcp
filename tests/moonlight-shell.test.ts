@@ -25,4 +25,13 @@ test('Moonlight shell provides one secondary-page heading and localizes console 
   assert.match(app, /CONTROL_CENTER_TIME_ZONE/);
   assert.doesNotMatch(app, /tr\('Good evening,'\)/);
   assert.doesNotMatch(html, /Good evening,/);
+  assert.match(html, /class="overview-command"/);
+  assert.match(html, /id="overview-health"/);
+  assert.match(html, /id="overview-ai-mode"/);
+  assert.match(html, /id="overview-attention"/);
+  assert.match(html, /data-quick-page="Agents"/);
+  assert.match(app, /renderOverviewSummary\(resources, notices\)/);
+  assert.match(app, /data-nav-group/);
+  assert.match(app, /store\.refresh\(\['status', 'runtime', 'execution', 'antigravity', 'updates', 'admin'\]\)/);
+  for (const source of ['At a glance', 'Ready to work', 'Quick actions', 'AI & routing', 'Overview refreshed.']) assert.ok(translationModule.includes(`'${source}'`));
 });

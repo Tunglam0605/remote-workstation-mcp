@@ -140,7 +140,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   }
 
   function openWork() {
-    return capabilityDomain(
+    const content = capabilityDomain(
       'Work',
       'Work & projects',
       'Create or resume Work Sessions, inspect files and Git, and run permitted project tasks from one place.',
@@ -148,6 +148,80 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       'No work-management capabilities are currently advertised by the backend.',
       [button('Open Execution Console', () => openExecutionConsole(), 'primary-button')]
     );
+
+    const flow = section(
+      'Multi-agent objective flow',
+      'A large objective can be decomposed into a bounded dependency graph, routed to the right execution target, and advanced one scheduler-safe wave at a time.',
+      'moon-page-full work-orchestration-section'
+    );
+    const steps = [
+      ['01', 'Objective', 'ChatGPT defines the goal and acceptance boundary.'],
+      ['02', 'Decompose', 'The plan is persisted atomically as a DAG.'],
+      ['03', 'DAG tasks', 'Dependencies decide what becomes ready next.'],
+      ['04', 'Route', 'Policy and task affinity choose an allowed target.'],
+      ['05', 'Execute wave', 'Only one bounded ready wave runs per call.'],
+      ['06', 'Acceptance', 'ChatGPT reviews evidence before continuing.']
+    ];
+    const flowTrack = el('div', { class: 'work-objective-flow' });
+    steps.forEach(([index, title, note], position) => {
+      flowTrack.append(el('div', { class: 'work-objective-step' },
+        el('span', { class: 'work-objective-index', text: index }),
+        el('div', {}, el('strong', { text: t(title) }), el('small', { text: t(note) }))
+      ));
+      if (position < steps.length - 1) flowTrack.append(el('span', { class: 'work-objective-arrow', text: '?' }));
+    });
+    flow.append(flowTrack);
+
+    const guarantees = el('div', { class: 'work-objective-guarantees' });
+    for (const [title, note] of [
+      ['Atomic DAG', 'Invalid keys, dependencies, cycles, or target policy reject the whole decomposition without partial tasks.'],
+      ['Policy-aware routing', 'Frontend/UI prefers Antigravity, coding/debug prefers Codex, and deterministic typed work stays with RWMCP.'],
+      ['Bounded wave', 'One execute-wave call never loops the objective to completion, so acceptance remains between waves.'],
+      ['Worktree safe', 'AI workers sharing one Work Session worktree are serialized; compatible deterministic work may run in parallel.']
+    ]) {
+      guarantees.append(el('article', { class: 'work-objective-guarantee' },
+        el('strong', { text: t(title) }),
+        el('p', { text: t(note) })
+      ));
+    }
+    flow.append(guarantees);
+
+    const routing = el('div', { class: 'work-objective-routing' },
+      el('article', { class: 'work-target-card' },
+        el('span', { class: 'pill info', text: 'Antigravity' }),
+        el('strong', { text: t('Interface & visual work') }),
+        el('p', { text: t('Preferred for frontend and visual UX tasks when the effective policy allows it.') })
+      ),
+      el('article', { class: 'work-target-card' },
+        el('span', { class: 'pill info', text: 'Codex' }),
+        el('strong', { text: t('Code & debugging') }),
+        el('p', { text: t('Preferred for backend, implementation, review, debugging, and engineering code work.') })
+      ),
+      el('article', { class: 'work-target-card' },
+        el('span', { class: 'pill success', text: 'RWMCP' }),
+        el('strong', { text: t('Deterministic execution') }),
+        el('p', { text: t('Typed workstation, build, test, Office, and engineering workflows remain deterministic and policy-gated.') })
+      )
+    );
+    flow.append(routing);
+
+    flow.append(el('div', { class: 'work-objective-boundary' },
+      el('strong', { text: t('Work Session privacy boundary') }),
+      el('p', { text: t('Detailed objective, task, route, attempt, and timeline state stays inside the caller-owned ChatGPT Work Session. The owner-local Control Center explains the orchestration model without exposing another session?s task data.') })
+    ));
+
+    const technical = el('details', { class: 'agent-advanced work-objective-technical' },
+      el('summary', { text: t('Technical details') }),
+      el('div', { class: 'work-objective-tool-grid' },
+        el('code', { text: 'work_objective_decompose' }),
+        el('code', { text: 'work_objective_execute_wave' }),
+        el('code', { text: 'work_objective_schedule' }),
+        el('code', { text: 'work_objective_execution_timeline' })
+      )
+    );
+    flow.append(technical);
+    content.append(flow);
+    return content;
   }
 
   function openEngineering() {

@@ -346,3 +346,50 @@ test('domain pages are capability-driven and keep providers below their domain',
     assert.match(pages[3]!.content.textContent, /Updates/);
   } finally { dom.restore(); }
 });
+
+
+test('Work page explains bounded multi-agent objective orchestration without exposing session task data', () => {
+  const dom = installDom();
+  const pages: Array<{ title: string; content: InstanceType<typeof dom.Node> }> = [];
+  let consoleOpens = 0;
+  const state = {
+    capabilities: { data: { capabilities: [
+      { id: 'work_objective.task_graph', status: 'available', tools: ['work_objective_decompose', 'work_objective_execute_wave', 'work_objective_schedule', 'work_objective_execution_timeline'], note: 'v0.43 orchestration' },
+      { id: 'work_session.lifecycle', status: 'available', tools: ['work_session_create'], note: 'Work Session' }
+    ] } }
+  };
+  try {
+    setLanguage('en');
+    const views = createViews({
+      api: { request: async () => ({}) },
+      store: { getState: () => state },
+      openModal: () => {},
+      openPage: (_page: string, title: string, content: InstanceType<typeof dom.Node>) => { pages.push({ title, content }); },
+      openExecutionConsole: () => { consoleOpens += 1; },
+      toast: () => {},
+      refresh: async () => {}
+    });
+    views.open('Work');
+    const page = pages[0]!.content;
+    const rendered = page.textContent;
+    assert.match(rendered, /Multi-agent objective flow/);
+    assert.match(rendered, /Objective/);
+    assert.match(rendered, /Decompose/);
+    assert.match(rendered, /DAG tasks/);
+    assert.match(rendered, /Execute wave/);
+    assert.match(rendered, /Atomic DAG/);
+    assert.match(rendered, /Policy-aware routing/);
+    assert.match(rendered, /Worktree safe/);
+    assert.match(rendered, /Antigravity/);
+    assert.match(rendered, /Codex/);
+    assert.match(rendered, /RWMCP/);
+    assert.match(rendered, /work_objective_decompose/);
+    assert.match(rendered, /work_objective_execute_wave/);
+    assert.match(rendered, /caller-owned ChatGPT Work Session/);
+    assert.doesNotMatch(rendered, /ef257b90|db5d1c9a/);
+    const openConsole = dom.descendants(page).find(node => node.textContent === 'Open Execution Console' && node.listeners.has('click'));
+    assert.ok(openConsole);
+    openConsole.listeners.get('click')!({ currentTarget: openConsole });
+    assert.equal(consoleOpens, 1);
+  } finally { dom.restore(); }
+});

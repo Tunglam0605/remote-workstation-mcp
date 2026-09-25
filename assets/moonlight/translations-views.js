@@ -284,4 +284,25 @@ registerTranslations({
   , "Max Antigravity tasks / session": "T\u1ed1i \u0111a t\u00e1c v\u1ee5 Antigravity / phi\u00ean",
   "Max Antigravity tasks / day": "T\u1ed1i \u0111a t\u00e1c v\u1ee5 Antigravity / ng\u00e0y"
 
+  , /* v0.43 multi-agent objective flow */
+  "Multi-agent objective flow": "Lu\u1ed3ng m\u1ee5c ti\u00eau \u0111a t\u00e1c nh\u00e2n",
+  "A large objective can be decomposed into a bounded dependency graph, routed to the right execution target, and advanced one scheduler-safe wave at a time.": "M\u1ed9t m\u1ee5c ti\u00eau l\u1edbn c\u00f3 th\u1ec3 \u0111\u01b0\u1ee3c t\u00e1ch th\u00e0nh \u0111\u1ed3 th\u1ecb ph\u1ee5 thu\u1ed9c c\u00f3 gi\u1edbi h\u1ea1n, ph\u00e2n t\u1edbi \u0111\u00edch th\u1ef1c thi ph\u00f9 h\u1ee3p v\u00e0 ti\u1ebfn l\u00ean t\u1eebng wave an to\u00e0n theo scheduler.",
+  "Objective": "M\u1ee5c ti\u00eau", "Decompose": "Ph\u00e2n r\u00e3", "DAG tasks": "T\u00e1c v\u1ee5 DAG", "Route": "\u0110i\u1ec1u ph\u1ed1i", "Execute wave": "Ch\u1ea1y wave", "Acceptance": "Nghi\u1ec7m thu",
+  "ChatGPT defines the goal and acceptance boundary.": "ChatGPT x\u00e1c \u0111\u1ecbnh m\u1ee5c ti\u00eau v\u00e0 ranh gi\u1edbi nghi\u1ec7m thu.",
+  "The plan is persisted atomically as a DAG.": "K\u1ebf ho\u1ea1ch \u0111\u01b0\u1ee3c l\u01b0u nguy\u00ean t\u1eed th\u00e0nh m\u1ed9t DAG.",
+  "Dependencies decide what becomes ready next.": "Ph\u1ee5 thu\u1ed9c quy\u1ebft \u0111\u1ecbnh t\u00e1c v\u1ee5 n\u00e0o s\u1eb5n s\u00e0ng ti\u1ebfp theo.",
+  "Policy and task affinity choose an allowed target.": "Policy v\u00e0 \u0111\u1ed9 ph\u00f9 h\u1ee3p t\u00e1c v\u1ee5 ch\u1ecdn \u0111\u00edch th\u1ef1c thi \u0111\u01b0\u1ee3c ph\u00e9p.",
+  "Only one bounded ready wave runs per call.": "M\u1ed7i l\u1ea7n g\u1ecdi ch\u1ec9 ch\u1ea1y m\u1ed9t wave s\u1eb5n s\u00e0ng c\u00f3 gi\u1edbi h\u1ea1n.",
+  "ChatGPT reviews evidence before continuing.": "ChatGPT xem b\u1eb1ng ch\u1ee9ng tr\u01b0\u1edbc khi ti\u1ebfp t\u1ee5c.",
+  "Atomic DAG": "DAG nguy\u00ean t\u1eed", "Policy-aware routing": "\u0110i\u1ec1u ph\u1ed1i hi\u1ec3u policy", "Bounded wave": "Wave c\u00f3 gi\u1edbi h\u1ea1n", "Worktree safe": "An to\u00e0n worktree",
+  "Invalid keys, dependencies, cycles, or target policy reject the whole decomposition without partial tasks.": "Key, ph\u1ee5 thu\u1ed9c, chu tr\u00ecnh ho\u1eb7c target policy kh\u00f4ng h\u1ee3p l\u1ec7 s\u1ebd t\u1eeb ch\u1ed1i to\u00e0n b\u1ed9 decomposition, kh\u00f4ng l\u01b0u d\u1edf dang.",
+  "Frontend/UI prefers Antigravity, coding/debug prefers Codex, and deterministic typed work stays with RWMCP.": "Frontend/UI \u01b0u ti\u00ean Antigravity, code/debug \u01b0u ti\u00ean Codex, c\u00f2n c\u00f4ng vi\u1ec7c \u0111\u1ecbnh ki\u1ec3u x\u00e1c \u0111\u1ecbnh gi\u1eef \u1edf RWMCP.",
+  "One execute-wave call never loops the objective to completion, so acceptance remains between waves.": "M\u1ed9t l\u1ea7n execute-wave kh\u00f4ng bao gi\u1edd t\u1ef1 l\u1eb7p cho t\u1edbi khi xong m\u1ee5c ti\u00eau, v\u00ec v\u1eady nghi\u1ec7m thu v\u1eabn n\u1eb1m gi\u1eefa c\u00e1c wave.",
+  "AI workers sharing one Work Session worktree are serialized; compatible deterministic work may run in parallel.": "C\u00e1c AI worker d\u00f9ng chung worktree c\u1ee7a m\u1ed9t Work Session s\u1ebd ch\u1ea1y tu\u1ea7n t\u1ef1; c\u00f4ng vi\u1ec7c x\u00e1c \u0111\u1ecbnh t\u01b0\u01a1ng th\u00edch c\u00f3 th\u1ec3 ch\u1ea1y song song.",
+  "Interface & visual work": "Giao di\u1ec7n & tr\u1ef1c quan", "Code & debugging": "Code & g\u1ee1 l\u1ed7i", "Deterministic execution": "Th\u1ef1c thi x\u00e1c \u0111\u1ecbnh",
+  "Preferred for frontend and visual UX tasks when the effective policy allows it.": "\u01afu ti\u00ean cho frontend v\u00e0 UX tr\u1ef1c quan khi policy hi\u1ec7u l\u1ef1c cho ph\u00e9p.",
+  "Preferred for backend, implementation, review, debugging, and engineering code work.": "\u01afu ti\u00ean cho backend, tri\u1ec3n khai, review, g\u1ee1 l\u1ed7i v\u00e0 code k\u1ef9 thu\u1eadt.",
+  "Typed workstation, build, test, Office, and engineering workflows remain deterministic and policy-gated.": "Workflow m\u00e1y tr\u1ea1m \u0111\u1ecbnh ki\u1ec3u, build, test, Office v\u00e0 k\u1ef9 thu\u1eadt v\u1eabn x\u00e1c \u0111\u1ecbnh v\u00e0 b\u1ecb policy ki\u1ec3m so\u00e1t.",
+  "Detailed objective, task, route, attempt, and timeline state stays inside the caller-owned ChatGPT Work Session. The owner-local Control Center explains the orchestration model without exposing another session?s task data.": "Tr\u1ea1ng th\u00e1i chi ti\u1ebft c\u1ee7a objective, task, route, attempt v\u00e0 timeline ch\u1ec9 n\u1eb1m trong ChatGPT Work Session c\u1ee7a ng\u01b0\u1eddi g\u1ecdi. Control Center c\u1ee5c b\u1ed9 c\u1ee7a ch\u1ee7 m\u00e1y ch\u1ec9 gi\u1ea3i th\u00edch m\u00f4 h\u00ecnh \u0111i\u1ec1u ph\u1ed1i m\u00e0 kh\u00f4ng l\u1ed9 d\u1eef li\u1ec7u task c\u1ee7a phi\u00ean kh\u00e1c."
+
 });

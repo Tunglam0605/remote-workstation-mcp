@@ -203,6 +203,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath, iocFile }) => result(await audited(ctx.audit, 'stm32_ioc_inspect', workspace, () => ctx.engineering.stm32Ioc.inspect(workspace, projectPath, iocFile))));
 
+  server.registerTool('stm32_svd_inspect', {
+    description: 'Inspect a project-scoped CMSIS-SVD file and return bounded STM32 device, peripheral, register, cluster and bit-field metadata without connecting to target hardware or allowing register writes.',
+    inputSchema: workspacePath.extend({ svdFile: z.string().min(1).max(1024) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, svdFile }) => result(await audited(ctx.audit, 'stm32_svd_inspect', workspace, () => ctx.engineering.stm32Svd.inspect(workspace, projectPath, svdFile))));
+
   server.registerTool('firmware_project_inspect', {
     description: 'Detect firmware/project family and build framework from project markers without executing project code.',
     inputSchema: workspacePath,

@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $word = $null
+$previousAutomationSecurity = $null
 $document = $null
 $ownedWordPid = $null
 $result = $null
@@ -54,11 +55,13 @@ try {
 
   $word.Visible = $false
   $word.DisplayAlerts = 0
+  try { $previousAutomationSecurity = $word.AutomationSecurity } catch {}
   try { $word.AutomationSecurity = 3 } catch {}
   try { $word.Options.UpdateLinksAtOpen = $false } catch {}
   try { $word.Options.SaveNormalPrompt = $false } catch {}
 
   $document = $word.Documents.Open($documentPath, $false, $true)
+  if ($null -ne $previousAutomationSecurity) { try { $word.AutomationSecurity = $previousAutomationSecurity } catch {} }
   $equations = [int]$document.OMaths.Count
   $pages = [int]$document.ComputeStatistics(2)
 
@@ -94,6 +97,9 @@ catch {
 finally {
   if ($document -ne $null) {
     try { $document.Close(0) } catch {}
+  }
+  if ($word -ne $null -and $null -ne $previousAutomationSecurity) {
+    try { $word.AutomationSecurity = $previousAutomationSecurity } catch {}
   }
   if ($word -ne $null) {
     try { $word.Quit(0) } catch {}

@@ -399,12 +399,12 @@ test('STM32 deploy transaction keeps one ST-Link lease for flash verify and rese
     assert.ok(result.plan.args.includes('adapter speed 4000'));
 
     const programIndex = result.plan.args.findIndex(arg => arg.startsWith('program {') && arg.endsWith('} verify'));
-    const verifyIndex = result.plan.args.findIndex(arg => arg.startsWith('verify_image {'));
+    const duplicateVerifyIndex = result.plan.args.findIndex(arg => arg.startsWith('verify_image {'));
     const resetIndex = result.plan.args.indexOf('reset run');
     const shutdownIndex = result.plan.args.indexOf('shutdown');
     assert.ok(programIndex > 0);
-    assert.ok(verifyIndex > programIndex);
-    assert.ok(resetIndex > verifyIndex);
+    assert.equal(duplicateVerifyIndex, -1, 'OpenOCD program ... verify already performs verify_image internally; do not verify twice');
+    assert.ok(resetIndex > programIndex);
     assert.ok(shutdownIndex > resetIndex);
   } finally {
     process.env.PATH = oldPath;

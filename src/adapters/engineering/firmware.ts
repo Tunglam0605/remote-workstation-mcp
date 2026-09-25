@@ -726,7 +726,6 @@ export class FirmwareAdapter {
       '-c', 'init',
       '-c', 'reset halt',
       '-c', `program {${normalizedOpenOcdPath(plan.artifact)}} verify`,
-      '-c', `verify_image {${normalizedOpenOcdPath(plan.artifact)}}`,
       '-c', 'reset run',
       '-c', 'shutdown'
     ];
@@ -735,7 +734,7 @@ export class FirmwareAdapter {
       args,
       notes: [
         ...plan.notes,
-        'Flash, independent verify and reset execute inside one ST-Link lease and one OpenOCD process.'
+        'OpenOCD program helper performs flash + verify once, followed by reset, inside one ST-Link lease and one OpenOCD process. Independent re-verify remains available through firmware.verify.'
       ]
     };
     const cwd = await this.paths.resolveExisting(options.workspace, options.projectPath ?? '.');

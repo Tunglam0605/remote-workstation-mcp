@@ -19,6 +19,9 @@ test('PowerPoint Office pack remains typed, transactional and does not expose ra
   assert.match(matrix, /'powerpoint\.edit'/);
   assert.match(matrix, /'powerpoint\.render'/);
   assert.match(native, /AutomationSecurity = 3/);
+  assert.match(native, /previousAutomationSecurity/);
+  assert.ok(native.indexOf('AutomationSecurity = 3') < native.indexOf('Open(') || native.indexOf('AutomationSecurity = 3') < native.indexOf('Presentations.Open'));
+  assert.ok(native.lastIndexOf('AutomationSecurity = $previousAutomationSecurity') > native.indexOf('Open('));
   assert.match(native, /Presentations\.Open\(\$presentationPath, -1, 0, 0\)/);
   assert.match(native, /SaveAs\(\$outputPdfPath, 32\)/);
   assert.doesNotMatch(tools, /powerpoint_com|powerpoint_vba|raw_com|run_macro/i);

@@ -396,13 +396,13 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   server.registerTool('ros2_topic_list', { description: 'List ROS 2 topics and reported types.', inputSchema: rosWorkspace, annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd }) => result({ topics: await audited(ctx.audit, 'ros2_topic_list', workspace, () => ctx.engineering.ros2.topicList(workspace, cwd)) }));
   server.registerTool('ros2_topic_echo', { description: 'Echo one ROS 2 topic message with --once and a bounded timeout.', inputSchema: z.object({ workspace: z.string(), topic: z.string(), cwd: z.string().default('.'), timeoutMs: z.number().int().min(500).max(60_000).default(10_000) }), annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, topic, cwd, timeoutMs }) => result(await audited(ctx.audit, 'ros2_topic_echo', workspace, () => ctx.engineering.ros2.topicEchoOnce(workspace, topic, cwd, timeoutMs))));
   server.registerTool('ros2_topic_hz', {
-    description: 'Measure a bounded ROS 2 topic frequency sample. The diagnostic subprocess is terminated after timeout and only bounded rate statistics are returned.',
-    inputSchema: z.object({ workspace: z.string(), topic: z.string().min(1).max(256), cwd: z.string().default('.'), timeoutMs: z.number().int().min(1000).max(20000).default(5000), window: z.number().int().min(2).max(10000).default(100) }),
+    description: 'Measure bounded receiver-side ROS 2 topic frequency. The value is what the diagnostic subscription receives (QoS/host load can make it differ from publisher rate). Optional wallTime avoids ROS-time stalls in simulation.',
+    inputSchema: z.object({ workspace: z.string(), topic: z.string().min(1).max(256), cwd: z.string().default('.'), timeoutMs: z.number().int().min(1000).max(20000).default(5000), window: z.number().int().min(2).max(10000).default(100), wallTime: z.boolean().default(false) }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, topic, cwd, timeoutMs, window }) => result(await audited(ctx.audit, 'ros2_topic_hz', workspace, () => ctx.engineering.ros2.topicHz(workspace, topic, cwd, timeoutMs, window))));
+  }, async ({ workspace, topic, cwd, timeoutMs, window, wallTime }) => result(await audited(ctx.audit, 'ros2_topic_hz', workspace, () => ctx.engineering.ros2.topicHz(workspace, topic, cwd, timeoutMs, window, wallTime))));
 
   server.registerTool('ros2_topic_bw', {
-    description: 'Measure a bounded ROS 2 topic bandwidth sample and normalize throughput/message sizes to bytes.',
+    description: 'Measure bounded receiver-side ROS 2 topic bandwidth and normalize throughput/message sizes to bytes. QoS, middleware and host load can make this differ from publisher-side throughput.',
     inputSchema: z.object({ workspace: z.string(), topic: z.string().min(1).max(256), cwd: z.string().default('.'), timeoutMs: z.number().int().min(1000).max(20000).default(5000), window: z.number().int().min(2).max(10000).default(100) }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workspace, topic, cwd, timeoutMs, window }) => result(await audited(ctx.audit, 'ros2_topic_bw', workspace, () => ctx.engineering.ros2.topicBandwidth(workspace, topic, cwd, timeoutMs, window))));

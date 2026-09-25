@@ -297,18 +297,28 @@ export class Ros2Adapter {
     return { node: name, output: result.stdout.trim() };
   }
 
-  async topicHz(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
+  async topicHz(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, wallTime = false, runtime?: Ros2RuntimeContext) {
     const name = validateRosName(topic, 'topic');
     if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 hz window must be in range 2..10000.');
-    const result = await this.sample(workspace, cwd, ['topic', 'hz', name, '--window', String(window)], timeoutMs, runtime);
-    return { topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicHz(result.stdout) };
+    const result = await this.sample(workspace, cwd, ['topic', 'hz', name, '--window', String(window), ...(wallTime ? ['--wall-time'] : [])], timeoutMs, runtime);
+    return {
+      topic: name, timeoutMs, requestedWindow: window, wallTime,
+      semantics: 'receiver-side-subscription-rate',
+      note: 'This is the rate observed by the diagnostic subscription and may differ from publisher rate because of QoS, middleware, scheduling and host load.',
+      sample: parseRos2TopicHz(result.stdout)
+    };
   }
 
   async topicBandwidth(workspace: string, topic: string, cwd = '.', timeoutMs = 5_000, window = 100, runtime?: Ros2RuntimeContext) {
     const name = validateRosName(topic, 'topic');
     if (!Number.isInteger(window) || window < 2 || window > 10_000) throw new Error('ROS 2 bandwidth window must be in range 2..10000.');
     const result = await this.sample(workspace, cwd, ['topic', 'bw', name, '--window', String(window)], timeoutMs, runtime);
-    return { topic: name, timeoutMs, requestedWindow: window, sample: parseRos2TopicBandwidth(result.stdout) };
+    return {
+      topic: name, timeoutMs, requestedWindow: window,
+      semantics: 'receiver-side-subscription-bandwidth',
+      note: 'This is bandwidth observed by the diagnostic subscription and may differ from publisher-side throughput because of QoS, middleware and host load.',
+      sample: parseRos2TopicBandwidth(result.stdout)
+    };
   }
 
   async tfLookup(workspace: string, sourceFrame: string, targetFrame: string, cwd = '.', timeoutMs = 4_000, runtime?: Ros2RuntimeContext) {

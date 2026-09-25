@@ -15,6 +15,9 @@ test('Excel Office pack remains typed, transactional and does not expose raw COM
   assert.match(capabilities, /office\.excel\.inspect/);
   assert.match(capabilities, /office\.excel\.mutate/);
   assert.match(native, /AutomationSecurity = 3/);
+  assert.match(native, /previousAutomationSecurity/);
+  assert.ok(native.indexOf('AutomationSecurity = 3') < native.indexOf('Open(') || native.indexOf('AutomationSecurity = 3') < native.indexOf('Presentations.Open'));
+  assert.ok(native.lastIndexOf('AutomationSecurity = $previousAutomationSecurity') > native.indexOf('Open('));
   assert.match(native, /EnableEvents = \$false/);
   assert.match(native, /Workbooks\.Open\(\$workbookPath, 0, \$true/);
   assert.match(native, /CalculateFullRebuild/);

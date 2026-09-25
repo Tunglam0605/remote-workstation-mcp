@@ -529,6 +529,7 @@ test('KiCad diagnostics and validation use bounded JSON reports without source m
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
       if (args[0] === 'version') return command(program, args, cwd, '10.0.6\n');
+      if (args.at(-1) === '--help') return command(program, args, cwd, 'Usage: kicad-cli ' + args.slice(0, -1).join(' ') + '\n');
       const outputIndex = args.indexOf('--output');
       const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
       if (!output) return command(program, args, cwd, '', 'missing output', 2);

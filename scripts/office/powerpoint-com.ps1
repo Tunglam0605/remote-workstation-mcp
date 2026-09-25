@@ -1,6 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$InputPath)
 $ErrorActionPreference = 'Stop'
 $powerPoint = $null
+$previousAutomationSecurity = $null
 $presentation = $null
 $release = { param($obj) if ($null -ne $obj) { try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($obj) } catch {} } }
 try {
@@ -10,9 +11,11 @@ try {
   $outputPdfPath = [System.IO.Path]::GetFullPath([string]$request.outputPdfPath)
   $powerPoint = New-Object -ComObject PowerPoint.Application
   try { $powerPoint.DisplayAlerts = 1 } catch {} # ppAlertsNone
+  try { $previousAutomationSecurity = $powerPoint.AutomationSecurity } catch {}
   try { $powerPoint.AutomationSecurity = 3 } catch {} # msoAutomationSecurityForceDisable
   # Presentations.Open(FileName, ReadOnly=-1, Untitled=0, WithWindow=0)
   $presentation = $powerPoint.Presentations.Open($presentationPath, -1, 0, 0)
+  if ($null -ne $previousAutomationSecurity) { try { $powerPoint.AutomationSecurity = $previousAutomationSecurity } catch {} }
   $slideCount = [int]$presentation.Slides.Count
   $shapeCount = 0
   foreach ($slide in @($presentation.Slides)) {
@@ -37,6 +40,7 @@ try {
 } finally {
   if ($null -ne $presentation) { try { $presentation.Close() } catch {} }
   & $release $presentation
+  if ($null -ne $powerPoint -and $null -ne $previousAutomationSecurity) { try { $powerPoint.AutomationSecurity = $previousAutomationSecurity } catch {} }
   if ($null -ne $powerPoint) { try { $powerPoint.Quit() } catch {} }
   & $release $powerPoint
   [GC]::Collect(); [GC]::WaitForPendingFinalizers(); [GC]::Collect(); [GC]::WaitForPendingFinalizers()

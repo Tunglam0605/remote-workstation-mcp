@@ -1,6 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$InputPath)
 $ErrorActionPreference = 'Stop'
 $excel = $null
+$previousAutomationSecurity = $null
 $workbook = $null
 $release = { param($obj) if ($null -ne $obj) { try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($obj) } catch {} } }
 try {
@@ -13,8 +14,10 @@ try {
   $excel.DisplayAlerts = $false
   $excel.EnableEvents = $false
   try { $excel.AskToUpdateLinks = $false } catch {}
+  try { $previousAutomationSecurity = $excel.AutomationSecurity } catch {}
   try { $excel.AutomationSecurity = 3 } catch {} # msoAutomationSecurityForceDisable
   $workbook = $excel.Workbooks.Open($workbookPath, 0, $true, 5, '', '', $true)
+  if ($null -ne $previousAutomationSecurity) { try { $excel.AutomationSecurity = $previousAutomationSecurity } catch {} }
   if ([bool]$request.recalculate) {
     $excel.CalculateFullRebuild()
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -49,6 +52,7 @@ try {
 } finally {
   if ($null -ne $workbook) { try { $workbook.Close($false) } catch {} }
   & $release $workbook
+  if ($null -ne $excel -and $null -ne $previousAutomationSecurity) { try { $excel.AutomationSecurity = $previousAutomationSecurity } catch {} }
   if ($null -ne $excel) { try { $excel.Quit() } catch {} }
   & $release $excel
   [GC]::Collect(); [GC]::WaitForPendingFinalizers(); [GC]::Collect(); [GC]::WaitForPendingFinalizers()

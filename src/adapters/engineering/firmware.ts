@@ -16,6 +16,7 @@ import { classifyOpenOcdResult, openOcdAdapterSpeedArgs, openOcdSearchPathArgs, 
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
+import { parseFirmwareBerkeleySize, parseFirmwareSections, parseFirmwareSymbols } from './firmware-memory-analysis.js';
 import { validateSerialPortPath } from './serial-port-policy.js';
 
 function safeTclValue(value: string, label: string): string {
@@ -285,6 +286,60 @@ export class FirmwareAdapter {
   listArtifacts(workspace: string, projectPath = '.'): Promise<FirmwareArtifact[]> {
     this.policy.assertEngineeringEnabled();
     return this.artifacts.find(workspace, projectPath);
+  }
+
+  async memoryReport(workspace: string, projectPath = '.', artifact?: string, topSymbols = 25) {
+    this.policy.assertEngineeringEnabled();
+    if (!Number.isInteger(topSymbols) || topSymbols < 1 || topSymbols > 100) throw new Error('topSymbols must be in range 1..100.');
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    let selectedRelative = artifact?.trim();
+    if (!selectedRelative) {
+      const artifacts = (await this.listArtifacts(workspace, projectPath)).filter(item => item.kind === 'elf' || item.kind === 'axf');
+      if (artifacts.length === 0) throw new Error('No ELF/AXF firmware artifact was found for memory analysis.');
+      if (artifacts.length > 1) throw new Error(`Multiple ELF/AXF firmware artifacts were found (${artifacts.map(item => item.path).join(', ')}); artifact is required.`);
+      selectedRelative = artifacts[0]!.path;
+    }
+    const absolute = await resolveExistingProjectPath(this.paths, workspace, projectPath, selectedRelative, 'artifact');
+    const extension = path.extname(absolute).toLowerCase();
+    if (extension !== '.elf' && extension !== '.axf') throw new Error('firmware_memory_report requires an ELF or AXF artifact.');
+    const stat = await fs.stat(absolute);
+    if (!stat.isFile()) throw new Error('Firmware memory artifact is not a regular file.');
+    const relativeArtifact = path.relative(cwd, absolute).replaceAll('\\', '/');
+
+    const sizeTool = await resolveFirstExecutable(['arm-none-eabi-size', 'llvm-size', 'size']);
+    if (!sizeTool) throw new Error('No supported size analyzer is available (arm-none-eabi-size, llvm-size, or size).');
+    const summaryResult = await this.runner.run(sizeTool.path, ['-B', absolute], cwd, 10_000);
+    if (summaryResult.exitCode !== 0 || summaryResult.timedOut) {
+      throw new Error(`Firmware size analysis failed: ${summaryResult.stderr || summaryResult.stdout || `exit=${summaryResult.exitCode}`}`);
+    }
+    const summary = parseFirmwareBerkeleySize(summaryResult.stdout);
+    const warnings: string[] = [];
+    let sections: ReturnType<typeof parseFirmwareSections> = [];
+    const sectionResult = await this.runner.run(sizeTool.path, ['-A', absolute], cwd, 10_000);
+    if (sectionResult.exitCode === 0 && !sectionResult.timedOut) sections = parseFirmwareSections(sectionResult.stdout);
+    else warnings.push('Section-level size analysis was unavailable; Berkeley summary is still valid.');
+
+    const nmTool = await resolveFirstExecutable(['arm-none-eabi-nm', 'llvm-nm', 'nm']);
+    let top: ReturnType<typeof parseFirmwareSymbols> = [];
+    let nmName: string | undefined;
+    if (nmTool) {
+      nmName = path.basename(nmTool.path);
+      const nmResult = await this.runner.run(nmTool.path, ['--print-size', '--radix=d', absolute], cwd, 15_000);
+      if (nmResult.exitCode === 0 && !nmResult.timedOut) top = parseFirmwareSymbols(nmResult.stdout, topSymbols);
+      else warnings.push('Symbol size analysis failed; memory totals and sections remain available.');
+    } else {
+      warnings.push('No supported nm analyzer is available; topSymbols is omitted.');
+    }
+
+    return {
+      artifact: { path: relativeArtifact, kind: extension.slice(1), sizeBytes: stat.size, mtime: stat.mtime.toISOString() },
+      tools: { size: path.basename(sizeTool.path), ...(nmName ? { nm: nmName } : {}) },
+      summary,
+      sections,
+      topSymbols: top,
+      warnings,
+      note: 'Flash usage is text + initialized data; RAM usage is initialized data + BSS using Berkeley size semantics.'
+    };
   }
 
   async providerStatus(provider: 'openocd' | 'keil' = 'openocd'): Promise<FirmwareProviderStatus> {

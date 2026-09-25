@@ -215,6 +215,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result({ artifacts: await audited(ctx.audit, 'firmware_artifacts', workspace, () => ctx.engineering.firmware.listArtifacts(workspace, projectPath)) }));
 
+  server.registerTool('firmware_memory_report', {
+    description: 'Analyze one ELF/AXF firmware artifact with an allowlisted size/nm toolchain and return bounded Flash/RAM totals, sections and largest symbols without executing project code or touching target hardware.',
+    inputSchema: workspacePath.extend({ artifact: z.string().min(1).max(1024).optional(), topSymbols: z.number().int().min(1).max(100).default(25) }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, artifact, topSymbols }) => result(await audited(ctx.audit, 'firmware_memory_report', workspace, () => ctx.engineering.firmware.memoryReport(workspace, projectPath, artifact, topSymbols))));
+
   server.registerTool('firmware_provider_status', {
     description: 'Preflight the constrained firmware provider and report availability, version and intentionally unavailable dangerous surfaces.',
     inputSchema: z.object({ provider: z.enum(['openocd', 'keil']).default('openocd') }),
@@ -293,6 +299,30 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     inputSchema: z.object({ id: z.string().uuid(), expression: z.string().min(1).max(256), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, expression, workSessionId }) => result(await audited(ctx.audit, 'debug_variable', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.variable(id, expression)))));
+
+  server.registerTool('debug_locals', {
+    description: 'Read bounded local variables from the currently selected halted stack frame through GDB/MI.',
+    inputSchema: z.object({ id: z.string().uuid(), maxVariables: z.number().int().min(1).max(128).default(64), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, maxVariables, workSessionId }) => result({ variables: await audited(ctx.audit, 'debug_locals', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.locals(id, maxVariables))) }));
+
+  server.registerTool('debug_disassemble', {
+    description: 'Read bounded disassembly around the current PC or one explicit 32-bit address through GDB/MI. No arbitrary GDB command or memory write is exposed.',
+    inputSchema: z.object({ id: z.string().uuid(), address: z.number().int().min(0).max(0xffffffff).optional(), beforeBytes: z.number().int().min(0).max(256).default(32), afterBytes: z.number().int().min(2).max(512).default(96), maxInstructions: z.number().int().min(1).max(256).default(128), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, address, beforeBytes, afterBytes, maxInstructions, workSessionId }) => result(await audited(ctx.audit, 'debug_disassemble', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.disassemble(id, { address, beforeBytes, afterBytes, maxInstructions })))));
+
+  server.registerTool('debug_watchpoint_add', {
+    description: 'Add one hardware data watchpoint for a safe variable/member/index expression. Access mode is bounded to write, read, or access.',
+    inputSchema: z.object({ id: z.string().uuid(), expression: z.string().min(1).max(256), access: z.enum(['write', 'read', 'access']).default('write'), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ id, expression, access, workSessionId }) => result(await audited(ctx.audit, 'debug_watchpoint_add', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.addWatchpoint(id, expression, access)))));
+
+  server.registerTool('debug_watchpoint_remove', {
+    description: 'Remove one GDB hardware watchpoint by its bounded breakpoint/watchpoint number.',
+    inputSchema: z.object({ id: z.string().uuid(), number: z.number().int().min(1).max(9999), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, number, workSessionId }) => result(await audited(ctx.audit, 'debug_watchpoint_remove', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.removeWatchpoint(id, number)))));
 
   server.registerTool('debug_breakpoint_add', {
     description: 'Add one hardware breakpoint at a function or basename:line location.',

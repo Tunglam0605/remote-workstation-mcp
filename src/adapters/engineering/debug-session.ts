@@ -15,6 +15,7 @@ import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-poli
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
+import { parseDebugBreakpointNumber, parseDebugDisassembly, parseDebugLocals } from './debug-mi-analysis.js';
 
 interface MiResult { token: number; resultClass: string; payload: string; raw: string; }
 interface AsyncRecord { prefix: string; body: string; raw: string; }
@@ -221,7 +222,7 @@ export class DebugSessionManager {
       provider: 'gdb-mi+openocd',
       openocd,
       gdb,
-      operations: ['halt', 'resume', 'step', 'next', 'stack', 'registers', 'variable', 'breakpoint', 'memory-read', 'fault-snapshot'],
+      operations: ['halt', 'resume', 'step', 'next', 'stack', 'registers', 'locals', 'variable', 'disassemble', 'breakpoint', 'watchpoint', 'memory-read', 'fault-snapshot'],
       intentionallyUnavailable: ['arbitrary-gdb-command', 'arbitrary-tcl-command', 'memory-write', 'gdb-flash']
     };
   }
@@ -325,6 +326,47 @@ export class DebugSessionManager {
     safeExpression(expression);
     const result = await this.owned(id).gdb.command(`-data-evaluate-expression "${quoteMi(expression)}"`);
     return { expression, value: miField(result.payload, 'value') };
+  }
+
+  async locals(id: string, maxVariables = 64) {
+    if (!Number.isInteger(maxVariables) || maxVariables < 1 || maxVariables > 128) throw new Error('maxVariables must be in range 1..128.');
+    const result = await this.owned(id).gdb.command('-stack-list-variables --simple-values');
+    return parseDebugLocals(result.payload, maxVariables);
+  }
+
+  async disassemble(id: string, options: { address?: number; beforeBytes?: number; afterBytes?: number; maxInstructions?: number } = {}) {
+    const beforeBytes = options.beforeBytes ?? 32;
+    const afterBytes = options.afterBytes ?? 96;
+    const maxInstructions = options.maxInstructions ?? 128;
+    if (!Number.isInteger(beforeBytes) || beforeBytes < 0 || beforeBytes > 256) throw new Error('beforeBytes must be in range 0..256.');
+    if (!Number.isInteger(afterBytes) || afterBytes < 2 || afterBytes > 512) throw new Error('afterBytes must be in range 2..512.');
+    if (!Number.isInteger(maxInstructions) || maxInstructions < 1 || maxInstructions > 256) throw new Error('maxInstructions must be in range 1..256.');
+    let center = options.address;
+    if (center === undefined) {
+      const regs = await this.registers(id);
+      const pc = regs.find(item => item.name.toLowerCase() === 'pc')?.value;
+      if (!pc || !/^0x[0-9a-f]+$/i.test(pc)) throw new Error('Unable to resolve PC register for disassembly.');
+      center = Number.parseInt(pc.slice(2), 16);
+    }
+    if (!Number.isInteger(center) || center < 0 || center > 0xffffffff) throw new Error('address must be a 32-bit unsigned integer.');
+    const aligned = center - (center % 2);
+    const start = Math.max(0, aligned - beforeBytes);
+    const end = Math.min(0xffffffff, aligned + afterBytes);
+    if (end <= start) throw new Error('Invalid disassembly range.');
+    const result = await this.owned(id).gdb.command(`-data-disassemble -s 0x${start.toString(16)} -e 0x${end.toString(16)} -- 0`);
+    return { centerAddress: aligned, startAddress: start, endAddress: end, instructions: parseDebugDisassembly(result.payload, maxInstructions) };
+  }
+
+  async addWatchpoint(id: string, expression: string, access: 'write' | 'read' | 'access' = 'write') {
+    this.policy.assertHardwareMutation();
+    safeExpression(expression);
+    const flag = access === 'read' ? '-r ' : access === 'access' ? '-a ' : '';
+    const result = await this.owned(id).gdb.command(`-break-watch ${flag}\"${quoteMi(expression)}\"`);
+    return { number: parseDebugBreakpointNumber(result.payload), expression, access, kind: 'hardware-watchpoint' };
+  }
+
+  async removeWatchpoint(id: string, number: number) {
+    return this.removeBreakpoint(id, number);
   }
 
   async addBreakpoint(id: string, location: string) {

@@ -97,6 +97,27 @@ test('v0.43 adds objective decomposition and bounded multi-agent waves on Action
   assert.match(views, /work_objective_execute_wave/);
 });
 
+test('v0.44 embedded diagnostics remain typed and do not expose arbitrary debugger or firmware execution', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const debug = await read('src/adapters/engineering/debug-session.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_disassemble', 'debug_watchpoint_add', 'debug_watchpoint_remove']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(scopes, new RegExp(`${tool}: 'workstation\\.(?:read|execute)'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(firmware, /arm-none-eabi-size/);
+  assert.match(firmware, /arm-none-eabi-nm/);
+  assert.match(debug, /-stack-list-variables --simple-values/);
+  assert.match(debug, /-data-disassemble -s/);
+  assert.match(debug, /-break-watch/);
+  assert.doesNotMatch(engineeringTools, /debug_command|gdb_command|memory_write|firmware_shell/);
+  assert.match(debug, /intentionallyUnavailable: \['arbitrary-gdb-command', 'arbitrary-tcl-command', 'memory-write', 'gdb-flash'\]/);
+});
+
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {
   const coreTools = await read('src/tools/core-tools.ts');
   const scopes = await read('src/security/request-principal.ts');

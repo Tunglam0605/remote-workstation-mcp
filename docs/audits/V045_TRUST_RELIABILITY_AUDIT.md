@@ -227,3 +227,27 @@ RWMCP v0.45.0 is **not relying on one monolithic trust assumption**. Its stronge
 The current platform is suitable as a production baseline **with constraints explicitly attached to moving/vendor-dependent providers**.
 
 There is no evidence supporting a wholesale rewrite. The correct next action is targeted hardening of the concrete gaps above, followed by another regression/release gate before adding broader professional-tool authority.
+
+## 10. Audit hardening closure
+
+The priority reliability gaps identified above were implemented on the isolated audit worktree before any new professional-tool expansion:
+
+- KiCad now probes optional `pcb export stats` / BOM capabilities and degrades diagnostics when board statistics are unavailable instead of failing the entire diagnostic bundle.
+- Git status now uses the documented `--porcelain=v2 --branch` machine contract; WorktreeManager clean/dirty detection was updated to consume porcelain-v2 headers correctly.
+- OpenOCD provider status now distinguishes release, development, dirty-development and unknown provenance. A `-dirty` build remains usable but no longer receives the same provenance confidence as a clean release build.
+- Antigravity dispatch rejects a suspicious empty `SUCCESS` when no response, tool/subagent activity, token usage or Git-observable work exists.
+- systemd journal collection now reports an explicit `ok` versus `degraded` state instead of equating executable availability with successful collection.
+- dependency install-script-bearing packages are explicitly enumerated and checked by `npm run supply-chain:validate`; CI and prepack fail when the discovered set diverges from policy.
+- CMSIS-SVD inspection now exposes `inheritance.derivedFromPresent` and `inheritance.resolved`; unresolved inheritance is explicitly unsuitable as authoritative live-register-write metadata.
+
+Acceptance after these changes:
+
+- `npm run supply-chain:validate` — PASS (4 discovered install-script packages, 4 explicit policy entries);
+- `npm test` — 597 total / 595 PASS / 0 FAIL / 2 SKIP;
+- `npm run typecheck` — PASS;
+- `npm run build` — PASS;
+- `npm run plugin:validate` — PASS;
+- `git diff --check` — PASS.
+
+This closes the audit's immediate P0/P1/P2 hardening list without widening public execution authority. The next phase may study upstream patterns and add improvements only where they preserve the trust boundaries documented above.
+

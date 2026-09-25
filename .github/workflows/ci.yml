@@ -19,6 +19,8 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: Validate dependency install-script policy
+        run: npm run supply-chain:validate
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Generate CycloneDX SBOM
@@ -87,6 +89,8 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: Validate dependency install-script policy
+        run: npm run supply-chain:validate
       - run: npm run typecheck
       - run: npm test
       - name: PTY/ConPTY lifecycle soak

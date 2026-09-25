@@ -257,6 +257,11 @@ export class KicadAdapter {
     private readonly runner: EngineeringCommandRunner
   ) {}
 
+  private async commandSupported(cliPath: string, cwd: string, args: string[]): Promise<boolean> {
+    const result = await this.runner.run(cliPath, [...args, '--help'], cwd, 10_000);
+    return !result.timedOut && result.exitCode === 0;
+  }
+
   private async runJsonReport(
     workspace: string,
     projectPath: string,
@@ -292,10 +297,30 @@ export class KicadAdapter {
     const cli = await discoverKicadCli();
     const result = await this.runner.run(cli.path, ['version'], cwd, 10_000);
     if (result.exitCode !== 0 || result.timedOut) throw new Error(`KiCad version probe failed: ${result.stderr || result.stdout}`);
-    return { version: result.stdout.trim() || result.stderr.trim(), executable: cli.path, executableSource: cli.source };
+    const [boardStats, bomExport] = await Promise.all([
+      this.commandSupported(cli.path, cwd, ['pcb', 'export', 'stats']),
+      this.commandSupported(cli.path, cwd, ['sch', 'export', 'bom'])
+    ]);
+    return {
+      version: result.stdout.trim() || result.stderr.trim(),
+      executable: cli.path,
+      executableSource: cli.source,
+      capabilities: {
+        boardStats,
+        bomExport,
+        drcJson: true,
+        ercJson: true
+      }
+    };
   }
 
   async boardStats(workspace: string, projectPath: string, board: string) {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const cli = await discoverKicadCli();
+    if (!await this.commandSupported(cli.path, cwd, ['pcb', 'export', 'stats'])) {
+      throw new Error('KICAD_CAPABILITY_UNAVAILABLE: this KiCad CLI does not provide `pcb export stats`; use DRC/ERC/BOM diagnostics or a KiCad version that provides board statistics.');
+    }
     const result = await this.runJsonReport(workspace, projectPath, ['pcb', 'export', 'stats', '--format', 'json'], board, 'board-stats.json');
     return { board, ...result };
   }
@@ -355,8 +380,17 @@ export class KicadAdapter {
   async diagnostics(workspace: string, projectPath: string, files: KicadProjectFiles) {
     this.policy.assertEngineeringExecute();
     const provider = await this.version(workspace, projectPath);
-    const boardStats = files.board ? await this.boardStats(workspace, projectPath, files.board) : undefined;
-    return { provider, files, ...(boardStats ? { boardStats } : {}) };
+    const boardStats = files.board && provider.capabilities.boardStats
+      ? await this.boardStats(workspace, projectPath, files.board)
+      : undefined;
+    return {
+      provider,
+      files,
+      ...(boardStats ? { boardStats } : {}),
+      ...(!provider.capabilities.boardStats && files.board
+        ? { warnings: ['KiCad board statistics are unavailable in the detected CLI; diagnostics continue without stats.'] }
+        : {})
+    };
   }
 
   async validate(workspace: string, projectPath: string, files: KicadProjectFiles) {

@@ -39,7 +39,7 @@ function normalizeRepoPath(value: string | undefined): string {
 function dirtyStatus(output: string): boolean {
   return output
     .split(/\r?\n/)
-    .some(line => line.trim() !== '' && !line.startsWith('## '));
+    .some(line => line.trim() !== '' && !line.startsWith('# '));
 }
 
 export class WorktreeManager {

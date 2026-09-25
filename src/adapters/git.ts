@@ -61,7 +61,7 @@ export class GitAdapter {
   }
 
   status(workspace: string, repoPath = '.'): Promise<string> {
-    return this.run(workspace, repoPath, ['status', '--short', '--branch']);
+    return this.run(workspace, repoPath, ['status', '--porcelain=v2', '--branch']);
   }
 
   diff(workspace: string, staged = false, repoPath = '.'): Promise<string> {

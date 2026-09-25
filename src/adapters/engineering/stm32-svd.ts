@@ -320,6 +320,10 @@ export function parseStm32SvdText(file: string, size: number, xml: string): Stm3
   const description = boundedDescription(text(device, 'description'));
   const addressUnitBits = integerText(text(device, 'addressUnitBits'));
   const width = integerText(text(device, 'width'));
+  const derivedFromPresent = /\bderivedFrom\s*=/.test(xml);
+  if (derivedFromPresent) {
+    warnings.push('CMSIS-SVD derivedFrom inheritance is reported but not materialized by this inspection parser.');
+  }
   return {
     file,
     size,
@@ -338,6 +342,11 @@ export function parseStm32SvdText(file: string, size: number, xml: string): Stm3
       fields: peripherals.reduce((sum, peripheral) => sum + peripheral.registers.reduce((inner, register) => inner + register.fields.length, 0), 0)
     },
     truncated,
+    inheritance: {
+      derivedFromPresent,
+      resolved: !derivedFromPresent,
+      ...(derivedFromPresent ? { note: 'derivedFrom inheritance is not materialized; use this output for bounded inspection, not as authoritative live-register write metadata.' } : {})
+    },
     warnings: warnings.slice(0, 128)
   };
 }

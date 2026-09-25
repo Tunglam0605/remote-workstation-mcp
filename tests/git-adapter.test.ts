@@ -44,8 +44,13 @@ test('GitAdapter supports structured history, typed commits and sibling worktree
   const history = await adapter.log('demo', 10, 'repo');
   assert.equal(history.length, 1);
   assert.equal(history[0]?.subject, 'initial');
+  const cleanStatus = await adapter.status('demo', 'repo');
+  assert.match(cleanStatus, /^# branch\.oid /m);
+  assert.match(cleanStatus, /^# branch\.head /m);
 
   await fs.writeFile(path.join(repo, 'README.md'), 'two\n', 'utf8');
+  const dirtyStatus = await adapter.status('demo', 'repo');
+  assert.match(dirtyStatus, /^1 \.M /m);
   await adapter.add('demo', ['README.md'], 'repo');
   await adapter.commit('demo', 'second', 'repo');
   assert.equal((await adapter.log('demo', 10, 'repo'))[0]?.subject, 'second');

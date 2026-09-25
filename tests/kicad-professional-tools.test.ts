@@ -47,6 +47,7 @@ test('KiCad professional tools use temporary reports and fixed BOM fields withou
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
       if (args[0] === 'version') return result(program, args, cwd, '10.0.6\n');
+      if (args.at(-1) === '--help') return result(program, args, cwd, 'Usage: supported\n');
       const outputIndex = args.indexOf('--output');
       const output = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
       if (!output) return result(program, args, cwd, '', 'missing output', 2);
@@ -71,13 +72,45 @@ test('KiCad professional tools use temporary reports and fixed BOM fields withou
     const bom = await adapter.bomReport('w', '.', 'robot.kicad_sch', 10);
     assert.equal(bom.report.rowCount, 2);
     assert.equal(bom.report.dnpRows, 1);
-    const bomArgs = calls.find(args => args.includes('bom'))!;
+    const bomArgs = calls.find(args => args.includes('bom') && args.includes('--fields'))!;
     assert.deepEqual(bomArgs.slice(0, 7), ['sch', 'export', 'bom', '--fields', 'Reference,Value,Footprint,QUANTITY,DNP', '--labels', 'Refs,Value,Footprint,Qty,DNP']);
     assert.equal(calls.flat().includes('upgrade'), false);
     assert.equal(calls.flat().includes('python-bom'), false);
     assert.equal(calls.flat().includes('--save-board'), false);
     assert.equal(await fs.readFile(schematic, 'utf8'), schBefore);
     assert.equal(await fs.readFile(board, 'utf8'), pcbBefore);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('KiCad diagnostics degrade when optional board statistics are unavailable', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-no-stats-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin);
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  await fs.writeFile(path.join(root, 'robot.kicad_pcb'), '(kicad_pcb source)');
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      if (args[0] === 'version') return result(program, args, cwd, '9.0.5\\n');
+      if (args.at(-1) === '--help' && args.includes('stats')) return result(program, args, cwd, '', 'unknown command', 2);
+      if (args.at(-1) === '--help') return result(program, args, cwd, 'Usage: supported\\n');
+      return result(program, args, cwd);
+    }
+  };
+  try {
+    const engine = new PolicyEngine(config(root));
+    const adapter = new KicadAdapter(engine, new PathGuard(engine), runner as never);
+    const diagnostics = await adapter.diagnostics('w', '.', { board: 'robot.kicad_pcb', jobsets: [] });
+    assert.equal(diagnostics.provider.capabilities.boardStats, false);
+    assert.equal(diagnostics.boardStats, undefined);
+    assert.match(diagnostics.warnings?.[0] ?? '', /statistics are unavailable/i);
+    await assert.rejects(() => adapter.boardStats('w', '.', 'robot.kicad_pcb'), /KICAD_CAPABILITY_UNAVAILABLE/);
+    assert.equal(calls.some(args => args.includes('stats') && args.includes('--output')), false);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

@@ -383,13 +383,25 @@ export class FirmwareAdapter {
     const result = await this.runner.run(resolved.path, ['--version'], process.cwd(), 5000);
     const text = `${result.stdout}\n${result.stderr}`.trim();
     const match = /Open On-Chip Debugger\s+([^\s]+)/i.exec(text);
+    const version = match?.[1];
+    const provenance = version
+      ? version.includes('-dirty')
+        ? {
+            status: 'dirty-development' as const,
+            warning: 'OpenOCD reports a dirty development build; runtime behavior may be valid but exact source/build provenance is not reproducible from the version string alone.'
+          }
+        : /(?:\+dev|-dev|-g[0-9a-f]{7,})/i.test(version)
+          ? { status: 'development' as const }
+          : { status: 'release' as const }
+      : { status: 'unknown' as const, warning: 'OpenOCD version/provenance could not be identified from provider output.' };
     return {
       ...base,
       available: result.exitCode === 0 && !result.timedOut,
       executable: resolved.path,
       executableSource: resolved.source,
       ...(resolved.scriptsPath ? { scriptSearchPath: resolved.scriptsPath } : {}),
-      ...(match?.[1] ? { version: match[1] } : {}),
+      ...(version ? { version } : {}),
+      provenance,
       diagnostic: classifyOpenOcdResult(result)
     };
   }

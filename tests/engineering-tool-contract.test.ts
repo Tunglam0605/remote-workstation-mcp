@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.39.0 unifies RWMCP, Codex and Antigravity routing on Action Schema v16 and Engineering API v5', async () => {
+test('v0.40.0 simplifies Control Center UX while retaining unified routing on Action Schema v16 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 16;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.39\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.40\.0';/);
   assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
@@ -58,6 +58,18 @@ test('v0.39.0 unifies RWMCP, Codex and Antigravity routing on Action Schema v16 
   assert.match(routeBlock, /readOnlyHint: true/);
   assert.match(routeBlock, /planWorkerRoute/);
   assert.doesNotMatch(routeBlock, /work_objective_execute_task|taskWorkflowExecution\.execute|\.dispatch\(/);
+  const navigation = await read('assets/moonlight/navigation.js');
+  const app = await read('assets/moonlight/app.js');
+  const views = await read('assets/moonlight/views.js');
+  assert.match(navigation, /group: 'Home'/);
+  assert.match(navigation, /group: 'Tools'/);
+  assert.match(app, /renderOverviewSummary/);
+  assert.match(app, /overview-refresh/);
+  assert.match(views, /How should AI work\?/);
+  assert.match(views, /More routing combinations/);
+  assert.match(views, /What you can do/);
+  assert.match(views, /Advanced access scopes/);
+  assert.match(views, /Advanced multi-node transfers/);
 });
 
 test('v0.20 project_status is read-only coordination and cannot become an execution authority', async () => {

@@ -2,6 +2,17 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.40.0 - Control Center UX Simplification
+
+- preserve the nine stable routes and all v0.39 backend/security contracts while visually grouping navigation into Home, Work, AI, Tools, and System;
+- make Overview answer workstation health, current AI routing, what needs attention, and what the user can do next before showing technical metrics;
+- make Auto / Smart the recommended AI routing choice, keep the three single-target modes immediately visible, and move pair modes plus All three behind progressive disclosure;
+- explain affinity and provider readiness in user language while retaining the full target-set API and advanced routing controls;
+- present Work, Engineering, Office, and Web as friendly capability domains with technical IDs and provider notes collapsed by default;
+- keep normal permission mode and paired-device state visible while collapsing raw scopes, host filesystem/raw-shell gates, pairing/bootstrap, and multi-node grants into advanced sections;
+- retain Vietnamese-first copy with English fallback and responsive layouts;
+- retain Action Schema 16 and Engineering API 5 because this release changes UX only, not the MCP action contract.
+
 ## v0.39.0 - Unified Three-Target Orchestrator
 
 - treat `rwmcp-direct`, `codex-local`, and `antigravity-local` as peer execution targets at the router layer while preserving their different underlying security and execution mechanisms;

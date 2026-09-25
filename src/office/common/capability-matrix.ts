@@ -52,21 +52,21 @@ export function currentOfficeCapabilityMatrix(platform = process.platform): Offi
     {
       id: 'ooxml',
       status: 'available',
-      domains: ['word', 'excel'],
-      capabilities: ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml', 'excel.inspect', 'excel.edit'],
+      domains: ['word', 'excel', 'powerpoint'],
+      capabilities: ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml', 'excel.inspect', 'excel.edit', 'powerpoint.inspect', 'powerpoint.edit'],
       nativeApplication: false,
       headless: true,
-      reason: 'OOXML backend provides bounded package preflight plus structural Word/Excel inspection and typed working-copy mutation; Word includes OMML equations and Excel includes bounded cell/range/formula edits.'
+      reason: 'OOXML backend provides bounded package preflight plus structural Word/Excel/PowerPoint inspection and typed working-copy mutation; Word includes OMML equations, Excel bounded cell/range/formula edits, and PowerPoint bounded existing-shape/title text edits.'
     },
     {
       id: 'windows-com',
       status: platform === 'win32' ? 'available' : 'unavailable',
       domains: ['word', 'excel', 'powerpoint'],
-      capabilities: platform === 'win32' ? ['word.inspect', 'word.equation.native-verify', 'word.render.pdf', 'excel.calculate', 'excel.render.pdf'] : [],
+      capabilities: platform === 'win32' ? ['word.inspect', 'word.equation.native-verify', 'word.render.pdf', 'excel.calculate', 'excel.render.pdf', 'powerpoint.inspect', 'powerpoint.render'] : [],
       nativeApplication: true,
       headless: false,
       reason: platform === 'win32'
-        ? 'Native Office COM acceptance supports isolated Word open/OMath/PDF plus Excel recalculation/formula-error inspection/PDF with deterministic cleanup.'
+        ? 'Native Office COM acceptance supports isolated Word open/OMath/PDF, Excel recalculation/formula-error/PDF, and PowerPoint read-only open/PDF with deterministic cleanup.'
         : 'Microsoft Office COM automation is Windows-specific.'
     },
     {

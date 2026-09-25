@@ -58,10 +58,12 @@ test('Internal Office backend matrix remains portable while the public Office MC
   const windows = currentOfficeCapabilityMatrix('win32').list();
   assert.equal(windows.find(item => item.id === 'windows-com')?.status, 'available');
   assert.equal(windows.find(item => item.id === 'ooxml')?.status, 'available');
-  assert.deepEqual(windows.find(item => item.id === 'ooxml')?.capabilities, ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml', 'excel.inspect', 'excel.edit']);
-  assert.deepEqual(windows.find(item => item.id === 'windows-com')?.capabilities, ['word.inspect', 'word.equation.native-verify', 'word.render.pdf', 'excel.calculate', 'excel.render.pdf']);
+  assert.deepEqual(windows.find(item => item.id === 'ooxml')?.capabilities, ['package.inspect', 'package.validate', 'word.inspect', 'word.edit', 'word.equation.omml', 'excel.inspect', 'excel.edit', 'powerpoint.inspect', 'powerpoint.edit']);
+  assert.deepEqual(windows.find(item => item.id === 'windows-com')?.capabilities, ['word.inspect', 'word.equation.native-verify', 'word.render.pdf', 'excel.calculate', 'excel.render.pdf', 'powerpoint.inspect', 'powerpoint.render']);
   assert.equal(currentOfficeCapabilityMatrix('win32').select({ domain: 'excel', capabilities: ['excel.edit'] }).id, 'ooxml');
   assert.equal(currentOfficeCapabilityMatrix('win32').select({ domain: 'excel', capabilities: ['excel.calculate'] }).id, 'windows-com');
+  assert.equal(currentOfficeCapabilityMatrix('win32').select({ domain: 'powerpoint', capabilities: ['powerpoint.edit'] }).id, 'ooxml');
+  assert.equal(currentOfficeCapabilityMatrix('win32').select({ domain: 'powerpoint', capabilities: ['powerpoint.render'] }).id, 'windows-com');
 
   const linux = currentOfficeCapabilityMatrix('linux').list();
   assert.equal(linux.find(item => item.id === 'windows-com')?.status, 'unavailable');

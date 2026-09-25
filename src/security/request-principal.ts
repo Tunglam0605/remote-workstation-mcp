@@ -72,6 +72,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   word_edit: 'workstation.write',
   excel_inspect: 'workstation.read',
   excel_edit: 'workstation.write',
+  powerpoint_inspect: 'workstation.read',
+  powerpoint_edit: 'workstation.write',
   device_list: 'workstation.read',
   device_probe: 'workstation.read',
   device_exec: 'workstation.execute',

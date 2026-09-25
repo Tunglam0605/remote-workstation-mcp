@@ -2,6 +2,17 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.44.1 - Vendor-Reference Professional Tooling Hardening
+
+- audit v0.44 professional tooling against upstream OpenOCD, GNU GDB/MI, ROS 2 CLI, KiCad CLI, Microsoft Office COM and Open XML documentation before adding further capabilities;
+- remove redundant OpenOCD `verify_image` from the atomic deploy path because `program ... verify` already performs verification; retain `firmware.verify` for explicit independent re-verification;
+- label ROS 2 Hz/BW measurements as receiver-side subscription observations and add the upstream `--wall-time` option to `ros2_topic_hz`;
+- probe KiCad optional CLI capabilities such as `pcb export stats` and fail/degrade with explicit capability semantics on older installations;
+- save and restore the previous Word/Excel/PowerPoint `AutomationSecurity` value around programmatic document opening while continuing to force-disable macros during the open itself;
+- retain the fixed GDB/MI architecture because watchpoint, locals and disassembly commands match the documented MI interface;
+- record the audit decisions, upstream references, live acceptance evidence and remaining hardening backlog in `docs/PROFESSIONAL_TOOLING_VENDOR_AUDIT.md`;
+- advance Action Schema to 21 because `ros2_topic_hz` gains an optional public `wallTime` input; keep Engineering API at 5 because no Engineering Workflow contract changes.
+
 ## v0.44.0 - Professional Tooling Expansion
 
 - expand STM32/embedded diagnostics with `firmware_memory_report`, halted-frame `debug_locals`, bounded `debug_disassemble`, and safe-expression hardware watchpoint add/remove while retaining no arbitrary GDB command or memory-write surface;

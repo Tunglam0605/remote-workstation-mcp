@@ -2,6 +2,8 @@
 
 Baseline audited: `v0.44.0` / Action Schema 20 / Engineering API 5.
 
+Hardening release target: `v0.44.1` / Action Schema 21 / Engineering API 5.
+
 This audit compares RWMCP professional tools with upstream vendor documentation and source. The purpose is to harden semantics before adding more tools.
 
 ## Decision matrix

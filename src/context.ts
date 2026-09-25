@@ -53,6 +53,8 @@ import { TaskExecutionCoordinator } from './task-executor.js';
 import { SchedulerAwarenessService } from './scheduler-awareness.js';
 import { ObjectiveProgressService } from './objective-progress.js';
 import { ExecutionTimelineService } from './execution-timeline.js';
+import { ObjectiveDecompositionService } from './objective-decomposition.js';
+import { ObjectiveWaveExecutionService } from './objective-wave-execution.js';
 import { ProjectSessionGroupService, ProjectSessionGroupStore } from './project-session-group.js';
 import { ProjectCoordinationService } from './project-coordination.js';
 import { TaskAttemptStore } from './task-attempt-store.js';
@@ -212,6 +214,7 @@ export async function createContext() {
     workSessions
   );
   const executionTimeline = new ExecutionTimelineService(taskGraphs, taskAttempts);
+  const objectiveDecomposition = new ObjectiveDecompositionService(taskGraphs, executionPolicy, workerProviders, workSessions);
 
   const taskExecutor = new TaskExecutionCoordinator(
     taskGraphs,
@@ -228,6 +231,7 @@ export async function createContext() {
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy, desktopNotifications);
+  const objectiveWaveExecution = new ObjectiveWaveExecutionService(schedulerAwareness, taskWorkflowExecution, taskGraphs);
   process.once('beforeExit', () => {
     void browser.closeAll();
     existingChrome.closeAll();
@@ -270,8 +274,10 @@ export async function createContext() {
     schedulerAwareness,
     objectiveProgress,
     executionTimeline,
+    objectiveDecomposition,
     taskExecutor,
     taskWorkflowExecution,
+    objectiveWaveExecution,
     reconciledWorkTasks,
     scopeWorkSession,
     runInWorkSession,

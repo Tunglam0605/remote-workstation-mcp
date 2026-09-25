@@ -14,6 +14,13 @@ export interface WorkTaskConcurrency {
   key?: string;
 }
 
+export interface WorkTaskPlanningMetadata {
+  source: 'decomposition';
+  key: string;
+  intent?: string;
+  preferredTarget?: string;
+}
+
 export interface EngineeringWorkflowTaskExecutionBinding {
   kind: 'engineering-workflow';
   workspace: string;
@@ -43,6 +50,7 @@ export interface WorkTask {
   status: WorkTaskStatus;
   dependencies: string[];
   concurrency: WorkTaskConcurrency;
+  planning?: WorkTaskPlanningMetadata;
   execution?: WorkTaskExecutionBinding;
   createdAt: string;
   updatedAt: string;
@@ -80,7 +88,24 @@ export interface WorkTaskCreateInput {
   priority?: number;
   dependencies?: string[];
   concurrency?: WorkTaskConcurrency;
+  planning?: WorkTaskPlanningMetadata;
   execution?: WorkTaskExecutionBinding;
+}
+
+export interface WorkTaskBatchItemInput {
+  key: string;
+  dependsOn?: string[];
+  task: WorkTaskCreateInput;
+}
+
+export interface WorkTaskBatchCreateInput {
+  tasks: WorkTaskBatchItemInput[];
+  requireEmpty?: boolean;
+}
+
+export interface WorkTaskBatchCreateResult {
+  tasks: WorkTask[];
+  keyMap: Record<string, string>;
 }
 
 export interface TaskGraphStoreOptions {
@@ -134,6 +159,30 @@ function uniqueDependencies(values: string[] | undefined): string[] {
   return normalized;
 }
 
+function normalizePlanning(value: WorkTaskPlanningMetadata | undefined): WorkTaskPlanningMetadata | undefined {
+  if (!value) return undefined;
+  const key = bounded(value.key, 'planning.key', 64);
+  if (!/^[a-z][a-z0-9._-]{0,63}$/.test(key)) {
+    throw new Error('planning.key must match [a-z][a-z0-9._-]{0,63}.');
+  }
+  const intent = boundedOptional(value.intent, 'planning.intent', 32);
+  const preferredTarget = boundedOptional(value.preferredTarget, 'planning.preferredTarget', 64);
+  return {
+    source: 'decomposition',
+    key,
+    ...(intent ? { intent } : {}),
+    ...(preferredTarget ? { preferredTarget } : {})
+  };
+}
+
+function normalizeBatchKey(value: string, field: string): string {
+  const key = bounded(value, field, 64);
+  if (!/^[a-z][a-z0-9._-]{0,63}$/.test(key)) {
+    throw new Error(`${field} must match [a-z][a-z0-9._-]{0,63}.`);
+  }
+  return key;
+}
+
 function normalizeExecution(
   value: WorkTaskExecutionBinding | undefined
 ): WorkTaskExecutionBinding | undefined {
@@ -181,6 +230,9 @@ function validateTask(value: unknown): WorkTask {
   return {
     ...(task as WorkTask),
     generation: task.generation ?? 1,
+    ...(task.planning !== undefined
+      ? { planning: normalizePlanning(task.planning as WorkTaskPlanningMetadata) }
+      : {}),
     ...(task.execution !== undefined
       ? { execution: normalizeExecution(task.execution as WorkTaskExecutionBinding) }
       : {})
@@ -391,6 +443,7 @@ export class TaskGraphStore {
       }
       const timestamp = this.now().toISOString();
       const execution = normalizeExecution(input.execution);
+      const planning = normalizePlanning(input.planning);
       const task: WorkTask = {
         version: 1,
         id: randomUUID(),
@@ -406,6 +459,7 @@ export class TaskGraphStore {
           ...(input.concurrency?.operation ? { operation: input.concurrency.operation } : {}),
           ...(boundedOptional(input.concurrency?.key, 'concurrency.key', 512) ? { key: boundedOptional(input.concurrency?.key, 'concurrency.key', 512) } : {})
         },
+        ...(planning ? { planning } : {}),
         ...(execution ? { execution } : {}),
         createdAt: timestamp,
         updatedAt: timestamp
@@ -414,6 +468,78 @@ export class TaskGraphStore {
       normalizeGraph(objective, timestamp);
       await this.save(state);
       return structuredClone(task);
+    });
+  }
+
+  async addTaskBatch(objectiveId: string, input: WorkTaskBatchCreateInput): Promise<WorkTaskBatchCreateResult> {
+    return this.mutate(async () => {
+      if (!Array.isArray(input.tasks) || input.tasks.length < 1 || input.tasks.length > 64) {
+        throw new Error('Task batch must contain between 1 and 64 tasks.');
+      }
+      const state = await this.load();
+      const objective = this.ownedObjective(state, objectiveId);
+      if ((input.requireEmpty ?? true) && objective.tasks.length > 0) {
+        throw new Error('OBJECTIVE_ALREADY_DECOMPOSED: atomic decomposition requires an objective with no existing tasks.');
+      }
+      if (objective.tasks.length + input.tasks.length > this.maxTasksPerObjective) {
+        throw new Error(`Work Objective accepts at most ${this.maxTasksPerObjective} tasks.`);
+      }
+
+      const keys = input.tasks.map((item, index) => normalizeBatchKey(item.key, `tasks[${index}].key`));
+      if (new Set(keys).size !== keys.length) throw new Error('Task batch keys must be unique.');
+      const keySet = new Set(keys);
+      input.tasks.forEach((item, index) => {
+        const dependencies = item.dependsOn ?? [];
+        if (dependencies.length > 64) throw new Error(`tasks[${index}].dependsOn accepts at most 64 task keys.`);
+        const normalized = dependencies.map((value, depIndex) => normalizeBatchKey(value, `tasks[${index}].dependsOn[${depIndex}]`));
+        if (new Set(normalized).size !== normalized.length) throw new Error(`tasks[${index}].dependsOn must not contain duplicate task keys.`);
+        for (const dependency of normalized) {
+          if (!keySet.has(dependency)) throw new Error(`Task '${keys[index]}' depends on unknown task key '${dependency}'.`);
+          if (dependency === keys[index]) throw new Error(`Task '${keys[index]}' cannot depend on itself.`);
+        }
+      });
+
+      const idByKey = new Map(keys.map(key => [key, randomUUID()]));
+      const timestamp = this.now().toISOString();
+      const created: WorkTask[] = input.tasks.map((item, index) => {
+        const taskInput = item.task;
+        const execution = normalizeExecution(taskInput.execution);
+        const planning = normalizePlanning(taskInput.planning ?? { source: 'decomposition', key: keys[index] });
+        const dependencies = (item.dependsOn ?? []).map(key => idByKey.get(normalizeBatchKey(key, 'dependsOn'))!);
+        return {
+          version: 1,
+          id: idByKey.get(keys[index])!,
+          objectiveId: objective.id,
+          sequence: objective.tasks.length + index + 1,
+          generation: 1,
+          title: bounded(taskInput.title, `tasks[${index}].title`, 256),
+          ...(boundedOptional(taskInput.description, `tasks[${index}].description`, 2048)
+            ? { description: boundedOptional(taskInput.description, `tasks[${index}].description`, 2048) }
+            : {}),
+          priority: boundedPriority(taskInput.priority),
+          status: 'pending' as const,
+          dependencies,
+          concurrency: {
+            ...(taskInput.concurrency?.operation ? { operation: taskInput.concurrency.operation } : {}),
+            ...(boundedOptional(taskInput.concurrency?.key, `tasks[${index}].concurrency.key`, 512)
+              ? { key: boundedOptional(taskInput.concurrency?.key, `tasks[${index}].concurrency.key`, 512) }
+              : {})
+          },
+          ...(planning ? { planning } : {}),
+          ...(execution ? { execution } : {}),
+          createdAt: timestamp,
+          updatedAt: timestamp
+        };
+      });
+
+      objective.tasks.push(...created);
+      assertAcyclic(objective.tasks);
+      normalizeGraph(objective, timestamp);
+      await this.save(state);
+      return {
+        tasks: created.map(task => structuredClone(objective.tasks.find(item => item.id === task.id)!)),
+        keyMap: Object.fromEntries(keys.map(key => [key, idByKey.get(key)!]))
+      };
     });
   }
 

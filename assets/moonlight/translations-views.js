@@ -197,4 +197,34 @@ registerTranslations({
   "Owner policy": "Ch\u00ednh s\u00e1ch ch\u1ee7 m\u00e1y",
   "Save Agent Control": "L\u01b0u \u0111i\u1ec1u khi\u1ec3n t\u00e1c nh\u00e2n"
 
+  , /* v0.40 simplified Agent Control */
+  "How should AI work?": "AI n\u00ean l\u00e0m vi\u1ec7c nh\u01b0 th\u1ebf n\u00e0o?",
+  "Choose the simple mode you want. Auto / Smart is recommended; technical routing controls stay available when you need them.": "Ch\u1ecdn ch\u1ebf \u0111\u1ed9 \u0111\u01a1n gi\u1ea3n b\u1ea1n mu\u1ed1n. Khuy\u1ebfn ngh\u1ecb T\u1ef1 \u0111\u1ed9ng / Th\u00f4ng minh; c\u00e1c \u0111i\u1ec1u khi\u1ec3n k\u1ef9 thu\u1eadt v\u1eabn c\u00f3 khi b\u1ea1n c\u1ea7n.",
+  "Choose how work is routed": "Ch\u1ecdn c\u00e1ch ph\u00e2n c\u00f4ng",
+  "Most users should keep Auto / Smart. You can still force one execution target when you need predictable behavior.": "H\u1ea7u h\u1ebft tr\u01b0\u1eddng h\u1ee3p n\u00ean gi\u1eef T\u1ef1 \u0111\u1ed9ng / Th\u00f4ng minh. B\u1ea1n v\u1eabn c\u00f3 th\u1ec3 ch\u1ec9 \u0111\u1ecbnh m\u1ed9t t\u00e1c nh\u00e2n khi c\u1ea7n h\u00e0nh vi c\u1ed1 \u0111\u1ecbnh.",
+  "Recommended": "Khuy\u1ebfn ngh\u1ecb",
+  "Automatically picks the best target for each task and falls back safely when needed.": "T\u1ef1 ch\u1ecdn t\u00e1c nh\u00e2n ph\u00f9 h\u1ee3p nh\u1ea5t cho t\u1eebng vi\u1ec7c v\u00e0 chuy\u1ec3n d\u1ef1 ph\u00f2ng an to\u00e0n khi c\u1ea7n.",
+  "Use deterministic workstation tools only. Best when you want direct, predictable execution.": "Ch\u1ec9 d\u00f9ng c\u00f4ng c\u1ee5 m\u00e1y tr\u1ea1m th\u1ef1c thi x\u00e1c \u0111\u1ecbnh. Ph\u00f9 h\u1ee3p khi b\u1ea1n mu\u1ed1n thao t\u00e1c tr\u1ef1c ti\u1ebfp, d\u1ec5 d\u1ef1 \u0111o\u00e1n.",
+  "Send bounded implementation work only to Codex.": "Ch\u1ec9 giao c\u00f4ng vi\u1ec7c tri\u1ec3n khai c\u00f3 gi\u1edbi h\u1ea1n cho Codex.",
+  "Send bounded implementation work only to Antigravity.": "Ch\u1ec9 giao c\u00f4ng vi\u1ec7c tri\u1ec3n khai c\u00f3 gi\u1edbi h\u1ea1n cho Antigravity.",
+  "More routing combinations": "Th\u00eam t\u1ed5 h\u1ee3p \u0111i\u1ec1u ph\u1ed1i",
+  "These combinations are for advanced routing needs. They do not widen provider permissions or workstation authority.": "C\u00e1c t\u1ed5 h\u1ee3p n\u00e0y d\u00e0nh cho nhu c\u1ea7u \u0111i\u1ec1u ph\u1ed1i n\u00e2ng cao. Ch\u00fang kh\u00f4ng m\u1edf r\u1ed9ng quy\u1ec1n c\u1ee7a provider hay m\u00e1y tr\u1ea1m.",
+  "What happens automatically": "H\u1ec7 th\u1ed1ng t\u1ef1 l\u00e0m g\u00ec?",
+  "Auto / Smart uses task affinity as a preference, not a hard capability lock. If the preferred target cannot safely continue, the router can use the next allowed target.": "T\u1ef1 \u0111\u1ed9ng / Th\u00f4ng minh d\u00f9ng \u0111\u1ed9 ph\u00f9 h\u1ee3p t\u00e1c v\u1ee5 l\u00e0m \u01b0u ti\u00ean, kh\u00f4ng kh\u00f3a c\u1ee9ng kh\u1ea3 n\u0103ng. N\u1ebfu t\u00e1c nh\u00e2n \u01b0u ti\u00ean kh\u00f4ng th\u1ec3 ti\u1ebfp t\u1ee5c an to\u00e0n, router c\u00f3 th\u1ec3 d\u00f9ng t\u00e1c nh\u00e2n \u0111\u01b0\u1ee3c ph\u00e9p ti\u1ebfp theo.",
+  "Antigravity is preferred for interface and visual work.": "Antigravity \u0111\u01b0\u1ee3c \u01b0u ti\u00ean cho giao di\u1ec7n v\u00e0 c\u00f4ng vi\u1ec7c tr\u1ef1c quan.",
+  "Codex is preferred for backend, code, debugging, and engineering work.": "Codex \u0111\u01b0\u1ee3c \u01b0u ti\u00ean cho backend, code, g\u1ee1 l\u1ed7i v\u00e0 c\u00f4ng vi\u1ec7c k\u1ef9 thu\u1eadt.",
+  "RWMCP is preferred for deterministic workstation, Office, build, test, and read operations.": "RWMCP \u0111\u01b0\u1ee3c \u01b0u ti\u00ean cho thao t\u00e1c m\u00e1y tr\u1ea1m x\u00e1c \u0111\u1ecbnh, Office, build, test v\u00e0 \u0111\u1ecdc.",
+  "Fallback: {chain}": "D\u1ef1 ph\u00f2ng: {chain}",
+  "Available execution targets": "C\u00e1c t\u00e1c nh\u00e2n \u0111ang c\u00f3",
+  "These are the three execution targets the router can use. Selection changes routing eligibility; each target keeps its own security boundary.": "\u0110\u00e2y l\u00e0 ba t\u00e1c nh\u00e2n router c\u00f3 th\u1ec3 d\u00f9ng. L\u1ef1a ch\u1ecdn ch\u1ec9 thay \u0111\u1ed5i kh\u1ea3 n\u0103ng \u0111\u01b0\u1ee3c \u0111i\u1ec1u ph\u1ed1i; m\u1ed7i t\u00e1c nh\u00e2n v\u1eabn gi\u1eef ranh gi\u1edbi b\u1ea3o m\u1eadt ri\u00eang.",
+  "Execution target": "T\u00e1c nh\u00e2n th\u1ef1c thi", "Not selected": "Kh\u00f4ng \u0111\u01b0\u1ee3c ch\u1ecdn", "Best for": "Ph\u00f9 h\u1ee3p nh\u1ea5t cho", "Local": "C\u1ee5c b\u1ed9",
+  "Workstation / Office / deterministic work": "M\u00e1y tr\u1ea1m / Office / c\u00f4ng vi\u1ec7c x\u00e1c \u0111\u1ecbnh", "Code / backend / engineering": "Code / backend / k\u1ef9 thu\u1eadt",
+  "Direct typed workstation execution. Always local when the selected mode allows it.": "Th\u1ef1c thi m\u00e1y tr\u1ea1m \u0111\u1ecbnh ki\u1ec3u tr\u1ef1c ti\u1ebfp. Lu\u00f4n c\u1ee5c b\u1ed9 khi ch\u1ebf \u0111\u1ed9 \u0111\u00e3 ch\u1ecdn cho ph\u00e9p.",
+  "Technical details": "Chi ti\u1ebft k\u1ef9 thu\u1eadt", "Advanced routing, provider, budget, override, and recovery controls. Normal use does not require changing these settings.": "C\u00e0i \u0111\u1eb7t n\u00e2ng cao cho \u0111i\u1ec1u ph\u1ed1i, provider, h\u1ea1n m\u1ee9c, override v\u00e0 kh\u00f4i ph\u1ee5c. S\u1eed d\u1ee5ng th\u00f4ng th\u01b0\u1eddng kh\u00f4ng c\u1ea7n thay \u0111\u1ed5i c\u00e1c m\u1ee5c n\u00e0y.",
+  "Show technical details": "Hi\u1ec7n chi ti\u1ebft k\u1ef9 thu\u1eadt", "Selected mode": "Ch\u1ebf \u0111\u1ed9 \u0111\u00e3 ch\u1ecdn",
+  "Return to direct RWMCP or stop worker routing when allowed AI targets are exhausted.": "Quay v\u1ec1 RWMCP tr\u1ef1c ti\u1ebfp ho\u1eb7c d\u1eebng \u0111i\u1ec1u ph\u1ed1i worker khi c\u00e1c t\u00e1c nh\u00e2n AI \u0111\u01b0\u1ee3c ph\u00e9p \u0111\u00e3 c\u1ea1n.",
+  "AI routing": "\u0110i\u1ec1u ph\u1ed1i AI", "Your simple choice controls future routing. Technical settings remain unchanged unless you edit them.": "L\u1ef1a ch\u1ecdn \u0111\u01a1n gi\u1ea3n c\u1ee7a b\u1ea1n quy\u1ebft \u0111\u1ecbnh \u0111i\u1ec1u ph\u1ed1i ti\u1ebfp theo. C\u00e0i \u0111\u1eb7t k\u1ef9 thu\u1eadt kh\u00f4ng thay \u0111\u1ed5i n\u1ebfu b\u1ea1n kh\u00f4ng s\u1eeda ch\u00fang.",
+  "Save AI settings": "L\u01b0u c\u00e0i \u0111\u1eb7t AI", "Save these AI routing settings?": "L\u01b0u c\u00e1c c\u00e0i \u0111\u1eb7t \u0111i\u1ec1u ph\u1ed1i AI n\u00e0y?", "AI routing settings saved.": "\u0110\u00e3 l\u01b0u c\u00e0i \u0111\u1eb7t \u0111i\u1ec1u ph\u1ed1i AI.",
+  "AI workers are temporarily bypassed for a Work Session.": "C\u00e1c worker AI \u0111ang t\u1ea1m th\u1eddi b\u1ecb b\u1ecf qua cho m\u1ed9t Work Session.", "RWMCP remains available. Open Technical details to review or reset the fallback after the provider issue is understood.": "RWMCP v\u1eabn kh\u1ea3 d\u1ee5ng. M\u1edf Chi ti\u1ebft k\u1ef9 thu\u1eadt \u0111\u1ec3 xem ho\u1eb7c reset fallback sau khi \u0111\u00e3 hi\u1ec3u l\u1ed7i provider."
+
 });

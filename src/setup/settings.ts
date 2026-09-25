@@ -124,6 +124,19 @@ function targetBudgetFrom(value: unknown, fallback: ExecutionTargetBudgetSetting
   return { maxTasksPerSession: session, maxTasksPerDay: day };
 }
 
+export function executionTargetsFromLegacyFlags(
+  defaultMode: ExecutionMode,
+  codexEnabled: boolean,
+  antigravityEnabled: boolean
+): ExecutionTargetId[] {
+  if (defaultMode === 'rwmcp-only') return ['rwmcp-direct'];
+  if (defaultMode === 'codex-only') return codexEnabled ? ['codex-local'] : ['rwmcp-direct'];
+  const targets: ExecutionTargetId[] = ['rwmcp-direct'];
+  if (codexEnabled) targets.push('codex-local');
+  if (antigravityEnabled) targets.push('antigravity-local');
+  return targets;
+}
+
 export function inferExecutionTargetPolicy(execution: Record<string, unknown> | undefined): ExecutionTargetPolicySettings {
   const raw = execution ?? {};
   const targetMode = inferExecutionTargetMode(raw);

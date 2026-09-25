@@ -7,6 +7,7 @@ import {
   ensureDefaultPolicy,
   loadSetupSettings,
   executionTargetModePreset,
+  executionTargetsFromLegacyFlags,
   normalizeSetupSettings,
   saveSetupSettings,
   setupSettingsPath
@@ -152,6 +153,16 @@ test('generic target policy migrates legacy Codex settings and preserves explici
   assert.equal(generic.execution.maxCodexTasksPerSession, 2);
   assert.equal(generic.execution.maxCodexTasksPerDay, 8);
   assert.deepEqual(generic.execution.targetPolicy.budgets['antigravity-local'], { maxTasksPerSession: 3, maxTasksPerDay: 9 });
+});
+
+test('legacy custom flags project into generic target sets without widening authority', () => {
+  assert.deepEqual(executionTargetsFromLegacyFlags('rwmcp-only', true, true), ['rwmcp-direct']);
+  assert.deepEqual(executionTargetsFromLegacyFlags('codex-only', true, true), ['codex-local']);
+  assert.deepEqual(executionTargetsFromLegacyFlags('codex-only', false, true), ['rwmcp-direct']);
+  assert.deepEqual(executionTargetsFromLegacyFlags('both', false, false), ['rwmcp-direct']);
+  assert.deepEqual(executionTargetsFromLegacyFlags('both', true, false), ['rwmcp-direct', 'codex-local']);
+  assert.deepEqual(executionTargetsFromLegacyFlags('both', false, true), ['rwmcp-direct', 'antigravity-local']);
+  assert.deepEqual(executionTargetsFromLegacyFlags('both', true, true), ['rwmcp-direct', 'codex-local', 'antigravity-local']);
 });
 
 test('setup settings tolerate a UTF-8 BOM written by Windows PowerShell', async () => {

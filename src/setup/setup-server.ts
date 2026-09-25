@@ -43,6 +43,7 @@ import {
   ensureDefaultPolicy,
   executionTargetModePreset,
   executionTargetsForMode,
+  executionTargetsFromLegacyFlags,
   ensureHostsConfig,
   loadSetupSettings,
   normalizeSetupSettings,
@@ -1359,9 +1360,16 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
             ...(body.targetPolicy?.budgets?.['antigravity-local'] ?? {})
           }
         };
+        const legacyCustomCodexEnabled = typeof body.codexEnabled === 'boolean'
+          ? body.codexEnabled
+          : current.execution.codexEnabled;
+        const legacyCustomAntigravityEnabled = typeof body.antigravityEnabled === 'boolean'
+          ? body.antigravityEnabled
+          : current.execution.antigravityEnabled;
+        const legacyCustomDefaultMode = body.defaultMode ?? current.execution.defaultMode;
         const targetPolicy = {
           enabledTargets: legacyCustom
-            ? current.execution.targetPolicy.enabledTargets
+            ? executionTargetsFromLegacyFlags(legacyCustomDefaultMode, legacyCustomCodexEnabled, legacyCustomAntigravityEnabled)
             : executionTargetsForMode(requestedTargetMode),
           fallback: requestedFallback,
           budgets: requestedBudgets

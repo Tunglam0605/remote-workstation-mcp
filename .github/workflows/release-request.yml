@@ -74,7 +74,7 @@ jobs:
           fi
       - name: Install dependencies
         if: steps.existing.outputs.exists != 'true'
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Typecheck
         if: steps.existing.outputs.exists != 'true'
         run: npm run typecheck
@@ -96,7 +96,15 @@ jobs:
           mv "release/$PACK" "release/remote-workstation-mcp-${TAG}.tgz"
           cp scripts/install-windows-release.ps1 release/install-windows.ps1
           cp scripts/install-windows-bootstrap.cmd release/install-windows.cmd
-          (cd release && sha256sum "remote-workstation-mcp-${TAG}.tgz" install-windows.ps1 install-windows.cmd > SHA256SUMS.txt)
+          cp scripts/install-linux.sh release/install-linux.sh
+          npm sbom --sbom-format cyclonedx > release/rwmcp-sbom.cdx.json
+          (
+            cd release
+            sha256sum \
+              "remote-workstation-mcp-${TAG}.tgz" \
+              install-windows.ps1 install-windows.cmd install-linux.sh \
+              rwmcp-sbom.cdx.json > SHA256SUMS.txt
+          )
       - name: Smoke-test packed release
         if: steps.existing.outputs.exists != 'true'
         env:
@@ -113,6 +121,26 @@ jobs:
             "release/remote-workstation-mcp-${TAG}.tgz" \
             "release/install-windows.ps1" \
             "release/install-windows.cmd" \
+            "release/install-linux.sh" \
+            "release/rwmcp-sbom.cdx.json" \
             "release/SHA256SUMS.txt" \
             --title "$TAG" \
             --generate-notes
+      - name: Verify published release assets
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          for REQUIRED in \
+            "remote-workstation-mcp-${TAG}.tgz" \
+            install-windows.ps1 install-windows.cmd install-linux.sh \
+            rwmcp-sbom.cdx.json SHA256SUMS.txt; do
+            printf '%s\n' "$ASSETS" | grep -Fx -- "$REQUIRED" >/dev/null || {
+              echo "Missing required release asset: $REQUIRED"
+              exit 1
+            }
+          done

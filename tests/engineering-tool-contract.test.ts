@@ -36,7 +36,7 @@ test('v0.44 expands professional engineering and Office tooling on Action Schema
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 20;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.44\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.44\.1';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');

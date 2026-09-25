@@ -43,6 +43,9 @@ test('opening a view reads store state without issuing an API request', async ()
   assert.match(source, /function open\(page\)/);
   for (const mapping of ['Work: openWork', 'Agents: openExecution', 'Engineering: openEngineering', 'Office: openOffice', 'Web: openWeb', 'Devices: openDevices', 'Security: openAccess', 'System: openSystem']) assert.match(source, new RegExp(mapping.replace(/[.*+?^${}()|[\\]\\]/g, '\\  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);')));
   assert.match(source, /function capabilityDomain\(/);
+  assert.match(source, /Advanced access scopes/);
+  assert.match(source, /Pair a new device/);
+  assert.match(source, /Advanced multi-node transfers/);
   assert.match(source, /live\('capabilities'\)/);
   assert.match(source, /function live\(name\) \{ return resource\(store, name\)\.data; \}/);
   assert.match(source, /deriveNotifications\(store\.getState\(\)\)/);
@@ -101,7 +104,7 @@ function installDom() {
   return { Node, descendants, restore: () => { globalThis.document = previousDocument; globalThis.confirm = previousConfirm; } };
 }
 
-test('Execution distinguishes global route from Work Session overrides and unavailable workers', () => {
+test('Execution leads with simple routing choices while retaining advanced modes and technical controls', () => {
   const dom = installDom();
   const pages: Array<InstanceType<typeof dom.Node>> = [];
   const state = {
@@ -118,33 +121,31 @@ test('Execution distinguishes global route from Work Session overrides and unava
       openModal: () => {}, openPage: (_page: string, _title: string, content: InstanceType<typeof dom.Node>) => { pages.push(content); }, toast: () => {}, refresh: async () => {} });
     views.open('Execution');
     const rendered = pages[0]!.textContent;
-    assert.match(rendered, /Unified Three-Target Orchestrator/);
-    assert.match(rendered, /Global route/);
-    assert.match(rendered, /Execution target set/);
+    assert.match(rendered, /How should AI work\?/);
+    assert.match(rendered, /Choose how work is routed/);
     assert.match(rendered, /Auto \/ Smart/);
+    assert.match(rendered, /Recommended/);
+    assert.match(rendered, /RWMCP only/);
+    assert.match(rendered, /Codex only/);
     assert.match(rendered, /Antigravity only/);
+    assert.match(rendered, /More routing combinations/);
     assert.match(rendered, /RWMCP \+ Codex/);
     assert.match(rendered, /Codex \+ Antigravity/);
     assert.match(rendered, /All three/);
-    assert.match(rendered, /Task affinity & fallback/);
-    assert.match(rendered, /Frontend \/ UI/);
-    assert.match(rendered, /Antigravity preferred/);
-    assert.match(rendered, /Backend \/ Code \/ Engineering/);
-    assert.match(rendered, /Codex preferred/);
-    assert.match(rendered, /Read \/ Workstation \/ Deterministic/);
-    assert.match(rendered, /RWMCP preferred/);
-    assert.match(rendered, /Execution targets & capacity/);
+    assert.match(rendered, /What happens automatically/);
+    assert.match(rendered, /Antigravity is preferred for interface and visual work/);
+    assert.match(rendered, /Codex is preferred for backend, code, debugging, and engineering work/);
+    assert.match(rendered, /RWMCP is preferred for deterministic workstation, Office, build, test, and read operations/);
+    assert.match(rendered, /Available execution targets/);
     assert.match(rendered, /RWMCP Direct/);
     assert.match(rendered, /OpenAI Codex/);
     assert.match(rendered, /Google Antigravity/);
-    assert.match(rendered, /dirty worktrees fail closed for review/);
-    assert.match(rendered, /Account routingblocked/);
-    assert.match(rendered, /Excluded by the selected execution target set/);
+    assert.match(rendered, /Not selected/);
+    assert.match(rendered, /Technical details/);
     assert.match(rendered, /When AI targets are exhausted/);
     setLanguage('vi');
-    assert.equal(t('Execution target set'), 'T\u1eadp t\u00e1c nh\u00e2n th\u1ef1c thi');
-    assert.equal(t('RWMCP preferred'), '\u01afu ti\u00ean RWMCP');
-    assert.equal(t('Task affinity & fallback'), '\u0110\u1ed9 ph\u00f9 h\u1ee3p t\u00e1c v\u1ee5 & d\u1ef1 ph\u00f2ng');
+    assert.equal(t('How should AI work?'), 'AI n\u00ean l\u00e0m vi\u1ec7c nh\u01b0 th\u1ebf n\u00e0o?');
+    assert.equal(t('Save AI settings'), 'L\u01b0u c\u00e0i \u0111\u1eb7t AI');
   } finally { dom.restore(); }
 });
 
@@ -192,7 +193,7 @@ test('Agent Control saves the selected route and provider settings through the e
     });
     views.open('Execution');
     const page = pages[0]!;
-    const save = dom.descendants(page).find((node) => node.textContent === 'Save Agent Control' && node.listeners.has('click'));
+    const save = dom.descendants(page).find((node) => node.textContent === 'Save AI settings' && node.listeners.has('click'));
     assert.ok(save);
     await save.listeners.get('click')!({ currentTarget: save });
     const request = requests.find((item) => item.path === '/api/execution-policy');
@@ -235,7 +236,7 @@ test('Vietnamese views localize interactive text while retaining backend request
     views.open('Settings');
     const rendered = pages.map((page) => page.content.textContent).join('\n');
     const placeholders = pages.flatMap((page) => dom.descendants(page.content)).map((node) => node.attributes.get('placeholder'));
-    assert.match(rendered, /Quyền truy cập và kiểm soát chủ sở hữu/);
+    assert.match(rendered, /B\u1ea3o m\u1eadt & truy c\u1eadp/);
     assert.ok(placeholders.includes('Tên thiết bị tùy chọn'));
     assert.ok(placeholders.includes('Để trống để giữ khóa hiện tại'));
     const saveScopes = pages.flatMap((page) => dom.descendants(page.content)).find((node) => node.textContent === 'Lưu phạm vi' && node.listeners.has('click'));
@@ -277,6 +278,9 @@ test('domain pages are capability-driven and keep providers below their domain',
     views.open('Web');
     views.open('System');
 
+    assert.match(pages[0]!.content.textContent, /What you can do/);
+    assert.match(pages[0]!.content.textContent, /Hardware/);
+    assert.match(pages[0]!.content.textContent, /Technical details/);
     assert.match(pages[0]!.content.textContent, /engineering\.hardware/);
     assert.doesNotMatch(pages[0]!.content.textContent, /agent\.antigravity_worker/);
     assert.match(pages[1]!.content.textContent, /office\.word\.inspect/);

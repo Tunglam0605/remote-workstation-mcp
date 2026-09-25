@@ -13,6 +13,9 @@ test('Moonlight information architecture keeps nine stable top-level domains', (
     ['Overview', 'Work', 'Agents', 'Engineering', 'Office', 'Web', 'Devices', 'Security', 'System']
   );
   assert.equal(new Set(NAVIGATION.map(item => item.route)).size, NAVIGATION.length);
+  assert.deepEqual([...new Set(NAVIGATION.map(item => item.group))], ['Home', 'Work', 'AI', 'Tools', 'System']);
+  assert.equal(NAVIGATION.find(item => item.id === 'Overview')?.label, 'Home');
+  assert.equal(NAVIGATION.find(item => item.id === 'Agents')?.label, 'AI');
 });
 
 test('legacy page names and hashes remain backward compatible', () => {

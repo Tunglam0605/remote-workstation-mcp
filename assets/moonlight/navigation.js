@@ -1,7 +1,8 @@
 export const NAVIGATION = Object.freeze([
   {
     id: 'Overview',
-    label: 'Overview',
+    label: 'Home',
+    group: 'Home',
     icon: 'house',
     route: 'overview',
     aliases: [],
@@ -10,6 +11,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'Work',
     label: 'Work',
+    group: 'Work',
     icon: 'briefcase-business',
     route: 'work',
     aliases: [],
@@ -18,7 +20,8 @@ export const NAVIGATION = Object.freeze([
   },
   {
     id: 'Agents',
-    label: 'Agents',
+    label: 'AI',
+    group: 'AI',
     icon: 'sparkles',
     route: 'agents',
     aliases: ['Execution'],
@@ -28,6 +31,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'Engineering',
     label: 'Engineering',
+    group: 'Tools',
     icon: 'wrench',
     route: 'engineering',
     aliases: [],
@@ -37,6 +41,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'Office',
     label: 'Office',
+    group: 'Tools',
     icon: 'files',
     route: 'office',
     aliases: [],
@@ -46,6 +51,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'Web',
     label: 'Web',
+    group: 'Tools',
     icon: 'globe-2',
     route: 'web',
     aliases: [],
@@ -55,6 +61,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'Devices',
     label: 'Devices',
+    group: 'System',
     icon: 'monitor',
     route: 'devices',
     aliases: [],
@@ -64,6 +71,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'Security',
     label: 'Security',
+    group: 'System',
     icon: 'shield-check',
     route: 'security',
     aliases: ['Access'],
@@ -73,6 +81,7 @@ export const NAVIGATION = Object.freeze([
   {
     id: 'System',
     label: 'System',
+    group: 'System',
     icon: 'settings-2',
     route: 'system',
     aliases: ['Updates', 'Settings'],

@@ -90,24 +90,51 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
   }
 
+  function capabilityLabel(id) {
+    const value = String(id || '');
+    const known = [
+      ['office.word', 'Word'], ['office.excel', 'Excel'], ['office.powerpoint', 'PowerPoint'],
+      ['web.notebooklm', 'NotebookLM'], ['web.existing_chrome', 'Existing Chrome'], ['web.browser', 'Browser automation'], ['web.automation', 'Browser automation'],
+      ['engineering.hardware', 'Hardware'], ['engineering.firmware', 'Firmware'], ['engineering.debug', 'Debugging'], ['engineering.ros2', 'ROS 2'], ['engineering.container', 'Containers'], ['engineering.workflow', 'Engineering workflows'],
+      ['build.diagnostics', 'Build diagnostics'], ['code.semantic', 'Code intelligence'],
+      ['work_session.', 'Work Sessions'], ['project_session_group.', 'Project coordination'], ['project.', 'Projects'], ['work_objective.', 'Objectives & tasks'], ['task.', 'Tasks'], ['filesystem.', 'Files'], ['git.', 'Git']
+    ];
+    const matched = known.find(([prefix]) => value.startsWith(prefix));
+    if (matched) return matched[1];
+    const readable = value.replace(/^[^.]+\./, '').replace(/[._-]+/g, ' ').trim();
+    return readable ? readable.charAt(0).toUpperCase() + readable.slice(1) : value;
+  }
+
   function capabilityDomain(page, title, description, prefixes, emptyMessage, extraActions = []) {
     const content = pageRoot(page, title, description);
     unavailable('capabilities', content);
     const entries = capabilityEntries(prefixes);
-    const summary = section('Capability groups', 'Capabilities are discovered from the running backend. Provider and implementation details stay below the domain layer.', 'moon-page-full');
+    const available = entries.filter((item) => item.status === 'available').length;
+    const summary = section('What you can do', 'This page shows the capabilities available on this workstation. Technical IDs and provider notes stay collapsed unless you need them.', 'moon-page-full capability-friendly-section');
+    summary.append(el('div', { class: 'capability-summary-strip' },
+      el('div', {}, el('strong', { text: text(available) }), el('span', { text: t('available groups') })),
+      el('div', {}, el('strong', { text: text(entries.reduce((total, item) => total + (Array.isArray(item.tools) ? item.tools.length : 0), 0)) }), el('span', { text: t('typed actions') }))
+    ));
+    if (extraActions.length) summary.append(actions(...extraActions));
     if (!entries.length) summary.append(emptyState(emptyMessage));
+    const grid = el('div', { class: 'capability-friendly-grid' });
     for (const item of entries) {
       const tools = Array.isArray(item.tools) ? item.tools : [];
-      summary.append(el('article', { class: 'moon-row' },
+      const details = el('details', { class: 'capability-technical' }, el('summary', { text: t('Technical details') }));
+      details.append(
+        el('code', { text: text(item.id) }),
+        item.note && el('p', { class: 'moon-muted', text: text(item.note) })
+      );
+      grid.append(el('article', { class: 'capability-friendly-card' },
         el('div', { class: 'device-row-header' },
-          el('strong', { text: text(item.id) }),
-          el('span', { class: `pill ${item.status === 'available' ? 'success' : 'warning'}`, text: t(text(item.status || 'Unavailable')) })
+          el('strong', { text: t(capabilityLabel(item.id)) }),
+          el('span', { class: `pill ${item.status === 'available' ? 'success' : 'warning'}`, text: t(item.status === 'available' ? 'Ready' : text(item.status || 'Unavailable')) })
         ),
-        el('span', { text: t('{count} typed tools', { count: tools.length }) }),
-        item.note && el('small', { class: 'moon-muted', text: text(item.note) })
+        el('p', { text: t('{count} typed actions available', { count: tools.length }) }),
+        details
       ));
     }
-    if (extraActions.length) summary.append(actions(...extraActions));
+    summary.append(grid);
     content.append(summary);
     return content;
   }
@@ -115,8 +142,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openWork() {
     return capabilityDomain(
       'Work',
-      'Work',
-      'Projects, Work Sessions, tasks, objectives, and artifacts belong here. Execution providers stay separate under Agents.',
+      'Work & projects',
+      'Create or resume Work Sessions, inspect files and Git, and run permitted project tasks from one place.',
       ['work_session.', 'project.', 'project_session_group.', 'work_objective.', 'task.', 'filesystem.', 'git.'],
       'No work-management capabilities are currently advertised by the backend.',
       [button('Open Execution Console', () => openExecutionConsole(), 'primary-button')]
@@ -126,8 +153,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openEngineering() {
     return capabilityDomain(
       'Engineering',
-      'Engineering',
-      'Hardware, firmware, debugging, ROS 2, containers, build diagnostics, and engineering workflows.',
+      'Engineering tools',
+      'Build, flash, debug, inspect hardware, work with ROS 2, and run typed engineering diagnostics.',
       ['engineering.', 'build.diagnostics', 'code.semantic'],
       'No engineering capabilities are currently advertised by the backend.'
     );
@@ -136,8 +163,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openOffice() {
     return capabilityDomain(
       'Office',
-      'Office',
-      'Word, Excel, and PowerPoint capabilities stay in one Office domain while OOXML and COM remain implementation details.',
+      'Office tools',
+      'Inspect and edit Word, Excel, and PowerPoint files with safe typed operations.',
       ['office.'],
       'No Office capabilities are currently advertised by the backend.'
     );
@@ -146,8 +173,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openWeb() {
     return capabilityDomain(
       'Web',
-      'Web',
-      'Managed browsers, Existing Chrome, and site adapters such as NotebookLM belong to one web automation domain.',
+      'Web & NotebookLM',
+      'Use managed browser sessions and supported web workflows such as NotebookLM from one place.',
       ['web.'],
       'No web automation capabilities are currently advertised by the backend.'
     );
@@ -156,8 +183,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openSystem() {
     const content = pageRoot(
       'System',
-      'System',
-      'Runtime, updates, recovery, diagnostics, and local platform maintenance.'
+      'System & updates',
+      'Check runtime health, update versions, recovery, diagnostics, and local platform maintenance.'
     );
     const runtime = live('runtime');
     const updates = live('updates');
@@ -181,7 +208,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
 
   function openAccess() {
     const state = live('permissions'); const admin = live('admin'); const platform = live('status')?.platform;
-    const content = pageRoot('Access', 'Access & owner controls', 'Review local owner permissions, leases, and approval requests.'); unavailable('permissions', content);
+    const content = pageRoot('Access', 'Security & access', 'Control permissions and approvals. Full-control options remain explicit and owner-managed.'); unavailable('permissions', content);
     if (!state) return content;
     const mode = selectValue(state.mode, [['read_only', 'Read only'], ['workspace', 'Workspace'], ['full_control', 'Full control']]);
     const modeSection = section('Permission mode', 'The backend is authoritative and may require a restart.');
@@ -200,7 +227,9 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       const httpScopes = [...scopeList.querySelectorAll('input:checked')].map((input) => input.value);
       if (!confirm(t('Save the selected access scopes?'))) return;
       await mutate('/api/permissions/config', { httpScopes, allowHostFilesystem: hostFs.checked, allowRawShell: rawShell.checked }, ['permissions'], 'Access scopes saved.'); openAccess();
-    }, 'primary-button'))); content.append(scopeSection);
+    }, 'primary-button')));
+    const scopeDetails = el('details', { class: 'agent-advanced security-advanced' }, el('summary', { text: t('Advanced access scopes') }));
+    scopeDetails.append(scopeSection); content.append(scopeDetails);
     const leaseSection = section('Full-control lease', 'A lease is permitted only when the backend local gate is enabled.');
     const lease = state.lease;
     const leaseStatusClass = lease?.active ? 'moon-status' : 'moon-status inactive';
@@ -230,7 +259,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
   function openExecution() {
     const policy = live('execution');
     const antigravity = live('antigravity');
-    const content = pageRoot('Execution', 'Unified Three-Target Orchestrator', 'RWMCP, Codex, and Antigravity are peer execution targets at the routing layer. Task affinity sets preference; owner policy, readiness, and safe handoff rules decide fallback.');
+    const content = pageRoot('Execution', 'How should AI work?', 'Choose the simple mode you want. Auto / Smart is recommended; technical routing controls stay available when you need them.');
     unavailable('execution', content);
     if (!policy) return content;
 
@@ -250,10 +279,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const codexSessionLimit = Number(status.maxCodexTasksPerSession || 0);
     const codexSessionUsed = Number(status.codexTasksThisSession || 0);
     const codexCapacity = codexSessionLimit > 0
-      ? t('{remaining} / {limit} session tasks remaining', {
-          remaining: Math.max(0, codexSessionLimit - codexSessionUsed),
-          limit: codexSessionLimit
-        })
+      ? t('{remaining} / {limit} session tasks remaining', { remaining: Math.max(0, codexSessionLimit - codexSessionUsed), limit: codexSessionLimit })
       : t('No Codex task cap');
 
     const inferTargetMode = () => {
@@ -269,158 +295,92 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     };
     const selectedTargetMode = inferTargetMode();
     const targetModeLabels = {
-      auto: 'Auto / Smart',
-      'rwmcp-only': 'RWMCP only',
-      'codex-only': 'Codex only',
-      'antigravity-only': 'Antigravity only',
-      'rwmcp-codex': 'RWMCP + Codex',
-      'rwmcp-antigravity': 'RWMCP + Antigravity',
-      'codex-antigravity': 'Codex + Antigravity',
-      'all-three': 'All three'
+      auto: 'Auto / Smart', 'rwmcp-only': 'RWMCP only', 'codex-only': 'Codex only', 'antigravity-only': 'Antigravity only',
+      'rwmcp-codex': 'RWMCP + Codex', 'rwmcp-antigravity': 'RWMCP + Antigravity', 'codex-antigravity': 'Codex + Antigravity', 'all-three': 'All three'
     };
     const targetMembers = {
-      auto: ['rwmcp-direct', 'codex-local', 'antigravity-local'],
-      'rwmcp-only': ['rwmcp-direct'],
-      'codex-only': ['codex-local'],
-      'antigravity-only': ['antigravity-local'],
-      'rwmcp-codex': ['rwmcp-direct', 'codex-local'],
-      'rwmcp-antigravity': ['rwmcp-direct', 'antigravity-local'],
-      'codex-antigravity': ['codex-local', 'antigravity-local'],
-      'all-three': ['rwmcp-direct', 'codex-local', 'antigravity-local']
+      auto: ['rwmcp-direct', 'codex-local', 'antigravity-local'], 'rwmcp-only': ['rwmcp-direct'], 'codex-only': ['codex-local'], 'antigravity-only': ['antigravity-local'],
+      'rwmcp-codex': ['rwmcp-direct', 'codex-local'], 'rwmcp-antigravity': ['rwmcp-direct', 'antigravity-local'], 'codex-antigravity': ['codex-local', 'antigravity-local'], 'all-three': ['rwmcp-direct', 'codex-local', 'antigravity-local']
     };
     const allowedTargets = new Set(targetMembers[selectedTargetMode] || targetMembers.auto);
-    const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
-    const effective = status.effectiveMode || settings.defaultMode || 'rwmcp-only';
-    const routeText = status.fallbackActive
-      ? 'The affected Work Session is latched to direct RWMCP after worker exhaustion; reset only after the provider issue is understood.'
-      : 'Affinity selects a preferred peer target. A safe failure may hand off to the next allowed target; permissions and worktree ownership are never widened automatically.';
 
-    const route = section('Global route', 'Owner target set plus the current safety ceiling. Work Session overrides can further change a session only when owner policy allows them.', 'moon-page-full agent-route-section');
-    route.append(el('div', { class: 'agent-route-banner' },
-      el('div', { class: 'agent-route-main' },
-        el('span', { class: `pill ${status.fallbackActive ? 'warning' : 'success'}`, text: t(status.fallbackActive ? 'Fallback active' : 'Policy active') }),
-        el('div', {}, el('strong', { text: t(targetModeLabels[selectedTargetMode] || selectedTargetMode) }), el('p', { text: t(routeText) }))
-      ),
-      el('div', { class: 'agent-route-meta' },
-        el('span', { text: `${t('Source')}: ${t(sourceLabels[status.source] || text(status.source))}` }),
-        el('span', { text: `${t('Execution target set')}: ${t(targetModeLabels[selectedTargetMode] || selectedTargetMode)}` }),
-        el('span', { text: `${t('Safety ceiling')}: ${t(text(effective))}` }),
-        el('span', { text: `${t('Chat overrides')}: ${settings.allowChatOverride ? t('Allowed') : t('Locked by owner')}` }),
-        el('span', { text: `${t('Active overrides')}: ${text(status.activeSessionOverrides ?? 0)}` })
-      )
-    ));
-    if (status.fallbackActive) route.append(el('p', { class: 'moon-warning', text: t('Fallback active: {reason}', { reason: text(status.fallbackReason) }) }));
-    content.append(route);
-
-    const affinity = section(
-      'Task affinity & fallback',
-      'All three targets are replaceable execution choices at the router layer. Affinity is preference, not a hard capability lock; safe handoff uses the next allowed target.',
-      'moon-page-full'
-    );
-    const chainCard = (title, subtitle, steps) => el('article', { class: 'agent-affinity-card' },
-      el('div', { class: 'agent-affinity-head' },
-        el('strong', { text: t(title) }),
-        el('span', { class: 'moon-muted', text: t(subtitle) })
-      ),
-      el('div', { class: 'agent-route-chain' },
-        ...steps.flatMap((step, index) => [
-          el('span', { class: `agent-route-step ${step.kind || ''}`, text: t(step.label) }),
-          ...(index < steps.length - 1 ? [el('span', { class: 'agent-route-arrow', text: '?' })] : [])
-        ])
-      )
-    );
-    affinity.append(
-      el('div', { class: 'agent-affinity-grid' },
-        chainCard('Frontend / UI', 'Antigravity preferred', [
-          { label: 'Antigravity', kind: 'preferred' },
-          { label: 'Codex', kind: 'fallback-worker' },
-          { label: 'RWMCP', kind: 'direct' }
-        ]),
-        chainCard('Backend / Code / Engineering', 'Codex preferred', [
-          { label: 'Codex', kind: 'preferred' },
-          { label: 'Antigravity', kind: 'fallback-worker' },
-          { label: 'RWMCP', kind: 'direct' }
-        ]),
-        chainCard('Read / Workstation / Deterministic', 'RWMCP preferred', [
-          { label: 'RWMCP', kind: 'preferred direct' },
-          { label: 'Codex', kind: 'fallback-worker' },
-          { label: 'Antigravity', kind: 'fallback-worker' }
-        ])
-      ),
-      el('p', { class: 'moon-muted', text: t('Capacity, quota, authentication, and availability failures can hand off immediately. Ordinary AI failures may hand off only while isolated worktree ownership remains clean; dirty worktrees fail closed for review.') })
-    );
-    content.append(affinity);
-
-    const targetSet = section('Execution target set', 'Choose which peer targets the router may use. Auto / Smart keeps all three available and applies task affinity automatically.', 'moon-page-full');
-    const targetModes = [
-      ['auto', 'Auto / Smart', 'All three targets are available. Affinity selects the preferred target and safe fallback order.'],
-      ['rwmcp-only', 'RWMCP only', 'Deterministic typed workstation execution only.'],
-      ['codex-only', 'Codex only', 'Bounded Codex worker execution only.'],
-      ['antigravity-only', 'Antigravity only', 'Bounded Antigravity worker execution only.'],
-      ['rwmcp-codex', 'RWMCP + Codex', 'Use deterministic RWMCP and Codex; Antigravity is excluded.'],
-      ['rwmcp-antigravity', 'RWMCP + Antigravity', 'Use deterministic RWMCP and Antigravity; Codex is excluded.'],
-      ['codex-antigravity', 'Codex + Antigravity', 'Use both AI workers; direct RWMCP is excluded from normal routing.'],
-      ['all-three', 'All three', 'Explicitly allow RWMCP, Codex, and Antigravity together with affinity ordering.']
-    ];
-    const targetGrid = el('div', { class: 'agent-routing-grid' });
-    const targetInputs = [];
-    for (const [id, title, description] of targetModes) {
-      const input = el('input', { type: 'radio', name: 'execution-target-mode', value: id, checked: id === selectedTargetMode });
-      targetInputs.push(input);
-      targetGrid.append(el('label', { class: `agent-strategy-card${id === selectedTargetMode ? ' selected' : ''}` }, input,
-        el('div', {}, el('strong', { text: t(title) }), el('p', { text: t(description) }))
+    if (status.fallbackActive) {
+      content.append(el('div', { class: 'agent-simple-alert moon-page-full' },
+        el('span', { class: 'pill warning', text: t('Fallback active') }),
+        el('div', {}, el('strong', { text: t('AI workers are temporarily bypassed for a Work Session.') }), el('p', { text: t('RWMCP remains available. Open Technical details to review or reset the fallback after the provider issue is understood.') }))
       ));
-      input.addEventListener('change', () => targetGrid.querySelectorAll('.agent-strategy-card').forEach((card) => card.classList.toggle('selected', card.querySelector('input')?.checked)));
     }
-    targetSet.append(targetGrid, el('p', { class: 'moon-muted', text: t('Target selection changes routing eligibility only. Each target keeps its own sandbox, permission, quota, and workstation security boundaries.') }));
-    content.append(targetSet);
 
-    const peers = section('Execution targets & capacity', 'RWMCP, Codex, and Antigravity are peers for routing selection, while their underlying execution mechanisms remain deliberately different.', 'moon-page-full');
-    const peerGrid = el('div', { class: 'agent-provider-grid' });
-    const peerCard = (kind, title, ready, enabled, facts, note) => el('article', { class: `agent-provider-card ${ready ? 'ready' : 'offline'}` },
-      el('header', { class: 'agent-provider-header' },
-        el('div', {}, el('span', { class: 'agent-provider-kicker', text: t(kind) }), el('h4', { text: title })),
-        el('span', { class: `pill ${ready ? 'success' : 'warning'}`, text: t(ready ? 'Ready' : enabled ? 'Unavailable' : 'Excluded') })
-      ),
-      el('div', { class: 'agent-provider-facts' }, ...facts.filter(Boolean).map(([label, value]) => el('div', {}, el('span', { text: t(label) }), el('strong', { text: t(text(value)) })) )),
-      el('p', { class: 'moon-muted', text: t(enabled ? note : 'Excluded by the selected execution target set.') })
+    const simple = section('Choose how work is routed', 'Most users should keep Auto / Smart. You can still force one execution target when you need predictable behavior.', 'moon-page-full agent-simple-mode-section');
+    const commonModes = [
+      ['auto', 'Auto / Smart', 'Recommended', 'Automatically picks the best target for each task and falls back safely when needed.'],
+      ['rwmcp-only', 'RWMCP only', '', 'Use deterministic workstation tools only. Best when you want direct, predictable execution.'],
+      ['codex-only', 'Codex only', '', 'Send bounded implementation work only to Codex.'],
+      ['antigravity-only', 'Antigravity only', '', 'Send bounded implementation work only to Antigravity.']
+    ];
+    const advancedModes = [
+      ['rwmcp-codex', 'RWMCP + Codex', 'Use RWMCP and Codex; Antigravity is excluded.'],
+      ['rwmcp-antigravity', 'RWMCP + Antigravity', 'Use RWMCP and Antigravity; Codex is excluded.'],
+      ['codex-antigravity', 'Codex + Antigravity', 'Use both AI workers; direct RWMCP is excluded from normal routing.'],
+      ['all-three', 'All three', 'Explicitly allow all three targets with task affinity ordering.']
+    ];
+    const makeModeCard = (id, title, badge, description) => {
+      const input = el('input', { type: 'radio', name: 'execution-target-mode', value: id, checked: id === selectedTargetMode });
+      const heading = el('div', { class: 'agent-mode-title' }, el('strong', { text: t(title) }));
+      if (badge) heading.append(el('span', { class: 'agent-mode-badge', text: t(badge) }));
+      const card = el('label', { class: `agent-strategy-card agent-simple-choice${id === selectedTargetMode ? ' selected' : ''}` }, input,
+        el('div', {}, heading, el('p', { text: t(description) }))
+      );
+      input.addEventListener('change', () => content.querySelectorAll('.agent-strategy-card').forEach((node) => node.classList.toggle('selected', node.querySelector('input')?.checked)));
+      return card;
+    };
+    const commonGrid = el('div', { class: 'agent-routing-grid agent-common-grid' });
+    for (const [id, title, badge, description] of commonModes) commonGrid.append(makeModeCard(id, title, badge, description));
+    const more = el('details', { class: 'agent-advanced agent-more-modes', open: advancedModes.some(([id]) => id === selectedTargetMode) ? '' : null },
+      el('summary', { text: t('More routing combinations') })
     );
+    const moreGrid = el('div', { class: 'agent-routing-grid agent-more-grid' });
+    for (const [id, title, description] of advancedModes) moreGrid.append(makeModeCard(id, title, '', description));
+    more.append(moreGrid, el('p', { class: 'moon-muted agent-more-note', text: t('These combinations are for advanced routing needs. They do not widen provider permissions or workstation authority.') }));
+    simple.append(commonGrid, more);
+    content.append(simple);
+
+    const preferences = section('What happens automatically', 'Auto / Smart uses task affinity as a preference, not a hard capability lock. If the preferred target cannot safely continue, the router can use the next allowed target.', 'moon-page-full');
+    const prefCard = (iconName, title, lead, fallback) => el('article', { class: 'agent-preference-card' },
+      el('span', { class: 'agent-preference-icon' }, el('i', { 'data-lucide': iconName })),
+      el('div', {}, el('strong', { text: t(title) }), el('p', { text: t(lead) }), el('small', { text: t('Fallback: {chain}', { chain: fallback }) }))
+    );
+    preferences.append(el('div', { class: 'agent-preference-grid' },
+      prefCard('palette', 'Frontend / UI', 'Antigravity is preferred for interface and visual work.', 'Codex ? RWMCP'),
+      prefCard('code-2', 'Code / Engineering', 'Codex is preferred for backend, code, debugging, and engineering work.', 'Antigravity ? RWMCP'),
+      prefCard('monitor-cog', 'Workstation / Office', 'RWMCP is preferred for deterministic workstation, Office, build, test, and read operations.', 'Codex ? Antigravity')
+    ));
+    content.append(preferences);
+
+    const peers = section('Available execution targets', 'These are the three execution targets the router can use. Selection changes routing eligibility; each target keeps its own security boundary.', 'moon-page-full');
+    const peerGrid = el('div', { class: 'agent-provider-grid agent-simple-provider-grid' });
+    const peerCard = (title, ready, enabled, preference, capacity, note) => {
+      const stateText = !enabled ? 'Not selected' : ready ? 'Ready' : 'Unavailable';
+      const tone = !enabled ? 'muted' : ready ? 'success' : 'warning';
+      return el('article', { class: `agent-provider-card ${ready && enabled ? 'ready' : 'offline'}` },
+        el('header', { class: 'agent-provider-header' }, el('div', {}, el('span', { class: 'agent-provider-kicker', text: t('Execution target') }), el('h4', { text: title })), el('span', { class: `pill ${tone}`, text: t(stateText) })),
+        el('div', { class: 'agent-provider-facts agent-simple-facts' },
+          el('div', {}, el('span', { text: t('Best for') }), el('strong', { text: t(preference) })),
+          el('div', {}, el('span', { text: t('Capacity') }), el('strong', { text: t(text(capacity)) }))
+        ),
+        el('p', { class: 'moon-muted', text: t(note) })
+      );
+    };
     peerGrid.append(
-      peerCard('Deterministic peer ? workstation preferred', 'RWMCP Direct', true, allowedTargets.has('rwmcp-direct'), [
-        ['Mechanism', 'Typed deterministic tools'],
-        ['Preferred for', 'Read / workstation / Office / build / test'],
-        ['Fallback', 'Codex ? Antigravity'],
-        ['Authority', 'Authenticated workstation policy']
-      ], 'RWMCP is always locally available as a deterministic execution mechanism when the target set permits it.'),
-      peerCard('General-purpose AI ? engineering preferred', 'OpenAI Codex', codexReady, allowedTargets.has('codex-local'), [
-        ['Version', codex.version],
-        ['Model', settings.codexModel || 'gpt-6-sol'],
-        ['Preferred for', 'Backend / code / engineering'],
-        ['Capacity', codexCapacity],
-        ['Fallback', 'Antigravity ? RWMCP'],
-        ['Account routing', broker.effectiveBackend || broker.mode || settings.codexAccountBroker?.mode]
-      ], codexReady ? 'Codex is ready for bounded general-purpose Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
-      peerCard('General-purpose AI ? UI preferred', 'Google Antigravity', antigravityReady, allowedTargets.has('antigravity-local'), [
-        ['Version', antigravity?.version],
-        ['Model', antigravity?.model?.label || antigravity?.model?.id || settings.antigravityModel || 'Provider default'],
-        ['Preferred for', 'Frontend / UI'],
-        ['Capacity', antiCapacity],
-        ['Fallback', 'Codex ? RWMCP'],
-        ['Sandbox', antigravity?.available ? 'Required' : 'Unavailable']
-      ], antigravityReady ? 'Antigravity is ready for bounded general-purpose Work Session tasks.' : (antigravity?.detail || 'Antigravity is not ready.'))
+      peerCard('RWMCP Direct', true, allowedTargets.has('rwmcp-direct'), 'Workstation / Office / deterministic work', 'Local', 'Direct typed workstation execution. Always local when the selected mode allows it.'),
+      peerCard('OpenAI Codex', codexReady, allowedTargets.has('codex-local'), 'Code / backend / engineering', codexCapacity, codexReady ? 'Codex is ready for bounded Work Session tasks.' : (broker.effectiveBackend === 'blocked' ? broker.pool?.detail || 'Account routing is unavailable.' : codex.detail || 'Codex is not ready.')),
+      peerCard('Google Antigravity', antigravityReady, allowedTargets.has('antigravity-local'), 'Frontend / UI', antiCapacity, antigravityReady ? 'Antigravity is ready for bounded Work Session tasks.' : (antigravity?.detail || 'Antigravity is not ready.'))
     );
     peers.append(peerGrid);
     content.append(peers);
 
     const chatOverride = el('input', { type: 'checkbox', checked: settings.allowChatOverride });
     const fallback = selectValue(settings.codexFallback || 'rwmcp-only', [['rwmcp-only', 'Return to RWMCP'], ['stop', 'Stop worker routing']]);
-    const behavior = section('Fallback behavior', 'Session override and legacy fallback-latch controls remain safety mechanisms; they never grant unavailable provider authority.', 'moon-page-full');
-    behavior.append(el('div', { class: 'agent-behavior-grid' },
-      field('Work Session override', chatOverride, 'Allows bounded per-session routing overrides when the owner enables this control.'),
-      field('When AI targets are exhausted', fallback, 'RWMCP fallback latches only the affected Work Session after allowed AI targets are exhausted; Stop leaves the task blocked.')
-    ));
-    content.append(behavior);
-
     const codexModel = el('input', { value: settings.codexModel || 'gpt-6-sol', placeholder: 'gpt-6-sol' });
     const antiModel = el('input', { value: settings.antigravityModel || '', placeholder: t('Provider configured model') });
     const codexAgentsEnabled = el('input', { type: 'checkbox', checked: settings.codexAgentsEnabled });
@@ -429,32 +389,41 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const maxDay = el('input', { type: 'number', min: '0', value: settings.maxCodexTasksPerDay ?? '' });
     const brokerEnabled = el('input', { type: 'checkbox', checked: settings.codexAccountBroker?.enabled });
     const brokerMode = selectValue(settings.codexAccountBroker?.mode || 'native', [['native', 'Native'], ['cockpit-api-pool', 'Cockpit API pool']]);
-    const advanced = section('Advanced', 'Model overrides, budgets, agent features, and recovery controls.', 'moon-page-full');
-    const details = el('details', { class: 'agent-advanced' }, el('summary', { text: t('Show advanced worker settings') }));
-    details.append(el('div', { class: 'moon-form-grid agent-advanced-grid' },
-      field('Codex model', codexModel),
-      field('Antigravity model', antiModel),
-      field('Enable Codex EAS agents', codexAgentsEnabled),
-      field('Share Codex skills with RWMCP workers', codexSkillsEnabled),
-      field('Max Codex tasks / session', maxSession, '0 means unlimited.'),
-      field('Max Codex tasks / day', maxDay, '0 means unlimited.'),
-      field('Enable account broker', brokerEnabled),
-      field('Broker mode', brokerMode)
-    ));
-    details.append(el('div', { class: 'agent-danger-zone' },
-      el('div', {}, el('strong', { text: t('Recovery actions') }), el('p', { class: 'moon-muted', text: t('Use these only when a fallback latch or stale Work Session override needs to be cleared.') })),
-      actions(
-        button('Reset fallback', async () => { await mutate('/api/execution-policy/fallback-reset', {}, ['execution'], 'Fallback reset.'); openExecution(); }),
-        button('Clear overrides', async () => { if (!confirm(t('Clear all active execution overrides?'))) return; await mutate('/api/execution-policy/clear-overrides', {}, ['execution'], 'Overrides cleared.'); openExecution(); }, 'secondary-button danger-button')
+    const sourceLabels = { 'owner-default': 'Owner default', 'work-session-override': 'ChatGPT Work Session override', 'fallback-latch': 'Automatic fallback' };
+    const effective = status.effectiveMode || settings.defaultMode || 'rwmcp-only';
+
+    const technical = section('Technical details', 'Advanced routing, provider, budget, override, and recovery controls. Normal use does not require changing these settings.', 'moon-page-full');
+    const technicalDetails = el('details', { class: 'agent-advanced agent-technical-details' }, el('summary', { text: t('Show technical details') }));
+    technicalDetails.append(
+      el('div', { class: 'agent-technical-summary' },
+        el('div', {}, el('span', { text: t('Source') }), el('strong', { text: t(sourceLabels[status.source] || text(status.source)) })),
+        el('div', {}, el('span', { text: t('Selected mode') }), el('strong', { text: t(targetModeLabels[selectedTargetMode] || selectedTargetMode) })),
+        el('div', {}, el('span', { text: t('Safety ceiling') }), el('strong', { text: t(text(effective)) })),
+        el('div', {}, el('span', { text: t('Active overrides') }), el('strong', { text: text(status.activeSessionOverrides ?? 0) }))
+      ),
+      el('div', { class: 'moon-form-grid agent-advanced-grid' },
+        field('Work Session override', chatOverride, 'Allows bounded per-session routing overrides when the owner enables this control.'),
+        field('When AI targets are exhausted', fallback, 'Return to direct RWMCP or stop worker routing when allowed AI targets are exhausted.'),
+        field('Codex model', codexModel), field('Antigravity model', antiModel),
+        field('Enable Codex EAS agents', codexAgentsEnabled), field('Share Codex skills with RWMCP workers', codexSkillsEnabled),
+        field('Max Codex tasks / session', maxSession, '0 means unlimited.'), field('Max Codex tasks / day', maxDay, '0 means unlimited.'),
+        field('Enable account broker', brokerEnabled), field('Broker mode', brokerMode)
+      ),
+      el('div', { class: 'agent-danger-zone' },
+        el('div', {}, el('strong', { text: t('Recovery actions') }), el('p', { class: 'moon-muted', text: t('Use these only when a fallback latch or stale Work Session override needs to be cleared.') })),
+        actions(
+          button('Reset fallback', async () => { await mutate('/api/execution-policy/fallback-reset', {}, ['execution'], 'Fallback reset.'); openExecution(); }),
+          button('Clear overrides', async () => { if (!confirm(t('Clear all active execution overrides?'))) return; await mutate('/api/execution-policy/clear-overrides', {}, ['execution'], 'Overrides cleared.'); openExecution(); }, 'secondary-button danger-button')
+        )
       )
-    ));
-    advanced.append(details);
-    content.append(advanced);
+    );
+    technical.append(technicalDetails);
+    content.append(technical);
 
     content.append(el('div', { class: 'agent-save-bar moon-page-full' },
-      el('div', {}, el('strong', { text: t('Owner policy') }), el('span', { text: t('Target-set changes affect future routing; provider enablement is derived by the runtime to avoid contradictory states.') })),
-      button('Save Agent Control', async () => {
-        if (!confirm(t('Save this execution policy?'))) return;
+      el('div', {}, el('strong', { text: t('AI routing') }), el('span', { text: t('Your simple choice controls future routing. Technical settings remain unchanged unless you edit them.') })),
+      button('Save AI settings', async () => {
+        if (!confirm(t('Save these AI routing settings?'))) return;
         const body = {
           targetMode: content.querySelector('input[name="execution-target-mode"]:checked')?.value || selectedTargetMode,
           codexModel: codexModel.value,
@@ -467,15 +436,16 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
           maxCodexTasksPerDay: maxDay.value === '' ? undefined : Number(maxDay.value),
           codexAccountBroker: { enabled: brokerEnabled.checked, mode: brokerMode.value }
         };
-        const result = await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'Execution policy saved.');
+        const result = await mutate('/api/execution-policy', body, ['execution', 'antigravity'], 'AI routing settings saved.');
         if (result?.restartRequired) toast(t('Saved. Restart the managed runtime to activate provider-level changes.'));
         openExecution();
       }, 'primary-button')
     ));
     return content;
   }
+
   function openDevices() {
-    const pairing = live('pairing'); const multi = live('multiNode'); const content = pageRoot('Devices', 'Devices & multi-node', 'Pair trusted devices and manage explicit transfer grants.'); unavailable('pairing', content); if (!pairing) return content;
+    const pairing = live('pairing'); const multi = live('multiNode'); const content = pageRoot('Devices', 'Devices & connections', 'See trusted workstations and manage multi-node connections only when you need them.'); unavailable('pairing', content); if (!pairing) return content;
     const devices = section('Paired devices', 'Pairing records do not report device liveness.');
     if (!(pairing.devices || []).length) devices.append(emptyState('No paired devices.'));
     for (const device of pairing.devices || []) {
@@ -496,7 +466,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const pairingSection = section('Create pairing code', 'Pairing codes are shown only here and are never saved by the browser.');
     pairingSection.append(field('Requested name', name), field('Bootstrap host', host), field('Expires in', ttl));
     pairingSection.append(actions(button('Create code', async () => { const result = await mutate('/api/devices/pairing-code', { requestedName: name.value || undefined, bootstrapHostId: host.value || undefined, ttlSeconds: Number(ttl.value) }, ['pairing'], 'Pairing code created.'); const codeBox = el('div', { class: 'moon-secret' }, el('strong', { text: t('Pairing code (copy now)') }), el('code', { text: text(result.code) }), el('small', { text: t('Expires {value}', { value: text(result.expiresAt) }) })); pairingSection.append(codeBox); }, 'primary-button')));
-    content.append(pairingSection);
+    const pairingDetails = el('details', { class: 'agent-advanced device-advanced' }, el('summary', { text: t('Pair a new device') }));
+    pairingDetails.append(pairingSection);
     if ((pairing.bootstrapHosts || []).length) {
       const bootstrap = section('Bootstrap an SSH host', 'Send an already-created pairing code to a configured SSH bootstrap host. The credential is never displayed.');
       const bootstrapHost = selectValue(pairing.bootstrapHosts[0]?.id, pairing.bootstrapHosts.map((item) => [item.id, `${item.name || item.hostname} (${item.hostname})`]));
@@ -508,8 +479,9 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         try { await mutate('/api/devices/bootstrap-ssh', { hostId: bootstrapHost.value, code: bootstrapCode.value, name: bootstrapName.value || undefined }, ['pairing'], 'SSH bootstrap completed.'); openDevices(); }
         finally { bootstrapCode.value = ''; }
       }, 'primary-button')));
-      content.append(bootstrap);
+      pairingDetails.append(bootstrap);
     }
+    content.append(pairingDetails);
     if (multi) {
       const multiSection = section('Multi-node transfer', t('Required scope: {scope}. Configuration consistency: {consistent}.', { scope: text(multi.requiredScope), consistent: text(multi.configurationConsistent) }), 'moon-page-full');
       const enabled = el('input', { type: 'checkbox', checked: multi.enabled });
@@ -530,7 +502,8 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
         field('Destination workspace', destinationWorkspace)
       );
       multiSection.append(el('h4', { class: 'moon-subheading', text: t('Add grant') }), addGrantForm, actions(button('Add transfer grant', async () => { const allowedExtensions = extensions.value.split(',').map((item) => item.trim()).filter(Boolean); if (!allowedExtensions.length) { toast(t('Provide at least one allowed extension.')); return; } if (!confirm(t('Add this cross-node transfer grant?'))) return; await mutate('/api/multi-node/grants', { id: grantId.value, sourceNodeId: source.value, destinationNodeId: destination.value, sourceWorkspace: sourceWorkspace.value, destinationWorkspace: destinationWorkspace.value, sourcePathPrefixes: ['.'], destinationBasePaths: ['.'], allowedExtensions, maxBytes: 536870912, transports: ['direct'] }, ['multiNode'], 'Transfer grant added.'); openDevices(); }, 'primary-button')));
-      content.append(multiSection);
+      const multiDetails = el('details', { class: 'agent-advanced device-advanced' }, el('summary', { text: t('Advanced multi-node transfers') }));
+      multiDetails.append(multiSection); content.append(multiDetails);
     }
     return content;
   }

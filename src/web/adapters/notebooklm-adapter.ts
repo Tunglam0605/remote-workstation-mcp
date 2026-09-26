@@ -374,6 +374,73 @@ export class NotebookLmAdapter {
     throw new Error('NotebookLM video generation did not reach a READY artifact postcondition before timeout.');
   }
 
+  async videoGenerateBatch(
+    existingSessionId: string,
+    owner: Owner,
+    jobs: Array<{ id?: string; focus: string }>,
+    timeoutMs = 15 * 60_000,
+    stopOnError = true
+  ) {
+    if (jobs.length < 1 || jobs.length > 25) throw new Error('NotebookLM video batch must contain 1 to 25 jobs.');
+    const results: Array<Record<string, unknown>> = [];
+    for (let index = 0; index < jobs.length; index += 1) {
+      const job = jobs[index]!;
+      const id = normalize(job.id ?? `video-${index + 1}`).slice(0, 128);
+      try {
+        const generated = await this.videoGenerate(existingSessionId, owner, job.focus, true, timeoutMs);
+        results.push({ id, index, status: 'ready', ...generated });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({ id, index, status: 'failed', error: message.slice(0, 1024) });
+        if (stopOnError) {
+          return {
+            existingSessionId,
+            state: 'failed' as const,
+            completed: results.filter(item => item.status === 'ready').length,
+            failed: results.filter(item => item.status === 'failed').length,
+            total: jobs.length,
+            stoppedAtIndex: index,
+            stopOnError,
+            results
+          };
+        }
+      }
+    }
+    const failed = results.filter(item => item.status === 'failed').length;
+    return {
+      existingSessionId,
+      state: failed > 0 ? 'partial' as const : 'ready' as const,
+      completed: results.length - failed,
+      failed,
+      total: jobs.length,
+      stopOnError,
+      results
+    };
+  }
+
+  async videoGenerateBatchCommand(
+    owner: Owner,
+    jobs: Array<{ id?: string; focus: string }>,
+    timeoutMs = 15 * 60_000,
+    stopOnError = true,
+    requestedTabId?: number
+  ) {
+    const opened = await this.open(owner, requestedTabId);
+    try {
+      const generated = await this.videoGenerateBatch(opened.existingSessionId, owner, jobs, timeoutMs, stopOnError);
+      return {
+        ...generated,
+        commandMode: true,
+        batchMode: true,
+        autoClaimedTab: true,
+        tabId: opened.tabId,
+        provider: opened.provider
+      };
+    } finally {
+      this.close(opened.existingSessionId, owner);
+    }
+  }
+
   async videoGenerateCommand(
     owner: Owner,
     focus: string,
@@ -386,6 +453,27 @@ export class NotebookLmAdapter {
       const generated = await this.videoGenerate(opened.existingSessionId, owner, focus, waitForReady, timeoutMs);
       return {
         ...generated,
+        commandMode: true,
+        autoClaimedTab: true,
+        tabId: opened.tabId,
+        provider: opened.provider
+      };
+    } finally {
+      this.close(opened.existingSessionId, owner);
+    }
+  }
+
+  async askCommand(
+    owner: Owner,
+    question: string,
+    timeoutMs = 60_000,
+    requestedTabId?: number
+  ) {
+    const opened = await this.open(owner, requestedTabId);
+    try {
+      const answer = await this.ask(opened.existingSessionId, owner, question, timeoutMs);
+      return {
+        ...answer,
         commandMode: true,
         autoClaimedTab: true,
         tabId: opened.tabId,

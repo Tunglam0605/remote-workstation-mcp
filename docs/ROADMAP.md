@@ -2,6 +2,15 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.46.0 - NotebookLM Command Mode + Windows Recovery Hardening
+
+- allow `notebooklm_video_generate` to run in one-command mode without a caller-managed Existing Chrome session; when `existingSessionId` is omitted, RWMCP auto-claims an authenticated NotebookLM tab, performs bounded semantic `find/fill/click` operations, verifies STARTED/READY postconditions, and releases the claim;
+- keep NotebookLM personal-account automation behind the owner-authenticated Existing Chrome Bridge because Google does not publish a stable personal NotebookLM Video Overview API; do not scrape cookies/tokens or expose raw selectors/JavaScript/coordinate input;
+- preserve compatibility with explicit Existing Chrome sessions and optional `tabId` selection;
+- resolve Windows direct OpenAI launcher policy/hosts from `%LOCALAPPDATA%\RemoteWorkstationMCP\config` before slot-local fallbacks;
+- make durable OpenAI restart handoff fail closed before worker creation if the target slot is incomplete and lacks `runtime\openai-tunnel\tunnel-client.exe`;
+- advance Action Schema to 22 because the NotebookLM video-generation input contract changed; Engineering API remains 5.
+
 ## v0.45.1 - Trust & Reliability Hardening
 
 - complete a full v0.45.0 capability-family trust audit against official vendor/specification documentation, upstream source, machine CLI/API contracts, failure semantics, version portability and production evidence;

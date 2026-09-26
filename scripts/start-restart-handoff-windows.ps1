@@ -29,6 +29,13 @@ $Base = [IO.Path]::GetFullPath($Base)
 Assert-SafeCommandArg $Root 'Root'
 Assert-SafeCommandArg $Base 'Base'
 
+if ($Mode -eq 'OpenAI') {
+  $tunnelBinary = [IO.Path]::GetFullPath((Join-Path $Root 'runtime\openai-tunnel\tunnel-client.exe'))
+  if (-not (Test-Path -LiteralPath $tunnelBinary)) {
+    throw "OpenAI restart target is incomplete; tunnel-client is missing: $tunnelBinary"
+  }
+}
+
 $worker = [IO.Path]::GetFullPath((Join-Path $Root 'scripts\runtime-restart-handoff-windows.ps1'))
 if (-not (Test-Path -LiteralPath $worker)) {
   throw "Windows restart handoff helper is missing: $worker"

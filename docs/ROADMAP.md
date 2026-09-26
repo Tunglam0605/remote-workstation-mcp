@@ -2,6 +2,15 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.51.0 - NotebookLM Command Automation II
+
+- extend the existing `notebooklm_video_generate` action instead of adding another top-level tool: exactly one `focus` or `batch` mode is accepted;
+- batch mode is bounded to 25 jobs, reuses one authenticated Existing Chrome claim, runs sequentially, waits for READY before the next job and defaults to fail-closed stop-on-error;
+- preserve per-job ids/results so callers can resume a larger curriculum from the first uncompleted item instead of repeating already completed videos;
+- allow `notebooklm_ask` to auto-claim/release an authenticated NotebookLM tab, eliminating the separate manual session-open step for one-shot queries;
+- retain semantic find/fill/click and deterministic postconditions; no coordinate mouse driving, raw selectors, page JavaScript, Google login automation or credential/token/cookie access;
+- advance Action Schema to 24 because existing public MCP input schemas changed; Engineering API remains 5.
+
 ## v0.50.0 - STM32 Live Peripheral Intelligence
 
 - add `stm32.peripheral_snapshot` through the existing generic `engineering_workflow_plan/run` envelope;

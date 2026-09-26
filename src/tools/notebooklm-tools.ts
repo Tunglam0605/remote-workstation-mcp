@@ -99,14 +99,23 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
       ctx.notebooklm.videoStatus(existingSessionId, owner)));
 
   server.registerTool('notebooklm_video_generate', {
-    description: 'Create a NotebookLM Video Overview by command. If existingSessionId is omitted, RWMCP automatically claims an already-authenticated NotebookLM tab, runs semantic background commands without coordinate mouse/screen control, waits for STARTED/READY postconditions, then releases the claim. This mutates cloud Studio state and may consume NotebookLM AI quota.',
+    description: 'Create one or a bounded batch of NotebookLM Video Overviews by command. If existingSessionId is omitted, RWMCP automatically claims one already-authenticated NotebookLM tab, runs semantic background commands without coordinate mouse/screen control, verifies STARTED/READY postconditions, and releases the claim. Batch mode reuses one claimed tab and runs jobs sequentially. This mutates cloud Studio state and may consume NotebookLM AI quota.',
     inputSchema: z.object({
       workSessionId: z.string().uuid(),
       existingSessionId: z.string().uuid().optional(),
       tabId: z.number().int().positive().optional(),
-      focus: z.string().trim().min(1).max(8_000),
+      focus: z.string().trim().min(1).max(8_000).optional(),
+      batch: z.array(z.object({
+        id: z.string().trim().min(1).max(128).optional(),
+        focus: z.string().trim().min(1).max(8_000)
+      }).strict()).min(1).max(25).optional(),
       waitForReady: z.boolean().default(true),
+      stopOnError: z.boolean().default(true),
       timeoutMs: z.number().int().min(30_000).max(1_800_000).default(900_000)
+    }).superRefine((value, issue) => {
+      const modes = Number(Boolean(value.focus)) + Number(Boolean(value.batch));
+      if (modes !== 1) issue.addIssue({ code: 'custom', message: 'Provide exactly one of focus or batch.' });
+      if (value.batch && !value.waitForReady) issue.addIssue({ code: 'custom', message: 'Batch generation requires waitForReady=true.' });
     }),
     annotations: {
       readOnlyHint: false,
@@ -114,17 +123,25 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
       idempotentHint: false,
       openWorldHint: true
     }
-  }, async ({ workSessionId, existingSessionId, tabId, focus, waitForReady, timeoutMs }) =>
-    executeInSession('notebooklm_video_generate', workSessionId, owner =>
-      existingSessionId
-        ? ctx.notebooklm.videoGenerate(existingSessionId, owner, focus, waitForReady, timeoutMs)
-        : ctx.notebooklm.videoGenerateCommand(owner, focus, waitForReady, timeoutMs, tabId)));
+  }, async ({ workSessionId, existingSessionId, tabId, focus, batch, waitForReady, stopOnError, timeoutMs }) =>
+    executeInSession<unknown>('notebooklm_video_generate', workSessionId, owner => {
+      if (batch) {
+        return existingSessionId
+          ? ctx.notebooklm.videoGenerateBatch(existingSessionId, owner, batch, timeoutMs, stopOnError)
+          : ctx.notebooklm.videoGenerateBatchCommand(owner, batch, timeoutMs, stopOnError, tabId);
+      }
+      const singleFocus = focus!;
+      return existingSessionId
+        ? ctx.notebooklm.videoGenerate(existingSessionId, owner, singleFocus, waitForReady, timeoutMs)
+        : ctx.notebooklm.videoGenerateCommand(owner, singleFocus, waitForReady, timeoutMs, tabId);
+    }));
 
   server.registerTool('notebooklm_ask', {
-    description: 'Ask one bounded question in the claimed NotebookLM notebook and wait until a changed, stable conversation postcondition is observed. This mutates cloud conversation state.',
+    description: 'Ask one bounded NotebookLM question by semantic command and wait for a changed, stable answer postcondition. If existingSessionId is omitted, RWMCP auto-claims an authenticated NotebookLM tab and releases it after completion. This mutates cloud conversation state without coordinate mouse/screen control.',
     inputSchema: z.object({
       workSessionId: z.string().uuid(),
-      existingSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid().optional(),
+      tabId: z.number().int().positive().optional(),
       question: z.string().trim().min(1).max(8_000),
       timeoutMs: z.number().int().min(5_000).max(120_000).default(60_000)
     }),
@@ -134,7 +151,9 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
       idempotentHint: false,
       openWorldHint: true
     }
-  }, async ({ workSessionId, existingSessionId, question, timeoutMs }) =>
+  }, async ({ workSessionId, existingSessionId, tabId, question, timeoutMs }) =>
     executeInSession('notebooklm_ask', workSessionId, owner =>
-      ctx.notebooklm.ask(existingSessionId, owner, question, timeoutMs)));
+      existingSessionId
+        ? ctx.notebooklm.ask(existingSessionId, owner, question, timeoutMs)
+        : ctx.notebooklm.askCommand(owner, question, timeoutMs, tabId)));
 }

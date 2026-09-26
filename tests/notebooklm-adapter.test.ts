@@ -296,3 +296,115 @@ test('video status detects NotebookLM READY player view after card list disappea
   assert.equal(result.activeArtifact?.sourceCount,1);
   assert.equal(result.artifacts[0]?.title,'Sức mạnh thực sự của vi điều khiển STM32');
 });
+
+test('video batch runs sequentially in one claimed session and preserves job identity', async () => {
+  const fake=fakeChrome();
+  const adapter=new NotebookLmAdapter(fake.service as never,async()=>{});
+  const calls:string[]=[];
+  (adapter as any).videoGenerate=async(existingSessionId:string,_owner:any,focus:string,waitForReady:boolean,timeoutMs:number)=>{
+    calls.push(`${existingSessionId}:${focus}:${waitForReady}:${timeoutMs}`);
+    return {existingSessionId,state:'ready',artifact:{title:focus}};
+  };
+  const result=await adapter.videoGenerateBatch('sess-1',owner,[
+    {id:'lesson-01',focus:'STM32 GPIO'},
+    {id:'lesson-02',focus:'STM32 Timer'},
+    {focus:'STM32 UART'}
+  ],120_000,true);
+  assert.equal(result.state,'ready');
+  assert.equal(result.completed,3);
+  assert.equal(result.failed,0);
+  assert.deepEqual(result.results.map(item=>item.id),['lesson-01','lesson-02','video-3']);
+  assert.deepEqual(calls,[
+    'sess-1:STM32 GPIO:true:120000',
+    'sess-1:STM32 Timer:true:120000',
+    'sess-1:STM32 UART:true:120000'
+  ]);
+});
+
+test('video batch stops fail-closed on the first failed job by default', async () => {
+  const fake=fakeChrome();
+  const adapter=new NotebookLmAdapter(fake.service as never,async()=>{});
+  const calls:string[]=[];
+  (adapter as any).videoGenerate=async(_existingSessionId:string,_owner:any,focus:string)=>{
+    calls.push(focus);
+    if(focus==='bad') throw new Error('NotebookLM rejected generation');
+    return {state:'ready'};
+  };
+  const result=await adapter.videoGenerateBatch('sess-1',owner,[
+    {id:'a',focus:'ok-1'},
+    {id:'b',focus:'bad'},
+    {id:'c',focus:'must-not-run'}
+  ],60_000,true);
+  assert.equal(result.state,'failed');
+  assert.equal(result.completed,1);
+  assert.equal(result.failed,1);
+  assert.equal(result.stoppedAtIndex,1);
+  assert.deepEqual(calls,['ok-1','bad']);
+  assert.match(String(result.results[1]?.error),/rejected generation/i);
+});
+
+test('video batch command claims and releases one authenticated tab for the whole queue', async () => {
+  let opened=0;
+  let closed=0;
+  const service={
+    open:async()=>{opened++;return{sessionId:'sess-batch',tabId:29,provider:'existing-chrome-extension'};},
+    close:()=>{closed++;return{closed:true};},
+    status:()=>({sessionId:'sess-batch',tabId:29,provider:'existing-chrome-extension'}),
+    extract:async()=>({url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text:'Demo 1 sources'}),
+    inspect:async()=>({elements:[],truncated:false})
+  };
+  const adapter=new NotebookLmAdapter(service as never,async()=>{});
+  (adapter as any).videoGenerate=async(existingSessionId:string,_owner:any,focus:string)=>({
+    existingSessionId,state:'ready',artifact:{title:focus}
+  });
+  const result=await adapter.videoGenerateBatchCommand(owner,[
+    {id:'v1',focus:'one'},
+    {id:'v2',focus:'two'}
+  ],60_000,true);
+  assert.equal(result.commandMode,true);
+  assert.equal(result.batchMode,true);
+  assert.equal(result.autoClaimedTab,true);
+  assert.equal(result.tabId,29);
+  assert.equal(result.completed,2);
+  assert.equal(opened,1);
+  assert.equal(closed,1);
+});
+
+test('video batch rejects queues larger than the bounded command contract', async () => {
+  const fake=fakeChrome();
+  const adapter=new NotebookLmAdapter(fake.service as never,async()=>{});
+  const jobs=Array.from({length:26},(_,index)=>({id:`v${index+1}`,focus:`video ${index+1}`}));
+  await assert.rejects(adapter.videoGenerateBatch('sess-1',owner,jobs),/1 to 25 jobs/i);
+});
+
+test('ask command mode auto-claims and releases one authenticated NotebookLM tab', async () => {
+  let opened=0;
+  let closed=0;
+  let clicked=false;
+  let polls=0;
+  const service={
+    open:async()=>{opened++;return{sessionId:'sess-ask',tabId:31,provider:'existing-chrome-extension'};},
+    close:()=>{closed++;return{closed:true};},
+    status:()=>({sessionId:'sess-ask',tabId:31,provider:'existing-chrome-extension'}),
+    extract:async()=>{
+      if(!clicked) return {url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text:'Demo 1 sources'};
+      polls++;
+      return {url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text: polls<3 ? 'Demo 1 sources Why? Thinking' : 'Demo 1 sources Why? Stable answer'};
+    },
+    find:async(_id:string,_owner:any,role:string,name:string)=>({matches:
+      role==='textbox' && name==='Ask a question' ? [{elementId:'q',visible:true,enabled:true}] :
+      role==='button' && name==='Send' ? [{elementId:'s',visible:true,enabled:true}] : []}),
+    fill:async()=>{},
+    click:async()=>{clicked=true;},
+    inspect:async()=>({elements:[],truncated:false})
+  };
+  const adapter=new NotebookLmAdapter(service as never,async()=>{});
+  const result=await adapter.askCommand(owner,'Why?',10_000);
+  assert.equal(result.commandMode,true);
+  assert.equal(result.autoClaimedTab,true);
+  assert.equal(result.tabId,31);
+  assert.equal(result.completed,true);
+  assert.match(result.textSnapshot,/Stable answer/);
+  assert.equal(opened,1);
+  assert.equal(closed,1);
+});

@@ -17,7 +17,8 @@ NotebookLM Adapter v1 exposes only operations with meaningful, verified postcond
 - `notebooklm_session_status`: bounded notebook id/title/url/source count;
 - `notebooklm_session_close`: release the Work Session claim without closing the owner's Chrome tab;
 - `notebooklm_sources_list`: semantic source inventory with count/truncation evidence;
-- `notebooklm_ask`: fill the semantic query box, activate Send and wait until the conversation changed, NotebookLM busy markers disappeared, and page text became stable.
+- `notebooklm_ask`: fill the semantic query box, activate Send and wait until the conversation changed, NotebookLM busy markers disappeared, and page text became stable; v0.51 may auto-claim/release the authenticated tab for one-shot command mode.
+- `notebooklm_video_generate`: create one Video Overview or a bounded sequential batch of up to 25 jobs. Command mode claims one authenticated tab for the whole batch, verifies STARTED then stable READY evidence for each job, records per-job identity/results, and releases the claim in `finally`.
 
 The adapter supports Vietnamese and English query/send labels used by NotebookLM. It never accepts raw selectors, JavaScript or coordinates.
 
@@ -28,12 +29,14 @@ A click or fill is never treated as operation success by itself.
 - Open succeeds only when authenticated notebook metadata can be read.
 - Source listing reconciles semantic source checkboxes with the notebook source count.
 - Ask succeeds only when the submitted question is observed in changed conversation state, generation is no longer busy, and the page reaches a stable state.
+- Single video generation succeeds only after NotebookLM exposes generation STARTED and then a new stable READY artifact.
+- Batch video generation never overlaps jobs: job N+1 starts only after job N reaches READY. The default error policy stops at the first failed job and returns bounded partial-result evidence.
 
 ## Deferred
 
 - Local file upload through Existing Chrome: browser security prevents safely setting file paths from a content script. Managed Browser file-I/O remains the typed upload path.
 - Web/text source creation: semantic discovery is known but mutation is deferred until a dedicated acceptance case verifies source inventory postconditions.
-- Studio generation (audio/video/presentation/mind-map/report/etc.): deferred until each artifact workflow has a deterministic completion postcondition.
+- Other Studio generation (audio/presentation/mind-map/report/etc.): deferred until each artifact workflow has a deterministic completion postcondition. Video Overview is implemented with STARTED/READY verification.
 - Google login, 2FA, CAPTCHA and credential entry remain owner actions.
 
 ## Security

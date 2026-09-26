@@ -2,6 +2,15 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.48.0 - Automated Engineering Workflows I
+
+- add `stm32.deep_diagnostics` through the existing generic `engineering_workflow_plan/run` envelope rather than adding another top-level MCP action;
+- one workflow automatically opens a constrained debug session with RTOS `auto` awareness, halts the target, collects core registers, CMSIS-Core fault evidence, best-effort Cortex-M exception frame, target-provided RTOS threads/tasks, bounded stack frames and disassembly, then always stops the debug session and releases the probe;
+- distinguish required diagnostic evidence from optional evidence: optional exception/RTOS/disassembly failures are surfaced as `blocked` degraded-evidence steps instead of discarding the successful primary fault/stack snapshot;
+- return `evidenceQuality = complete | degraded` plus bounded reasons so orchestration can decide whether a second targeted workflow is needed without replaying every primitive tool call;
+- retain the existing explicit/persisted probe identity and ELF/AXF symbol requirements; automation must not guess ambiguous hardware or symbols;
+- keep Action Schema 23 and Engineering API 5 because workflow IDs continue to travel through the stable generic workflow envelope and no new top-level MCP action/authority is introduced.
+
 ## v0.47.0 - Professional Tools Expansion III: Cortex-M + RTOS Diagnostics
 
 - add `debug_cortexm_exception_frame` to decode the architectural Cortex-M stacked core frame from a caller-owned halted debug session using EXC_RETURN, MSP/PSP selection and bounded GDB/MI memory reads;

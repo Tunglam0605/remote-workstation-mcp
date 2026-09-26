@@ -172,6 +172,7 @@ async function fixture(
       };
     }
   };
+  let debugOptionalEvidenceAvailable = true;
   const debug = {
     async start(options: Record<string, unknown>) {
       calls.push(`debug.start:${String(options.symbols)}:${String(options.probeSerial)}`);
@@ -181,9 +182,28 @@ async function fixture(
       calls.push(`debug.halt:${id}`);
       return { stopped: true };
     },
+    async registers(id: string) {
+      calls.push(`debug.registers:${id}`);
+      return [{ name: 'pc', value: '0x08001234' }, { name: 'lr', value: '0xfffffff9' }, { name: 'msp', value: '0x20001000' }, { name: 'psp', value: '0x20002000' }];
+    },
     async faultSnapshot(id: string) {
       calls.push(`debug.fault:${id}`);
-      return { core: { pc: '0x08001234', lr: '0x08005678' }, decoded: { faults: ['BusFault'] } };
+      return { core: { pc: '0x08001234', lr: '0xfffffff9' }, decoded: { faults: ['BusFault'] } };
+    },
+    async exceptionFrame(id: string) {
+      calls.push(`debug.exception:${id}`);
+      if (!debugOptionalEvidenceAvailable) throw new Error('Target is not currently in a Cortex-M exception return context.');
+      return { frame: { pc: 0x08001235, lr: 0x08005679, xpsr: 0x21000000 } };
+    },
+    async rtosTasks(id: string, maxTasks: number) {
+      calls.push(`debug.rtos:${id}:${maxTasks}`);
+      if (!debugOptionalEvidenceAvailable) throw new Error('RTOS thread awareness is unavailable for this target.');
+      return { taskCount: 2, tasks: [{ id: '1', name: 'ControlTask' }, { id: '2', name: 'Idle' }] };
+    },
+    async disassemble(id: string) {
+      calls.push(`debug.disassemble:${id}`);
+      if (!debugOptionalEvidenceAvailable) throw new Error('Disassembly is unavailable for the current frame.');
+      return [{ addressHex: '0x08001234', instruction: 'str r3, [r2, #4]' }];
     },
     async stack(id: string, maxFrames: number) {
       calls.push(`debug.stack:${id}:${maxFrames}`);
@@ -270,7 +290,8 @@ async function fixture(
     setVerifyResult(result: EngineeringCommandResult) { verifyResult = result; },
     setDeployResult(result: EngineeringCommandResult) { deployResult = result; },
     setDeploymentReady(ready: boolean, blockers: string[] = []) { deploymentReady = ready; deploymentBlockers = blockers; },
-    setHardwareDevices(value: HardwareDevice[]) { hardwareDevices = value; }
+    setHardwareDevices(value: HardwareDevice[]) { hardwareDevices = value; },
+    setDebugOptionalEvidenceAvailable(value: boolean) { debugOptionalEvidenceAvailable = value; }
   };
 }
 
@@ -757,6 +778,62 @@ test('STM32 debug fault workflow opens, halts, snapshots, stacks and releases th
     ]);
     assert.equal((result as any).outputs.symbols, 'build/main.elf');
     assert.equal((result as any).outputs.stack[0].function, 'HardFault_Handler');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deep diagnostics collapses fault, exception, RTOS, stack and disassembly evidence into one workflow', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-H743' } });
+    const plan = await f.engine.plan('w', 'project', 'stm32.deep_diagnostics', { debugMaxFrames: 12 });
+    assert.deepEqual(plan.steps, [
+      'debug.session.start', 'debug.halt', 'debug.registers', 'debug.fault_snapshot',
+      'debug.exception_frame', 'debug.rtos_tasks', 'debug.stack', 'debug.disassemble', 'debug.session.stop'
+    ]);
+    const result = await f.engine.run('w', 'project', 'stm32.deep_diagnostics', { debugMaxFrames: 12 });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, [
+      'debug.start:build/main.elf:STLINK-H743',
+      'debug.halt:22222222-2222-4222-8222-222222222222',
+      'debug.registers:22222222-2222-4222-8222-222222222222',
+      'debug.fault:22222222-2222-4222-8222-222222222222',
+      'debug.exception:22222222-2222-4222-8222-222222222222',
+      'debug.rtos:22222222-2222-4222-8222-222222222222:128',
+      'debug.stack:22222222-2222-4222-8222-222222222222:12',
+      'debug.disassemble:22222222-2222-4222-8222-222222222222',
+      'debug.stop:22222222-2222-4222-8222-222222222222'
+    ]);
+    assert.equal((result as any).outputs.evidenceQuality, 'complete');
+    assert.equal((result as any).outputs.rtosTasks.taskCount, 2);
+    assert.equal((result as any).outputs.exceptionFrame.frame.pc, 0x08001235);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deep diagnostics degrades optional evidence but still cleans up the debug session', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407VET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/app.elf', kind: 'elf', size: 2048 }]);
+    f.setDebugOptionalEvidenceAvailable(false);
+    await f.engine.initProfile('w', 'project', { firmware: { probeSerial: 'STLINK-F407' } });
+    const result = await f.engine.run('w', 'project', 'stm32.deep_diagnostics');
+    assert.equal(result.status, 'succeeded');
+    assert.equal((result as any).outputs.evidenceQuality, 'degraded');
+    assert.equal((result as any).outputs.degradedEvidence.length, 3);
+    assert.equal(f.calls.at(-1), 'debug.stop:22222222-2222-4222-8222-222222222222');
+    assert.equal(result.steps.filter(step => step.status === 'blocked').length, 3);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

@@ -48,6 +48,7 @@ export type EngineeringWorkflowId =
   | 'espidf.size_analysis'
   | 'platformio.diagnostics'
   | 'stm32.debug_fault_snapshot'
+  | 'stm32.deep_diagnostics'
   | 'stm32.deploy_accept'
   | 'ros2.build'
   | 'ros2.health'
@@ -451,7 +452,7 @@ export class EngineeringWorkflowEngine {
     if (firmwareCapable) {
       ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
-        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deploy_accept');
+        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deep_diagnostics', 'stm32.deploy_accept');
       }
       if (
         state.project.family === 'esp32' ||
@@ -494,6 +495,7 @@ export class EngineeringWorkflowEngine {
           id === 'platform.relay_abort' ||
           id.startsWith('firmware.build_flash') ||
           id === 'stm32.debug_fault_snapshot' ||
+          id === 'stm32.deep_diagnostics' ||
           id === 'stm32.deploy_accept' ||
           id === 'kicad.fabrication_export' ||
           id === 'systemd.service_restart',
@@ -520,6 +522,7 @@ export class EngineeringWorkflowEngine {
           'firmware.build_flash_monitor': 'Build, flash, then open the configured serial monitor session.',
           'firmware.build_flash_monitor_expect': 'Build, flash, open serial and wait for a configured boot/readiness marker.',
           'stm32.debug_fault_snapshot': 'Open a constrained STM32 debug session, halt the target, decode Cortex-M fault state, capture stack frames, then release the probe.',
+          'stm32.deep_diagnostics': 'Run one bounded STM32 diagnostic chain: open debug with RTOS auto-awareness, halt, collect fault/register/stack evidence, best-effort Cortex-M exception frame, RTOS task inventory and disassembly, then always release the probe.',
           'stm32.deploy_accept': 'Preflight hardware, build, open serial, atomically flash/verify/reset through one ST-Link lease, then require a readiness marker and release resources.',
           'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
           'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
@@ -1152,6 +1155,9 @@ export class EngineeringWorkflowEngine {
     if (workflow === 'stm32.debug_fault_snapshot') {
       steps.push('debug.session.start', 'debug.halt', 'debug.fault_snapshot', 'debug.stack', 'debug.session.stop');
     }
+    if (workflow === 'stm32.deep_diagnostics') {
+      steps.push('debug.session.start', 'debug.halt', 'debug.registers', 'debug.fault_snapshot', 'debug.exception_frame', 'debug.rtos_tasks', 'debug.stack', 'debug.disassemble', 'debug.session.stop');
+    }
     if (workflow === 'stm32.deploy_accept') {
       steps.push('preflight.stm32_deploy', 'firmware.build', 'serial.open', 'firmware.flash_verify_reset', 'serial.wait_for_text');
       if (!overrides.keepMonitorOpen) steps.push('serial.close');
@@ -1184,7 +1190,7 @@ export class EngineeringWorkflowEngine {
       preflight: deploymentPreflight,
       artifactIntegrity: undefined,
       resolved: {
-        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deploy_accept') ? {
+        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deep_diagnostics' || workflow === 'stm32.deploy_accept') ? {
           variant: effective.variant,
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
@@ -1277,6 +1283,26 @@ export class EngineeringWorkflowEngine {
           error: error instanceof Error ? error.message : String(error)
         });
         return { ok: false };
+      }
+    };
+
+    const captureOptional = async <T>(
+      id: string,
+      fn: () => Promise<T>
+    ): Promise<T | undefined> => {
+      const started = Date.now();
+      try {
+        const value = await fn();
+        steps.push({ id, status: 'succeeded', durationMs: Date.now() - started, result: value });
+        return value;
+      } catch (error) {
+        steps.push({
+          id,
+          status: 'blocked',
+          durationMs: Date.now() - started,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return undefined;
       }
     };
 
@@ -1866,6 +1892,80 @@ export class EngineeringWorkflowEngine {
         }
       };
     }
+    if (workflow === 'stm32.deep_diagnostics') {
+      const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
+      const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);
+      const probeSerial = overrides.probeSerial ?? fw.probeSerial;
+      if (!probeSerial) {
+        throw new Error('STM32 deep diagnostics requires firmware.probeSerial or a probeSerial override.');
+      }
+
+      const started = await capture('debug.session.start', () => this.debug.start({
+        workspace,
+        projectPath,
+        symbols,
+        probeSerial,
+        targetConfig: overrides.targetConfig ?? fw.targetConfig,
+        adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz,
+        rtosAwareness: 'auto'
+      }));
+      if (!started.ok) return { workflow, status: 'failed', plan, steps };
+
+      let registers: unknown;
+      let fault: unknown;
+      let exceptionFrame: unknown;
+      let rtosTasks: unknown;
+      let stack: unknown;
+      let disassembly: unknown;
+      let failed = false;
+      try {
+        const halted = await capture('debug.halt', () => this.debug.halt(started.value.id));
+        if (!halted.ok) failed = true;
+        if (!failed) {
+          const registerResult = await capture('debug.registers', () => this.debug.registers(started.value.id));
+          if (registerResult.ok) registers = registerResult.value;
+          else failed = true;
+        }
+        if (!failed) {
+          const snapshot = await capture('debug.fault_snapshot', () => this.debug.faultSnapshot(started.value.id));
+          if (snapshot.ok) fault = snapshot.value;
+          else failed = true;
+        }
+        if (!failed) {
+          exceptionFrame = await captureOptional('debug.exception_frame', () => this.debug.exceptionFrame(started.value.id));
+          rtosTasks = await captureOptional('debug.rtos_tasks', () => this.debug.rtosTasks(started.value.id, 128));
+          const stackResult = await capture('debug.stack', () => this.debug.stack(started.value.id, overrides.debugMaxFrames ?? 24));
+          if (stackResult.ok) stack = stackResult.value;
+          else failed = true;
+        }
+        if (!failed) {
+          disassembly = await captureOptional('debug.disassemble', () => this.debug.disassemble(started.value.id, { beforeBytes: 32, afterBytes: 96, maxInstructions: 96 }));
+        }
+      } finally {
+        const stopped = await capture('debug.session.stop', () => this.debug.stop(started.value.id));
+        if (!stopped.ok) failed = true;
+      }
+
+      const degradedEvidence = steps.filter(step => step.status === 'blocked').map(step => ({ id: step.id, reason: step.error }));
+      return {
+        workflow,
+        status: failed ? 'failed' : 'succeeded',
+        plan,
+        steps,
+        outputs: {
+          symbols,
+          registers,
+          fault,
+          exceptionFrame,
+          rtosTasks,
+          stack,
+          disassembly,
+          evidenceQuality: degradedEvidence.length === 0 ? 'complete' : 'degraded',
+          degradedEvidence
+        }
+      };
+    }
+
     if (workflow === 'stm32.debug_fault_snapshot') {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
       const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);

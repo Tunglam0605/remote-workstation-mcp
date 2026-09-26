@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.51 extends NotebookLM command automation and advances Action Schema v24 while retaining Engineering API v5', async () => {
+test('v0.52 extends NotebookLM content automation and advances Action Schema v25 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 24;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 25;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.51\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.52\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -333,7 +333,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v24 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v25 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -341,7 +341,7 @@ test('current runtime retains Work Session routing under Action Schema v24 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 24;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 25;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

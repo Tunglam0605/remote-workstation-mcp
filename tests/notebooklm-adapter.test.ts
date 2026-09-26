@@ -408,3 +408,74 @@ test('ask command mode auto-claims and releases one authenticated NotebookLM tab
   assert.equal(opened,1);
   assert.equal(closed,1);
 });
+
+
+test('content pipeline fails closed before ask/video when source readiness is insufficient', async () => {
+  const fake=fakeChrome();
+  const adapter=new NotebookLmAdapter(fake.service as never,async()=>{});
+  let asked=0;
+  let generated=0;
+  (adapter as any).listSources=async()=>({existingSessionId:'sess-1',notebookId:'abc-123',sources:[{name:'Only'}],sourceCount:1,truncated:false});
+  (adapter as any).ask=async()=>{asked++;return{completed:true};};
+  (adapter as any).videoGenerateBatch=async()=>{generated++;return{state:'ready'};};
+  await assert.rejects(
+    adapter.contentPipeline('sess-1',owner,{question:'Draft lesson',videos:[{focus:'Lesson'}],minSources:2}),
+    /source readiness failed/i
+  );
+  assert.equal(asked,0);
+  assert.equal(generated,0);
+});
+
+test('content pipeline composes source check ask video batch and final artifact inventory', async () => {
+  const fake=fakeChrome();
+  const adapter=new NotebookLmAdapter(fake.service as never,async()=>{});
+  const order:string[]=[];
+  (adapter as any).listSources=async()=>{order.push('sources');return{existingSessionId:'sess-1',notebookId:'abc-123',sources:[{name:'A'},{name:'B'}],sourceCount:2,truncated:false};};
+  (adapter as any).ask=async()=>{order.push('ask');return{completed:true,textSnapshot:'Stable script'};};
+  (adapter as any).videoGenerateBatch=async()=>{order.push('videos');return{state:'ready',completed:2,failed:0};};
+  (adapter as any).videoStatus=async()=>{order.push('inventory');return{artifacts:[{title:'V1'}],activeArtifact:{title:'V1'}};};
+  const result=await adapter.contentPipeline('sess-1',owner,{
+    question:'Create a grounded STM32 lesson script',
+    videos:[{id:'v1',focus:'GPIO'},{id:'v2',focus:'Timer'}],
+    minSources:2
+  });
+  assert.deepEqual(order,['sources','ask','videos','inventory']);
+  assert.equal(result.mode,'content-pipeline');
+  assert.equal(result.sourceReadiness.observed,2);
+  assert.equal(result.answer.textSnapshot,'Stable script');
+  assert.equal(result.videos.completed,2);
+  assert.equal(result.artifactInventory[0]?.title,'V1');
+});
+
+test('content pipeline command claims and releases one authenticated tab for the whole workflow', async () => {
+  let opened=0;
+  let closed=0;
+  const service={
+    open:async()=>{opened++;return{sessionId:'sess-pipeline',tabId:37,provider:'existing-chrome-extension'};},
+    close:()=>{closed++;return{closed:true};},
+    status:()=>({sessionId:'sess-pipeline',tabId:37,provider:'existing-chrome-extension'}),
+    extract:async()=>({url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text:'Demo 2 sources'}),
+    inspect:async()=>({elements:[],truncated:false})
+  };
+  const adapter=new NotebookLmAdapter(service as never,async()=>{});
+  (adapter as any).contentPipeline=async(existingSessionId:string)=>({
+    existingSessionId,
+    mode:'content-pipeline',
+    artifactInventory:[]
+  });
+  const result=await adapter.contentPipelineCommand(owner,{
+    question:'Draft lesson',
+    videos:[{focus:'GPIO'}]
+  });
+  assert.equal(result.commandMode,true);
+  assert.equal(result.autoClaimedTab,true);
+  assert.equal(result.tabId,37);
+  assert.equal(opened,1);
+  assert.equal(closed,1);
+});
+
+test('NotebookLM content pipeline is advertised and write-scoped', () => {
+  const capability=CAPABILITIES.find(item=>item.id==='web.notebooklm');
+  assert.ok(capability?.tools.includes('notebooklm_content_pipeline'));
+  assert.equal(requiredScopeForTool('notebooklm_content_pipeline'),'workstation.write');
+});

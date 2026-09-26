@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.52.0 - NotebookLM Content Pipeline
+
+- add `notebooklm_content_pipeline` as one bounded goal-level command above the existing NotebookLM site adapter rather than moving site logic into BrowserCore;
+- claim one already-authenticated NotebookLM tab once, verify a configurable minimum source count, ask one bounded source-grounded question and wait for a stable answer;
+- generate 1-25 Video Overviews sequentially through the existing STARTED/READY-verified batch implementation, preserving fail-closed `stopOnError` behavior;
+- finish with bounded artifact inventory so callers receive source-readiness, answer, per-video results and observed READY artifacts in one deterministic result;
+- retain explicit Existing Chrome session mode for callers that already own a claim, while command mode auto-claims/releases exactly once;
+- keep ChatGPT as reasoning/orchestration and RWMCP as deterministic execution; do not add autonomous NotebookLM planning, raw selectors, JavaScript, coordinate control, credential/token/cookie access or Google-login automation;
+- advance Action Schema to 25 for the new public MCP tool; Engineering API remains 5.
+
 ## v0.51.0 - NotebookLM Command Automation II
 
 - extend the existing `notebooklm_video_generate` action instead of adding another top-level tool: exactly one `focus` or `batch` mode is accepted;

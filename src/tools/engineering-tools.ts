@@ -278,7 +278,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
 
   server.registerTool('debug_session_start', {
     description: 'Start an owner-scoped loopback-only OpenOCD + GDB/MI debug session for an explicit ELF/AXF and optional ST-Link serial.',
-    inputSchema: z.object({ workspace: z.string(), projectPath: z.string().default('.'), symbols: z.string().min(1), probeSerial: z.string().min(1), targetConfig: z.string().optional(), adapterSpeedKhz: z.number().int().min(50).max(24000).optional(), workSessionId: z.string().uuid().optional() }),
+    inputSchema: z.object({ workspace: z.string(), projectPath: z.string().default('.'), symbols: z.string().min(1), probeSerial: z.string().min(1), targetConfig: z.string().optional(), adapterSpeedKhz: z.number().int().min(50).max(24000).optional(), rtosAwareness: z.enum(['none', 'auto', 'freertos']).default('none'), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workSessionId, ...args }) => result(await audited(ctx.audit, 'debug_session_start', args.workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.start(args)))));
 
@@ -311,6 +311,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     inputSchema: z.object({ id: z.string().uuid(), maxVariables: z.number().int().min(1).max(128).default(64), workSessionId: z.string().uuid().optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, maxVariables, workSessionId }) => result({ variables: await audited(ctx.audit, 'debug_locals', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.locals(id, maxVariables))) }));
+
+  server.registerTool('debug_rtos_tasks', {
+    description: 'Read bounded target-provided RTOS/thread inventory through the documented GDB/MI -thread-info contract. RWMCP does not infer FreeRTOS TCB layout or parse target-specific human-readable details.',
+    inputSchema: z.object({ id: z.string().uuid(), maxTasks: z.number().int().min(1).max(256).default(128), workSessionId: z.string().uuid().optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, maxTasks, workSessionId }) => result(await audited(ctx.audit, 'debug_rtos_tasks', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.rtosTasks(id, maxTasks)))));
 
   server.registerTool('debug_disassemble', {
     description: 'Read bounded disassembly around the current PC or one explicit 32-bit address through GDB/MI. No arbitrary GDB command or memory write is exposed.',
@@ -353,6 +359,12 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     inputSchema: debugSession,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_fault_snapshot', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.faultSnapshot(id)))));
+
+  server.registerTool('debug_cortexm_exception_frame', {
+    description: 'Decode the architectural Cortex-M stacked exception frame from a caller-owned halted debug session. EXC_RETURN selects MSP/PSP and basic versus extended floating-point context; target memory is read only.',
+    inputSchema: debugSession,
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'debug_cortexm_exception_frame', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.debug.exceptionFrame(id)))));
 
   server.registerTool('fault_decode', {
     description: 'Decode supplied Cortex-M SCB fault registers without connecting to hardware.',

@@ -325,6 +325,7 @@ export interface DebugSessionSnapshot {
   probeSerial?: string;
   symbols: string;
   targetConfig: string;
+  rtosAwareness?: 'none' | 'auto' | 'freertos';
   gdbPort: number;
   status: 'starting' | 'connected' | 'stopped' | 'failed';
   startedAt: string;

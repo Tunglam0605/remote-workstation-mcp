@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseDebugBreakpointNumber, parseDebugDisassembly, parseDebugLocals } from '../src/adapters/engineering/debug-mi-analysis.js';
+import { parseDebugBreakpointNumber, parseDebugDisassembly, parseDebugLocals, parseDebugThreads } from '../src/adapters/engineering/debug-mi-analysis.js';
 
 test('debug locals parser returns bounded MI variables without evaluating expressions', () => {
   const payload = 'variables=[{name="error",arg="0",value="3"},{name="state",arg="0",value="IDLE"},{name="input",arg="1",value="0x20001000"}]';
@@ -16,6 +16,18 @@ test('debug disassembly parser extracts address, function, offset and instructio
     { address: 0x08001234, addressHex: '0x08001234', function: 'ControlMotion', offset: 16, instruction: 'ldr r3, [r0, #4]' },
     { address: 0x08001236, addressHex: '0x08001236', function: 'ControlMotion', offset: 18, instruction: 'adds r3, #1' }
   ]);
+});
+
+test('debug thread parser returns bounded target-provided RTOS/thread metadata', () => {
+  const payload = 'threads=[{id="2",target-id="Thread 2",name="ControlTask",details="FreeRTOS task",state="stopped",core="0",frame={level="0",addr="0x08001020",func="ControlTask",file="app.c",fullname="C:/src/app.c",line="42"}},{id="1",target-id="Thread 1",name="Idle",state="stopped"}],current-thread-id="2"';
+  const parsed = parseDebugThreads(payload, 8);
+  assert.equal(parsed.currentThreadId, '2');
+  assert.equal(parsed.threads.length, 2);
+  assert.deepEqual(parsed.threads[0], {
+    id: '2', targetId: 'Thread 2', name: 'ControlTask', details: 'FreeRTOS task', state: 'stopped', core: 0, current: true,
+    frame: { address: '0x08001020', function: 'ControlTask', file: 'app.c', fullname: 'C:/src/app.c', line: 42 }
+  });
+  assert.equal(parsed.threads[1]?.current, false);
 });
 
 test('debug breakpoint/watchpoint number parser accepts nested MI records and rejects missing numbers', () => {

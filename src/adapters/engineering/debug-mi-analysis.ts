@@ -15,6 +15,23 @@ export interface DebugInstruction {
   instruction: string;
 }
 
+export interface DebugThreadInfo {
+  id: string;
+  targetId: string;
+  name?: string;
+  details?: string;
+  state?: 'stopped' | 'running';
+  core?: number;
+  current: boolean;
+  frame?: {
+    address?: string;
+    function?: string;
+    file?: string;
+    fullname?: string;
+    line?: number;
+  };
+}
+
 function tuplesFromList(value: MiValue | undefined): MiTuple[] {
   return (miList(value) ?? []).flatMap(item => {
     if (item && typeof item === 'object' && !Array.isArray(item) && 'key' in item && 'value' in item) {
@@ -69,6 +86,44 @@ export function parseDebugDisassembly(payload: string, limit = 128): DebugInstru
     if (values.length >= limit) break;
   }
   return values;
+}
+
+export function parseDebugThreads(payload: string, limit = 128): { currentThreadId?: string; threads: DebugThreadInfo[] } {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 256) throw new Error('thread limit must be in range 1..256.');
+  const root = parseMiResults(payload);
+  const currentThreadId = miString(root['current-thread-id']);
+  const records = tuplesFromList(root.threads);
+  const threads = records.slice(0, limit).flatMap(record => {
+    const id = miString(record.id);
+    const targetId = miString(record['target-id']);
+    if (!id || !targetId) return [];
+    const name = miString(record.name);
+    const details = miString(record.details);
+    const stateRaw = miString(record.state);
+    const state: DebugThreadInfo['state'] = stateRaw === 'stopped' || stateRaw === 'running' ? stateRaw : undefined;
+    const coreRaw = miString(record.core);
+    const frameTuple = miTuple(record.frame);
+    const lineRaw = frameTuple ? miString(frameTuple.line) : undefined;
+    const core = coreRaw && /^\d+$/.test(coreRaw) ? Number(coreRaw) : undefined;
+    const frame = frameTuple ? {
+      ...(miString(frameTuple.addr) ? { address: miString(frameTuple.addr) } : {}),
+      ...(miString(frameTuple.func) ? { function: miString(frameTuple.func)?.slice(0, 256) } : {}),
+      ...(miString(frameTuple.file) ? { file: miString(frameTuple.file)?.slice(0, 512) } : {}),
+      ...(miString(frameTuple.fullname) ? { fullname: miString(frameTuple.fullname)?.slice(0, 1024) } : {}),
+      ...(lineRaw && /^\d+$/.test(lineRaw) ? { line: Number(lineRaw) } : {})
+    } : undefined;
+    return [{
+      id: id.slice(0, 64),
+      targetId: targetId.slice(0, 512),
+      ...(name ? { name: name.slice(0, 256) } : {}),
+      ...(details ? { details: details.slice(0, 1024) } : {}),
+      ...(state ? { state } : {}),
+      ...(core !== undefined ? { core } : {}),
+      current: id === currentThreadId,
+      ...(frame && Object.keys(frame).length > 0 ? { frame } : {})
+    }];
+  });
+  return { ...(currentThreadId ? { currentThreadId } : {}), threads };
 }
 
 export function parseDebugBreakpointNumber(payload: string): number {

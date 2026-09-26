@@ -32,11 +32,11 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
   assert.match(tools, /workflowRuntimeParameters\.parse\(\{ \.\.\.\(overrides \?\? \{\}\), \.\.\.parameters \}\)/);
 });
 
-test('v0.46 retains professional tooling on Action Schema v22 and Engineering API v5', async () => {
+test('v0.47 expands Cortex-M and RTOS diagnostics on Action Schema v23 and Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 22;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 23;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.46\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.47\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -55,7 +55,7 @@ test('v0.46 retains professional tooling on Action Schema v22 and Engineering AP
   assert.match(taskGraph, /addTaskBatch/);
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const officeTools = await read('src/tools/office-tools.ts');
-  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
     assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
   for (const tool of ['excel_inspect', 'excel_edit', 'powerpoint_inspect', 'powerpoint_edit']) {
@@ -71,6 +71,9 @@ test('v0.46 retains professional tooling on Action Schema v22 and Engineering AP
   assert.match(capabilities, /worker_route_plan/);
   const coreTools = await read('src/tools/core-tools.ts');
   const scopes = await read('src/security/request-principal.ts');
+  assert.match(scopes, /debug_rtos_tasks: 'workstation\.read'/);
+  assert.match(scopes, /debug_cortexm_exception_frame: 'workstation\.read'/);
+  assert.match(engineeringTools, /rtosAwareness: z\.enum\(\['none', 'auto', 'freertos'\]\)\.default\('none'\)/);
   assert.match(scopes, /worker_route_plan: 'workstation\.read'/);
   assert.match(scopes, /execution_target_set_override: 'workstation\.write'/);
   assert.match(coreTools, /server\.registerTool\('execution_target_set_override'/);
@@ -330,7 +333,7 @@ test('Keil remains a typed provider rather than an arbitrary command surface', a
 });
 
 
-test('current runtime retains Work Session routing under Action Schema v22 and Keil shared outputs remain project-variant exclusive', async () => {
+test('current runtime retains Work Session routing under Action Schema v23 and Keil shared outputs remain project-variant exclusive', async () => {
   const capabilities = await read('src/capabilities.ts');
   const coreTools = await read('src/tools/core-tools.ts');
   const engineeringTools = await read('src/tools/engineering-tools.ts');
@@ -338,7 +341,7 @@ test('current runtime retains Work Session routing under Action Schema v22 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 22;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 23;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

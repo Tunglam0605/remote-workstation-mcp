@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.47.0 - Professional Tools Expansion III: Cortex-M + RTOS Diagnostics
+
+- add `debug_cortexm_exception_frame` to decode the architectural Cortex-M stacked core frame from a caller-owned halted debug session using EXC_RETURN, MSP/PSP selection and bounded GDB/MI memory reads;
+- support both basic and extended floating-point exception frames without writing target state, and expose stacked R0-R3/R12/LR/PC/xPSR plus stack-alignment evidence;
+- add `debug_rtos_tasks` on the documented GDB/MI `-thread-info` machine contract; return bounded target-provided thread/task metadata without interpreting the human-readable `details` field or guessing FreeRTOS TCB offsets;
+- add bounded `rtosAwareness: none | auto | freertos` to `debug_session_start`; default remains `none`, while enabled modes emit only the fixed official OpenOCD `$_TARGETNAME configure -rtos auto/FreeRTOS` command;
+- enrich Cortex-M fault snapshots with explicit CMSIS-Core SCB provenance and raw SHCSR/CFSR/HFSR/DFSR/MMFAR/BFAR/AFSR evidence;
+- keep arbitrary GDB/Tcl commands, memory/register writes, GDB flash and raw RTOS structure parsing intentionally unavailable;
+- advance Action Schema to 23 for the two new public tools and the bounded RTOS-awareness input while retaining Engineering API 5.
+
 ## v0.46.0 - NotebookLM Command Mode + Windows Recovery Hardening
 
 - allow `notebooklm_video_generate` to run in one-command mode without a caller-managed Existing Chrome session; when `existingSessionId` is omitted, RWMCP auto-claims an authenticated NotebookLM tab, performs bounded semantic `find/fill/click` operations, verifies STARTED/READY postconditions, and releases the claim;

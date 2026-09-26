@@ -9,13 +9,14 @@ import { PathGuard } from '../../security/path-guard.js';
 import { resolveResourceOwner, type ResourceOwnerSource } from '../../security/execution-context.js';
 import { buildSafeEnvironment } from '../../security/env-filter.js';
 import { decodeCortexMFault } from './fault-decode.js';
+import { decodeCortexMExceptionFrame, planCortexMExceptionFrame } from './cortexm-exception.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
 import { openOcdAdapterSpeedArgs, openOcdSearchPathArgs, resolveOpenOcdExecutable, validateAdapterSpeedKhz } from './openocd-provider.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
 import { FirmwareProjectInspector, stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { EngineeringResourceManager } from './resource-manager.js';
-import { parseDebugBreakpointNumber, parseDebugDisassembly, parseDebugLocals } from './debug-mi-analysis.js';
+import { parseDebugBreakpointNumber, parseDebugDisassembly, parseDebugLocals, parseDebugThreads } from './debug-mi-analysis.js';
 import { miList, miResultField, miString, miTuple, parseMiResults, type MiValue } from './gdb-mi-parser.js';
 
 interface MiResult { token: number; resultClass: string; payload: string; raw: string; }
@@ -217,12 +218,12 @@ export class DebugSessionManager {
       provider: 'gdb-mi+openocd',
       openocd,
       gdb,
-      operations: ['halt', 'resume', 'step', 'next', 'stack', 'registers', 'locals', 'variable', 'disassemble', 'breakpoint', 'watchpoint', 'memory-read', 'fault-snapshot'],
+      operations: ['halt', 'resume', 'step', 'next', 'stack', 'registers', 'locals', 'variable', 'disassemble', 'breakpoint', 'watchpoint', 'memory-read', 'fault-snapshot', 'cortexm-exception-frame', 'rtos-tasks'],
       intentionallyUnavailable: ['arbitrary-gdb-command', 'arbitrary-tcl-command', 'memory-write', 'gdb-flash']
     };
   }
 
-  async start(options: { workspace: string; projectPath?: string; symbols: string; probeSerial?: string; targetConfig?: string; adapterSpeedKhz?: number }): Promise<DebugSessionSnapshot> {
+  async start(options: { workspace: string; projectPath?: string; symbols: string; probeSerial?: string; targetConfig?: string; adapterSpeedKhz?: number; rtosAwareness?: 'none' | 'auto' | 'freertos' }): Promise<DebugSessionSnapshot> {
     this.policy.assertHardwareMutation();
     const projectPath = options.projectPath ?? '.';
     const project = await this.inspector.inspect(options.workspace, projectPath);
@@ -240,12 +241,14 @@ export class DebugSessionManager {
     if (!openocd) throw new Error('OpenOCD is unavailable.');
     if (!gdbExec) throw new Error('GDB is unavailable.');
     const adapterSpeedKhz = validateAdapterSpeedKhz(options.adapterSpeedKhz);
+    const rtosAwareness = options.rtosAwareness ?? 'none';
     const resourceId = `debug-probe:${options.probeSerial ?? 'auto'}`;
     const lease = this.resources.acquire(resourceId, 'debugging');
     const port = await reservePort();
     const args = [...openOcdSearchPathArgs(openocd), '-c', 'bindto 127.0.0.1', '-f', 'interface/stlink.cfg', '-c', 'transport select swd', '-f', targetConfig,
       ...(options.probeSerial ? ['-c', `adapter serial ${options.probeSerial}`] : []),
       ...openOcdAdapterSpeedArgs(adapterSpeedKhz),
+      ...(rtosAwareness === 'none' ? [] : ['-c', `$_TARGETNAME configure -rtos ${rtosAwareness === 'freertos' ? 'FreeRTOS' : 'auto'}`]),
       '-c', `gdb port ${port}`, '-c', 'telnet port disabled', '-c', 'tcl port disabled', '-c', 'gdb flash_program disable', '-c', 'init'];
     const env = buildSafeEnvironment(this.policy.config.process.inheritEnv);
     const openocdProcess = spawn(openocd.path, args, { cwd, shell: false, windowsHide: true, env });
@@ -262,7 +265,7 @@ export class DebugSessionManager {
       const id = randomUUID();
       const managed: ManagedDebug = {
         id, workspace: options.workspace, resourceId, probeSerial: options.probeSerial, symbols,
-        targetConfig, gdbPort: port, status: 'connected', startedAt: new Date().toISOString(),
+        targetConfig, rtosAwareness, gdbPort: port, status: 'connected', startedAt: new Date().toISOString(),
         ownerId: this.ownerId(), openocd: openocdProcess, gdb, leaseId: lease.id, openocdOutput: output
       };
       this.sessions.set(id, managed);
@@ -349,6 +352,21 @@ export class DebugSessionManager {
     return parseDebugLocals(result.payload, maxVariables);
   }
 
+  async rtosTasks(id: string, maxTasks = 128) {
+    if (!Number.isInteger(maxTasks) || maxTasks < 1 || maxTasks > 256) throw new Error('maxTasks must be in range 1..256.');
+    const result = await this.owned(id).gdb.command('-thread-info');
+    const parsed = parseDebugThreads(result.payload, maxTasks);
+    return {
+      source: 'gdb-mi-thread-info' as const,
+      targetProvided: true,
+      rtosIdentity: 'not-inferred' as const,
+      currentThreadId: parsed.currentThreadId,
+      taskCount: parsed.threads.length,
+      tasks: parsed.threads,
+      note: 'Task/thread records are returned exactly from the target-backed GDB/MI thread model. RWMCP does not infer FreeRTOS TCB layout or parse the human-readable GDB details field.'
+    };
+  }
+
   async disassemble(id: string, options: { address?: number; beforeBytes?: number; afterBytes?: number; maxInstructions?: number } = {}) {
     const beforeBytes = options.beforeBytes ?? 32;
     const afterBytes = options.afterBytes ?? 96;
@@ -425,8 +443,27 @@ export class DebugSessionManager {
       readU32(0xE000ED34), readU32(0xE000ED38), readU32(0xE000ED3C)
     ]);
     return {
-      core: { pc: byName.get('pc'), lr: byName.get('lr'), sp: byName.get('sp') ?? byName.get('r13'), xpsr: byName.get('xpsr') },
+      source: 'cmsis-core-scb+gdb-mi' as const,
+      core: { pc: byName.get('pc'), lr: byName.get('lr'), sp: byName.get('sp') ?? byName.get('r13'), msp: byName.get('msp'), psp: byName.get('psp'), xpsr: byName.get('xpsr') },
+      scb: { shcsr, cfsr, hfsr, dfsr, mmfar, bfar, afsr },
       decoded: decodeCortexMFault({ cfsr, hfsr, dfsr, mmfar, bfar, afsr, shcsr })
+    };
+  }
+
+  async exceptionFrame(id: string) {
+    const regs = await this.registers(id);
+    const byName = new Map(regs.map(item => [item.name.toLowerCase(), item.value]));
+    const plan = planCortexMExceptionFrame({
+      lr: byName.get('lr'),
+      msp: byName.get('msp'),
+      psp: byName.get('psp')
+    });
+    const memory = await this.memoryRead(id, plan.coreFrameAddress, plan.coreFrameBytes);
+    return {
+      source: 'arm-cortex-m-exception-frame+gdb-mi' as const,
+      plan,
+      frame: decodeCortexMExceptionFrame(memory.hex),
+      note: 'The exception frame is decoded from the architectural Cortex-M stacked core frame. Extended floating-point context is skipped using EXC_RETURN FTYPE; no target memory is modified.'
     };
   }
 

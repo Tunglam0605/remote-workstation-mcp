@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ControlPlaneRelayAdapter } from '../control-plane-relay.js';
 import { DataPlaneAdapter } from '../data-plane.js';
-import type { FirmwareProjectInfo, SerialDeviceResolution, SerialDeviceSelector } from '../../engineering/types.js';
+import type { FirmwareProjectInfo, SerialDeviceResolution, SerialDeviceSelector, Stm32SvdRegisterSelector, Stm32SvdResolvedRegister } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { MultiNodeAuthorization, type CrossNodeTransferIntent } from '../../security/multi-node-authorization.js';
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
@@ -24,6 +24,7 @@ import {
 import { Ros2Adapter, type Ros2RuntimeContext } from './ros2.js';
 import { SerialSessionManager } from './serial-session.js';
 import { SystemdAdapter } from './systemd.js';
+import { Stm32SvdAdapter, decodeStm32SvdRegisterHex } from './stm32-svd.js';
 
 export type EngineeringWorkflowId =
   | 'platform.transfer_prepare'
@@ -49,6 +50,7 @@ export type EngineeringWorkflowId =
   | 'platformio.diagnostics'
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deep_diagnostics'
+  | 'stm32.peripheral_snapshot'
   | 'stm32.deploy_accept'
   | 'stm32.deploy_accept_diagnose'
   | 'ros2.build'
@@ -101,6 +103,8 @@ export interface EngineeringWorkflowOverrides {
   systemdUser?: boolean;
   journalLines?: number;
   debugMaxFrames?: number;
+  svdFile?: string;
+  svdRegisters?: Stm32SvdRegisterSelector[];
   variant?: string;
   keilProject?: string;
   keilTarget?: string;
@@ -205,7 +209,8 @@ export class EngineeringWorkflowEngine {
     private readonly docker?: DockerAdapter,
     private readonly systemd?: SystemdAdapter,
     private readonly kicad?: KicadAdapter,
-    private readonly platformio?: PlatformioAdapter
+    private readonly platformio?: PlatformioAdapter,
+    private readonly stm32Svd?: Stm32SvdAdapter
   ) {}
 
   private transferIntent(
@@ -377,6 +382,45 @@ export class EngineeringWorkflowEngine {
     };
   }
 
+  private async resolveSvdRegisterSet(
+    workspace: string,
+    projectPath: string,
+    fw: EngineeringFirmwareProfile,
+    overrides: EngineeringWorkflowOverrides,
+    required = false
+  ) {
+    const svdFile = overrides.svdFile ?? fw.svdFile;
+    const selectors = overrides.svdRegisters ?? fw.liveRegisters ?? [];
+    if (!svdFile && selectors.length === 0) {
+      if (required) throw new Error('STM32 peripheral snapshot requires firmware.svdFile plus firmware.liveRegisters, or parameters.svdFile plus parameters.svdRegisters.');
+      return undefined;
+    }
+    if (!svdFile || selectors.length === 0) {
+      throw new Error('SVD live-register configuration must provide both svdFile and at least one semantic peripheral/register selector.');
+    }
+    if (!this.stm32Svd) throw new Error('CMSIS-SVD adapter is unavailable in this runtime.');
+
+    const resolved = [];
+    for (const selector of selectors) {
+      const item = await this.stm32Svd.resolveRegister(workspace, projectPath, svdFile, selector.peripheral, selector.register);
+      if (!item.safeToRead) {
+        throw new Error(`SVD live read blocked for ${item.selector}: ${item.safetyCode}: ${item.safetyReason}`);
+      }
+      resolved.push(item);
+    }
+    return { svdFile, selectors, resolved };
+  }
+
+  private async readResolvedSvdRegisters(sessionId: string, resolved: Stm32SvdResolvedRegister[]) {
+    const snapshots = [];
+    for (const item of resolved) {
+      if (!item.safeToRead) throw new Error(`Unsafe SVD register read refused for ${item.selector}: ${item.safetyReason}`);
+      const memory = await this.debug.memoryRead(sessionId, item.address, item.byteLength);
+      snapshots.push(decodeStm32SvdRegisterHex(item, memory.hex));
+    }
+    return snapshots;
+  }
+
   private async state(workspace: string, projectPath = '.'): Promise<ProjectState> {
     this.policy.assertEngineeringEnabled();
     const project = await this.firmware.inspect(workspace, projectPath);
@@ -453,7 +497,7 @@ export class EngineeringWorkflowEngine {
     if (firmwareCapable) {
       ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
-        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deep_diagnostics', 'stm32.deploy_accept', 'stm32.deploy_accept_diagnose');
+        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deep_diagnostics', 'stm32.peripheral_snapshot', 'stm32.deploy_accept', 'stm32.deploy_accept_diagnose');
       }
       if (
         state.project.family === 'esp32' ||
@@ -497,6 +541,7 @@ export class EngineeringWorkflowEngine {
           id.startsWith('firmware.build_flash') ||
           id === 'stm32.debug_fault_snapshot' ||
           id === 'stm32.deep_diagnostics' ||
+          id === 'stm32.peripheral_snapshot' ||
           id === 'stm32.deploy_accept' ||
           id === 'stm32.deploy_accept_diagnose' ||
           id === 'kicad.fabrication_export' ||
@@ -524,7 +569,8 @@ export class EngineeringWorkflowEngine {
           'firmware.build_flash_monitor': 'Build, flash, then open the configured serial monitor session.',
           'firmware.build_flash_monitor_expect': 'Build, flash, open serial and wait for a configured boot/readiness marker.',
           'stm32.debug_fault_snapshot': 'Open a constrained STM32 debug session, halt the target, decode Cortex-M fault state, capture stack frames, then release the probe.',
-          'stm32.deep_diagnostics': 'Run one bounded STM32 diagnostic chain: open debug with RTOS auto-awareness, halt, collect fault/register/stack evidence, best-effort Cortex-M exception frame, RTOS task inventory and disassembly, then always release the probe.',
+          'stm32.deep_diagnostics': 'Run one bounded STM32 diagnostic chain: open debug with RTOS auto-awareness, halt, collect fault/register/stack evidence, best-effort Cortex-M exception frame, RTOS task inventory, disassembly and configured safe CMSIS-SVD peripheral snapshots, then always release the probe.',
+          'stm32.peripheral_snapshot': 'Resolve configured peripheral/register names through project-scoped CMSIS-SVD metadata, reject unsafe or side-effecting reads, halt under the existing constrained debug session, read only resolved bounded addresses, decode fields, then release the probe.',
           'stm32.deploy_accept': 'Preflight hardware, build, open serial, atomically flash/verify/reset through one ST-Link lease, then require a readiness marker and release resources.',
           'stm32.deploy_accept_diagnose': 'Run the deployment acceptance workflow and, only when flash/verify/reset succeeded but readiness acceptance failed, automatically collect bounded deep-diagnostic evidence before returning the failed acceptance.',
           'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
@@ -1098,6 +1144,9 @@ export class EngineeringWorkflowEngine {
 
     const effective = this.effectiveFirmware(state.profile.firmware, overrides);
     const fw = effective.config;
+    const svdRegisterSet = (workflow === 'stm32.deep_diagnostics' || workflow === 'stm32.peripheral_snapshot')
+      ? await this.resolveSvdRegisterSet(workspace, projectPath, fw, overrides, workflow === 'stm32.peripheral_snapshot')
+      : undefined;
     const flashProvider = fw.flashProvider ?? (state.project.family === 'esp32' ? 'esp-idf' : 'auto');
     const needsMonitorPort = workflow === 'firmware.build_flash_monitor'
       || workflow === 'firmware.build_flash_monitor_expect'
@@ -1164,7 +1213,12 @@ export class EngineeringWorkflowEngine {
       steps.push('debug.session.start', 'debug.halt', 'debug.fault_snapshot', 'debug.stack', 'debug.session.stop');
     }
     if (workflow === 'stm32.deep_diagnostics') {
-      steps.push('debug.session.start', 'debug.halt', 'debug.registers', 'debug.fault_snapshot', 'debug.exception_frame', 'debug.rtos_tasks', 'debug.stack', 'debug.disassemble', 'debug.session.stop');
+      steps.push('debug.session.start', 'debug.halt', 'debug.registers', 'debug.fault_snapshot', 'debug.exception_frame', 'debug.rtos_tasks', 'debug.stack');
+      if (svdRegisterSet) steps.push('debug.svd_registers');
+      steps.push('debug.disassemble', 'debug.session.stop');
+    }
+    if (workflow === 'stm32.peripheral_snapshot') {
+      steps.push('debug.session.start', 'debug.halt', 'debug.svd_registers', 'debug.session.stop');
     }
     if (workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose') {
       steps.push('preflight.stm32_deploy', 'firmware.build', 'serial.open', 'firmware.flash_verify_reset', 'serial.wait_for_text');
@@ -1199,7 +1253,7 @@ export class EngineeringWorkflowEngine {
       preflight: deploymentPreflight,
       artifactIntegrity: undefined,
       resolved: {
-        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deep_diagnostics' || workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose') ? {
+        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deep_diagnostics' || workflow === 'stm32.peripheral_snapshot' || workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose') ? {
           variant: effective.variant,
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
@@ -1218,6 +1272,15 @@ export class EngineeringWorkflowEngine {
           expectText: expectedText,
           expectTimeoutMs: overrides.expectTimeoutMs ?? fw.monitor?.expectTimeoutMs ?? 10_000,
           debugMaxFrames: overrides.debugMaxFrames ?? 16,
+          ...(svdRegisterSet ? {
+            svdFile: svdRegisterSet.svdFile,
+            liveRegisters: svdRegisterSet.resolved.map(item => ({
+              selector: item.selector,
+              addressHex: `0x${item.address.toString(16)}`,
+              sizeBits: item.sizeBits,
+              safetyCode: item.safetyCode
+            }))
+          } : {}),
           keepMonitorOpen: overrides.keepMonitorOpen ?? false
         } : undefined,
         ros2: workflow.startsWith('ros2.') ? {
@@ -1964,8 +2027,52 @@ export class EngineeringWorkflowEngine {
         }
       };
     }
+    if (workflow === 'stm32.peripheral_snapshot') {
+      const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
+      const live = await this.resolveSvdRegisterSet(workspace, projectPath, fw, overrides, true);
+      const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);
+      const probeSerial = overrides.probeSerial ?? fw.probeSerial;
+      if (!probeSerial) {
+        throw new Error('STM32 peripheral snapshot requires firmware.probeSerial or a probeSerial override.');
+      }
+
+      const started = await capture('debug.session.start', () => this.debug.start({
+        workspace,
+        projectPath,
+        symbols,
+        probeSerial,
+        targetConfig: overrides.targetConfig ?? fw.targetConfig,
+        adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz,
+        rtosAwareness: 'none'
+      }));
+      if (!started.ok) return { workflow, status: 'failed', plan, steps };
+
+      let snapshots: unknown;
+      let failed = false;
+      try {
+        const halted = await capture('debug.halt', () => this.debug.halt(started.value.id));
+        if (!halted.ok) failed = true;
+        if (!failed) {
+          const read = await capture('debug.svd_registers', () => this.readResolvedSvdRegisters(started.value.id, live!.resolved));
+          if (read.ok) snapshots = read.value;
+          else failed = true;
+        }
+      } finally {
+        const stopped = await capture('debug.session.stop', () => this.debug.stop(started.value.id));
+        if (!stopped.ok) failed = true;
+      }
+
+      return {
+        workflow,
+        status: failed ? 'failed' : 'succeeded',
+        plan,
+        steps,
+        outputs: { symbols, svdFile: live!.svdFile, peripheralRegisters: snapshots }
+      };
+    }
     if (workflow === 'stm32.deep_diagnostics') {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
+      const live = await this.resolveSvdRegisterSet(workspace, projectPath, fw, overrides, false);
       const symbols = await this.resolveDebugSymbols(workspace, projectPath, overrides.artifact ?? fw.artifact);
       const probeSerial = overrides.probeSerial ?? fw.probeSerial;
       if (!probeSerial) {
@@ -1988,6 +2095,7 @@ export class EngineeringWorkflowEngine {
       let exceptionFrame: unknown;
       let rtosTasks: unknown;
       let stack: unknown;
+      let peripheralRegisters: unknown;
       let disassembly: unknown;
       let failed = false;
       try {
@@ -2010,6 +2118,9 @@ export class EngineeringWorkflowEngine {
           if (stackResult.ok) stack = stackResult.value;
           else failed = true;
         }
+        if (!failed && live) {
+          peripheralRegisters = await captureOptional('debug.svd_registers', () => this.readResolvedSvdRegisters(started.value.id, live.resolved));
+        }
         if (!failed) {
           disassembly = await captureOptional('debug.disassemble', () => this.debug.disassemble(started.value.id, { beforeBytes: 32, afterBytes: 96, maxInstructions: 96 }));
         }
@@ -2031,6 +2142,7 @@ export class EngineeringWorkflowEngine {
           exceptionFrame,
           rtosTasks,
           stack,
+          ...(live ? { svdFile: live.svdFile, peripheralRegisters } : {}),
           disassembly,
           evidenceQuality: degradedEvidence.length === 0 ? 'complete' : 'degraded',
           degradedEvidence

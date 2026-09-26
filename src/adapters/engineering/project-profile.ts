@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import * as z from 'zod/v4';
-import type { SerialDeviceSelector } from '../../engineering/types.js';
+import type { SerialDeviceSelector, Stm32SvdRegisterSelector } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
 
@@ -16,6 +16,8 @@ export interface EngineeringFirmwareVariant {
   adapterSpeedKhz?: number;
   keilProject?: string;
   keilTarget?: string;
+  svdFile?: string;
+  liveRegisters?: Stm32SvdRegisterSelector[];
 }
 
 export interface EngineeringFirmwareProfile {
@@ -32,6 +34,8 @@ export interface EngineeringFirmwareProfile {
   keilTarget?: string;
   defaultVariant?: string;
   variants?: Record<string, EngineeringFirmwareVariant>;
+  svdFile?: string;
+  liveRegisters?: Stm32SvdRegisterSelector[];
   monitor?: {
     port?: string;
     selector?: SerialDeviceSelector;
@@ -75,6 +79,11 @@ const serialSelectorSchema = z.object({
   value => Boolean(value.deviceId || value.serialNumber || (value.vendorId && value.productId)),
   { message: 'Serial selector requires deviceId, serialNumber, or both vendorId and productId.' }
 );
+const svdRegisterSelectorSchema = z.object({
+  peripheral: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.%-]+$/),
+  register: z.string().min(1).max(192).regex(/^[A-Za-z0-9_.%\[\]-]+$/)
+}).strict();
+
 const variantSchema = z.object({
   buildDir: relativePath.optional(),
   artifact: relativePath.optional(),
@@ -82,7 +91,9 @@ const variantSchema = z.object({
   targetConfig: z.string().min(1).max(256).optional(),
   adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
   keilProject: relativePath.optional(),
-  keilTarget: z.string().min(1).max(160).optional()
+  keilTarget: z.string().min(1).max(160).optional(),
+  svdFile: relativePath.optional(),
+  liveRegisters: z.array(svdRegisterSelectorSchema).min(1).max(32).optional()
 }).strict();
 
 const profileSchema = z.object({
@@ -106,6 +117,8 @@ const profileSchema = z.object({
     variants: z.record(profileId, variantSchema).refine(value => Object.keys(value).length <= 64, {
       message: 'firmware.variants may contain at most 64 entries.'
     }).optional(),
+    svdFile: relativePath.optional(),
+    liveRegisters: z.array(svdRegisterSelectorSchema).min(1).max(32).optional(),
     monitor: z.object({
       port: z.string().min(1).max(256).optional(),
       selector: serialSelectorSchema.optional(),

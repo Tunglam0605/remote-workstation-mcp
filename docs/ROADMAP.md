@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.50.0 - STM32 Live Peripheral Intelligence
+
+- add `stm32.peripheral_snapshot` through the existing generic `engineering_workflow_plan/run` envelope;
+- persist a project-relative CMSIS-SVD file plus up to 32 semantic `{ peripheral, register }` selectors in the STM32 firmware profile, with runtime overrides available through the generic parameters payload;
+- resolve semantic selectors to SVD-owned addresses and 8/16/32-bit widths; callers never provide raw addresses;
+- parse CMSIS-SVD `readAction` at register and field level and fail closed before debug access on side effects, unresolved `derivedFrom`, arrays without element selection, non-readable access, unsupported width, truncated field metadata or invalid field layout;
+- reuse the existing constrained GDB/MI `-data-read-memory-bytes` path and decode little-endian values plus named fields without adding memory/register write authority;
+- optionally collect safe peripheral snapshots inside `stm32.deep_diagnostics`; live-register read failures are degraded optional evidence while primary fault/stack evidence remains valid;
+- keep Action Schema 23 and Engineering API 5 because all new behavior remains behind the stable generic workflow envelope.
+
 ## v0.49.0 - Automated Engineering Workflows II
 
 - add `stm32.deploy_accept_diagnose` through the existing generic `engineering_workflow_plan/run` envelope;

@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.49.0 - Automated Engineering Workflows II
+
+- add `stm32.deploy_accept_diagnose` through the existing generic `engineering_workflow_plan/run` envelope;
+- reuse the typed `stm32.deploy_accept` and `stm32.deep_diagnostics` implementations instead of duplicating flash/debug logic;
+- automatically run deep diagnostics only when `firmware.flash_verify_reset` succeeded and serial readiness acceptance failed, so evidence is tied to the confirmed deployed image;
+- do not auto-diagnose when preflight, build, serial-open or deploy/verify/reset itself failed, avoiding stale-firmware conclusions;
+- force monitor cleanup before automatic debug diagnosis and reject `keepMonitorOpen=true` for this composite workflow;
+- prefix nested evidence as `deploy.*` and `diagnostics.*` while preserving the original child workflow results in outputs;
+- retain Action Schema 23 and Engineering API 5 because the workflow remains inside the stable generic workflow envelope.
+
 ## v0.48.0 - Automated Engineering Workflows I
 
 - add `stm32.deep_diagnostics` through the existing generic `engineering_workflow_plan/run` envelope rather than adding another top-level MCP action;

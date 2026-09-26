@@ -65,6 +65,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   notebooklm_ask: 'workstation.write',
   notebooklm_video_status: 'workstation.read',
   notebooklm_video_generate: 'workstation.write',
+  notebooklm_content_pipeline: 'workstation.write',
   system_info: 'workstation.read',
   tool_discover: 'workstation.read',
   office_capabilities: 'workstation.read',

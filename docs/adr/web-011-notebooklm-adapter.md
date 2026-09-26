@@ -19,6 +19,7 @@ NotebookLM Adapter v1 exposes only operations with meaningful, verified postcond
 - `notebooklm_sources_list`: semantic source inventory with count/truncation evidence;
 - `notebooklm_ask`: fill the semantic query box, activate Send and wait until the conversation changed, NotebookLM busy markers disappeared, and page text became stable; v0.51 may auto-claim/release the authenticated tab for one-shot command mode.
 - `notebooklm_video_generate`: create one Video Overview or a bounded sequential batch of up to 25 jobs. Command mode claims one authenticated tab for the whole batch, verifies STARTED then stable READY evidence for each job, records per-job identity/results, and releases the claim in `finally`.
+- `notebooklm_content_pipeline`: in one claimed notebook session, verify bounded source readiness, run one stable source-grounded ask, invoke the existing sequential video batch, then return the final bounded artifact inventory. Command mode claims/releases the owner-authenticated tab exactly once.
 
 The adapter supports Vietnamese and English query/send labels used by NotebookLM. It never accepts raw selectors, JavaScript or coordinates.
 
@@ -31,6 +32,7 @@ A click or fill is never treated as operation success by itself.
 - Ask succeeds only when the submitted question is observed in changed conversation state, generation is no longer busy, and the page reaches a stable state.
 - Single video generation succeeds only after NotebookLM exposes generation STARTED and then a new stable READY artifact.
 - Batch video generation never overlaps jobs: job N+1 starts only after job N reaches READY. The default error policy stops at the first failed job and returns bounded partial-result evidence.
+- Content pipeline fails closed before asking or generating when the configured minimum source count is not satisfied, then preserves the existing ask/video postconditions and performs a final artifact inventory read.
 
 ## Deferred
 

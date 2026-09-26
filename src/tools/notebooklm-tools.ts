@@ -136,6 +136,36 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
         : ctx.notebooklm.videoGenerateCommand(owner, singleFocus, waitForReady, timeoutMs, tabId);
     }));
 
+  server.registerTool('notebooklm_content_pipeline', {
+    description: 'Run a bounded NotebookLM content pipeline in one authenticated tab claim: verify source readiness, ask for stable source-grounded content, generate 1-25 Video Overviews sequentially, then return artifact inventory. This mutates NotebookLM cloud conversation/Studio state and may consume AI quota.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid().optional(),
+      tabId: z.number().int().positive().optional(),
+      question: z.string().trim().min(1).max(8_000),
+      videos: z.array(z.object({
+        id: z.string().trim().min(1).max(128).optional(),
+        focus: z.string().trim().min(1).max(8_000)
+      }).strict()).min(1).max(25),
+      minSources: z.number().int().min(1).max(500).default(1),
+      askTimeoutMs: z.number().int().min(5_000).max(120_000).default(60_000),
+      videoTimeoutMs: z.number().int().min(30_000).max(1_800_000).default(900_000),
+      stopOnError: z.boolean().default(true)
+    }),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  }, async ({ workSessionId, existingSessionId, tabId, question, videos, minSources, askTimeoutMs, videoTimeoutMs, stopOnError }) =>
+    executeInSession('notebooklm_content_pipeline', workSessionId, owner => {
+      const options = { question, videos, minSources, askTimeoutMs, videoTimeoutMs, stopOnError };
+      return existingSessionId
+        ? ctx.notebooklm.contentPipeline(existingSessionId, owner, options)
+        : ctx.notebooklm.contentPipelineCommand(owner, options, tabId);
+    }));
+
   server.registerTool('notebooklm_ask', {
     description: 'Ask one bounded NotebookLM question by semantic command and wait for a changed, stable answer postcondition. If existingSessionId is omitted, RWMCP auto-claims an authenticated NotebookLM tab and releases it after completion. This mutates cloud conversation state without coordinate mouse/screen control.',
     inputSchema: z.object({

@@ -463,6 +463,85 @@ export class NotebookLmAdapter {
     }
   }
 
+  async contentPipeline(
+    existingSessionId: string,
+    owner: Owner,
+    options: {
+      question: string;
+      videos: Array<{ id?: string; focus: string }>;
+      minSources?: number;
+      askTimeoutMs?: number;
+      videoTimeoutMs?: number;
+      stopOnError?: boolean;
+    }
+  ) {
+    const minSources = Math.max(1, Math.min(options.minSources ?? 1, 500));
+    const sources = await this.listSources(existingSessionId, owner);
+    if (sources.sourceCount < minSources) {
+      throw new Error(`NotebookLM source readiness failed: required at least ${minSources} sources, observed ${sources.sourceCount}.`);
+    }
+
+    const answer = await this.ask(
+      existingSessionId,
+      owner,
+      options.question,
+      options.askTimeoutMs ?? 60_000
+    );
+
+    const videos = await this.videoGenerateBatch(
+      existingSessionId,
+      owner,
+      options.videos,
+      options.videoTimeoutMs ?? 15 * 60_000,
+      options.stopOnError ?? true
+    );
+
+    const inventory = await this.videoStatus(existingSessionId, owner);
+    return {
+      existingSessionId,
+      notebookId: sources.notebookId,
+      mode: 'content-pipeline' as const,
+      sourceReadiness: {
+        required: minSources,
+        observed: sources.sourceCount,
+        truncated: sources.truncated,
+        sources: sources.sources
+      },
+      answer,
+      videos,
+      artifactInventory: inventory.artifacts,
+      activeArtifact: inventory.activeArtifact,
+      observedAt: new Date().toISOString()
+    };
+  }
+
+  async contentPipelineCommand(
+    owner: Owner,
+    options: {
+      question: string;
+      videos: Array<{ id?: string; focus: string }>;
+      minSources?: number;
+      askTimeoutMs?: number;
+      videoTimeoutMs?: number;
+      stopOnError?: boolean;
+    },
+    requestedTabId?: number
+  ) {
+    const opened = await this.open(owner, requestedTabId);
+    try {
+      const pipeline = await this.contentPipeline(opened.existingSessionId, owner, options);
+      return {
+        ...pipeline,
+        commandMode: true,
+        autoClaimedTab: true,
+        tabId: opened.tabId,
+        provider: opened.provider
+      };
+    } finally {
+      this.close(opened.existingSessionId, owner);
+    }
+  }
+
   async askCommand(
     owner: Owner,
     question: string,

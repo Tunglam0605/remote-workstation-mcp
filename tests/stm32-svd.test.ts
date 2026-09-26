@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { Stm32SvdAdapter, parseStm32SvdText } from '../src/adapters/engineering/stm32-svd.js';
+import { Stm32SvdAdapter, decodeStm32SvdRegisterHex, parseStm32SvdText, resolveStm32SvdRegister } from '../src/adapters/engineering/stm32-svd.js';
 import type { PathGuard } from '../src/security/path-guard.js';
 
 const sample = `<?xml version="1.0" encoding="utf-8"?>
@@ -127,6 +127,48 @@ test('STM32 SVD parser rejects DTD/entity declarations instead of expanding exte
     () => parseStm32SvdText('unsafe.svd', 128, '<!DOCTYPE device [<!ENTITY x SYSTEM "file:///etc/passwd">]><device><name>&x;</name></device>'),
     /SVD_XML_UNSAFE/
   );
+});
+
+test('STM32 SVD semantic resolver permits only explicit side-effect-free readable registers', () => {
+  const xml = `<device><name>STM32X</name><peripherals><peripheral><name>USART3</name><baseAddress>0x40004800</baseAddress><size>32</size><access>read-write</access><registers>
+    <register><name>ISR</name><addressOffset>0x1c</addressOffset><fields><field><name>RXNE</name><bitOffset>5</bitOffset><bitWidth>1</bitWidth></field></fields></register>
+    <register><name>RDR</name><addressOffset>0x24</addressOffset><readAction>clear</readAction></register>
+    <register><name>TDR</name><addressOffset>0x28</addressOffset><access>write-only</access></register>
+    <register><name>SR</name><addressOffset>0x2c</addressOffset><fields><field><name>FLAG</name><bitOffset>0</bitOffset><bitWidth>1</bitWidth><readAction>clear</readAction></field></fields></register>
+    <register><name>CCR%s</name><addressOffset>0x30</addressOffset><dim>2</dim><dimIncrement>4</dimIncrement></register>
+  </registers></peripheral></peripherals></device>`;
+  const inspection = parseStm32SvdText('safe.svd', Buffer.byteLength(xml), xml);
+
+  const safe = resolveStm32SvdRegister(inspection, 'usart3', 'isr');
+  assert.equal(safe.selector, 'USART3.ISR');
+  assert.equal(safe.address, 0x4000481c);
+  assert.equal(safe.safeToRead, true);
+  assert.equal(safe.safetyCode, 'safe');
+  const decoded = decodeStm32SvdRegisterHex(safe, '20000000');
+  assert.equal(decoded.value, 0x20);
+  assert.equal(decoded.fields.find(field => field.name === 'RXNE')?.value, 1);
+
+  const registerSideEffect = resolveStm32SvdRegister(inspection, 'USART3', 'RDR');
+  assert.equal(registerSideEffect.safeToRead, false);
+  assert.equal(registerSideEffect.safetyCode, 'register-read-side-effect');
+  const writeOnly = resolveStm32SvdRegister(inspection, 'USART3', 'TDR');
+  assert.equal(writeOnly.safetyCode, 'access-not-readable');
+  const fieldSideEffect = resolveStm32SvdRegister(inspection, 'USART3', 'SR');
+  assert.equal(fieldSideEffect.safetyCode, 'field-read-side-effect');
+  const array = resolveStm32SvdRegister(inspection, 'USART3', 'CCR%s');
+  assert.equal(array.safetyCode, 'array-selector-required');
+  assert.throws(() => decodeStm32SvdRegisterHex(registerSideEffect, '00000000'), /Unsafe SVD register read refused/);
+});
+
+test('STM32 SVD semantic resolver fails closed when derivedFrom inheritance is unresolved', () => {
+  const inherited = `<device><name>STM32X</name><peripherals>
+    <peripheral><name>RCC</name><baseAddress>0x58024400</baseAddress><size>32</size><access>read-write</access><registers><register><name>CR</name><addressOffset>0</addressOffset></register></registers></peripheral>
+    <peripheral derivedFrom="RCC"><name>RCC2</name><baseAddress>0x58024800</baseAddress></peripheral>
+  </peripherals></device>`;
+  const inspection = parseStm32SvdText('derived.svd', Buffer.byteLength(inherited), inherited);
+  const resolved = resolveStm32SvdRegister(inspection, 'RCC', 'CR');
+  assert.equal(resolved.safeToRead, false);
+  assert.equal(resolved.safetyCode, 'inheritance-unresolved');
 });
 
 test('STM32 SVD adapter stays project-scoped and rejects traversal/non-SVD paths', async t => {

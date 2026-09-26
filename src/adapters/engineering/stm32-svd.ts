@@ -6,7 +6,8 @@ import type {
   Stm32SvdField,
   Stm32SvdInspection,
   Stm32SvdPeripheral,
-  Stm32SvdRegister
+  Stm32SvdRegister,
+  Stm32SvdResolvedRegister
 } from '../../engineering/types.js';
 import { PathGuard } from '../../security/path-guard.js';
 
@@ -107,11 +108,13 @@ function parseFields(register: XmlElement, warnings: string[]): { fields: Stm32S
     }
     const description = boundedDescription(text(field, 'description'));
     const access = text(field, 'access');
+    const readAction = text(field, 'readAction');
     fields.push({
       name: name.slice(0, 256),
       ...(description ? { description } : {}),
       ...location,
-      ...(access ? { access: access.slice(0, 64) } : {})
+      ...(access ? { access: access.slice(0, 64) } : {}),
+      ...(readAction ? { readAction: readAction.slice(0, 64) } : {})
     });
   }
   return { fields, truncated: rawFields.length > MAX_FIELDS_PER_REGISTER, total: rawFields.length };
@@ -136,6 +139,7 @@ function registerFromElement(
   const description = boundedDescription(text(register, 'description'));
   const sizeBits = integerText(text(register, 'size')) ?? inheritedSize;
   const access = text(register, 'access') ?? inheritedAccess;
+  const readAction = text(register, 'readAction');
   const resetValue = integerText(text(register, 'resetValue'));
   const derivedFrom = register.getAttribute('derivedFrom')?.trim() || undefined;
   const array = parseArray(register);
@@ -148,6 +152,7 @@ function registerFromElement(
       absoluteAddress: baseAddress + offset,
       ...(sizeBits !== undefined ? { sizeBits } : {}),
       ...(access ? { access: access.slice(0, 64) } : {}),
+      ...(readAction ? { readAction: readAction.slice(0, 64) } : {}),
       ...(resetValue !== undefined ? { resetValue } : {}),
       ...(derivedFrom ? { derivedFrom: derivedFrom.slice(0, 256) } : {}),
       ...(clusterPath ? { clusterPath } : {}),
@@ -351,8 +356,139 @@ export function parseStm32SvdText(file: string, size: number, xml: string): Stm3
   };
 }
 
+function selectorKey(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+function readableAccess(access: string | undefined): boolean {
+  if (!access) return false;
+  const normalized = access.trim().toLowerCase();
+  return normalized === 'read-only' || normalized === 'read-write' || normalized === 'read-writeonce';
+}
+
+export function resolveStm32SvdRegister(
+  inspection: Stm32SvdInspection,
+  peripheralName: string,
+  registerName: string
+): Stm32SvdResolvedRegister {
+  const peripheralKey = selectorKey(peripheralName);
+  const registerKey = selectorKey(registerName);
+  if (!peripheralKey || !registerKey) throw new Error('Peripheral and register selectors are required.');
+
+  const peripherals = inspection.peripherals.filter(item => selectorKey(item.name) === peripheralKey);
+  if (peripherals.length !== 1) {
+    throw new Error(peripherals.length === 0
+      ? `SVD peripheral '${peripheralName}' was not found.`
+      : `SVD peripheral '${peripheralName}' is ambiguous.`);
+  }
+  const peripheral = peripherals[0]!;
+  const matches = peripheral.registers.filter(item => {
+    const qualified = item.clusterPath ? `${item.clusterPath}.${item.name}` : item.name;
+    return selectorKey(item.name) === registerKey || selectorKey(qualified) === registerKey;
+  });
+  if (matches.length !== 1) {
+    throw new Error(matches.length === 0
+      ? `SVD register '${peripheral.name}.${registerName}' was not found.`
+      : `SVD register '${peripheral.name}.${registerName}' is ambiguous; use its cluster-qualified name.`);
+  }
+  const register = matches[0]!;
+  const qualifiedRegister = register.clusterPath ? `${register.clusterPath}.${register.name}` : register.name;
+  const selector = `${peripheral.name}.${qualifiedRegister}`;
+  const sizeBits = register.sizeBits ?? 0;
+  const base = {
+    peripheral: peripheral.name,
+    register: qualifiedRegister,
+    selector,
+    address: register.absoluteAddress,
+    sizeBits,
+    byteLength: sizeBits > 0 ? Math.ceil(sizeBits / 8) : 0,
+    ...(register.access ? { access: register.access } : {}),
+    ...(register.readAction ? { readAction: register.readAction } : {}),
+    fields: register.fields
+  };
+  const blocked = (safetyCode: Exclude<Stm32SvdResolvedRegister['safetyCode'], 'safe'>, safetyReason: string): Stm32SvdResolvedRegister => ({
+    ...base,
+    safeToRead: false,
+    safetyCode,
+    safetyReason
+  });
+
+  if (!inspection.inheritance.resolved) {
+    return blocked('inheritance-unresolved', 'CMSIS-SVD derivedFrom inheritance is not fully materialized, so live-read metadata is not authoritative.');
+  }
+  if (peripheral.derivedFrom || register.derivedFrom) {
+    return blocked('register-derived', 'The selected peripheral/register uses unresolved derivedFrom metadata.');
+  }
+  if (register.array) {
+    return blocked('array-selector-required', 'Arrayed SVD registers require an explicit semantic element selector; implicit address guessing is not allowed.');
+  }
+  if (![8, 16, 32].includes(sizeBits)) {
+    return blocked('unsupported-width', 'Live peripheral reads are limited to explicitly-described 8, 16, or 32-bit registers.');
+  }
+  if (!readableAccess(register.access)) {
+    return blocked('access-not-readable', 'The effective SVD access metadata does not explicitly permit reads.');
+  }
+  if (register.readAction) {
+    return blocked('register-read-side-effect', `CMSIS-SVD readAction='${register.readAction}' declares a register read side effect.`);
+  }
+  if (register.fieldsTruncated) {
+    return blocked('field-metadata-truncated', 'Field metadata is truncated, so field-level read side effects cannot be ruled out.');
+  }
+  const invalidField = register.fields.find(field => field.bitWidth > 32 || field.bitOffset < 0 || field.bitOffset + field.bitWidth > sizeBits);
+  if (invalidField) {
+    return blocked('field-layout-invalid', `Field '${invalidField.name}' is outside the supported ${sizeBits}-bit register layout.`);
+  }
+  const sideEffectField = register.fields.find(field => Boolean(field.readAction));
+  if (sideEffectField) {
+    return blocked('field-read-side-effect', `Field '${sideEffectField.name}' declares CMSIS-SVD readAction='${sideEffectField.readAction}'.`);
+  }
+  return {
+    ...base,
+    safeToRead: true,
+    safetyCode: 'safe',
+    safetyReason: 'SVD metadata explicitly permits a bounded read and declares no register/field readAction side effect.'
+  };
+}
+
+export function decodeStm32SvdRegisterHex(resolved: Stm32SvdResolvedRegister, hex: string) {
+  if (!resolved.safeToRead) throw new Error(`Unsafe SVD register read refused: ${resolved.safetyReason}`);
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length !== resolved.byteLength * 2) {
+    throw new Error('Live register byte payload does not match the resolved SVD register width.');
+  }
+  const bytes = Buffer.from(hex, 'hex');
+  const value = bytes.readUIntLE(0, resolved.byteLength);
+  const fields = resolved.fields.map(field => {
+    const width = Math.min(field.bitWidth, 32);
+    const mask = width === 32 ? 0xffffffff : (2 ** width) - 1;
+    const fieldValue = (value >>> field.bitOffset) & mask;
+    return {
+      name: field.name,
+      bitOffset: field.bitOffset,
+      bitWidth: field.bitWidth,
+      value: fieldValue >>> 0,
+      valueHex: `0x${(fieldValue >>> 0).toString(16)}`,
+      ...(field.description ? { description: field.description } : {})
+    };
+  });
+  return {
+    selector: resolved.selector,
+    address: resolved.address,
+    addressHex: `0x${resolved.address.toString(16)}`,
+    sizeBits: resolved.sizeBits,
+    rawHex: hex.toLowerCase(),
+    value: value >>> 0,
+    valueHex: `0x${(value >>> 0).toString(16).padStart(resolved.byteLength * 2, '0')}`,
+    fields
+  };
+}
+
 export class Stm32SvdAdapter {
   constructor(private readonly paths: PathGuard) {}
+
+  async resolveRegister(workspace: string, projectPath: string, svdFile: string, peripheral: string, register: string): Promise<Stm32SvdResolvedRegister> {
+    const inspection = await this.inspect(workspace, projectPath, svdFile);
+    return resolveStm32SvdRegister(inspection, peripheral, register);
+  }
 
   async inspect(workspace: string, projectPath = '.', svdFile: string): Promise<Stm32SvdInspection> {
     const relative = svdFile.trim();

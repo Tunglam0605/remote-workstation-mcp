@@ -12,7 +12,7 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 ## Current release
 
-**Stable release: v0.49.0 - channel=stable - Action Schema 23 - Engineering API 5** - adds **Automated Engineering Workflows II**. `stm32.deploy_accept_diagnose` now composes the existing typed deployment and deep-diagnostic workflows into one goal-level operation: preflight, build, atomic flash/verify/reset, serial readiness acceptance, and—only when that deployed image is confirmed but readiness fails—automatic Cortex-M/RTOS deep diagnostics. Preflight/build/deploy failures do not trigger misleading diagnostics against an unconfirmed image. No arbitrary shell/GDB/Tcl input, memory/register write, TCB-layout guessing or widened permission surface is introduced.
+**Stable release: v0.50.0 - channel=stable - Action Schema 23 - Engineering API 5** - adds **STM32 Live Peripheral Intelligence**. `stm32.peripheral_snapshot` resolves project-scoped CMSIS-SVD peripheral/register names into bounded read-only GDB/MI memory reads, decodes register fields, and always releases the debug probe. `stm32.deep_diagnostics` can collect the same configured peripheral evidence inside its existing halted debug session. SVD inheritance, access, register width, arrays, field completeness/layout and `readAction` side effects are fail-closed before hardware access. Callers cannot provide raw addresses or register writes, so the generic workflow envelope gains semantic observability without widening debugger authority.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -83,7 +83,7 @@ v0.15.0 opens **Multi-Session Execution** after the accepted v0.14.6 Phase-0 har
 - migrate managed process, PTY, serial, debug and engineering resource ownership from principal-only to `principal + workSessionId`;
 - keep omitted Work Session IDs backward compatible through an implicit session without weakening authenticated principal scopes or local owner policy;
 - add bounded Context Capsules for project identity, objective, validated facts, provider/toolchain/variant, last acceptance, blockers, decisions and pending actions;
-- make `work_session_resume` return the capsule plus current session-owned process/PT​Y/serial/debug/lease/worktree/workflow-run state so a new chat can resume in one call;
+- make `work_session_resume` return the capsule plus current session-owned process/PTâ€‹Y/serial/debug/lease/worktree/workflow-run state so a new chat can resume in one call;
 - add durable workflow-run attribution and reconcile interrupted `running` records as failed after RWMCP restart;
 - add session-owned Git branches/worktrees plus isolated build directories; dirty worktree cleanup fails closed with `NEEDS_OWNER_OR_EXPLICIT_ACTION`;
 - classify concurrency into shared, session-isolated, resource-exclusive, project/variant-exclusive, node-exclusive and owner-local-only categories instead of using a global lock;
@@ -258,11 +258,11 @@ v0.13.0 adds the first daily-driver STM32 deployment workflow while preserving t
 v0.12.0 makes the Engineering Workflow Engine practical for real multi-target Keil/STM32 projects and stabilizes the ChatGPT action surface:
 
 - detect Keil MDK `.uvprojx` projects, target names, STM32 devices, output directories and expected AXF artifacts without executing project code;
-- add a constrained Windows Keil µVision batch-build provider with owner/PATH/known-install discovery and no arbitrary command-line surface;
+- add a constrained Windows Keil ÂµVision batch-build provider with owner/PATH/known-install discovery and no arbitrary command-line surface;
 - add project-profile firmware variants so one repository can safely represent F407/H743/hardware-test targets without guessing the active board;
 - keep `engineering_workflow_plan/run` action schemas stable through a string workflow ID plus server-validated `parameters`, and allow a versioned generic `profile` payload for profile initialization;
 - expose `actionSchemaVersion=2` and `engineeringApiVersion=2` so operators can distinguish an app-catalog refresh from normal provider/workflow growth;
-- validate the Keil provider on the real B300 F407 target with µVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
+- validate the Keil provider on the real B300 F407 target with ÂµVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
 
 v0.11.0 deepens the Engineering Workflow Engine so repeated embedded/ROS work can collapse into one typed MCP call:
 
@@ -368,11 +368,11 @@ A project may keep a versioned `.rwmcp/project.yaml` manifest. The manifest stor
 
 High-level tools:
 
-- `engineering_project_inspect` — one read-only call for detected project type, artifacts, hardware, profile and available workflows;
-- `engineering_profile_init` — create the canonical `.rwmcp/project.yaml` from detection plus owner/project defaults;
-- `engineering_workflow_list` — discover supported semantic workflows for the selected project;
-- `engineering_workflow_plan` — resolve defaults/steps before execution;
-- `engineering_workflow_run` — execute the approved typed workflow and return per-step structured results.
+- `engineering_project_inspect` â€” one read-only call for detected project type, artifacts, hardware, profile and available workflows;
+- `engineering_profile_init` â€” create the canonical `.rwmcp/project.yaml` from detection plus owner/project defaults;
+- `engineering_workflow_list` â€” discover supported semantic workflows for the selected project;
+- `engineering_workflow_plan` â€” resolve defaults/steps before execution;
+- `engineering_workflow_run` â€” execute the approved typed workflow and return per-step structured results.
 
 Built-in workflows now include `firmware.build`, `firmware.build_flash`, `firmware.build_flash_verify`, `firmware.build_flash_monitor`, `firmware.build_flash_monitor_expect`, `stm32.debug_fault_snapshot`, `stm32.deploy_accept`, `ros2.build`, `ros2.health`, and `ros2.build_health`.
 

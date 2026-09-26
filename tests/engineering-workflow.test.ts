@@ -11,6 +11,7 @@ import { ArtifactTransferAdapter } from '../src/adapters/engineering/artifact-tr
 import { resolveSerialDevice } from '../src/adapters/engineering/hardware-discovery.js';
 import { EngineeringProjectProfileStore } from '../src/adapters/engineering/project-profile.js';
 import { EngineeringWorkflowEngine } from '../src/adapters/engineering/workflow-engine.js';
+import { Stm32SvdAdapter } from '../src/adapters/engineering/stm32-svd.js';
 import type { EngineeringCommandResult, FirmwareProjectInfo, HardwareDevice, SerialDeviceSelector } from '../src/engineering/types.js';
 import type { PolicyConfig } from '../src/model.js';
 import { PolicyEngine } from '../src/policy.js';
@@ -40,6 +41,7 @@ async function fixture(
   const policy = new PolicyEngine(config(root));
   const paths = new PathGuard(policy);
   const profiles = new EngineeringProjectProfileStore(policy, paths);
+  const stm32Svd = new Stm32SvdAdapter(paths);
   const dataPlane = new DataPlaneAdapter(policy, paths, {
     bindAddress: '127.0.0.1',
     allowLoopbackForTests: true
@@ -173,6 +175,7 @@ async function fixture(
     }
   };
   let debugOptionalEvidenceAvailable = true;
+  const debugMemory = new Map<number, string>();
   const debug = {
     async start(options: Record<string, unknown>) {
       calls.push(`debug.start:${String(options.symbols)}:${String(options.probeSerial)}`);
@@ -185,6 +188,12 @@ async function fixture(
     async registers(id: string) {
       calls.push(`debug.registers:${id}`);
       return [{ name: 'pc', value: '0x08001234' }, { name: 'lr', value: '0xfffffff9' }, { name: 'msp', value: '0x20001000' }, { name: 'psp', value: '0x20002000' }];
+    },
+    async memoryRead(id: string, address: number, length: number) {
+      calls.push(`debug.memory:${id}:0x${address.toString(16)}:${length}`);
+      const hex = debugMemory.get(address) ?? '00'.repeat(length);
+      if (hex.length !== length * 2) throw new Error('fixture memory width mismatch');
+      return { address, length, hex };
     },
     async faultSnapshot(id: string) {
       calls.push(`debug.fault:${id}`);
@@ -275,7 +284,8 @@ async function fixture(
     extras.docker,
     extras.systemd,
     extras.kicad,
-    extras.platformio
+    extras.platformio,
+    stm32Svd
   );
   return {
     root,
@@ -291,7 +301,8 @@ async function fixture(
     setDeployResult(result: EngineeringCommandResult) { deployResult = result; },
     setDeploymentReady(ready: boolean, blockers: string[] = []) { deploymentReady = ready; deploymentBlockers = blockers; },
     setHardwareDevices(value: HardwareDevice[]) { hardwareDevices = value; },
-    setDebugOptionalEvidenceAvailable(value: boolean) { debugOptionalEvidenceAvailable = value; }
+    setDebugOptionalEvidenceAvailable(value: boolean) { debugOptionalEvidenceAvailable = value; },
+    setDebugMemory(address: number, hex: string) { debugMemory.set(address, hex.toLowerCase()); }
   };
 }
 
@@ -813,6 +824,114 @@ test('STM32 deep diagnostics collapses fault, exception, RTOS, stack and disasse
     assert.equal((result as any).outputs.evidenceQuality, 'complete');
     assert.equal((result as any).outputs.rtosTasks.taskCount, 2);
     assert.equal((result as any).outputs.exceptionFrame.frame.pc, 0x08001235);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 peripheral snapshot resolves semantic SVD selectors into bounded live reads', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const svd = `<device><name>STM32H743</name><peripherals><peripheral><name>USART3</name><baseAddress>0x40004800</baseAddress><size>32</size><access>read-write</access><registers><register><name>ISR</name><addressOffset>0x1c</addressOffset><fields><field><name>RXNE</name><bitOffset>5</bitOffset><bitWidth>1</bitWidth></field></fields></register></registers></peripheral></peripherals></device>`;
+    await fs.mkdir(path.join(f.root, 'project', 'svd'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'svd', 'STM32H743.svd'), svd, 'utf8');
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    f.setDebugMemory(0x4000481c, '20000000');
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        probeSerial: 'STLINK-H743',
+        svdFile: 'svd/STM32H743.svd',
+        liveRegisters: [{ peripheral: 'USART3', register: 'ISR' }]
+      }
+    });
+
+    const plan = await f.engine.plan('w', 'project', 'stm32.peripheral_snapshot');
+    assert.deepEqual(plan.steps, ['debug.session.start', 'debug.halt', 'debug.svd_registers', 'debug.session.stop']);
+    assert.equal((plan as any).resolved.firmware.liveRegisters[0].selector, 'USART3.ISR');
+    assert.equal((plan as any).resolved.firmware.liveRegisters[0].addressHex, '0x4000481c');
+
+    const result = await f.engine.run('w', 'project', 'stm32.peripheral_snapshot');
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(f.calls, [
+      'debug.start:build/main.elf:STLINK-H743',
+      'debug.halt:22222222-2222-4222-8222-222222222222',
+      'debug.memory:22222222-2222-4222-8222-222222222222:0x4000481c:4',
+      'debug.stop:22222222-2222-4222-8222-222222222222'
+    ]);
+    const snapshot = (result.outputs as any).peripheralRegisters[0];
+    assert.equal(snapshot.selector, 'USART3.ISR');
+    assert.equal(snapshot.value, 0x20);
+    assert.equal(snapshot.fields.find((field: any) => field.name === 'RXNE')?.value, 1);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deep diagnostics includes configured safe SVD peripheral evidence in the same debug session', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const svd = `<device><name>STM32H743</name><peripherals><peripheral><name>RCC</name><baseAddress>0x58024400</baseAddress><size>32</size><access>read-write</access><registers><register><name>CR</name><addressOffset>0</addressOffset><fields><field><name>HSION</name><bitOffset>0</bitOffset><bitWidth>1</bitWidth></field></fields></register></registers></peripheral></peripherals></device>`;
+    await fs.mkdir(path.join(f.root, 'project', 'svd'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'svd', 'STM32H743.svd'), svd, 'utf8');
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    f.setDebugMemory(0x58024400, '01000000');
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        probeSerial: 'STLINK-H743',
+        svdFile: 'svd/STM32H743.svd',
+        liveRegisters: [{ peripheral: 'RCC', register: 'CR' }]
+      }
+    });
+
+    const plan = await f.engine.plan('w', 'project', 'stm32.deep_diagnostics');
+    assert.equal(plan.steps.includes('debug.svd_registers'), true);
+    const result = await f.engine.run('w', 'project', 'stm32.deep_diagnostics');
+    assert.equal(result.status, 'succeeded');
+    assert.equal((result.outputs as any).evidenceQuality, 'complete');
+    assert.equal((result.outputs as any).peripheralRegisters[0].selector, 'RCC.CR');
+    assert.equal((result.outputs as any).peripheralRegisters[0].fields[0].value, 1);
+    const stackIndex = f.calls.findIndex(call => call.startsWith('debug.stack:'));
+    const memoryIndex = f.calls.findIndex(call => call.includes(':0x58024400:4'));
+    const disassemblyIndex = f.calls.findIndex(call => call.startsWith('debug.disassemble:'));
+    assert.ok(stackIndex >= 0 && memoryIndex > stackIndex && disassemblyIndex > memoryIndex);
+    assert.equal(f.calls.at(-1), 'debug.stop:22222222-2222-4222-8222-222222222222');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 SVD readAction is rejected before opening a debug session', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const svd = `<device><name>STM32H743</name><peripherals><peripheral><name>USART3</name><baseAddress>0x40004800</baseAddress><size>32</size><access>read-write</access><registers><register><name>RDR</name><addressOffset>0x24</addressOffset><readAction>clear</readAction></register></registers></peripheral></peripherals></device>`;
+    await fs.mkdir(path.join(f.root, 'project', 'svd'), { recursive: true });
+    await fs.writeFile(path.join(f.root, 'project', 'svd', 'STM32H743.svd'), svd, 'utf8');
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        probeSerial: 'STLINK-H743',
+        svdFile: 'svd/STM32H743.svd',
+        liveRegisters: [{ peripheral: 'USART3', register: 'RDR' }]
+      }
+    });
+
+    await assert.rejects(
+      () => f.engine.run('w', 'project', 'stm32.peripheral_snapshot'),
+      /SVD live read blocked.*register-read-side-effect/i
+    );
+    assert.equal(f.calls.some(call => call.startsWith('debug.start:')), false);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

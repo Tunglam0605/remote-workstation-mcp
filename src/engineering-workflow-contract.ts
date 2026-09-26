@@ -54,6 +54,11 @@ export const workflowRuntimeParametersSchema = z.object({
   systemdUser: z.boolean().optional(),
   journalLines: z.number().int().min(1).max(1000).optional(),
   debugMaxFrames: z.number().int().min(1).max(64).optional(),
+  svdFile: z.string().min(1).max(512).optional(),
+  svdRegisters: z.array(z.object({
+    peripheral: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.%-]+$/),
+    register: z.string().min(1).max(192).regex(/^[A-Za-z0-9_.%\[\]-]+$/)
+  }).strict()).min(1).max(32).optional(),
   variant: z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/).optional(),
   keilProject: z.string().min(1).max(512).optional(),
   keilTarget: z.string().min(1).max(160).optional(),

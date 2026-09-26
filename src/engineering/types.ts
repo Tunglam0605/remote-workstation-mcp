@@ -87,6 +87,7 @@ export interface Stm32SvdField {
   bitOffset: number;
   bitWidth: number;
   access?: string;
+  readAction?: string;
 }
 
 export interface Stm32SvdRegister {
@@ -96,6 +97,7 @@ export interface Stm32SvdRegister {
   absoluteAddress: number;
   sizeBits?: number;
   access?: string;
+  readAction?: string;
   resetValue?: number;
   derivedFrom?: string;
   clusterPath?: string;
@@ -145,6 +147,38 @@ export interface Stm32SvdInspection {
     note?: string;
   };
   warnings: string[];
+}
+
+export type Stm32SvdReadSafetyCode =
+  | 'safe'
+  | 'inheritance-unresolved'
+  | 'register-derived'
+  | 'array-selector-required'
+  | 'unsupported-width'
+  | 'access-not-readable'
+  | 'register-read-side-effect'
+  | 'field-read-side-effect'
+  | 'field-metadata-truncated'
+  | 'field-layout-invalid';
+
+export interface Stm32SvdRegisterSelector {
+  peripheral: string;
+  register: string;
+}
+
+export interface Stm32SvdResolvedRegister {
+  peripheral: string;
+  register: string;
+  selector: string;
+  address: number;
+  sizeBits: number;
+  byteLength: number;
+  access?: string;
+  readAction?: string;
+  fields: Stm32SvdField[];
+  safeToRead: boolean;
+  safetyCode: Stm32SvdReadSafetyCode;
+  safetyReason: string;
 }
 
 export interface Stm32IocPin {

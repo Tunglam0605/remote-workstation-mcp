@@ -50,6 +50,7 @@ export type EngineeringWorkflowId =
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deep_diagnostics'
   | 'stm32.deploy_accept'
+  | 'stm32.deploy_accept_diagnose'
   | 'ros2.build'
   | 'ros2.health'
   | 'ros2.diagnostics'
@@ -452,7 +453,7 @@ export class EngineeringWorkflowEngine {
     if (firmwareCapable) {
       ids.push('firmware.artifact_prepare', 'firmware.artifact_accept', 'firmware.build', 'firmware.build_flash', 'firmware.build_flash_monitor');
       if (state.project.family === 'stm32' || state.profile.kind === 'stm32') {
-        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deep_diagnostics', 'stm32.deploy_accept');
+        ids.push('firmware.build_flash_verify', 'stm32.debug_fault_snapshot', 'stm32.deep_diagnostics', 'stm32.deploy_accept', 'stm32.deploy_accept_diagnose');
       }
       if (
         state.project.family === 'esp32' ||
@@ -497,6 +498,7 @@ export class EngineeringWorkflowEngine {
           id === 'stm32.debug_fault_snapshot' ||
           id === 'stm32.deep_diagnostics' ||
           id === 'stm32.deploy_accept' ||
+          id === 'stm32.deploy_accept_diagnose' ||
           id === 'kicad.fabrication_export' ||
           id === 'systemd.service_restart',
         description: {
@@ -524,6 +526,7 @@ export class EngineeringWorkflowEngine {
           'stm32.debug_fault_snapshot': 'Open a constrained STM32 debug session, halt the target, decode Cortex-M fault state, capture stack frames, then release the probe.',
           'stm32.deep_diagnostics': 'Run one bounded STM32 diagnostic chain: open debug with RTOS auto-awareness, halt, collect fault/register/stack evidence, best-effort Cortex-M exception frame, RTOS task inventory and disassembly, then always release the probe.',
           'stm32.deploy_accept': 'Preflight hardware, build, open serial, atomically flash/verify/reset through one ST-Link lease, then require a readiness marker and release resources.',
+          'stm32.deploy_accept_diagnose': 'Run the deployment acceptance workflow and, only when flash/verify/reset succeeded but readiness acceptance failed, automatically collect bounded deep-diagnostic evidence before returning the failed acceptance.',
           'ros2.build': 'Build the ROS 2 workspace through typed colcon options and profile-managed distro bootstrap.',
           'ros2.health': 'Bootstrap the configured ROS 2 environment once and collect node/topic/service/action health.',
           'ros2.diagnostics': 'Collect ROS 2 graph health plus installed package inventory through the configured runtime environment.',
@@ -1098,7 +1101,8 @@ export class EngineeringWorkflowEngine {
     const flashProvider = fw.flashProvider ?? (state.project.family === 'esp32' ? 'esp-idf' : 'auto');
     const needsMonitorPort = workflow === 'firmware.build_flash_monitor'
       || workflow === 'firmware.build_flash_monitor_expect'
-      || workflow === 'stm32.deploy_accept';
+      || workflow === 'stm32.deploy_accept'
+      || workflow === 'stm32.deploy_accept_diagnose';
     const needsFlashPort = workflow.startsWith('firmware.build_flash') && flashProvider === 'esp-idf';
     const portResolution = (needsFlashPort || needsMonitorPort)
       ? await this.resolveSerialPort(overrides.port, fw.portSelector, fw.port)
@@ -1137,13 +1141,17 @@ export class EngineeringWorkflowEngine {
     if (workflow === 'firmware.build_flash_monitor_expect' && !expectedText) {
       throw new Error('Monitor-expect workflow requires firmware.monitor.expectText or an expectText override.');
     }
-    if (workflow === 'stm32.deploy_accept') {
-      if (flashProvider === 'esp-idf') throw new Error('stm32.deploy_accept requires the constrained OpenOCD flash provider.');
-      if (!monitorPort) throw new Error('stm32.deploy_accept requires firmware.monitor.selector, a legacy monitor/firmware port, or parameters.monitorPort.');
-      if (!expectedText) throw new Error('stm32.deploy_accept requires firmware.monitor.expectText or parameters.expectText.');
+    if (workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose') {
+      const label = workflow === 'stm32.deploy_accept' ? 'stm32.deploy_accept' : 'stm32.deploy_accept_diagnose';
+      if (flashProvider === 'esp-idf') throw new Error(`${label} requires the constrained OpenOCD flash provider.`);
+      if (!monitorPort) throw new Error(`${label} requires firmware.monitor.selector, a legacy monitor/firmware port, or parameters.monitorPort.`);
+      if (!expectedText) throw new Error(`${label} requires firmware.monitor.expectText or parameters.expectText.`);
+      if (workflow === 'stm32.deploy_accept_diagnose' && overrides.keepMonitorOpen) {
+        throw new Error('stm32.deploy_accept_diagnose requires keepMonitorOpen=false so the serial resource is released before automatic debug diagnostics.');
+      }
     }
 
-    const deploymentPreflight = workflow === 'stm32.deploy_accept'
+    const deploymentPreflight = (workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose')
       ? await this.firmware.stm32DeploymentPreflight({
           probeSerial: overrides.probeSerial ?? fw.probeSerial,
           monitorPort,
@@ -1158,9 +1166,10 @@ export class EngineeringWorkflowEngine {
     if (workflow === 'stm32.deep_diagnostics') {
       steps.push('debug.session.start', 'debug.halt', 'debug.registers', 'debug.fault_snapshot', 'debug.exception_frame', 'debug.rtos_tasks', 'debug.stack', 'debug.disassemble', 'debug.session.stop');
     }
-    if (workflow === 'stm32.deploy_accept') {
+    if (workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose') {
       steps.push('preflight.stm32_deploy', 'firmware.build', 'serial.open', 'firmware.flash_verify_reset', 'serial.wait_for_text');
       if (!overrides.keepMonitorOpen) steps.push('serial.close');
+      if (workflow === 'stm32.deploy_accept_diagnose') steps.push('diagnostics.on_readiness_failure');
     }
     if (workflow.startsWith('firmware.')) {
       steps.push('firmware.build');
@@ -1190,7 +1199,7 @@ export class EngineeringWorkflowEngine {
       preflight: deploymentPreflight,
       artifactIntegrity: undefined,
       resolved: {
-        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deep_diagnostics' || workflow === 'stm32.deploy_accept') ? {
+        firmware: (workflow.startsWith('firmware.') || workflow === 'stm32.debug_fault_snapshot' || workflow === 'stm32.deep_diagnostics' || workflow === 'stm32.deploy_accept' || workflow === 'stm32.deploy_accept_diagnose') ? {
           variant: effective.variant,
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
@@ -1263,7 +1272,7 @@ export class EngineeringWorkflowEngine {
     projectPath: string,
     workflow: EngineeringWorkflowId,
     overrides: EngineeringWorkflowOverrides = {}
-  ) {
+  ): Promise<EngineeringWorkflowRunResult> {
     const steps: StepResult[] = [];
 
     const capture = async <T>(
@@ -1768,6 +1777,69 @@ export class EngineeringWorkflowEngine {
       };
     }
 
+    if (workflow === 'stm32.deploy_accept_diagnose') {
+      const deployment = await this.run(workspace, projectPath, 'stm32.deploy_accept', {
+        ...overrides,
+        keepMonitorOpen: false
+      });
+      for (const step of deployment.steps) {
+        steps.push({ ...step, id: `deploy.${step.id}` });
+      }
+
+      if (deployment.status === 'succeeded') {
+        return {
+          workflow,
+          status: 'succeeded',
+          plan,
+          steps,
+          outputs: {
+            deployment,
+            diagnosticsAttempted: false,
+            diagnosticsTrigger: 'not-needed'
+          }
+        };
+      }
+
+      const flashed = deployment.steps.some(step => step.id === 'firmware.flash_verify_reset' && step.status === 'succeeded');
+      const readinessFailed = deployment.steps.some(step => step.id === 'serial.wait_for_text' && step.status === 'failed');
+      if (!flashed || !readinessFailed) {
+        return {
+          workflow,
+          status: deployment.status,
+          plan,
+          steps,
+          outputs: {
+            deployment,
+            diagnosticsAttempted: false,
+            diagnosticsTrigger: !flashed ? 'deployment-not-confirmed' : 'readiness-did-not-fail'
+          }
+        };
+      }
+
+      const diagnostics = await this.run(workspace, projectPath, 'stm32.deep_diagnostics', {
+        ...overrides,
+        keepMonitorOpen: false
+      });
+      for (const step of diagnostics.steps) {
+        steps.push({ ...step, id: `diagnostics.${step.id}` });
+      }
+      return {
+        workflow,
+        status: 'failed',
+        plan,
+        steps,
+        outputs: {
+          deployment,
+          diagnostics,
+          diagnosticsAttempted: true,
+          diagnosticsTrigger: 'post-flash-readiness-failure',
+          diagnosticEvidenceQuality: diagnostics.outputs && typeof diagnostics.outputs === 'object' && 'evidenceQuality' in diagnostics.outputs
+            ? diagnostics.outputs.evidenceQuality
+            : undefined
+        }
+      };
+    }
+
     if (workflow === 'stm32.deploy_accept') {
       const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
       const basePortResolution = await this.resolveSerialPort(overrides.port, fw.portSelector, fw.port);
@@ -2213,4 +2285,12 @@ export class EngineeringWorkflowEngine {
       ...(health.ok ? { outputs: workflow === 'ros2.diagnostics' ? { diagnostics: health.value } : { health: health.value } } : {})
     };
   }
+}
+
+export interface EngineeringWorkflowRunResult {
+  workflow: EngineeringWorkflowId;
+  status: 'succeeded' | 'failed' | 'blocked';
+  plan: Awaited<ReturnType<EngineeringWorkflowEngine['plan']>>;
+  steps: StepResult[];
+  outputs?: Record<string, unknown>;
 }

@@ -1182,6 +1182,80 @@ test('STM32 deploy-accept may keep the serial session open only when explicitly 
 });
 
 
+test('STM32 deploy-accept-diagnose returns success without debug when readiness passes', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.elf', probeSerial: 'STLINK-01', targetConfig: 'target/stm32f4x.cfg',
+        monitor: { port: 'COM7', expectText: 'APP_READY', expectTimeoutMs: 1000 }
+      }
+    });
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept_diagnose');
+    assert.equal(result.status, 'succeeded');
+    assert.equal((result.outputs as any).diagnosticsAttempted, false);
+    assert.equal(f.calls.some(call => call.startsWith('debug.start:')), false);
+    assert.equal(result.steps.some(step => step.id === 'deploy.firmware.flash_verify_reset' && step.status === 'succeeded'), true);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deploy-accept-diagnose automatically deep-diagnoses post-flash readiness failure', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32H743ZIT6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 8192 }]);
+    await f.engine.initProfile('w', 'project', {
+      firmware: {
+        artifact: 'build/main.elf', probeSerial: 'STLINK-H743', targetConfig: 'target/stm32h7x.cfg',
+        monitor: { port: 'COM8', baudRate: 921600, expectText: 'NEVER', expectTimeoutMs: 1200 }
+      }
+    });
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept_diagnose', { debugMaxFrames: 10 });
+    assert.equal(result.status, 'failed');
+    assert.equal((result.outputs as any).diagnosticsAttempted, true);
+    assert.equal((result.outputs as any).diagnosticsTrigger, 'post-flash-readiness-failure');
+    assert.equal((result.outputs as any).diagnostics.status, 'succeeded');
+    assert.equal(result.steps.some(step => step.id === 'deploy.serial.wait_for_text' && step.status === 'failed'), true);
+    assert.equal(result.steps.some(step => step.id === 'diagnostics.debug.fault_snapshot' && step.status === 'succeeded'), true);
+    assert.equal(f.calls.some(call => call.startsWith('debug.start:build/main.elf:STLINK-H743')), true);
+    assert.equal(f.calls.at(-1), 'debug.stop:22222222-2222-4222-8222-222222222222');
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('STM32 deploy-accept-diagnose never diagnoses when deploy transaction itself failed', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',
+    target: 'STM32F407ZET6', buildSystem: 'cmake', markers: [], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    f.setArtifacts([{ path: 'build/main.elf', kind: 'elf', size: 4096 }]);
+    await f.engine.initProfile('w', 'project', {
+      firmware: { artifact: 'build/main.elf', probeSerial: 'STLINK-01', monitor: { port: 'COM7', expectText: 'APP_READY' } }
+    });
+    f.setDeployResult({ ...okCommand(), exitCode: 1, stderr: 'verify failed' });
+    const result = await f.engine.run('w', 'project', 'stm32.deploy_accept_diagnose');
+    assert.equal(result.status, 'failed');
+    assert.equal((result.outputs as any).diagnosticsAttempted, false);
+    assert.equal((result.outputs as any).diagnosticsTrigger, 'deployment-not-confirmed');
+    assert.equal(f.calls.some(call => call.startsWith('debug.start:')), false);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('firmware artifact prepare hashes without triggering a build or hardware mutation', async () => {
   const project: FirmwareProjectInfo = {
     workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'stm32-cube',

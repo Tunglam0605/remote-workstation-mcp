@@ -10,6 +10,23 @@ The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs
 
 **Release notes describe implementation history; they do not redefine the product mission.** Domain-specific workloads such as STM32, ESP32 and ROS 2 are extensions and acceptance workloads on top of the generic workstation platform.
 
+## RWMCP evolution
+
+```mermaid
+flowchart LR
+    A[Foundation\nv0.7-v0.8\nSecure tunnel + Control Center] --> B[Engineering\nv0.9-v0.13\nPTY / Serial / Debug / Workflows]
+    B --> C[Multi-node\nv0.14\nData plane + secure transfer]
+    C --> D[Orchestration\nv0.15-v0.20\nWork Sessions + scheduler + workers]
+    D --> E[Intelligence\nv0.21-v0.50\nTyped diagnostics + STM32 live insight]
+    E --> F[Automation\nv0.51-v0.52\nNotebookLM command + content pipelines]
+```
+
+The project has evolved from a secure remote-control bridge into a production-oriented engineering control plane: deterministic typed tools first, isolated work sessions second, optional AI workers behind the same safety boundaries, and higher-level automation layered on top without bypassing policy, audit, or hardware interlocks.
+
+### Current Control Center - v0.52.0
+
+![Remote Workstation MCP Control Center v0.52.0](docs/images/v0.52.0/01-control-center-overview-v052.png)
+
 ## Current release
 
 **Stable release: v0.52.0 - channel=stable - Action Schema 25 - Engineering API 5** - adds **NotebookLM Content Pipeline**. `notebooklm_content_pipeline` composes source-readiness verification, one stable source-grounded `ask`, bounded sequential generation of 1-25 Video Overviews, READY verification, and final artifact inventory under one authenticated Existing Chrome claim. The v0.51 single/batch video and one-shot ask command modes remain backward compatible. The workflow stays semantic and deterministic: no coordinate mouse/screen driving, Google-login automation, credentials, cookies, tokens, raw selectors or page JavaScript.
@@ -494,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.13.1.tgz`
+- `remote-workstation-mcp-v0.52.0.tgz`
 - `SHA256SUMS.txt`
 
 
@@ -543,7 +560,7 @@ The Control Center opens locally at:
 http://127.0.0.1:8684
 ```
 
-![Control Center v0.8.1](docs/images/v0.8.1/01-control-center-home-v081.png)
+![Control Center v0.52.0](docs/images/v0.52.0/01-control-center-overview-v052.png)
 
 Open **Settings**.
 

@@ -374,6 +374,28 @@ export class NotebookLmAdapter {
     throw new Error('NotebookLM video generation did not reach a READY artifact postcondition before timeout.');
   }
 
+  async videoGenerateCommand(
+    owner: Owner,
+    focus: string,
+    waitForReady = true,
+    timeoutMs = 15 * 60_000,
+    requestedTabId?: number
+  ) {
+    const opened = await this.open(owner, requestedTabId);
+    try {
+      const generated = await this.videoGenerate(opened.existingSessionId, owner, focus, waitForReady, timeoutMs);
+      return {
+        ...generated,
+        commandMode: true,
+        autoClaimedTab: true,
+        tabId: opened.tabId,
+        provider: opened.provider
+      };
+    } finally {
+      this.close(opened.existingSessionId, owner);
+    }
+  }
+
   async ask(existingSessionId: string, owner: Owner, question: string, timeoutMs = 60_000) {
     const prompt = normalize(question);
     if (!prompt || prompt.length > 8_000) {

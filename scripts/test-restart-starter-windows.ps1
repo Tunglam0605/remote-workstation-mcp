@@ -20,6 +20,12 @@ function Write-Utf8NoBom([string]$Path, [string]$Content) {
   [IO.File]::WriteAllText($Path, $Content, (New-Object Text.UTF8Encoding($false)))
 }
 
+function Ensure-DummyTunnelClient([string]$RootPath) {
+  $tunnelDir = Join-Path $RootPath 'runtime\openai-tunnel'
+  New-Item -ItemType Directory -Force -Path $tunnelDir | Out-Null
+  New-Item -ItemType File -Force -Path (Join-Path $tunnelDir 'tunnel-client.exe') | Out-Null
+}
+
 function Write-Starting([string]$Path, [string]$RootPath, [string]$Mode) {
   $payload = [ordered]@{
     version = 1
@@ -64,6 +70,7 @@ function Invoke-Starter([string]$RootPath, [string]$BasePath, [int]$TimeoutSecon
 try {
   New-Item -ItemType Directory -Force -Path $scriptsDir, $runtimeDir | Out-Null
   Copy-Item -LiteralPath $workerSource -Destination (Join-Path $scriptsDir 'runtime-restart-handoff-windows.ps1') -Force
+  Ensure-DummyTunnelClient $root
   $runtimeControl = @'
 param([string]$Action,[string]$Mode,[string]$Root)
 if ($Action -eq 'Restart') { exit 0 }
@@ -115,6 +122,7 @@ exit 0
   $failureRuntime = Join-Path $failureBase 'runtime'
   New-Item -ItemType Directory -Force -Path $failureScripts, $failureRuntime | Out-Null
   Write-Utf8NoBom (Join-Path $failureScripts 'runtime-restart-handoff-windows.ps1') 'exit 7'
+  Ensure-DummyTunnelClient $failureRoot
   Write-Starting (Join-Path $failureRuntime 'restart-transaction.json') $failureRoot 'OpenAI'
   $failure = Invoke-Starter $failureRoot $failureBase 3
   if ($failure.exitCode -eq 0) {
@@ -128,6 +136,7 @@ exit 0
   $timeoutRuntime = Join-Path $timeoutBase 'runtime'
   New-Item -ItemType Directory -Force -Path $timeoutScripts, $timeoutRuntime | Out-Null
   Write-Utf8NoBom (Join-Path $timeoutScripts 'runtime-restart-handoff-windows.ps1') 'Start-Sleep -Seconds 10'
+  Ensure-DummyTunnelClient $timeoutRoot
   Write-Starting (Join-Path $timeoutRuntime 'restart-transaction.json') $timeoutRoot 'OpenAI'
   $timeout = Invoke-Starter $timeoutRoot $timeoutBase 1
   if ($timeout.exitCode -eq 0) { throw 'Starter falsely acknowledged a worker that never wrote RUNNING.' }
@@ -140,6 +149,19 @@ exit 0
     throw "Timed-out durable restart worker PID $timedOutPid survived starter failure."
   }
   Write-Host 'Windows CIM durable restart starter timeout-cleanup path passed.' -ForegroundColor Green
+
+  $incompleteRoot = Join-Path $tempBase 'incomplete\vtest'
+  $incompleteScripts = Join-Path $incompleteRoot 'scripts'
+  $incompleteBase = Join-Path $tempBase 'incomplete-base'
+  New-Item -ItemType Directory -Force -Path $incompleteScripts | Out-Null
+  Copy-Item -LiteralPath $workerSource -Destination (Join-Path $incompleteScripts 'runtime-restart-handoff-windows.ps1') -Force
+  $incomplete = Invoke-Starter $incompleteRoot $incompleteBase 3
+  if ($incomplete.exitCode -eq 0) { throw 'Starter accepted an incomplete OpenAI runtime slot without tunnel-client.exe.' }
+  $incompleteOutput = $incomplete.stdout + [Environment]::NewLine + $incomplete.stderr
+  if ($incompleteOutput -notmatch 'OpenAI restart target is incomplete; tunnel-client is missing') {
+    throw "Incomplete-slot rejection did not explain the missing tunnel client. Output=$incompleteOutput"
+  }
+  Write-Host 'Windows restart starter incomplete-slot preflight path passed.' -ForegroundColor Green
 } finally {
   if ($workerPid -gt 0) { Stop-Process -Id $workerPid -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $tempBase -Recurse -Force -ErrorAction SilentlyContinue

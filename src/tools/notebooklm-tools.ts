@@ -99,10 +99,11 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
       ctx.notebooklm.videoStatus(existingSessionId, owner)));
 
   server.registerTool('notebooklm_video_generate', {
-    description: 'Create a NotebookLM Video Overview with bounded custom focus and verify generation STARTED; optionally wait until a new READY video artifact appears. This mutates cloud Studio state and may consume NotebookLM AI quota.',
+    description: 'Create a NotebookLM Video Overview by command. If existingSessionId is omitted, RWMCP automatically claims an already-authenticated NotebookLM tab, runs semantic background commands without coordinate mouse/screen control, waits for STARTED/READY postconditions, then releases the claim. This mutates cloud Studio state and may consume NotebookLM AI quota.',
     inputSchema: z.object({
       workSessionId: z.string().uuid(),
-      existingSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid().optional(),
+      tabId: z.number().int().positive().optional(),
       focus: z.string().trim().min(1).max(8_000),
       waitForReady: z.boolean().default(true),
       timeoutMs: z.number().int().min(30_000).max(1_800_000).default(900_000)
@@ -113,9 +114,11 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
       idempotentHint: false,
       openWorldHint: true
     }
-  }, async ({ workSessionId, existingSessionId, focus, waitForReady, timeoutMs }) =>
+  }, async ({ workSessionId, existingSessionId, tabId, focus, waitForReady, timeoutMs }) =>
     executeInSession('notebooklm_video_generate', workSessionId, owner =>
-      ctx.notebooklm.videoGenerate(existingSessionId, owner, focus, waitForReady, timeoutMs)));
+      existingSessionId
+        ? ctx.notebooklm.videoGenerate(existingSessionId, owner, focus, waitForReady, timeoutMs)
+        : ctx.notebooklm.videoGenerateCommand(owner, focus, waitForReady, timeoutMs, tabId)));
 
   server.registerTool('notebooklm_ask', {
     description: 'Ask one bounded question in the claimed NotebookLM notebook and wait until a changed, stable conversation postcondition is observed. This mutates cloud conversation state.',

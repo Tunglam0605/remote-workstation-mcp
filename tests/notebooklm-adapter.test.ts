@@ -216,6 +216,36 @@ test('video generation requires STARTED then a new stable READY artifact', async
   assert.equal(createClicked,true);
 });
 
+test('video command mode auto-claims and releases an authenticated NotebookLM tab', async () => {
+  let createClicked=false;
+  let closed=false;
+  let polls=0;
+  const service={
+    open:async()=>({sessionId:'sess-auto',tabId:23,provider:'existing-chrome-extension'}),
+    close:()=>{closed=true;return{closed:true}},
+    status:()=>({sessionId:'sess-auto',tabId:23,provider:'existing-chrome-extension'}),
+    extract:async()=>{
+      if(!createClicked) return {url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text:'Demo 1 sources'};
+      polls++;
+      return {url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text: polls<=2 ? 'Demo 1 sources Generating video overview' : 'Demo 1 sources Video Overview "Command Video" is ready 00:00 / 01:02 View 1 sources'};
+    },
+    find:async(_id:string,_owner:any,role:string,name:string)=>({matches:
+      role==='button' && name==='Video Overview' ? [{elementId:'v',visible:true,enabled:true}] :
+      role==='textbox' && name==='What should this video focus on?' ? [{elementId:'f',visible:true,enabled:true}] :
+      role==='button' && name==='Create now' ? [{elementId:'c',visible:true,enabled:true}] : []}),
+    fill:async()=>{},
+    click:async(_id:string,_owner:any,elementId:string)=>{if(elementId==='c')createClicked=true;},
+    inspect:async()=>({elements:[],truncated:false})
+  };
+  const adapter=new NotebookLmAdapter(service as never,async()=>{});
+  const result=await adapter.videoGenerateCommand(owner,'Command-only generation',true,60_000);
+  assert.equal(result.commandMode,true);
+  assert.equal(result.autoClaimedTab,true);
+  assert.equal(result.tabId,23);
+  assert.equal(result.state,'ready');
+  assert.equal(closed,true);
+});
+
 test('NotebookLM video tools are advertised and scope-classified', () => {
   const capability=CAPABILITIES.find(item=>item.id==='web.notebooklm');
   assert.ok(capability);

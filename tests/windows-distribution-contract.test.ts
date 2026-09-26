@@ -458,6 +458,18 @@ test('Windows installer repairs the OpenAI tunnel client even when the runtime s
   assert.match(installer, /OpenAI tunnel-client installation failed/);
 });
 
+test('Windows direct OpenAI launcher and restart handoff fail safely around shared runtime state', async () => {
+  const directOpenAI = await read('scripts/start-openai-windows.ps1');
+  const restartStarter = await read('scripts/start-restart-handoff-windows.ps1');
+
+  assert.match(directOpenAI, /Get-RwmcpUserConfigDir/);
+  assert.match(directOpenAI, /SharedConfigDir/);
+  assert.match(directOpenAI, /SharedPolicyPath/);
+  assert.match(directOpenAI, /SharedHostsPath/);
+  assert.match(restartStarter, /runtime\\openai-tunnel\\tunnel-client\.exe/);
+  assert.match(restartStarter, /OpenAI restart target is incomplete; tunnel-client is missing/);
+});
+
 test('Windows release installer stages the Chrome bridge from the installed slot before activation', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
   const bridgeInstaller = await read('scripts/install-chrome-bridge-windows.ps1');

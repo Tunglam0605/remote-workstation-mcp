@@ -7,8 +7,12 @@ Set-Location $Root
 . (Join-Path $PSScriptRoot 'windows-settings.ps1')
 Apply-RwmcpPersistedEnvironment -Root $Root -IncludeOpenAISecret | Out-Null
 
-$PolicyPath = if ($env:RWMCP_POLICY) { $env:RWMCP_POLICY } else { Join-Path $Root 'config\policy.yaml' }
-$HostsPath = if ($env:RWMCP_HOSTS) { $env:RWMCP_HOSTS } else { Join-Path $Root 'config\hosts.yaml' }
+$UserConfigDir = Get-RwmcpUserConfigDir
+$SharedConfigDir = Join-Path $UserConfigDir 'config'
+$SharedPolicyPath = Join-Path $SharedConfigDir 'policy.yaml'
+$SharedHostsPath = Join-Path $SharedConfigDir 'hosts.yaml'
+$PolicyPath = if ($env:RWMCP_POLICY) { $env:RWMCP_POLICY } elseif (Test-Path $SharedPolicyPath) { $SharedPolicyPath } else { Join-Path $Root 'config\policy.yaml' }
+$HostsPath = if ($env:RWMCP_HOSTS) { $env:RWMCP_HOSTS } elseif (Test-Path $SharedHostsPath) { $SharedHostsPath } else { Join-Path $Root 'config\hosts.yaml' }
 $RuntimeDir = Join-Path $Root 'runtime'
 $SupervisorPath = Join-Path $Root 'dist\openai-tunnel-cli.js'
 $TunnelBinary = if ($env:RWMCP_OPENAI_TUNNEL_CLIENT) { $env:RWMCP_OPENAI_TUNNEL_CLIENT } else { Join-Path $Root 'runtime\openai-tunnel\tunnel-client.exe' }

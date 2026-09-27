@@ -561,6 +561,43 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'kicad_ipc_status', workspace, () => ctx.engineering.kicad.ipcStatus(workspace, projectPath))));
 
+  server.registerTool('kicad_ipc_board_inspect', {
+    description: 'Inspect the currently open KiCad PCB through the official IPC API. The live board must resolve to the explicit authorized project board path. Returns a SHA-256 fingerprint and bounded footprint UUID/reference/position/rotation metadata without modifying or saving the design.',
+    inputSchema: kicadProject.extend({
+      board: z.string().min(1).max(1024),
+      maxItems: z.number().int().min(1).max(2000).default(500)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, board, maxItems }) =>
+    result(await audited(ctx.audit, 'kicad_ipc_board_inspect', workspace, () => ctx.engineering.kicad.ipcBoardInspect(workspace, projectPath, board, maxItems))));
+
+  server.registerTool('kicad_ipc_footprint_move', {
+    description: 'Move one footprint in the currently open KiCad PCB through the official IPC API. Requires Work Session ownership and the exact live board SHA-256 fingerprint. RWMCP groups the live edit into an undo step, runs DRC against before/after snapshots, and automatically restores the prior footprint pose if active errors, unconnected items, or schematic-parity findings regress. The board is intentionally left unsaved.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      uuid: z.string().uuid().optional(),
+      reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+      xMm: z.number().finite().min(-100000).max(100000),
+      yMm: z.number().finite().min(-100000).max(100000),
+      rotationDeg: z.number().finite().min(-100000).max(100000).optional()
+    }).refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, board, expectedBoardSha256, uuid, reference, xMm, yMm, rotationDeg }) =>
+    result(await audited(ctx.audit, 'kicad_ipc_footprint_move', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.ipcFootprintMove(
+        workspace,
+        projectPath,
+        board,
+        expectedBoardSha256,
+        { ...(uuid ? { uuid } : {}), ...(reference ? { reference } : {}) },
+        xMm,
+        yMm,
+        rotationDeg
+      ))
+    )));
+
   server.registerTool('kicad_provider_status', {
     description: 'Inspect the resolved KiCad CLI provider/version without modifying project files.',
     inputSchema: kicadProject,

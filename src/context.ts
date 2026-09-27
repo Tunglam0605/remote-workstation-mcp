@@ -9,6 +9,7 @@ import { EngineeringCommandRunner } from './adapters/engineering/command-runner.
 import { DebugSessionManager } from './adapters/engineering/debug-session.js';
 import { DockerAdapter } from './adapters/engineering/docker.js';
 import { CanAdapter } from './adapters/engineering/can.js';
+import { ModbusRtuAdapter } from './adapters/engineering/modbus-rtu.js';
 import { SystemdAdapter } from './adapters/engineering/systemd.js';
 import { Stm32IocAdapter } from './adapters/engineering/stm32-ioc.js';
 import { Stm32SvdAdapter } from './adapters/engineering/stm32-svd.js';
@@ -227,6 +228,7 @@ export async function createContext() {
     schedulerAwareness
   );
   const engineeringCan = new CanAdapter(policy, engineeringRunner);
+  const engineeringModbusRtu = new ModbusRtuAdapter(policy, engineeringResources);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
@@ -318,6 +320,7 @@ export async function createContext() {
       execution: engineeringWorkflowExecution,
       debug: engineeringDebug,
       can: engineeringCan,
+      modbusRtu: engineeringModbusRtu,
       ros2: engineeringRos2,
       docker: engineeringDocker,
       systemd: engineeringSystemd,

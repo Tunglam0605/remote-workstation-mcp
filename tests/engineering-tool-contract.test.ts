@@ -36,7 +36,7 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 26;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.54\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.54\.1';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -127,6 +127,12 @@ test('v0.54 SocketCAN surface stays bounded and read-only', async () => {
   assert.match(canAdapter, /at most 32 filters|accepts at most 32 filters/);
   assert.doesNotMatch(engineeringTools, /can_send|cansend|canplayer|can_interface_set|can_bitrate_set/);
   assert.doesNotMatch(canAdapter, /'cansend'|'canplayer'|'cangen'|'cangw'/);
+  const pythonFallback = await read('scripts/socketcan_capture.py');
+  assert.match(pythonFallback, /socket\.PF_CAN/);
+  assert.match(pythonFallback, /socket\.SOCK_RAW/);
+  assert.match(pythonFallback, /sock\.recv\(72\)/);
+  assert.doesNotMatch(pythonFallback, /\.send(?:to|msg)?\(/);
+  assert.doesNotMatch(pythonFallback, /subprocess|os\.system|Popen/);
 });
 
 test('v0.44 embedded diagnostics remain typed and do not expose arbitrary debugger or firmware execution', async () => {

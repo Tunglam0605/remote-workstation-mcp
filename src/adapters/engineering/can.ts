@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { PolicyEngine } from '../../policy.js';
 import type { EngineeringCommandResult } from '../../engineering/types.js';
 import { EngineeringCommandRunner } from './command-runner.js';
@@ -197,6 +198,14 @@ function captureSummary(frames: ReturnType<typeof parseCandumpLine>[]) {
   };
 }
 
+const PYTHON_CAPTURE_HELPER = fileURLToPath(new URL('../../../scripts/socketcan_capture.py', import.meta.url));
+
+function pythonFilter(filter: CanFilter): string {
+  const normalized = normalizeFilter(filter);
+  const [id, mask] = normalized.split(':');
+  return `${id}:${mask}:${filter.extended ? '1' : '0'}`;
+}
+
 function succeeded(result: EngineeringCommandResult): boolean {
   return !result.timedOut && result.exitCode === 0;
 }
@@ -218,11 +227,15 @@ export class CanAdapter {
     return (await resolveFirstExecutable(['candump']))?.path;
   }
 
+  private async pythonExecutable(): Promise<string | undefined> {
+    return (await resolveFirstExecutable(['python3']))?.path;
+  }
+
   async providerStatus() {
     if (this.platform !== 'linux') {
       return { supported: false, platform: this.platform, socketcan: false, iproute2: false, candump: false, capture: false };
     }
-    const [ip, candump] = await Promise.all([resolveFirstExecutable(['ip']), resolveFirstExecutable(['candump'])]);
+    const [ip, candump, python3] = await Promise.all([resolveFirstExecutable(['ip']), resolveFirstExecutable(['candump']), resolveFirstExecutable(['python3'])]);
     let candumpVersion: string | undefined;
     if (candump) {
       const version = await this.runner.run(candump.path, ['-h'], process.cwd(), 5_000);
@@ -234,8 +247,10 @@ export class CanAdapter {
       socketcan: Boolean(ip),
       iproute2: Boolean(ip),
       candump: Boolean(candump),
-      capture: Boolean(ip && candump),
+      capture: Boolean(ip && (candump || python3)),
+      captureBackend: candump ? 'candump' : python3 ? 'python-af-can' : 'unavailable',
       candumpVersion,
+      pythonFallback: Boolean(python3),
       authority: 'read-only',
       unavailable: ['interface configuration', 'bitrate mutation', 'frame transmission', 'bus-off restart', 'gateway mutation', 'log replay']
     };
@@ -280,18 +295,35 @@ export class CanAdapter {
       ...(options.includeErrorFrames ? ['#1FFFFFFF'] : [])
     ].join(',');
     const candump = await this.candumpExecutable();
-    if (!candump) throw new Error('candump from linux-can/can-utils is unavailable; install can-utils locally to enable bounded CAN capture.');
-    const result = await this.runner.run(
-      candump,
-      ['-L', '-n', String(count), '-T', String(inactivityTimeoutMs), interfaceSpec],
-      process.cwd(),
-      Math.min(35_000, inactivityTimeoutMs + 5_000)
-    );
+    const python3 = candump ? undefined : await this.pythonExecutable();
+    if (!candump && !python3) throw new Error('CAN capture requires either linux-can candump or python3 with AF_CAN support.');
+    const backend = candump ? 'candump' as const : 'python-af-can' as const;
+    const result = candump
+      ? await this.runner.run(
+          candump,
+          ['-L', '-n', String(count), '-T', String(inactivityTimeoutMs), interfaceSpec],
+          process.cwd(),
+          Math.min(35_000, inactivityTimeoutMs + 5_000)
+        )
+      : await this.runner.run(
+          python3!,
+          [
+            PYTHON_CAPTURE_HELPER,
+            '--interface', selected,
+            '--count', String(count),
+            '--timeout-ms', String(inactivityTimeoutMs),
+            ...filters.flatMap(filter => ['--filter', pythonFilter(filter)]),
+            ...(options.includeErrorFrames ? ['--errors'] : [])
+          ],
+          process.cwd(),
+          Math.min(35_000, inactivityTimeoutMs + 5_000)
+        );
     if (!succeeded(result)) throw new Error(`CAN capture failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
     const lines = result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(0, 1_000);
     const frames = lines.map(parseCandumpLine).filter((frame): frame is NonNullable<typeof frame> => Boolean(frame));
     return {
       interface: selected,
+      backend,
       requestedCount: count,
       inactivityTimeoutMs,
       filters,

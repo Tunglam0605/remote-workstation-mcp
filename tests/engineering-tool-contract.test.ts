@@ -34,9 +34,9 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 27;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 28;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.55\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.56\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -188,6 +188,29 @@ test('v0.44 KiCad professional tools expose typed temporary diagnostics without 
   assert.match(kicad, /'Reference,Value,Footprint,QUANTITY,DNP'/);
   assert.doesNotMatch(engineeringTools, /kicad_script|kicad_plugin|python-bom/);
   assert.match(capabilities, /arbitrary BOM plugins\/scripts/);
+});
+
+test('v0.56 KiCad editing stays typed, transactional and bounded', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicad = await read('src/adapters/engineering/kicad.ts');
+  const edit = await read('src/adapters/engineering/kicad-edit.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  assert.match(engineeringTools, /server\.registerTool\('kicad_edit_inspect'/);
+  assert.match(engineeringTools, /server\.registerTool\('kicad_edit'/);
+  assert.match(scopes, /kicad_edit_inspect: 'workstation\.read'/);
+  assert.match(scopes, /kicad_edit: 'workstation\.write'/);
+  assert.match(capabilities, /kicad_edit_inspect/);
+  assert.match(capabilities, /kicad_edit/);
+  assert.match(kicad, /KICAD_EDIT_CONFLICT/);
+  assert.match(kicad, /KICAD_EDIT_ACCEPTANCE_FAILED/);
+  assert.match(kicad, /createKicadBackup/);
+  assert.match(kicad, /withLease\('kicad-file:' \+ input, 'orchestrating'/);
+  assert.match(edit, /schematic_symbol_property/);
+  assert.match(edit, /pcb_footprint_property/);
+  assert.match(edit, /pcb_footprint_move/);
+  assert.doesNotMatch(engineeringTools, /kicad_raw|kicad_sexpr|kicad_autoroute|kicad_track_add|kicad_via_add|kicad_zone_add/);
+  assert.doesNotMatch(edit, /eval\(|new Function|child_process|spawn\(|exec\(/);
 });
 
 test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {
@@ -368,7 +391,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 27;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 28;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

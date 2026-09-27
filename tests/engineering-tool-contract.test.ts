@@ -36,7 +36,7 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 33;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.61\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.61\.1';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -350,6 +350,7 @@ test('v0.61 KiCad IPC Phase 6 routing primitives stay bounded and rollback-gated
   assert.match(routing, /only through-via mutation is exposed in Phase 6/);
   assert.doesNotMatch(engineeringTools, /kicad_ipc_routing_remove|kicad_ipc_zone_refill|kicad_ipc_autoroute|kicad_ipc_arc_track/);
   assert.doesNotMatch(routing, /board\.save\(/);
+  assert.doesNotMatch(capabilities, /track\/via\/zone mutation, autorouting and implicit board save remain unavailable/);
 });
 
 test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {

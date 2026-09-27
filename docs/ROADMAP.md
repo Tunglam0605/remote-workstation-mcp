@@ -2,6 +2,12 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.61.1 - KiCad Phase 6 Capability Metadata Hotfix
+
+- correct the `engineering.kicad` capability note so it no longer carries the stale v0.60 statement that all track/via mutation is unavailable;
+- explicitly state that typed straight-track and through-via primitives are available while routing-item deletion, arc-track mutation, blind/buried/micro vias, zone mutation/refill, autorouting and implicit save remain unavailable;
+- keep Action Schema 33 and Engineering API 5 unchanged; no tool behavior or authority changes.
+
 ## v0.61.0 - KiCad IPC Phase 6 Routing Primitives
 
 - add `kicad_ipc_routing_inspect` for bounded live nets, straight/arc tracks, vias and zones with UUID, geometry, layer/net, width/diameter, lock and zone fill metadata;

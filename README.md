@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.61.0 - channel=stable - Action Schema 33 - Engineering API 5** - adds **KiCad IPC Phase 6 Routing Primitives**. `kicad_ipc_routing_inspect` exposes bounded live nets, tracks, vias and zones. Typed straight-track add/update and through-via add/update require Work Session ownership, exact live-board SHA-256, explicit existing net/copper-layer identity, per-board lease, DRC non-regression and compensating rollback/removal, with no implicit save. Arc-track mutation, routing-item deletion, blind/buried/micro vias, zone mutation/refill and autorouting remain unavailable until rollback semantics are strong enough.
+**Stable release: v0.61.1 - channel=stable - Action Schema 33 - Engineering API 5** - hotfixes the KiCad Phase 6 capability metadata so it accurately distinguishes the newly available typed straight-track/through-via primitives from routing surfaces that remain intentionally unavailable. v0.61.0 behavior is unchanged: `kicad_ipc_routing_inspect`, typed straight-track add/update and typed through-via add/update remain Work Session/SHA/lease/DRC/rollback gated and never save implicitly.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -511,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.61.0.tgz`
+- `remote-workstation-mcp-v0.61.1.tgz`
 - `SHA256SUMS.txt`
 
 

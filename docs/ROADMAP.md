@@ -2,6 +2,19 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.57.0 - KiCad Editing Phase 2 + IPC Readiness
+
+- extend typed schematic edits with `Datasheet` plus explicit `in_bom` / `on_board` flags;
+- extend typed PCB footprint edits with manufacturing attributes `board_only`, `exclude_from_bom`, `exclude_from_pos_files` while preserving existing `smd` / `through_hole` type attributes;
+- add bounded footprint-level `clearance` and `zone_connect` edits using the documented KiCad PCB format and retain DRC acceptance;
+- enrich `kicad_edit_inspect` with schematic Datasheet/BOM/board-export state plus PCB manufacturing attributes and copper settings;
+- add read-only `kicad_ipc_status` for official `kicad-python` (`kipy`) readiness, KiCad IPC version support, live connection and open-board status;
+- report KiCad 9/10 as GUI-IPC-only and KiCad 11+ as headless-IPC-capable; do not emulate unsupported headless IPC on 9/10;
+- keep `.kicad_dru` external mutation unavailable because KiCad documentation directs users to manage custom rules through KiCad rather than external text editing;
+- retain SHA-256 optimistic concurrency, Work Session ownership, per-file lease, same-directory working copy, ERC/DRC non-regression acceptance, backup and atomic commit;
+- keep arbitrary S-expression/scripts, arbitrary BOM plugins, track/via/zone mutation and autorouting unavailable;
+- advance Action Schema to 29 for the public IPC status tool and expanded edit schema; Engineering API remains 5.
+
 ## v0.56.0 - KiCad Editing Phase 1
 
 - add `kicad_edit_inspect` for bounded `.kicad_sch` / `.kicad_pcb` edit identity: SHA-256 plus symbol/footprint UUID, reference, value, footprint and placement metadata;

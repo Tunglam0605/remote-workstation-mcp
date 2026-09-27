@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { KicadProjectFiles } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
@@ -292,6 +293,59 @@ export class KicadAdapter {
     } finally {
       await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
     }
+  }
+
+  async ipcStatus(workspace: string, projectPath = '.') {
+    this.policy.assertEngineeringEnabled();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const cli = await discoverKicadCli();
+    const cliVersionResult = await this.runner.run(cli.path, ['version'], cwd, 10_000);
+    if (cliVersionResult.exitCode !== 0 || cliVersionResult.timedOut) {
+      throw new Error(`KiCad version probe failed: ${cliVersionResult.stderr || cliVersionResult.stdout}`);
+    }
+    const cliVersion = (cliVersionResult.stdout.trim() || cliVersionResult.stderr.trim()).slice(0, 160);
+    const major = Number(cliVersion.match(/(\d+)(?:\.\d+)?/)?.[1] ?? 0);
+    const python = await resolveFirstExecutable(['python3', 'python', 'python.exe', 'py.exe']);
+    if (!python) {
+      return {
+        provider: 'kicad-ipc',
+        cliVersion,
+        supportedByKiCad: major >= 9,
+        guiRequired: major >= 9 && major <= 10,
+        headlessApiSupported: major >= 11,
+        pythonAvailable: false,
+        kicadPythonAvailable: false,
+        connected: false,
+        reason: 'Python runtime was not found; official kicad-python (kipy) cannot be probed.'
+      };
+    }
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_probe.py', import.meta.url));
+    const probe = await this.runner.run(python.path, [script], cwd, 5_000);
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = asRecord(JSON.parse(probe.stdout.trim() || '{}'));
+    } catch {
+      parsed = { reason: (probe.stderr || probe.stdout || 'Invalid IPC probe output').slice(0, 1024) };
+    }
+    return {
+      provider: 'kicad-ipc',
+      cliVersion,
+      supportedByKiCad: major >= 9,
+      guiRequired: major >= 9 && major <= 10,
+      headlessApiSupported: major >= 11,
+      pythonAvailable: true,
+      pythonExecutable: python.path,
+      probeExitCode: probe.exitCode,
+      probeTimedOut: probe.timedOut,
+      packageAvailable: parsed.packageAvailable === true,
+      connected: parsed.connected === true,
+      socketConfigured: parsed.socketConfigured === true,
+      tokenConfigured: parsed.tokenConfigured === true,
+      ...(typeof parsed.kicadVersion === 'string' ? { ipcKiCadVersion: parsed.kicadVersion } : {}),
+      ...(typeof parsed.boardOpen === 'boolean' ? { boardOpen: parsed.boardOpen } : {}),
+      ...(typeof parsed.boardName === 'string' && parsed.boardName ? { boardName: parsed.boardName } : {}),
+      ...(typeof parsed.reason === 'string' && parsed.reason ? { reason: parsed.reason } : {})
+    };
   }
 
   async version(workspace: string, projectPath = '.') {

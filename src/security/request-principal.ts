@@ -225,6 +225,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   ros2_param_get: 'workstation.read',
   ros2_param_set: 'workstation.execute',
   ros2_bag_record: 'workstation.execute',
+  kicad_ipc_status: 'workstation.read',
   kicad_provider_status: 'workstation.read',
   kicad_board_stats: 'workstation.read',
   kicad_drc: 'workstation.read',

@@ -36,9 +36,9 @@ function cmd(program: string, args: string[], cwd: string, stdout = '', stderr =
   return { program, args: [...args], cwd, exitCode, stdout, stderr, timedOut: false, durationMs: 1 };
 }
 
-const SCH = '(kicad_sch\n  (version 20240108)\n  (generator rwmcp-test)\n  (symbol\n    (lib_id "Device:R")\n    (at 10 20 90)\n    (uuid 11111111-1111-4111-8111-111111111111)\n    (property "Reference" "R1" (at 10 18 90))\n    (property "Value" "10k" (at 10 20 90))\n    (property "Footprint" "Resistor_SMD:R_0603_1608Metric" (at 10 22 90))\n    (instances (project "demo" (path "/" (reference "R1") (unit 1))))\n  )\n)\n';
+const SCH = '(kicad_sch\n  (version 20240108)\n  (generator rwmcp-test)\n  (symbol\n    (lib_id "Device:R")\n    (at 10 20 90)\n    (in_bom yes)\n    (on_board yes)\n    (uuid 11111111-1111-4111-8111-111111111111)\n    (property "Reference" "R1" (at 10 18 90))\n    (property "Value" "10k" (at 10 20 90))\n    (property "Footprint" "Resistor_SMD:R_0603_1608Metric" (at 10 22 90))\n    (property "Datasheet" "https://example.invalid/r.pdf" (at 10 24 90))\n    (instances (project "demo" (path "/" (reference "R1") (unit 1))))\n  )\n)\n';
 
-const PCB = '(kicad_pcb\n  (version 20240108)\n  (generator rwmcp-test)\n  (footprint "Resistor_SMD:R_0603_1608Metric"\n    (layer "F.Cu")\n    (at 12.5 33.25 90)\n    (uuid 22222222-2222-4222-8222-222222222222)\n    (property "Reference" "R1" (at 0 -1.5 90) (layer "F.SilkS"))\n    (property "Value" "10k" (at 0 1.5 90) (layer "F.Fab"))\n  )\n)\n';
+const PCB = '(kicad_pcb\n  (version 20240108)\n  (generator rwmcp-test)\n  (footprint "Resistor_SMD:R_0603_1608Metric"\n    (layer "F.Cu")\n    (at 12.5 33.25 90)\n    (uuid 22222222-2222-4222-8222-222222222222)\n    (property "Reference" "R1" (at 0 -1.5 90) (layer "F.SilkS"))\n    (property "Value" "10k" (at 0 1.5 90) (layer "F.Fab"))\n    (clearance 0.2)\n    (zone_connect 1)\n    (attr smd exclude_from_pos_files)\n  )\n)\n';
 
 test('KiCad edit parser exposes stable targets and patches only selected structural block', () => {
   const inspected = inspectKicadDocument(SCH, '.kicad_sch');
@@ -56,6 +56,60 @@ test('KiCad edit parser exposes stable targets and patches only selected structu
   assert.match(patched.text, /\(property "Footprint" "Resistor_SMD:R_0603_1608Metric"/);
   assert.equal(patched.results[0]?.before, '10k');
   assert.equal(patched.results[0]?.after, '4.7k');
+});
+
+test('KiCad Phase-2 schematic flags and datasheet edits are typed', () => {
+  const inspected = inspectKicadDocument(SCH, '.kicad_sch');
+  assert.equal(inspected.items[0]?.datasheet, 'https://example.invalid/r.pdf');
+  assert.equal(inspected.items[0]?.inBom, true);
+  assert.equal(inspected.items[0]?.onBoard, true);
+  const patched = patchKicadDocument(SCH, [
+    {
+      kind: 'schematic_symbol_property',
+      reference: 'R1',
+      property: 'Datasheet',
+      value: 'https://example.invalid/new.pdf'
+    },
+    {
+      kind: 'schematic_symbol_flags',
+      reference: 'R1',
+      inBom: false,
+      onBoard: false
+    }
+  ], '.kicad_sch');
+  assert.match(patched.text, /\(property "Datasheet" "https:\/\/example\.invalid\/new\.pdf"/);
+  assert.match(patched.text, /\(in_bom no\)/);
+  assert.match(patched.text, /\(on_board no\)/);
+});
+
+test('KiCad Phase-2 PCB attributes and footprint copper settings preserve unrelated flags', () => {
+  const inspected = inspectKicadDocument(PCB, '.kicad_pcb');
+  assert.equal(inspected.items[0]?.attributes.type, 'smd');
+  assert.equal(inspected.items[0]?.attributes.excludeFromPosFiles, true);
+  assert.equal(inspected.items[0]?.attributes.excludeFromBom, false);
+  assert.equal(inspected.items[0]?.clearance, 0.2);
+  assert.equal(inspected.items[0]?.zoneConnect, 1);
+
+  const patched = patchKicadDocument(PCB, [
+    {
+      kind: 'pcb_footprint_attributes',
+      reference: 'R1',
+      excludeFromBom: true,
+      excludeFromPosFiles: false,
+      boardOnly: true
+    },
+    {
+      kind: 'pcb_footprint_copper',
+      reference: 'R1',
+      clearance: 0.35,
+      zoneConnect: 2
+    }
+  ], '.kicad_pcb');
+
+  assert.match(patched.text, /\(attr smd board_only exclude_from_bom\)/);
+  assert.doesNotMatch(patched.text, /exclude_from_pos_files/);
+  assert.match(patched.text, /\(clearance 0\.35\)/);
+  assert.match(patched.text, /\(zone_connect 2\)/);
 });
 
 test('KiCad board move is typed and preserves footprint properties', () => {

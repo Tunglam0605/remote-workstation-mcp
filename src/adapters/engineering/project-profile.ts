@@ -45,6 +45,12 @@ export interface EngineeringFirmwareProfile {
   };
 }
 
+export interface EngineeringPlatformioProfile {
+  defaultEnvironment?: string;
+  uploadPort?: string;
+  uploadPortSelector?: SerialDeviceSelector;
+}
+
 export interface EngineeringRos2Profile {
   distro?: string;
   cwd?: string;
@@ -63,11 +69,16 @@ export interface EngineeringProjectProfile {
   name?: string;
   kind: EngineeringProjectKind;
   firmware?: EngineeringFirmwareProfile;
+  platformio?: EngineeringPlatformioProfile;
   ros2?: EngineeringRos2Profile;
 }
 
 const relativePath = z.string().min(1).max(512);
 const profileId = z.string().min(1).max(80).regex(/^[A-Za-z0-9._-]+$/);
+const platformioEnvironment = z.string().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/);
+const exactUploadPort = z.string().min(1).max(256).refine(value => !/[\r\n*?\[\]]/.test(value) && !value.includes(String.fromCharCode(0)), {
+  message: 'PlatformIO uploadPort must be an exact bounded port/address without wildcards or control characters.'
+});
 const serialSelectorSchema = z.object({
   deviceId: z.string().min(1).max(512).optional(),
   serialNumber: z.string().min(1).max(256).optional(),
@@ -126,6 +137,11 @@ const profileSchema = z.object({
       expectText: z.string().min(1).max(512).optional(),
       expectTimeoutMs: z.number().int().min(100).max(120_000).default(10_000)
     }).strict().optional()
+  }).strict().optional(),
+  platformio: z.object({
+    defaultEnvironment: platformioEnvironment.optional(),
+    uploadPort: exactUploadPort.optional(),
+    uploadPortSelector: serialSelectorSchema.optional()
   }).strict().optional(),
   ros2: z.object({
     distro: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/).optional(),

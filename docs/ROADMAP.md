@@ -2,6 +2,16 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.53.0 - Typed PlatformIO Build & Upload
+
+- add `platformio.build` and `platformio.upload` through the existing generic `engineering_workflow_plan/run` envelope instead of introducing new top-level MCP actions;
+- require one explicit validated PlatformIO environment from `platformio.defaultEnvironment` or `parameters.platformioEnvironment`; RWMCP never guesses between multiple environments;
+- execute build through the official `pio run --environment <env>` contract and upload through `pio run --environment <env> --target upload --upload-port <port>`;
+- require one exact upload port/address or a stable serial selector before mutation; do not use wildcard ports or implicit upload auto-detection for a ChatGPT-triggered hardware mutation;
+- bind serial upload ports to the existing `serial:<port>` resource identity and hold a `flashing` lease for the complete upload; non-serial endpoints receive an exact endpoint-scoped PlatformIO upload lease;
+- retain hardware-mutation policy as authoritative and expose no arbitrary uploader command, raw flags, custom shell recipe or user-supplied target list;
+- keep Action Schema 25 and Engineering API 5 because the new capability stays behind the stable workflow + validated `parameters` envelope.
+
 ## v0.52.0 - NotebookLM Content Pipeline
 
 - add `notebooklm_content_pipeline` as one bounded goal-level command above the existing NotebookLM site adapter rather than moving site logic into BrowserCore;

@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.52.0 - channel=stable - Action Schema 25 - Engineering API 5** - adds **NotebookLM Content Pipeline**. `notebooklm_content_pipeline` composes source-readiness verification, one stable source-grounded `ask`, bounded sequential generation of 1-25 Video Overviews, READY verification, and final artifact inventory under one authenticated Existing Chrome claim. The v0.51 single/batch video and one-shot ask command modes remain backward compatible. The workflow stays semantic and deterministic: no coordinate mouse/screen driving, Google-login automation, credentials, cookies, tokens, raw selectors or page JavaScript.
+**Stable release: v0.53.0 - channel=stable - Action Schema 25 - Engineering API 5** - adds **Typed PlatformIO Build & Upload**. PlatformIO projects now expose `platformio.build` and `platformio.upload` through the existing generic engineering workflow envelope. One validated environment is selected explicitly or from the project profile; upload additionally requires one exact port/address or stable serial selector, remains subject to hardware-mutation policy, and holds an engineering resource lease for the complete official PlatformIO upload command. Arbitrary uploader commands, raw flags, wildcard ports and shell recipes are not exposed. The v0.52 NotebookLM Content Pipeline remains backward compatible.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -511,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.52.0.tgz`
+- `remote-workstation-mcp-v0.53.0.tgz`
 - `SHA256SUMS.txt`
 
 

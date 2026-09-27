@@ -17,6 +17,7 @@ import { PlatformioAdapter } from './platformio.js';
 import {
   EngineeringProjectProfileStore,
   type EngineeringFirmwareProfile,
+  type EngineeringPlatformioProfile,
   type EngineeringProjectKind,
   type EngineeringProjectProfile,
   type EngineeringRos2Profile
@@ -48,6 +49,8 @@ export type EngineeringWorkflowId =
   | 'espidf.diagnostics'
   | 'espidf.size_analysis'
   | 'platformio.diagnostics'
+  | 'platformio.build'
+  | 'platformio.upload'
   | 'stm32.debug_fault_snapshot'
   | 'stm32.deep_diagnostics'
   | 'stm32.peripheral_snapshot'
@@ -75,6 +78,7 @@ export interface EngineeringProfileInitOptions {
   name?: string;
   kind?: EngineeringProjectKind;
   firmware?: Partial<EngineeringFirmwareProfile>;
+  platformio?: Partial<EngineeringPlatformioProfile>;
   ros2?: Partial<EngineeringRos2Profile>;
   profile?: unknown;
   overwrite?: boolean;
@@ -92,6 +96,8 @@ export interface EngineeringWorkflowOverrides {
   monitorBaudRate?: number;
   expectText?: string;
   expectTimeoutMs?: number;
+  platformioEnvironment?: string;
+  platformioUploadPort?: string;
   rosPackagesSelect?: string[];
   rosSymlinkInstall?: boolean;
   rosMergeInstall?: boolean;
@@ -315,7 +321,9 @@ export class EngineeringWorkflowEngine {
           flashProvider: 'openocd'
         };
       }
-    } else if (project.family === 'esp32' && project.framework !== 'platformio') {
+    } else if (project.framework === 'platformio') {
+      profile.platformio = {};
+    } else if (project.family === 'esp32') {
       profile.firmware = {
         buildProvider: 'esp-idf',
         buildDir: 'build',
@@ -461,6 +469,9 @@ export class EngineeringWorkflowEngine {
             : base.firmware?.monitor
         }
       : base.firmware;
+    const platformio = options.platformio
+      ? { ...(base.platformio ?? {}), ...options.platformio }
+      : base.platformio;
     const ros2 = options.ros2
       ? {
           ...(base.ros2 ?? {}),
@@ -476,6 +487,7 @@ export class EngineeringWorkflowEngine {
       ...(options.name ? { name: options.name } : {}),
       ...(options.kind ? { kind: options.kind } : {}),
       ...(firmware ? { firmware } : {}),
+      ...(platformio ? { platformio } : {}),
       ...(ros2 ? { ros2 } : {})
     };
     return this.profiles.write(workspace, projectPath, profile, options.overwrite ?? false);
@@ -511,7 +523,7 @@ export class EngineeringWorkflowEngine {
         if (state.project.framework === 'esp-idf' || state.profile.kind === 'esp-idf') ids.push('espidf.size_analysis');
       }
     }
-    if (state.project.framework === 'platformio' && this.platformio) ids.push('platformio.diagnostics');
+    if (state.project.framework === 'platformio' && this.platformio) ids.push('platformio.diagnostics', 'platformio.build', 'platformio.upload');
     if (state.project.ros2 || state.profile.ros2) {
       ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.doctor', 'ros2.test', 'ros2.bag_info', 'ros2.build_health');
     }
@@ -539,6 +551,7 @@ export class EngineeringWorkflowEngine {
           id === 'platform.relay_finalize' ||
           id === 'platform.relay_abort' ||
           id.startsWith('firmware.build_flash') ||
+          id === 'platformio.upload' ||
           id === 'stm32.debug_fault_snapshot' ||
           id === 'stm32.deep_diagnostics' ||
           id === 'stm32.peripheral_snapshot' ||
@@ -563,6 +576,8 @@ export class EngineeringWorkflowEngine {
           'espidf.diagnostics': 'Inspect ESP-IDF provider/version, project metadata, firmware artifacts and discovered serial ports without flashing.',
           'espidf.size_analysis': 'Collect official ESP-IDF JSON size, component and file memory analysis without flashing or changing project configuration.',
           'platformio.diagnostics': 'Inspect PlatformIO Core version, project metadata, computed-config lint, system info and serial device inventory through official JSON outputs without build/upload mutation.',
+          'platformio.build': 'Build exactly one validated PlatformIO environment through the official pio run environment contract.',
+          'platformio.upload': 'Build/upload exactly one validated PlatformIO environment to one explicit or stable-selector-resolved upload port under a hardware resource lease.',
           'firmware.build': 'Build the firmware project using the profile/default typed provider.',
           'firmware.build_flash': 'Build and flash the selected target using a hardware lease.',
           'firmware.build_flash_verify': 'Build, flash and independently verify the STM32 artifact through constrained OpenOCD.',
@@ -910,14 +925,42 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'platformio.diagnostics') {
+    if (workflow === 'platformio.diagnostics' || workflow === 'platformio.build' || workflow === 'platformio.upload') {
+      const environment = overrides.platformioEnvironment ?? state.profile.platformio?.defaultEnvironment;
+      if (workflow !== 'platformio.diagnostics' && !environment) {
+        throw new Error(`${workflow} requires platformio.defaultEnvironment in the project profile or parameters.platformioEnvironment.`);
+      }
+      const uploadPortResolution = workflow === 'platformio.upload'
+        ? await this.resolveSerialPort(
+            overrides.platformioUploadPort,
+            state.profile.platformio?.uploadPortSelector,
+            state.profile.platformio?.uploadPort
+          )
+        : { source: 'unconfigured' as const };
+      if (workflow === 'platformio.upload' && !uploadPortResolution.port) {
+        throw new Error('platformio.upload requires one exact upload port/address via platformio.uploadPort, platformio.uploadPortSelector, or parameters.platformioUploadPort.');
+      }
       return {
         workflow,
         profileFound: state.profileFound,
         manifestPath: state.manifestPath,
         project: state.project,
         profile: state.profile,
-        steps: ['platformio.version', 'platformio.project.metadata.json', 'platformio.project.config_lint.json', 'platformio.system.info.json', 'platformio.device.list.json']
+        steps: workflow === 'platformio.diagnostics'
+          ? ['platformio.version', 'platformio.project.metadata.json', 'platformio.project.config_lint.json', 'platformio.system.info.json', 'platformio.device.list.json']
+          : workflow === 'platformio.build'
+            ? ['platformio.run.build']
+            : ['platformio.run.upload'],
+        ...(workflow === 'platformio.diagnostics' ? {} : {
+          resolved: {
+            platformio: {
+              environment,
+              ...(workflow === 'platformio.upload'
+                ? { uploadPort: uploadPortResolution.port, uploadPortSource: uploadPortResolution.source }
+                : {})
+            }
+          }
+        })
       };
     }
 
@@ -1648,16 +1691,42 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'platformio.diagnostics') {
-      if (!this.platformio) throw new Error('PlatformIO diagnostics adapter is unavailable.');
-      const diagnostics = await capture('platformio.diagnostics', () => this.platformio!.diagnostics(workspace, projectPath));
-      return {
-        workflow,
-        status: diagnostics.ok ? 'succeeded' : 'failed',
-        plan,
-        steps,
-        ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
-      };
+    if (workflow === 'platformio.diagnostics' || workflow === 'platformio.build' || workflow === 'platformio.upload') {
+      if (!this.platformio) throw new Error('PlatformIO adapter is unavailable.');
+      if (workflow === 'platformio.diagnostics') {
+        const diagnostics = await capture('platformio.diagnostics', () => this.platformio!.diagnostics(workspace, projectPath));
+        return {
+          workflow,
+          status: diagnostics.ok ? 'succeeded' : 'failed',
+          plan,
+          steps,
+          ...(diagnostics.ok ? { outputs: { diagnostics: diagnostics.value } } : {})
+        };
+      }
+
+      const environment = overrides.platformioEnvironment ?? state.profile.platformio?.defaultEnvironment;
+      if (!environment) throw new Error(`${workflow} requires one PlatformIO environment.`);
+      if (workflow === 'platformio.build') {
+        const build = await capture('platformio.run.build', () => this.platformio!.build(workspace, projectPath, environment));
+        if (!build.ok) return { workflow, status: 'failed', plan, steps };
+        if (!build.value.succeeded) {
+          steps[steps.length - 1] = { ...steps[steps.length - 1]!, status: 'failed', error: `PlatformIO build exited with code ${build.value.result.exitCode ?? 'null'}${build.value.result.timedOut ? ' after timeout' : ''}.` };
+        }
+        return { workflow, status: build.value.succeeded ? 'succeeded' : 'failed', plan, steps, outputs: { build: build.value } };
+      }
+
+      const uploadPortResolution = await this.resolveSerialPort(
+        overrides.platformioUploadPort,
+        state.profile.platformio?.uploadPortSelector,
+        state.profile.platformio?.uploadPort
+      );
+      if (!uploadPortResolution.port) throw new Error('platformio.upload requires one exact upload port/address.');
+      const upload = await capture('platformio.run.upload', () => this.platformio!.upload(workspace, projectPath, environment, uploadPortResolution.port!));
+      if (!upload.ok) return { workflow, status: 'failed', plan, steps };
+      if (!upload.value.succeeded) {
+        steps[steps.length - 1] = { ...steps[steps.length - 1]!, status: 'failed', error: `PlatformIO upload exited with code ${upload.value.result.exitCode ?? 'null'}${upload.value.result.timedOut ? ' after timeout' : ''}.` };
+      }
+      return { workflow, status: upload.value.succeeded ? 'succeeded' : 'failed', plan, steps, outputs: { upload: upload.value, uploadPortSource: uploadPortResolution.source } };
     }
 
     if (workflow === 'docker.diagnostics' || workflow === 'docker.stats_snapshot' || workflow === 'docker.container_inspect' || workflow === 'docker.container_logs') {

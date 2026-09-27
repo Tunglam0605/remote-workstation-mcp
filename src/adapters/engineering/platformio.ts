@@ -1,7 +1,9 @@
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
+import type { EngineeringCommandResult } from '../../engineering/types.js';
 import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveFirstExecutable } from './executable-resolver.js';
+import { EngineeringResourceManager } from './resource-manager.js';
 
 function parseJson<T>(text: string, label: string): T {
   try {
@@ -11,11 +13,38 @@ function parseJson<T>(text: string, label: string): T {
   }
 }
 
+function normalizeEnvironment(environment: string): string {
+  const normalized = environment.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(normalized)) {
+    throw new Error('PlatformIO environment must match /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.');
+  }
+  return normalized;
+}
+
+function normalizeUploadPort(uploadPort: string): string {
+  const normalized = uploadPort.trim();
+  if (!normalized || normalized.length > 256 || /[\r\n*?\[\]]/.test(normalized) || normalized.includes(String.fromCharCode(0))) {
+    throw new Error('PlatformIO upload port must be one exact bounded port/address without wildcards or control characters.');
+  }
+  return normalized;
+}
+
+function uploadResourceId(uploadPort: string): string {
+  return /^COM\d+$/i.test(uploadPort) || /^\/dev\//.test(uploadPort)
+    ? `serial:${uploadPort}`
+    : `platformio-upload:${uploadPort}`;
+}
+
+function commandSucceeded(result: EngineeringCommandResult): boolean {
+  return result.exitCode === 0 && !result.timedOut;
+}
+
 export class PlatformioAdapter {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly paths: PathGuard,
-    private readonly runner: EngineeringCommandRunner
+    private readonly runner: EngineeringCommandRunner,
+    private readonly resources: EngineeringResourceManager
   ) {}
 
   private async executable(): Promise<string> {
@@ -69,6 +98,46 @@ export class PlatformioAdapter {
       system,
       serialDevices,
       warnings
+    };
+  }
+
+  async build(workspace: string, projectPath: string, environment: string) {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const executable = await this.executable();
+    const selectedEnvironment = normalizeEnvironment(environment);
+    const result = await this.runner.run(executable, ['run', '--environment', selectedEnvironment], cwd, 20 * 60_000);
+    return {
+      provider: 'platformio' as const,
+      environment: selectedEnvironment,
+      result,
+      succeeded: commandSucceeded(result)
+    };
+  }
+
+  async upload(workspace: string, projectPath: string, environment: string, uploadPort: string) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertHardwareMutation();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const executable = await this.executable();
+    const selectedEnvironment = normalizeEnvironment(environment);
+    const selectedUploadPort = normalizeUploadPort(uploadPort);
+    const resourceId = uploadResourceId(selectedUploadPort);
+    const result = await this.resources.withLease(resourceId, 'flashing', () =>
+      this.runner.run(
+        executable,
+        ['run', '--environment', selectedEnvironment, '--target', 'upload', '--upload-port', selectedUploadPort],
+        cwd,
+        20 * 60_000
+      )
+    );
+    return {
+      provider: 'platformio' as const,
+      environment: selectedEnvironment,
+      uploadPort: selectedUploadPort,
+      resourceId,
+      result,
+      succeeded: commandSucceeded(result)
     };
   }
 }

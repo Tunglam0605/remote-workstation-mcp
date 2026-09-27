@@ -229,7 +229,7 @@ export async function createContext() {
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
   const engineeringKicad = new KicadAdapter(policy, paths, engineeringRunner);
-  const engineeringPlatformio = new PlatformioAdapter(policy, paths, engineeringRunner);
+  const engineeringPlatformio = new PlatformioAdapter(policy, paths, engineeringRunner, engineeringResources);
   const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio, engineeringStm32Svd);
   const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy, desktopNotifications);

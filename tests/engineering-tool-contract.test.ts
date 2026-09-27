@@ -36,7 +36,7 @@ test('v0.52 extends NotebookLM content automation and advances Action Schema v25
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 25;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.52\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.53\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');

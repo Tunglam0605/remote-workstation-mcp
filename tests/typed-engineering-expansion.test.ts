@@ -7,6 +7,7 @@ import { DockerAdapter } from '../src/adapters/engineering/docker.js';
 import { FirmwareAdapter } from '../src/adapters/engineering/firmware.js';
 import { KicadAdapter } from '../src/adapters/engineering/kicad.js';
 import { PlatformioAdapter } from '../src/adapters/engineering/platformio.js';
+import { EngineeringResourceManager } from '../src/adapters/engineering/resource-manager.js';
 import { Ros2Adapter } from '../src/adapters/engineering/ros2.js';
 import { SystemdAdapter } from '../src/adapters/engineering/systemd.js';
 import { workflowRuntimeParametersSchema } from '../src/engineering-workflow-contract.js';
@@ -342,7 +343,7 @@ test('PlatformIO diagnostics use official JSON metadata and device inventory wit
 
   try {
     const engine = new PolicyEngine(config(root, 'workspace'));
-    const adapter = new PlatformioAdapter(engine, new PathGuard(engine), runner as never);
+    const adapter = new PlatformioAdapter(engine, new PathGuard(engine), runner as never, new EngineeringResourceManager());
     const result = await adapter.diagnostics('w');
     assert.match(result.version, /PlatformIO Core/);
     assert.equal((result.metadata as any).board, 'esp32-s3-devkitc-1');
@@ -350,6 +351,54 @@ test('PlatformIO diagnostics use official JSON metadata and device inventory wit
     assert.equal((result.system as any).platformio_core_version, '6.2.0');
     assert.equal(result.serialDevices.length, 1);
     assert.equal(calls.some(args => ['run', 'upload', 'erase'].includes(args[0] ?? '')), false);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('PlatformIO typed build and upload bind environment, exact port and hardware lease semantics', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-platformio-execution-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fs.writeFile(path.join(root, 'platformio.ini'), [
+    '[env:esp32s3]',
+    'platform = espressif32',
+    'board = esp32-s3-devkitc-1',
+    'framework = arduino'
+  ].join('\n'));
+  await fakeExecutable(bin, 'pio');
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const calls: string[][] = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      return command(program, args, cwd);
+    }
+  };
+
+  try {
+    const full = new PolicyEngine(config(root, 'full_control'));
+    const resources = new EngineeringResourceManager();
+    const adapter = new PlatformioAdapter(full, new PathGuard(full), runner as never, resources);
+
+    const build = await adapter.build('w', '.', 'esp32s3');
+    assert.equal(build.succeeded, true);
+    assert.deepEqual(calls.at(-1), ['run', '--environment', 'esp32s3']);
+
+    const uploadPort = process.platform === 'win32' ? 'COM8' : '/dev/ttyACM0';
+    const upload = await adapter.upload('w', '.', 'esp32s3', uploadPort);
+    assert.equal(upload.succeeded, true);
+    assert.equal(upload.resourceId, `serial:${uploadPort}`);
+    assert.deepEqual(calls.at(-1), ['run', '--environment', 'esp32s3', '--target', 'upload', '--upload-port', uploadPort]);
+    assert.equal(resources.activeCount(), 0);
+
+    await assert.rejects(() => adapter.build('w', '.', '../bad-env'), /environment/i);
+    await assert.rejects(() => adapter.upload('w', '.', 'esp32s3', 'COM*'), /exact bounded port/i);
+
+    const workspace = new PolicyEngine(config(root, 'workspace'));
+    const denied = new PlatformioAdapter(workspace, new PathGuard(workspace), runner as never, new EngineeringResourceManager());
+    await assert.rejects(() => denied.upload('w', '.', 'esp32s3', uploadPort), /hardware mutation/i);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

@@ -83,6 +83,11 @@ export class ExistingChromeSessionService {
     return await this.client.request('page.fill', { tabId: session.tabId, elementId, value }, 8_000);
   }
 
+  async check(id: string, owner: Owner, elementId: string, checked: boolean) {
+    const session = this.owned(id, owner);
+    return await this.client.request('page.check', { tabId: session.tabId, elementId, checked }, 8_000);
+  }
+
   close(id: string, owner: Owner) {
     const session = this.owned(id, owner);
     this.sessions.delete(id);

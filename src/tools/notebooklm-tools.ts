@@ -136,6 +136,37 @@ export function registerNotebookLmTools(server: McpServer, ctx: AppContext) {
         : ctx.notebooklm.videoGenerateCommand(owner, singleFocus, waitForReady, timeoutMs, tabId);
     }));
 
+  server.registerTool('notebooklm_video_pipeline_v3', {
+    description: 'Run or resume a durable NotebookLM video production queue. Each job declares an exact source set and one production profile; RWMCP selects only those semantic source checkboxes, generates sequentially, persists per-job attempts/artifacts, and applies bounded source-count/duplicate-artifact quality gates. Reusing the same queueId resumes accepted jobs instead of regenerating them.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      existingSessionId: z.string().uuid().optional(),
+      tabId: z.number().int().positive().optional(),
+      queueId: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+      profile: z.enum(['tiktok_short', 'youtube_long', 'deep_tutorial', 'comparison', 'project_walkthrough']),
+      videos: z.array(z.object({
+        id: z.string().trim().min(1).max(128).optional(),
+        focus: z.string().trim().min(1).max(8_000),
+        sources: z.array(z.string().trim().min(1).max(512)).min(1).max(32)
+      }).strict()).min(1).max(25),
+      videoTimeoutMs: z.number().int().min(30_000).max(1_800_000).default(900_000),
+      stopOnError: z.boolean().default(true),
+      maxAttemptsPerJob: z.number().int().min(1).max(3).default(2)
+    }),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  }, async ({ workSessionId, existingSessionId, tabId, queueId, profile, videos, videoTimeoutMs, stopOnError, maxAttemptsPerJob }) =>
+    executeInSession('notebooklm_video_pipeline_v3', workSessionId, owner => {
+      const options = { queueId, profile, videos, videoTimeoutMs, stopOnError, maxAttemptsPerJob };
+      return existingSessionId
+        ? ctx.notebooklm.videoPipelineV3(existingSessionId, owner, options)
+        : ctx.notebooklm.videoPipelineV3Command(owner, options, tabId);
+    }));
+
   server.registerTool('notebooklm_content_pipeline', {
     description: 'Run a bounded NotebookLM content pipeline in one authenticated tab claim: verify source readiness, ask for stable source-grounded content, generate 1-25 Video Overviews sequentially, then return artifact inventory. This mutates NotebookLM cloud conversation/Studio state and may consume AI quota.',
     inputSchema: z.object({

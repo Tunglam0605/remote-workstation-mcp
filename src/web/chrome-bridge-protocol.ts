@@ -10,7 +10,8 @@ export const CHROME_BRIDGE_COMMANDS = [
   'page.find',
   'page.extract',
   'page.click',
-  'page.fill'
+  'page.fill',
+  'page.check'
 ] as const;
 
 export type ChromeBridgeCommand = typeof CHROME_BRIDGE_COMMANDS[number];

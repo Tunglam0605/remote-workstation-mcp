@@ -71,6 +71,14 @@ function nameOf(element) {
   );
 }
 
+function checkedState(element) {
+  if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return Boolean(element.checked);
+  const aria = element.getAttribute('aria-checked');
+  if (aria === 'true') return true;
+  if (aria === 'false') return false;
+  return undefined;
+}
+
 function semanticElements() {
   const selector = [
     'h1','h2','h3','h4','h5','h6','a[href]','button','textarea','select',
@@ -91,7 +99,7 @@ function semanticElements() {
     const key = role + '\u0000' + name;
     const ordinal = ordinals.get(key) || 0;
     ordinals.set(key, ordinal + 1);
-    result.push({ element, role, name, ordinal, visible: visible(element), enabled: enabled(element) });
+    result.push({ element, role, name, ordinal, visible: visible(element), enabled: enabled(element), checked: checkedState(element) });
   }
   return result;
 }
@@ -102,7 +110,7 @@ function publish(items) {
   return items.map((item, index) => {
     const elementId = 'xc_' + serial + '_' + (index + 1);
     refs.set(elementId, { role: item.role, name: item.name, ordinal: item.ordinal });
-    return { elementId, role: item.role, name: item.name, visible: item.visible, enabled: item.enabled };
+    return { elementId, role: item.role, name: item.name, visible: item.visible, enabled: item.enabled, ...(typeof item.checked === 'boolean' ? { checked: item.checked } : {}) };
   });
 }
 
@@ -191,6 +199,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       setNativeValue(item.element, String(message.value ?? '').slice(0, 8000));
       refs.clear();
       return { action: 'fill', role: item.role, name: item.name };
+    }
+
+    if (message.op === 'check') {
+      const item = resolveRef(clean(message.elementId, 96));
+      if (!['checkbox','radio'].includes(item.role) || !item.visible || !item.enabled) {
+        throw Object.assign(new Error('Element is not a writable checkbox/radio.'), { code: 'NOT_CHECKABLE' });
+      }
+      const desired = Boolean(message.checked);
+      const current = checkedState(item.element);
+      if (typeof current !== 'boolean') {
+        throw Object.assign(new Error('Checkbox state is not observable.'), { code: 'CHECK_STATE_UNAVAILABLE' });
+      }
+      if (current !== desired) item.element.click();
+      refs.clear();
+      return { action: 'check', role: item.role, name: item.name, checked: desired };
     }
 
     throw Object.assign(new Error('Content command is not allowed.'), { code: 'COMMAND_DENIED' });

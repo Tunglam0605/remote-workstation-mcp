@@ -1,4 +1,5 @@
 import type { ExistingChromeSessionService } from '../existing-chrome-session.js';
+import { NotebookLmVideoQueueStore, applyProductionProfile, videoPlanHash, type VideoPipelineJobInput, type VideoProductionProfile } from './notebooklm-video-pipeline.js';
 
 type Owner = { principalId: string; workSessionId: string };
 
@@ -158,7 +159,8 @@ function sourceNameFromCheckbox(name: string): string | undefined {
 export class NotebookLmAdapter {
   constructor(
     private readonly chrome: ExistingChromeSessionService,
-    private readonly sleep: (ms: number) => Promise<void> = delay
+    private readonly sleep: (ms: number) => Promise<void> = delay,
+    private readonly videoQueues = new NotebookLmVideoQueueStore()
   ) {}
 
   async open(owner: Owner, requestedTabId?: number) {
@@ -206,14 +208,14 @@ export class NotebookLmAdapter {
     if (!status.authenticated) throw new Error('NotebookLM authentication is required.');
     const inspected = await this.chrome.inspect(existingSessionId, owner, 50) as any;
     const elements = Array.isArray(inspected?.elements) ? inspected.elements : [];
-    const sources: { name: string }[] = [];
+    const sources: { name: string; checked?: boolean }[] = [];
     const seen = new Set<string>();
     for (const element of elements) {
       if (element?.role !== 'checkbox' || typeof element?.name !== 'string') continue;
       const name = sourceNameFromCheckbox(element.name);
       if (!name || seen.has(name)) continue;
       seen.add(name);
-      sources.push({ name });
+      sources.push({ name, ...(typeof element.checked === 'boolean' ? { checked: element.checked } : {}) });
     }
     return {
       existingSessionId,
@@ -223,6 +225,77 @@ export class NotebookLmAdapter {
       truncated: typeof status.sourceCount === 'number'
         ? status.sourceCount > sources.length
         : Boolean(inspected?.truncated)
+    };
+  }
+
+  async selectSources(existingSessionId: string, owner: Owner, requestedSources: string[]) {
+    const requested = [...new Set(requestedSources.map(normalize).filter(Boolean))];
+    if (requested.length < 1 || requested.length > 32) {
+      throw new Error('NotebookLM source set must contain 1 to 32 unique source names.');
+    }
+
+    const inventory = await this.listSources(existingSessionId, owner);
+    if (inventory.truncated) {
+      throw new Error('NotebookLM source inventory is truncated; exact source selection requires the complete source checkbox inventory.');
+    }
+    const available = new Set(inventory.sources.map(source => source.name));
+    const missing = requested.filter(source => !available.has(source));
+    if (missing.length > 0) {
+      throw new Error(`NotebookLM requested source(s) were not found: ${missing.join(', ')}`);
+    }
+
+    const selectAll = await this.findFirst(
+      existingSessionId,
+      owner,
+      'checkbox',
+      ['Chọn tất cả các nguồn', 'Chọn tất cả nguồn', 'Select all sources', 'Select all source']
+    );
+    if (selectAll?.elementId) {
+      await this.chrome.check(existingSessionId, owner, selectAll.elementId, false);
+    } else {
+      for (const source of inventory.sources) {
+        const checkbox = await this.findFirst(
+          existingSessionId,
+          owner,
+          'checkbox',
+          [`Chọn ${source.name}`, `Select ${source.name}`]
+        );
+        if (!checkbox?.elementId) throw new Error(`NotebookLM source checkbox could not be resolved: ${source.name}`);
+        await this.chrome.check(existingSessionId, owner, checkbox.elementId, false);
+      }
+    }
+
+    for (const source of requested) {
+      const checkbox = await this.findFirst(
+        existingSessionId,
+        owner,
+        'checkbox',
+        [`Chọn ${source}`, `Select ${source}`]
+      );
+      if (!checkbox?.elementId) throw new Error(`NotebookLM source checkbox could not be resolved: ${source}`);
+      await this.chrome.check(existingSessionId, owner, checkbox.elementId, true);
+    }
+
+    const verified = await this.listSources(existingSessionId, owner);
+    const selected = verified.sources.filter(source => source.checked === true).map(source => source.name);
+    if (verified.sources.some(source => typeof source.checked !== 'boolean')) {
+      throw new Error('NotebookLM source selection state is not observable after update.');
+    }
+    const requestedSet = new Set(requested);
+    const selectedSet = new Set(selected);
+    const exact = selected.length === requested.length &&
+      requested.every(source => selectedSet.has(source)) &&
+      selected.every(source => requestedSet.has(source));
+    if (!exact) {
+      throw new Error(`NotebookLM exact source-set postcondition failed. Requested=${requested.join(' | ')}; selected=${selected.join(' | ')}`);
+    }
+
+    return {
+      notebookId: verified.notebookId,
+      requested,
+      selected,
+      selectedCount: selected.length,
+      exact: true as const
     };
   }
 
@@ -453,6 +526,156 @@ export class NotebookLmAdapter {
       const generated = await this.videoGenerate(opened.existingSessionId, owner, focus, waitForReady, timeoutMs);
       return {
         ...generated,
+        commandMode: true,
+        autoClaimedTab: true,
+        tabId: opened.tabId,
+        provider: opened.provider
+      };
+    } finally {
+      this.close(opened.existingSessionId, owner);
+    }
+  }
+
+  async videoPipelineV3(
+    existingSessionId: string,
+    owner: Owner,
+    options: {
+      queueId: string;
+      profile: VideoProductionProfile;
+      videos: VideoPipelineJobInput[];
+      videoTimeoutMs?: number;
+      stopOnError?: boolean;
+      maxAttemptsPerJob?: number;
+    }
+  ) {
+    if (options.videos.length < 1 || options.videos.length > 25) {
+      throw new Error('NotebookLM Video Pipeline v3 requires 1 to 25 jobs.');
+    }
+    const normalizedFocuses = options.videos.map(job => normalize(job.focus).toLocaleLowerCase());
+    if (new Set(normalizedFocuses).size !== normalizedFocuses.length) {
+      throw new Error('NotebookLM Video Pipeline v3 rejects duplicate video focus values in one queue.');
+    }
+    for (const [index, job] of options.videos.entries()) {
+      if (!normalize(job.focus) || normalize(job.focus).length > 8_000) {
+        throw new Error(`NotebookLM Video Pipeline v3 job ${index + 1} focus must be 1 to 8000 characters.`);
+      }
+      const uniqueSources = [...new Set(job.sources.map(normalize).filter(Boolean))];
+      if (uniqueSources.length < 1 || uniqueSources.length > 32) {
+        throw new Error(`NotebookLM Video Pipeline v3 job ${index + 1} requires 1 to 32 unique sources.`);
+      }
+    }
+
+    const maxAttemptsPerJob = Math.max(1, Math.min(options.maxAttemptsPerJob ?? 2, 3));
+    const stopOnError = options.stopOnError ?? true;
+    const timeoutMs = options.videoTimeoutMs ?? 15 * 60_000;
+    const status = await this.status(existingSessionId, owner);
+    if (!status.authenticated || !status.notebookId) throw new Error('NotebookLM authenticated notebook page is required.');
+
+    const planHash = videoPlanHash(status.notebookId, options.profile, options.videos);
+    let queue = await this.videoQueues.load(owner, options.queueId);
+    if (!queue) {
+      queue = this.videoQueues.create(options.queueId, status.notebookId, options.profile, planHash, options.videos);
+      await this.videoQueues.save(owner, queue);
+    } else {
+      if (queue.notebookId !== status.notebookId) throw new Error('NotebookLM video queue belongs to a different notebook.');
+      if (queue.profile !== options.profile || queue.planHash !== planHash) {
+        throw new Error('NotebookLM video queue plan differs from persisted state; use a new queueId for a changed plan.');
+      }
+    }
+
+    const readyTitles = new Set(
+      queue.jobs
+        .filter(job => job.status === 'ready')
+        .map(job => String(job.artifact?.title ?? '').trim().toLocaleLowerCase())
+        .filter(Boolean)
+    );
+
+    for (const job of queue.jobs) {
+      if (job.status === 'ready') continue;
+      if (job.attempts >= maxAttemptsPerJob) continue;
+
+      job.status = 'running';
+      job.attempts += 1;
+      job.lastError = undefined;
+      job.updatedAt = new Date().toISOString();
+      await this.videoQueues.save(owner, queue);
+
+      try {
+        const sourceSelection = await this.selectSources(existingSessionId, owner, job.sources);
+        const profiledFocus = applyProductionProfile(options.profile, job.focus, sourceSelection.selected);
+        const generated = await this.videoGenerate(existingSessionId, owner, profiledFocus, true, timeoutMs);
+        const artifact = generated.artifact as NotebookLmVideoArtifact | undefined;
+        const reasons: string[] = [];
+        if (!artifact) reasons.push('READY artifact metadata was not observed.');
+        if (artifact && artifact.sourceCount !== sourceSelection.selectedCount) {
+          reasons.push(`Artifact sourceCount=${artifact.sourceCount} differs from selected source count=${sourceSelection.selectedCount}.`);
+        }
+        const titleKey = normalize(artifact?.title ?? '').toLocaleLowerCase();
+        if (titleKey && readyTitles.has(titleKey)) reasons.push('Artifact title duplicates an already accepted queue artifact.');
+
+        job.artifact = artifact ? { ...artifact } : undefined;
+        job.quality = {
+          passed: reasons.length === 0,
+          reasons,
+          checkedAt: new Date().toISOString()
+        };
+        job.status = reasons.length === 0 ? 'ready' : 'rejected';
+        job.lastError = reasons.length > 0 ? reasons.join(' ').slice(0, 1024) : undefined;
+        job.updatedAt = new Date().toISOString();
+        if (job.status === 'ready' && titleKey) readyTitles.add(titleKey);
+        await this.videoQueues.save(owner, queue);
+        if (job.status === 'rejected' && stopOnError) break;
+      } catch (error) {
+        job.status = 'failed';
+        job.lastError = (error instanceof Error ? error.message : String(error)).slice(0, 1024);
+        job.updatedAt = new Date().toISOString();
+        await this.videoQueues.save(owner, queue);
+        if (stopOnError) break;
+      }
+    }
+
+    const counts = {
+      ready: queue.jobs.filter(job => job.status === 'ready').length,
+      pending: queue.jobs.filter(job => job.status === 'pending').length,
+      failed: queue.jobs.filter(job => job.status === 'failed').length,
+      rejected: queue.jobs.filter(job => job.status === 'rejected').length,
+      running: queue.jobs.filter(job => job.status === 'running').length
+    };
+    const complete = counts.ready === queue.jobs.length;
+    return {
+      existingSessionId,
+      notebookId: status.notebookId,
+      mode: 'video-pipeline-v3' as const,
+      queueId: queue.queueId,
+      profile: queue.profile,
+      state: complete ? 'ready' as const : counts.failed + counts.rejected > 0 ? 'partial' as const : 'pending' as const,
+      resumed: queue.createdAt !== queue.updatedAt,
+      maxAttemptsPerJob,
+      stopOnError,
+      counts,
+      total: queue.jobs.length,
+      jobs: queue.jobs,
+      updatedAt: queue.updatedAt
+    };
+  }
+
+  async videoPipelineV3Command(
+    owner: Owner,
+    options: {
+      queueId: string;
+      profile: VideoProductionProfile;
+      videos: VideoPipelineJobInput[];
+      videoTimeoutMs?: number;
+      stopOnError?: boolean;
+      maxAttemptsPerJob?: number;
+    },
+    requestedTabId?: number
+  ) {
+    const opened = await this.open(owner, requestedTabId);
+    try {
+      const pipeline = await this.videoPipelineV3(opened.existingSessionId, owner, options);
+      return {
+        ...pipeline,
         commandMode: true,
         autoClaimedTab: true,
         tabId: opened.tabId,

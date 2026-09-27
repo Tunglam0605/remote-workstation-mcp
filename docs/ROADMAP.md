@@ -2,6 +2,19 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.61.0 - KiCad IPC Phase 6 Routing Primitives
+
+- add `kicad_ipc_routing_inspect` for bounded live nets, straight/arc tracks, vias and zones with UUID, geometry, layer/net, width/diameter, lock and zone fill metadata;
+- add `kicad_ipc_track_add` for one typed straight copper segment on an explicit existing net and enabled copper layer;
+- add `kicad_ipc_track_update` for UUID-selected straight-track net/layer/start/end/width/lock updates; arc and netless track mutation remains unavailable;
+- add `kicad_ipc_via_add` for one typed through-via with explicit net, position, diameter and drill; enforce drill < diameter;
+- add `kicad_ipc_via_update` for UUID-selected through-via net/position/diameter/drill/lock updates; netless and blind/buried/micro via mutation remains unavailable;
+- require Work Session ownership, exact live-board SHA-256, Base64 typed payload transport, strict board identity and one per-board resource lease for every routing mutation;
+- validate DRC before/after every routing mutation; added items are removed on rejection, updated items receive a compensating restore commit on regression or validation failure;
+- keep all accepted routing edits unsaved by default;
+- keep routing-item deletion, arc-track mutation, zone mutation/refill, blind/buried/micro vias, raw IPC scripts and autorouting unavailable in the public surface;
+- advance Action Schema to 33; Engineering API remains 5.
+
 ## v0.60.0 - KiCad IPC Phase 5 Live Production Editing
 
 - add `kicad_ipc_footprint_update` for official live `Value`, lock, exclude-from-BOM, exclude-from-position-files, DNP and not-in-schematic edits;

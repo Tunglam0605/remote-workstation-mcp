@@ -607,6 +607,64 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
       ))
     )));
 
+  server.registerTool('kicad_ipc_footprint_update', {
+    description: 'Update one live KiCad PCB footprint through official IPC with typed production-safe fields only: Value, lock state, exclude-from-BOM, exclude-from-position-files, DNP, and not-in-schematic. Requires Work Session ownership and exact live board SHA-256; performs one undo commit, DRC before/after acceptance, rollback on regression, and never saves the board implicitly.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      uuid: z.string().uuid().optional(),
+      reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+      update: z.object({
+        value: z.string().max(512).optional(),
+        locked: z.boolean().optional(),
+        excludeFromBom: z.boolean().optional(),
+        excludeFromPosFiles: z.boolean().optional(),
+        doNotPopulate: z.boolean().optional(),
+        notInSchematic: z.boolean().optional()
+      }).strict().refine(value => Object.keys(value).length > 0, { message: 'at least one update field is required' })
+    }).refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, board, expectedBoardSha256, uuid, reference, update }) =>
+    result(await audited(ctx.audit, 'kicad_ipc_footprint_update', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.ipcFootprintUpdate(
+        workspace,
+        projectPath,
+        board,
+        expectedBoardSha256,
+        { ...(uuid ? { uuid } : {}), ...(reference ? { reference } : {}) },
+        update
+      ))
+    )));
+
+  const kicadBatchPlacement = z.object({
+    uuid: z.string().uuid().optional(),
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+    xMm: z.number().finite().min(-100000).max(100000),
+    yMm: z.number().finite().min(-100000).max(100000),
+    rotationDeg: z.number().finite().min(-100000).max(100000).optional()
+  }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' });
+
+  server.registerTool('kicad_ipc_batch_place', {
+    description: 'Place 1-32 live KiCad PCB footprints in one official IPC commit/undo step. Requires Work Session ownership and exact live-board SHA-256, rejects duplicate or locked targets, validates DRC before/after the whole batch, restores every original pose on regression, and leaves the board unsaved.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      placements: z.array(kicadBatchPlacement).min(1).max(32)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, board, expectedBoardSha256, placements }) =>
+    result(await audited(ctx.audit, 'kicad_ipc_batch_place', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.ipcBatchPlace(
+        workspace,
+        projectPath,
+        board,
+        expectedBoardSha256,
+        placements
+      ))
+    )));
+
   server.registerTool('kicad_provider_status', {
     description: 'Inspect the resolved KiCad CLI provider/version without modifying project files.',
     inputSchema: kicadProject,

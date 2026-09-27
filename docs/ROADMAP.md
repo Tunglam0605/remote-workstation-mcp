@@ -2,6 +2,19 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.60.0 - KiCad IPC Phase 5 Live Production Editing
+
+- add `kicad_ipc_footprint_update` for official live `Value`, lock, exclude-from-BOM, exclude-from-position-files, DNP and not-in-schematic edits;
+- keep Reference rename unavailable in this phase to avoid silently breaking schematic/PCB identity;
+- add `kicad_ipc_batch_place` for 1..32 unique unlocked footprint move/rotation entries inside one KiCad commit and one undo step;
+- enrich live inspection with manufacturing attributes so callers can make typed updates from explicit observed state;
+- require Work Session ownership, exact live-board SHA-256 concurrency identity and one per-board resource lease for every live mutation;
+- validate before/after DRC for both single-footprint updates and batch placement; automatically issue compensating rollback commits on DRC regression or validation failure;
+- reject duplicate batch targets and locked footprints before mutation;
+- keep all accepted live edits unsaved by default so unrelated interactive edits are never implicitly persisted;
+- keep raw IPC scripts, implicit save, Reference rename, raw `.kicad_dru`, track/via/zone mutation and autorouting unavailable;
+- advance Action Schema to 32 for the two new public IPC mutation tools; Engineering API remains 5.
+
 ## v0.59.0 - KiCad IPC Phase 4 Setup & Hardening
 
 - add `kicad_ipc_prepare` as a bounded Windows-only setup action requiring Work Session ownership;

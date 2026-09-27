@@ -485,6 +485,94 @@ export class KicadAdapter {
       : await execute();
   }
 
+  async ipcFootprintUpdate(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    selector: { uuid?: string; reference?: string },
+    update: {
+      value?: string;
+      locked?: boolean;
+      excludeFromBom?: boolean;
+      excludeFromPosFiles?: boolean;
+      doNotPopulate?: boolean;
+      notInSchematic?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(expectedBoardSha256)) throw new Error('KiCad live IPC expectedBoardSha256 must be a SHA-256 digest.');
+    if (!selector.uuid && !selector.reference) throw new Error('KiCad live IPC footprint update requires uuid or reference.');
+    if (Object.keys(update).length < 1) throw new Error('KiCad live IPC footprint update requires at least one field.');
+    if (update.value !== undefined && (update.value.length > 512 || /[\u0000-\u001f\u007f]/.test(update.value))) {
+      throw new Error('KiCad live IPC footprint value is invalid.');
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad live IPC board');
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) throw new Error('KICAD_IPC_PROVIDER_UNAVAILABLE: Python provider was not found.');
+    const cli = await discoverKicadCli();
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_live.py', import.meta.url));
+    const args = [
+      script,
+      '--action', 'update',
+      '--board-path', boardPath,
+      '--kicad-cli', cli.path,
+      '--expected-sha', expectedBoardSha256,
+      ...(selector.uuid ? ['--uuid', selector.uuid] : []),
+      ...(selector.reference ? ['--reference', selector.reference] : []),
+      '--update-b64', Buffer.from(JSON.stringify(update), 'utf8').toString('base64')
+    ];
+    const execute = async () => {
+      const result = await this.runner.run(pythonPath, args, cwd, 45_000);
+      return parseBoundedJsonResult(result, 'KiCad IPC footprint update');
+    };
+    return this.resources
+      ? await this.resources.withLease('kicad-ipc-board:' + boardPath, 'orchestrating', execute)
+      : await execute();
+  }
+
+  async ipcBatchPlace(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    placements: Array<{ uuid?: string; reference?: string; xMm: number; yMm: number; rotationDeg?: number }>
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(expectedBoardSha256)) throw new Error('KiCad live IPC expectedBoardSha256 must be a SHA-256 digest.');
+    if (placements.length < 1 || placements.length > 32) throw new Error('KiCad live IPC batch placement requires 1..32 items.');
+    for (const placement of placements) {
+      if (!placement.uuid && !placement.reference) throw new Error('Every KiCad live IPC batch placement item requires uuid or reference.');
+      for (const value of [placement.xMm, placement.yMm, placement.rotationDeg].filter((item): item is number => item !== undefined)) {
+        if (!Number.isFinite(value) || Math.abs(value) > 100000) throw new Error('KiCad live IPC batch placement value is out of range.');
+      }
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad live IPC board');
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) throw new Error('KICAD_IPC_PROVIDER_UNAVAILABLE: Python provider was not found.');
+    const cli = await discoverKicadCli();
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_live.py', import.meta.url));
+    const args = [
+      script,
+      '--action', 'batch-place',
+      '--board-path', boardPath,
+      '--kicad-cli', cli.path,
+      '--expected-sha', expectedBoardSha256,
+      '--placements-b64', Buffer.from(JSON.stringify(placements), 'utf8').toString('base64')
+    ];
+    const execute = async () => {
+      const result = await this.runner.run(pythonPath, args, cwd, 60_000);
+      return parseBoundedJsonResult(result, 'KiCad IPC batch placement');
+    };
+    return this.resources
+      ? await this.resources.withLease('kicad-ipc-board:' + boardPath, 'orchestrating', execute)
+      : await execute();
+  }
+
   async version(workspace: string, projectPath = '.') {
     this.policy.assertEngineeringEnabled();
     const cwd = await this.paths.resolveExisting(workspace, projectPath);

@@ -34,9 +34,9 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 31;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 32;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.59\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.60\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -286,6 +286,36 @@ test('v0.59 KiCad IPC preparation and path hardening stay bounded', async () => 
   assert.doesNotMatch(engineeringTools, /kicad_ipc_raw|kicad_ipc_save|kicad_ipc_script/);
 });
 
+test('v0.60 KiCad IPC Phase 5 stays typed, transactional and unsaved', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicad = await read('src/adapters/engineering/kicad.ts');
+  const live = await read('scripts/kicad_ipc_live.py');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  for (const tool of ['kicad_ipc_footprint_update', 'kicad_ipc_batch_place']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(scopes, /kicad_ipc_footprint_update: 'workstation\.write'/);
+  assert.match(scopes, /kicad_ipc_batch_place: 'workstation\.write'/);
+  assert.match(kicad, /ipcFootprintUpdate/);
+  assert.match(kicad, /ipcBatchPlace/);
+  assert.match(kicad, /kicad-ipc-board:/);
+  assert.match(live, /exclude_from_bill_of_materials/);
+  assert.match(live, /exclude_from_position_files/);
+  assert.match(live, /do_not_populate/);
+  assert.match(live, /not_in_schematic/);
+  assert.match(live, /board\.update_items\(items\)/);
+  assert.match(live, /RWMCP: batch place footprints/);
+  assert.match(live, /--update-b64/);
+  assert.match(live, /--placements-b64/);
+  assert.match(live, /rollback rejected batch placement/);
+  assert.match(live, /"saved": False/);
+  assert.doesNotMatch(engineeringTools, /kicad_ipc_reference_rename|kicad_ipc_save|kicad_ipc_track|kicad_ipc_via|kicad_ipc_zone/);
+  assert.doesNotMatch(live, /board\.save\(/);
+});
+
 test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {
   const debug = await read('src/adapters/engineering/debug-session.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
@@ -464,7 +494,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 31;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 32;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

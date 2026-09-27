@@ -229,6 +229,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   kicad_ipc_status: 'workstation.read',
   kicad_ipc_board_inspect: 'workstation.read',
   kicad_ipc_footprint_move: 'workstation.write',
+  kicad_ipc_footprint_update: 'workstation.write',
+  kicad_ipc_batch_place: 'workstation.write',
   kicad_provider_status: 'workstation.read',
   kicad_board_stats: 'workstation.read',
   kicad_drc: 'workstation.read',

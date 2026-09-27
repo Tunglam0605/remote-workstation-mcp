@@ -2,6 +2,15 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.54.0 - Typed SocketCAN Diagnostics & Capture
+
+- add Linux-only `can_provider_status`, `can_interface_list`, `can_interface_status` and `can_capture` typed MCP tools;
+- inspect CAN/vcan interfaces through machine-readable `ip -json -details -statistics link show`, preserving kernel/netlink state, bit-timing, error counters and RX/TX statistics without interface mutation;
+- use linux-can `candump` for bounded read-only traffic capture with one explicit interface, 1-1000 frames, 100-30000 ms inactivity timeout and at most 32 typed CAN-ID/mask filters;
+- support standard 11-bit and extended 29-bit filters without accepting raw candump argument strings; expose bounded decoded frame summaries and observed ID/rate statistics;
+- keep transmission, replay, bitrate/interface changes, bus-off restart, CAN gateway mutation and arbitrary SocketCAN commands unavailable;
+- advance Action Schema to 26 for the four new public tools; Engineering API remains 5.
+
 ## v0.53.0 - Typed PlatformIO Build & Upload
 
 - add `platformio.build` and `platformio.upload` through the existing generic `engineering_workflow_plan/run` envelope instead of introducing new top-level MCP actions;

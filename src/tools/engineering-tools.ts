@@ -555,6 +555,15 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   ]);
 
 
+  server.registerTool('kicad_ipc_prepare', {
+    description: 'Prepare KiCad IPC on Windows in a bounded way. Detects the installed KiCad major version, requires KiCad/PCB Editor to be closed, backs up the matching kicad_common.json, and only enables api.enable_server. No other KiCad preference or Python package is modified.',
+    inputSchema: kicadProject.extend({ workSessionId: z.string().uuid() }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId }) =>
+    result(await audited(ctx.audit, 'kicad_ipc_prepare', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.ipcPrepare(workspace, projectPath))
+    )));
+
   server.registerTool('kicad_ipc_status', {
     description: 'Inspect readiness for the official KiCad IPC API and kicad-python (kipy) without modifying a design. Reports KiCad version support, Python/package availability, GUI-vs-headless requirements, live connection state, and whether a PCB is open.',
     inputSchema: kicadProject,

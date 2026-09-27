@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.59.0 - KiCad IPC Phase 4 Setup & Hardening
+
+- add `kicad_ipc_prepare` as a bounded Windows-only setup action requiring Work Session ownership;
+- discover the installed KiCad major version, refuse setup while `kicad.exe`/`pcbnew.exe` is running, back up the matching `kicad_common.json`, and change only `api.enable_server`;
+- keep preparation idempotent when the IPC server flag is already enabled;
+- fix live-board path identity by resolving `board.document.project.path` / KiCad document project metadata before strict comparison to the explicitly authorized board;
+- retain a basename-only fallback that resolves against the explicit authorized board directory, never the process cwd;
+- validate the fix against a dedicated official KiCad QA board on Windows KiCad 10.0.6: live IPC connected, five footprints inspected, R1 moved by 0.1 mm and restored, with DRC remaining 4 active errors / 3 unconnected / 0 parity and `saved=false`;
+- keep global Python untouched; the isolated owner-local `kicad-python 0.8.0` provider remains preferred;
+- keep raw IPC scripts, implicit board save, raw `.kicad_dru`, track/via/zone mutation and autorouting unavailable;
+- advance Action Schema to 31 for `kicad_ipc_prepare`; Engineering API remains 5.
+
 ## v0.58.0 - KiCad IPC Live Control Phase 3
 
 - standardize an isolated owner-local `kicad-python` 0.8.0 provider environment on the Windows production node instead of mutating global/Espressif Python;

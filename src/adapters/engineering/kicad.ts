@@ -322,6 +322,45 @@ export class KicadAdapter {
     }
   }
 
+  async ipcPrepare(workspace: string, projectPath = '.') {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    if (process.platform !== 'win32') {
+      throw new Error('KICAD_IPC_PREPARE_UNSUPPORTED: KiCad IPC preparation is currently Windows-only.');
+    }
+
+    const cli = await discoverKicadCli();
+    const versionResult = await this.runner.run(cli.path, ['version'], cwd, 10_000);
+    if (versionResult.exitCode !== 0 || versionResult.timedOut) {
+      throw new Error('KiCad version probe failed before IPC preparation.');
+    }
+    const versionText = (versionResult.stdout.trim() || versionResult.stderr.trim()).slice(0, 160);
+    const major = Number(versionText.match(/(\d+)(?:\.\d+)?/)?.[1] ?? 0);
+    if (!Number.isInteger(major) || major < 9) {
+      throw new Error('KICAD_IPC_PREPARE_UNSUPPORTED: KiCad 9 or newer is required.');
+    }
+
+    const powershell = await resolveFirstExecutable(['powershell.exe', 'powershell']);
+    if (!powershell) throw new Error('KICAD_IPC_PREPARE_UNAVAILABLE: PowerShell was not found.');
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_prepare.ps1', import.meta.url));
+    const execute = async () => {
+      const result = await this.runner.run(
+        powershell.path,
+        ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-KiCadMajor', String(major)],
+        cwd,
+        15_000
+      );
+      return {
+        provider: 'kicad-ipc',
+        cliVersion: versionText,
+        ...parseBoundedJsonResult(result, 'KiCad IPC preparation')
+      };
+    };
+    return this.resources
+      ? await this.resources.withLease('kicad-ipc-config:' + major, 'orchestrating', execute)
+      : await execute();
+  }
+
   async ipcStatus(workspace: string, projectPath = '.') {
     this.policy.assertEngineeringEnabled();
     const cwd = await this.paths.resolveExisting(workspace, projectPath);

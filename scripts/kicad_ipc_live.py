@@ -54,15 +54,34 @@ def describe(fp):
     return result
 
 
-def resolve_board_path(board, cwd):
+def resolve_board_path(board, expected):
     value = Path(str(board.name))
-    if not value.is_absolute():
-        value = Path(cwd) / value
-    return value.resolve()
+    wanted = Path(expected).resolve()
+    if value.is_absolute():
+        return value.resolve()
+
+    project_path = ""
+    try:
+        project_path = str(board.document.project.path)
+    except Exception:
+        try:
+            project_path = str(board._doc.project.path)
+        except Exception:
+            project_path = ""
+
+    if project_path:
+        return (Path(project_path) / value).resolve()
+
+    # KiCad 9/10 may expose only a basename. In that bounded case, resolve
+    # against the explicitly authorized board directory rather than cwd.
+    if value.name == str(value):
+        return (wanted.parent / value).resolve()
+
+    raise RuntimeError("KICAD_IPC_BOARD_PATH_UNAVAILABLE: active board path cannot be resolved safely.")
 
 
-def ensure_expected_board(board, cwd, expected):
-    actual = resolve_board_path(board, cwd)
+def ensure_expected_board(board, expected):
+    actual = resolve_board_path(board, expected)
     wanted = Path(expected).resolve()
     if os.path.normcase(str(actual)) != os.path.normcase(str(wanted)):
         raise RuntimeError("KICAD_IPC_BOARD_MISMATCH: active board does not match the authorized project board.")
@@ -158,7 +177,7 @@ def main():
     board = client.get_board()
     if board is None:
         raise RuntimeError("KICAD_IPC_NO_BOARD: no PCB is open in KiCad.")
-    board_path = ensure_expected_board(board, os.getcwd(), args.board_path)
+    board_path = ensure_expected_board(board, args.board_path)
     before_sha, before_text = fingerprint(board)
 
     if args.action == "inspect":

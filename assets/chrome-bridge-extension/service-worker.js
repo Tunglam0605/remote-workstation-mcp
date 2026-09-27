@@ -2,7 +2,7 @@
 
 const HOST = 'com.tunglam.rwmcp.chrome_bridge';
 const MAX_TEXT = 16000;
-const ALLOWED = new Set(['status','tabs.list','page.inspect','page.find','page.extract','page.click','page.fill']);
+const ALLOWED = new Set(['status','tabs.list','page.inspect','page.find','page.extract','page.click','page.fill','page.check']);
 
 let port;
 let reconnectTimer;
@@ -92,6 +92,11 @@ async function execute(command, payload) {
     const elementId = String(payload?.elementId || '').slice(0, 96);
     const value = String(payload?.value ?? '').slice(0, 8000);
     return await contentCommand(tabId, { op: 'fill', elementId, value });
+  }
+  if (command === 'page.check') {
+    const elementId = String(payload?.elementId || '').slice(0, 96);
+    const checked = Boolean(payload?.checked);
+    return await contentCommand(tabId, { op: 'check', elementId, checked });
   }
   throw Object.assign(new Error('Unsupported bridge command.'), { code: 'COMMAND_DENIED' });
 }

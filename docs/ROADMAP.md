@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.55.0 - NotebookLM Video Pipeline v3
+
+- add `notebooklm_video_pipeline_v3` as a goal-level production queue while retaining the v0.52 content pipeline and v0.51 single/batch commands;
+- add exact per-video source targeting through observable semantic NotebookLM source checkboxes; source selection fails closed if the source inventory is truncated, names are missing, or the selected-state postcondition cannot be verified;
+- add bounded production profiles: `tiktok_short`, `youtube_long`, `deep_tutorial`, `comparison`, and `project_walkthrough`;
+- persist owner + Work Session scoped queue state under local runtime state; READY jobs are skipped on resume and interrupted RUNNING jobs reconcile back to pending;
+- persist per-job attempts, accepted artifact metadata and quality evidence; bound retries to 1-3 attempts per job;
+- add quality gates that reject READY output when NotebookLM artifact source count differs from the exact selected source set or when an accepted artifact title duplicates another accepted queue item;
+- extend the Existing Chrome Bridge with an idempotent semantic `page.check` operation and observable checkbox state instead of coordinate or blind-click source selection;
+- keep Google login, cookies/tokens/credentials, raw selectors/JavaScript, coordinate control and autonomous background generation out of scope;
+- advance Action Schema to 27 for the new public Video Pipeline v3 tool; Engineering API remains 5.
+
 ## v0.54.1 - SocketCAN Self-Contained Capture Hardening
 
 - keep the v0.54 public tool/schema surface unchanged while removing the operational dependency on an owner-installed `can-utils` package;

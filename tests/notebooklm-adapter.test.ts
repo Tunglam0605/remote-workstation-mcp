@@ -474,6 +474,79 @@ test('content pipeline command claims and releases one authenticated tab for the
   assert.equal(closed,1);
 });
 
+test('Video Pipeline v3 exact source selection uses observable checkbox state', async () => {
+  let selected = new Set(['Source A','Source B']);
+  let generation = 0;
+  const makeElements=()=>[
+    {elementId:`xc_${generation}_all`,role:'checkbox',name:'Chọn tất cả các nguồn',visible:true,enabled:true,checked:selected.size===2},
+    {elementId:`xc_${generation}_a`,role:'checkbox',name:'Chọn Source A',visible:true,enabled:true,checked:selected.has('Source A')},
+    {elementId:`xc_${generation}_b`,role:'checkbox',name:'Chọn Source B',visible:true,enabled:true,checked:selected.has('Source B')}
+  ];
+  const service={
+    status:()=>({sessionId:'sess-1',tabId:17,provider:'existing-chrome-extension'}),
+    extract:async()=>({url:'https://notebook.google.com/notebook/abc-123',title:'Demo Notebook - NotebookLM',text:'Demo 2 sources'}),
+    inspect:async()=>({elements:makeElements(),truncated:false}),
+    find:async(_id:string,_owner:any,role:string,name:string)=>({matches:makeElements().filter(item=>item.role===role&&item.name===name)}),
+    check:async(_id:string,_owner:any,elementId:string,checked:boolean)=>{
+      if(elementId.endsWith('_all')) selected=checked?new Set(['Source A','Source B']):new Set();
+      else if(elementId.endsWith('_a')) checked?selected.add('Source A'):selected.delete('Source A');
+      else if(elementId.endsWith('_b')) checked?selected.add('Source B'):selected.delete('Source B');
+      generation++;
+      return{checked};
+    }
+  };
+  const adapter=new NotebookLmAdapter(service as never,async()=>{});
+  const result=await adapter.selectSources('sess-1',owner,['Source B']);
+  assert.deepEqual(result.selected,['Source B']);
+  assert.equal(result.selectedCount,1);
+  assert.equal(result.exact,true);
+});
+
+test('Video Pipeline v3 resumes durable READY jobs instead of regenerating them', async () => {
+  let persisted:any;
+  const queueStore={
+    load:async()=>persisted,
+    save:async(_owner:any,state:any)=>{persisted=structuredClone(state);},
+    create:(queueId:string,notebookId:string,profile:string,planHash:string,jobs:any[])=>({
+      version:1,queueId,notebookId,profile,planHash,createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z',
+      jobs:jobs.map((job,index)=>({id:job.id??`video-${index+1}`,index,focus:job.focus,sources:job.sources,status:'pending',attempts:0,updatedAt:'2026-01-01T00:00:00.000Z'}))
+    })
+  };
+  const fake=fakeChrome();
+  const adapter=new NotebookLmAdapter(fake.service as never,async()=>{},queueStore as never);
+  const generated:string[]=[];
+  (adapter as any).status=async()=>({authenticated:true,notebookId:'abc-123'});
+  (adapter as any).selectSources=async(_sid:string,_owner:any,sources:string[])=>({selected:sources,selectedCount:sources.length,exact:true});
+  (adapter as any).videoGenerate=async(_sid:string,_owner:any,focus:string)=>{
+    generated.push(focus);
+    return{artifact:{title:`Artifact ${generated.length}`,duration:'1:00',format:'Short',sourceCount:1}};
+  };
+  const options={
+    queueId:'stm32-course',
+    profile:'tiktok_short' as const,
+    videos:[
+      {id:'v1',focus:'GPIO',sources:['Source A']},
+      {id:'v2',focus:'Timer',sources:['Source B']}
+    ],
+    stopOnError:true,
+    maxAttemptsPerJob:2
+  };
+  const first=await adapter.videoPipelineV3('sess-1',owner,options);
+  assert.equal(first.counts.ready,2);
+  assert.equal(generated.length,2);
+  const second=await adapter.videoPipelineV3('sess-1',owner,options);
+  assert.equal(second.counts.ready,2);
+  assert.equal(generated.length,2);
+  assert.equal(persisted.jobs[0].attempts,1);
+  assert.equal(persisted.jobs[1].attempts,1);
+});
+
+test('NotebookLM Video Pipeline v3 is advertised and write-scoped', () => {
+  const capability=CAPABILITIES.find(item=>item.id==='web.notebooklm');
+  assert.ok(capability?.tools.includes('notebooklm_video_pipeline_v3'));
+  assert.equal(requiredScopeForTool('notebooklm_video_pipeline_v3'),'workstation.write');
+});
+
 test('NotebookLM content pipeline is advertised and write-scoped', () => {
   const capability=CAPABILITIES.find(item=>item.id==='web.notebooklm');
   assert.ok(capability?.tools.includes('notebooklm_content_pipeline'));

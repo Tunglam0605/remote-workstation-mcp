@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.54.1 - channel=stable - Action Schema 26 - Engineering API 5** - hardens **Typed SocketCAN Diagnostics & Capture**. Linux nodes expose bounded read-only CAN provider/interface inspection plus traffic capture through machine-readable iproute2/netlink state. Capture prefers upstream linux-can `candump`; if it is unavailable, RWMCP falls back to its packaged fixed Python `AF_CAN` receiver, so capture does not require a separate can-utils install. Both paths require one explicit interface, are bounded by frame count/inactivity timeout, accept only typed 11-bit/29-bit CAN-ID masks, and return decoded frame/ID/rate summaries. RWMCP does not expose CAN transmission, replay, bitrate changes, interface mutation, bus-off restart, gateway mutation or raw SocketCAN command strings.
+**Stable release: v0.55.0 - channel=stable - Action Schema 27 - Engineering API 5** - adds **NotebookLM Video Pipeline v3**. Video jobs can now declare exact per-video source sets, production profiles (`tiktok_short`, `youtube_long`, `deep_tutorial`, `comparison`, `project_walkthrough`), durable owner-scoped queue IDs that resume after runtime interruption, persisted artifact metadata, bounded retry state and quality gates for selected-source count and duplicate accepted artifacts. Existing NotebookLM single/batch/content-pipeline commands remain backward compatible. Source selection uses semantic checkbox state through the authenticated Existing Chrome Bridge; Google login, credentials/tokens/cookies, raw selectors, JavaScript and coordinate control remain unavailable.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -511,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.54.1.tgz`
+- `remote-workstation-mcp-v0.55.0.tgz`
 - `SHA256SUMS.txt`
 
 

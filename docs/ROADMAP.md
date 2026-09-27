@@ -2,6 +2,20 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.56.0 - KiCad Editing Phase 1
+
+- add `kicad_edit_inspect` for bounded `.kicad_sch` / `.kicad_pcb` edit identity: SHA-256 plus symbol/footprint UUID, reference, value, footprint and placement metadata;
+- add `kicad_edit` with explicit Work Session ownership, expected SHA-256 optimistic concurrency and a per-file engineering lease;
+- implement structural balanced S-expression target selection rather than whole-file regex mutation;
+- support schematic symbol `Value` / `Footprint` edits selected by UUID/reference;
+- support PCB footprint `Value` / `Reference` edits and footprint X/Y/rotation placement selected by UUID/reference;
+- write a same-directory working copy so relative KiCad sheet/library paths remain valid during acceptance;
+- run ERC or DRC on the baseline and working copy; reject if active errors, unconnected items or schematic-parity findings regress;
+- re-check original SHA immediately before commit, create a project-local `.rwmcp/backups` copy, then atomically replace only after acceptance passes;
+- leave the source byte-identical when optimistic concurrency or acceptance fails and remove temporary working copies;
+- keep arbitrary S-expression, net/track/via/zone edits, scripts, source upgrade, refill and autorouting unavailable for Phase 1;
+- advance Action Schema to 28 for the two new public KiCad edit tools; Engineering API remains 5.
+
 ## v0.55.0 - NotebookLM Video Pipeline v3
 
 - add `notebooklm_video_pipeline_v3` as a goal-level production queue while retaining the v0.52 content pipeline and v0.51 single/batch commands;

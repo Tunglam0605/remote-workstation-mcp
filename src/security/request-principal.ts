@@ -231,6 +231,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   kicad_erc: 'workstation.read',
   kicad_validate: 'workstation.read',
   kicad_bom_report: 'workstation.read',
+  kicad_edit_inspect: 'workstation.read',
+  kicad_edit: 'workstation.write',
   container_list: 'workstation.read',
   container_inspect: 'workstation.read',
   container_logs: 'workstation.read',

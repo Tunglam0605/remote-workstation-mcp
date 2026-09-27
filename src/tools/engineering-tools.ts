@@ -503,6 +503,32 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   server.registerTool('ros2_bag_record', { description: 'Start a caller-owned ros2 bag record process for explicit topics. Stop it with process_stop.', inputSchema: z.object({ workspace: z.string(), topics: z.array(z.string()).min(1).max(100), output: z.string(), cwd: z.string().default('.'), workSessionId: z.string().uuid().optional() }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ workspace, topics, output, cwd, workSessionId }) => result(await audited(ctx.audit, 'ros2_bag_record', workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.ros2.bagRecord(workspace, topics, output, cwd)))));
 
   const kicadProject = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
+  const kicadEditSelector = {
+    uuid: z.string().uuid().optional(),
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional()
+  };
+  const kicadEditOperation = z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('schematic_symbol_property'),
+      ...kicadEditSelector,
+      property: z.enum(['Value', 'Footprint']),
+      value: z.string().max(512)
+    }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' }),
+    z.object({
+      kind: z.literal('pcb_footprint_property'),
+      ...kicadEditSelector,
+      property: z.enum(['Value', 'Reference']),
+      value: z.string().max(512)
+    }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' }),
+    z.object({
+      kind: z.literal('pcb_footprint_move'),
+      ...kicadEditSelector,
+      x: z.number().finite().min(-100000).max(100000),
+      y: z.number().finite().min(-100000).max(100000),
+      rotation: z.number().finite().min(-100000).max(100000).optional()
+    }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' })
+  ]);
+
 
   server.registerTool('kicad_provider_status', {
     description: 'Inspect the resolved KiCad CLI provider/version without modifying project files.',
@@ -542,6 +568,30 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024), maxRows: z.number().int().min(1).max(5000).default(500) }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workspace, projectPath, schematic, maxRows }) => result(await audited(ctx.audit, 'kicad_bom_report', workspace, () => ctx.engineering.kicad.bomReport(workspace, projectPath, schematic, maxRows))));
+
+  server.registerTool('kicad_edit_inspect', {
+    description: 'Inspect one explicit KiCad schematic/board as an editing target. Returns SHA-256 optimistic-concurrency identity plus bounded symbol/footprint UUID, reference, value and placement metadata without modifying the file.',
+    inputSchema: kicadProject.extend({
+      file: z.string().min(1).max(1024),
+      maxItems: z.number().int().min(1).max(2000).default(500)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, file, maxItems }) =>
+    result(await audited(ctx.audit, 'kicad_edit_inspect', workspace, () => ctx.engineering.kicad.inspectEditable(workspace, projectPath, file, maxItems))));
+
+  server.registerTool('kicad_edit', {
+    description: 'Apply 1-32 typed KiCad Phase-1 edits transactionally. Requires an exact expected SHA-256, holds a file lease, patches only supported schematic symbol properties or PCB footprint properties/placement, validates a project-scoped working copy with ERC/DRC against the pre-edit baseline, then commits atomically with a backup only when acceptance passes. Arbitrary S-expression, net/track/via/zone edits and scripts are not accepted.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      file: z.string().min(1).max(1024),
+      expectedSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      operations: z.array(kicadEditOperation).min(1).max(32)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, file, expectedSha256, operations }) =>
+    result(await audited(ctx.audit, 'kicad_edit', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.transactionalEdit(workspace, projectPath, file, expectedSha256, operations))
+    )));
 
   const dockerBase = z.object({ workspace: z.string(), cwd: z.string().default('.') });
   server.registerTool('container_list', { description: 'List Docker containers with structured JSON output.', inputSchema: dockerBase.extend({ all: z.boolean().default(true) }), annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } }, async ({ workspace, cwd, all }) => result({ containers: await audited(ctx.audit, 'container_list', workspace, () => ctx.engineering.docker.list(workspace, all, cwd)) }));

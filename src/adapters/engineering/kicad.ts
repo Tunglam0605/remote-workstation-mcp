@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,8 @@ import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { parseKicadBomCsv } from './kicad-bom.js';
+import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
+import { EngineeringResourceManager } from './resource-manager.js';
 
 const MAX_REPORT_BYTES = 2 * 1024 * 1024;
 const MAX_VIOLATIONS = 200;
@@ -254,7 +256,8 @@ export class KicadAdapter {
   constructor(
     private readonly policy: PolicyEngine,
     private readonly paths: PathGuard,
-    private readonly runner: EngineeringCommandRunner
+    private readonly runner: EngineeringCommandRunner,
+    private readonly resources?: EngineeringResourceManager
   ) {}
 
   private async commandSupported(cliPath: string, cwd: string, args: string[]): Promise<boolean> {
@@ -401,6 +404,126 @@ export class KicadAdapter {
       files.schematic ? this.erc(workspace, projectPath, files.schematic) : Promise.resolve(undefined)
     ]);
     return { files, ...(drc ? { drc } : {}), ...(erc ? { erc } : {}) };
+  }
+
+  async inspectEditable(workspace: string, projectPath: string, file: string, maxItems = 500) {
+    this.policy.assertEngineeringEnabled();
+    const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, file, 'KiCad edit file');
+    const stat = await fs.stat(input);
+    if (!stat.isFile()) throw new Error('KiCad edit target is not a regular file.');
+    if (stat.size > 32 * 1024 * 1024) throw new Error('KiCad edit target exceeds the 32 MiB limit.');
+    const source = await fs.readFile(input, 'utf8');
+    return {
+      file,
+      size: stat.size,
+      ...inspectKicadDocument(source, path.extname(input), maxItems)
+    };
+  }
+
+  async transactionalEdit(
+    workspace: string,
+    projectPath: string,
+    file: string,
+    expectedSha256: string,
+    operations: KicadEditOperation[]
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(expectedSha256)) throw new Error('KiCad expectedSha256 must be a SHA-256 hex digest.');
+
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, file, 'KiCad edit file');
+    const extension = path.extname(input).toLowerCase();
+    if (!['.kicad_sch', '.kicad_pcb'].includes(extension)) {
+      throw new Error('KiCad edit supports only .kicad_sch and .kicad_pcb files.');
+    }
+
+    const execute = async () => {
+      const original = await fs.readFile(input, 'utf8');
+      const originalSha256 = sha256Text(original);
+      if (originalSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+        throw new Error('KICAD_EDIT_CONFLICT: expected SHA-256 ' + expectedSha256 + ', observed ' + originalSha256 + '.');
+      }
+
+      const baseline = extension === '.kicad_sch'
+        ? await this.erc(workspace, projectPath, file)
+        : await this.drc(workspace, projectPath, file);
+
+      const patched = patchKicadDocument(original, operations, extension);
+      const transactionId = randomUUID();
+      const working = path.join(path.dirname(input), '.rwmcp-edit-' + transactionId + '-' + path.basename(input));
+      await fs.writeFile(working, patched.text, 'utf8');
+      const workingRelative = path.relative(projectRoot, working);
+
+      try {
+        const validation = extension === '.kicad_sch'
+          ? await this.erc(workspace, projectPath, workingRelative)
+          : await this.drc(workspace, projectPath, workingRelative);
+
+        const baselineActiveErrors = Number(baseline.report.counts.active.bySeverity.error ?? 0);
+        const postActiveErrors = Number(validation.report.counts.active.bySeverity.error ?? 0);
+        let baselineUnconnected = 0;
+        let postUnconnected = 0;
+        let baselineParity = 0;
+        let postParity = 0;
+        if (extension === '.kicad_pcb') {
+          const baselineDrc = baseline as Awaited<ReturnType<KicadAdapter['drc']>>;
+          const postDrc = validation as Awaited<ReturnType<KicadAdapter['drc']>>;
+          baselineUnconnected = Number(baselineDrc.report.counts.active.unconnected ?? 0);
+          postUnconnected = Number(postDrc.report.counts.active.unconnected ?? 0);
+          baselineParity = Number(baselineDrc.report.counts.active.schematicParity ?? 0);
+          postParity = Number(postDrc.report.counts.active.schematicParity ?? 0);
+        }
+
+        if (postActiveErrors > baselineActiveErrors || postUnconnected > baselineUnconnected || postParity > baselineParity) {
+          throw new Error(
+            'KICAD_EDIT_ACCEPTANCE_FAILED: active errors ' + baselineActiveErrors + '->' + postActiveErrors +
+            ', unconnected ' + baselineUnconnected + '->' + postUnconnected +
+            ', schematicParity ' + baselineParity + '->' + postParity + '.'
+          );
+        }
+
+        const currentOriginal = await fs.readFile(input, 'utf8');
+        const currentSha256 = sha256Text(currentOriginal);
+        if (currentSha256 !== originalSha256) {
+          throw new Error('KICAD_EDIT_CONFLICT: source changed during edit; expected ' + originalSha256 + ', observed ' + currentSha256 + '.');
+        }
+
+        const backup = await createKicadBackup(input);
+        await atomicReplace(input, patched.text);
+        const committed = await fs.readFile(input, 'utf8');
+        const committedSha256 = sha256Text(committed);
+        return {
+          transactionId,
+          state: 'committed' as const,
+          file,
+          extension,
+          originalSha256,
+          committedSha256,
+          backupPath: path.relative(projectRoot, backup).split(path.sep).join('/'),
+          operations: patched.results,
+          acceptance: {
+            baseline: {
+              activeErrors: baselineActiveErrors,
+              unconnected: baselineUnconnected,
+              schematicParity: baselineParity
+            },
+            post: {
+              activeErrors: postActiveErrors,
+              unconnected: postUnconnected,
+              schematicParity: postParity
+            },
+            passed: true
+          }
+        };
+      } finally {
+        await fs.rm(working, { force: true }).catch(() => undefined);
+      }
+    };
+
+    return this.resources
+      ? await this.resources.withLease('kicad-file:' + input, 'orchestrating', execute)
+      : await execute();
   }
 
   async fabricationExport(

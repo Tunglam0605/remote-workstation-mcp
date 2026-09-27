@@ -2,6 +2,14 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.54.1 - SocketCAN Self-Contained Capture Hardening
+
+- keep the v0.54 public tool/schema surface unchanged while removing the operational dependency on an owner-installed `can-utils` package;
+- prefer upstream `candump` when available, otherwise execute the packaged fixed `scripts/socketcan_capture.py` helper through `python3`;
+- use only Linux `PF_CAN` / `SOCK_RAW` receive operations in the fallback, with the same explicit interface, typed filters, bounded count and inactivity timeout as the candump path;
+- preserve read-only authority: the fallback contains no socket send, interface configuration, bitrate change, replay, bus-off restart or gateway mutation;
+- retain Action Schema 26 and Engineering API 5 because no public tool/input contract changes.
+
 ## v0.54.0 - Typed SocketCAN Diagnostics & Capture
 
 - add Linux-only `can_provider_status`, `can_interface_list`, `can_interface_status` and `can_capture` typed MCP tools;

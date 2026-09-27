@@ -145,6 +145,50 @@ test('SocketCAN bounded capture compiles typed filters and summarizes classic pl
   }
 });
 
+
+
+test('SocketCAN capture falls back to packaged Python AF_CAN receiver when candump is unavailable', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-can-python-fallback-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin, 'ip');
+  await fakeExecutable(bin, 'python3');
+  process.env.PATH = bin;
+  const calls: Array<{ program: string; args: string[] }> = [];
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push({ program, args: [...args] });
+      return command(program, args, cwd, '(1720000001.100000) can0 321#AABBCCDD\n');
+    }
+  };
+
+  try {
+    const adapter = new CanAdapter(new PolicyEngine(config(root)), runner as never, 'linux');
+    const provider = await adapter.providerStatus();
+    assert.equal(provider.capture, true);
+    assert.equal(provider.captureBackend, 'python-af-can');
+    const capture = await adapter.capture('can0', {
+      count: 1,
+      inactivityTimeoutMs: 500,
+      filters: [{ id: 0x321, mask: 0x7ff }]
+    });
+    assert.equal(capture.backend, 'python-af-can');
+    assert.equal(capture.frames[0]?.idHex, '321');
+    const call = calls.at(-1)!;
+    assert.match(call.program, /python3/i);
+    assert.ok(call.args[0]?.endsWith(path.join('scripts', 'socketcan_capture.py')));
+    assert.deepEqual(call.args.slice(1), [
+      '--interface', 'can0',
+      '--count', '1',
+      '--timeout-ms', '500',
+      '--filter', '321:7FF:0'
+    ]);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('SocketCAN capture rejects unsafe names, oversized filters and out-of-range identifiers', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-can-bounds-'));
   const bin = path.join(root, 'bin');

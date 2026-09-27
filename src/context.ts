@@ -8,6 +8,7 @@ import { ArtifactTransferAdapter } from './adapters/engineering/artifact-transfe
 import { EngineeringCommandRunner } from './adapters/engineering/command-runner.js';
 import { DebugSessionManager } from './adapters/engineering/debug-session.js';
 import { DockerAdapter } from './adapters/engineering/docker.js';
+import { CanAdapter } from './adapters/engineering/can.js';
 import { SystemdAdapter } from './adapters/engineering/systemd.js';
 import { Stm32IocAdapter } from './adapters/engineering/stm32-ioc.js';
 import { Stm32SvdAdapter } from './adapters/engineering/stm32-svd.js';
@@ -225,6 +226,7 @@ export async function createContext() {
     nodeInterlocks,
     schedulerAwareness
   );
+  const engineeringCan = new CanAdapter(policy, engineeringRunner);
   const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
   const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
   const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
@@ -315,6 +317,7 @@ export async function createContext() {
       workflows: engineeringWorkflows,
       execution: engineeringWorkflowExecution,
       debug: engineeringDebug,
+      can: engineeringCan,
       ros2: engineeringRos2,
       docker: engineeringDocker,
       systemd: engineeringSystemd,

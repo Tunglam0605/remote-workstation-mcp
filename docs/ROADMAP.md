@@ -2,6 +2,17 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.62.0 - Typed RS485 / Modbus RTU Diagnostics Phase 1
+
+- add `modbus_rtu_provider_status` and `modbus_rtu_endpoint_status` for bounded cross-platform provider and explicit serial-endpoint discovery;
+- add `modbus_rtu_read` for read-only Modbus RTU functions 01/02/03/04 with CRC16 validation, exception decoding and strict protocol quantity limits;
+- add `modbus_rtu_probe` for 1..32 explicit unique Unit IDs using one bounded read request per ID; do not provide an implicit 1..247 scan;
+- validate serial framing parameters (baud, data bits, parity, stop bits) and bound per-request timeout to 50..30000 ms;
+- hold the existing global `serial:<port>` resource lease for each read/probe operation so Modbus access cannot race serial monitor, upload or other hardware activity;
+- expose decoded boolean coil/input values or unsigned 16-bit register values plus bounded raw response hex for engineering diagnostics;
+- keep write functions 05/06/0F/10, mask write, read-write multiple registers, broadcast writes and raw RTU frame injection unavailable in Phase 1;
+- advance Action Schema to 34 for the four public Modbus RTU tools; Engineering API remains 5.
+
 ## v0.61.1 - KiCad Phase 6 Capability Metadata Hotfix
 
 - correct the `engineering.kicad` capability note so it no longer carries the stale v0.60 statement that all track/via mutation is unavailable;

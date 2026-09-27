@@ -34,9 +34,9 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 33;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 34;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.61\.1';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.62\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -353,6 +353,28 @@ test('v0.61 KiCad IPC Phase 6 routing primitives stay bounded and rollback-gated
   assert.doesNotMatch(capabilities, /track\/via\/zone mutation, autorouting and implicit board save remain unavailable/);
 });
 
+test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const modbus = await read('src/adapters/engineering/modbus-rtu.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  for (const tool of ['modbus_rtu_provider_status', 'modbus_rtu_endpoint_status', 'modbus_rtu_read', 'modbus_rtu_probe']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(capabilities, new RegExp(tool));
+  }
+  assert.match(scopes, /modbus_rtu_provider_status: 'workstation\.read'/);
+  assert.match(scopes, /modbus_rtu_endpoint_status: 'workstation\.read'/);
+  assert.match(scopes, /modbus_rtu_read: 'workstation\.read'/);
+  assert.match(scopes, /modbus_rtu_probe: 'workstation\.read'/);
+  assert.match(modbus, /supportedFunctions: \[1, 2, 3, 4\]/);
+  assert.match(modbus, /withLease\(`serial:\$\{selected\}`, 'monitoring'/);
+  assert.match(modbus, /Modbus probe accepts 1\.\.32 explicit unit IDs/);
+  assert.match(modbus, /raw RTU frame injection/);
+  assert.doesNotMatch(engineeringTools, /modbus_rtu_write|modbus_rtu_raw|write_single_coil|write_single_register|write_multiple/);
+  assert.doesNotMatch(modbus, /function:\s*5|function:\s*6|function:\s*15|function:\s*16/);
+});
+
 test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {
   const debug = await read('src/adapters/engineering/debug-session.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
@@ -531,7 +553,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 33;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 34;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

@@ -306,7 +306,7 @@ async function fixture(
   };
 }
 
-test('PlatformIO projects expose diagnostics only and do not fall through to generic firmware build', async () => {
+test('PlatformIO projects expose typed diagnostics/build/upload without falling through to generic firmware build', async () => {
   const project: FirmwareProjectInfo = {
     workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'platformio',
     board: 'esp32-s3-devkitc-1', buildSystem: 'platformio', markers: ['platformio.ini'], ros2: false, docker: false
@@ -320,6 +320,8 @@ test('PlatformIO projects expose diagnostics only and do not fall through to gen
     assert.equal(listed.profile.firmware, undefined);
     const ids = listed.workflows.map(item => item.id);
     assert.ok(ids.includes('platformio.diagnostics'));
+    assert.ok(ids.includes('platformio.build'));
+    assert.ok(ids.includes('platformio.upload'));
     assert.equal(ids.includes('firmware.build'), false);
     assert.equal(ids.includes('firmware.build_flash'), false);
     assert.equal(ids.includes('espidf.diagnostics'), false);
@@ -332,6 +334,14 @@ test('PlatformIO projects expose diagnostics only and do not fall through to gen
       'platformio.system.info.json',
       'platformio.device.list.json'
     ]);
+    await assert.rejects(() => f.engine.plan('w', 'project', 'platformio.build'), /platformioEnvironment/i);
+    const buildPlan = await f.engine.plan('w', 'project', 'platformio.build', { platformioEnvironment: 'esp32s3' });
+    assert.deepEqual(buildPlan.steps, ['platformio.run.build']);
+    assert.equal((buildPlan as any).resolved.platformio.environment, 'esp32s3');
+    await assert.rejects(() => f.engine.plan('w', 'project', 'platformio.upload', { platformioEnvironment: 'esp32s3' }), /upload port/i);
+    const uploadPlan = await f.engine.plan('w', 'project', 'platformio.upload', { platformioEnvironment: 'esp32s3', platformioUploadPort: 'COM8' });
+    assert.deepEqual(uploadPlan.steps, ['platformio.run.upload']);
+    assert.equal((uploadPlan as any).resolved.platformio.uploadPort, 'COM8');
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }

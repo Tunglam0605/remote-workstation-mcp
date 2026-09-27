@@ -3,9 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export type KicadEditOperation =
-  | { kind: 'schematic_symbol_property'; uuid?: string; reference?: string; property: 'Value' | 'Footprint'; value: string }
+  | { kind: 'schematic_symbol_property'; uuid?: string; reference?: string; property: 'Value' | 'Footprint' | 'Datasheet'; value: string }
+  | { kind: 'schematic_symbol_flags'; uuid?: string; reference?: string; inBom?: boolean; onBoard?: boolean }
   | { kind: 'pcb_footprint_property'; uuid?: string; reference?: string; property: 'Value' | 'Reference'; value: string }
-  | { kind: 'pcb_footprint_move'; uuid?: string; reference?: string; x: number; y: number; rotation?: number };
+  | { kind: 'pcb_footprint_move'; uuid?: string; reference?: string; x: number; y: number; rotation?: number }
+  | { kind: 'pcb_footprint_attributes'; uuid?: string; reference?: string; boardOnly?: boolean; excludeFromBom?: boolean; excludeFromPosFiles?: boolean }
+  | { kind: 'pcb_footprint_copper'; uuid?: string; reference?: string; clearance?: number; zoneConnect?: 0 | 1 | 2 | 3 };
 
 export interface KicadEditPatchResult {
   operation: KicadEditOperation;
@@ -109,6 +112,87 @@ function replaceAt(block: string, x: number, y: number, rotation?: number): { te
   return { text: block.replace(pattern, '$1' + x + '$3' + y + angle + '$6'), before };
 }
 
+function replaceBooleanToken(block: string, token: 'in_bom' | 'on_board', value: boolean): { text: string; before: string } {
+  const pattern = new RegExp('\\(' + token + '\\s+(yes|no)\\)', 'i');
+  const match = block.match(pattern);
+  if (!match?.[1]) throw new Error('KiCad token ' + token + ' was not found in selected symbol.');
+  const next = value ? 'yes' : 'no';
+  return { text: block.replace(pattern, '(' + token + ' ' + next + ')'), before: match[1].toLowerCase() };
+}
+
+function insertionPoint(block: string): number {
+  const markers = ['\n    (attr ', '\n    (fp_', '\n    (pad ', '\n    (zone ', '\n    (group ', '\n    (model '];
+  const points = markers.map(marker => block.indexOf(marker)).filter(index => index >= 0);
+  return points.length > 0 ? Math.min(...points) : block.lastIndexOf(')');
+}
+
+function upsertScalarToken(block: string, token: 'clearance' | 'zone_connect', value: number): { text: string; before?: string } {
+  const pattern = new RegExp('\\(' + token + '\\s+(-?\\d+(?:\\.\\d+)?)\\)', 'i');
+  const match = block.match(pattern);
+  if (match?.[1]) {
+    return { text: block.replace(pattern, '(' + token + ' ' + value + ')'), before: match[1] };
+  }
+  const point = insertionPoint(block);
+  if (point < 0) throw new Error('Malformed KiCad footprint block.');
+  return {
+    text: block.slice(0, point) + '\n    (' + token + ' ' + value + ')' + block.slice(point),
+    before: undefined
+  };
+}
+
+function updateFootprintAttributes(
+  block: string,
+  options: { boardOnly?: boolean; excludeFromBom?: boolean; excludeFromPosFiles?: boolean }
+): { text: string; before: string; after: string } {
+  const pattern = /\(attr(?:\s+([^()\r\n]*))?\)/i;
+  const match = block.match(pattern);
+  const existing = (match?.[1] ?? '').trim().split(/\s+/).filter(Boolean);
+  const flags = new Set(existing);
+  const apply = (name: string, enabled: boolean | undefined) => {
+    if (enabled === undefined) return;
+    if (enabled) flags.add(name);
+    else flags.delete(name);
+  };
+  apply('board_only', options.boardOnly);
+  apply('exclude_from_bom', options.excludeFromBom);
+  apply('exclude_from_pos_files', options.excludeFromPosFiles);
+  const allowed = ['smd', 'through_hole', 'board_only', 'exclude_from_pos_files', 'exclude_from_bom'];
+  const ordered = allowed.filter(flag => flags.has(flag));
+  for (const flag of flags) {
+    if (!allowed.includes(flag)) ordered.push(flag);
+  }
+  const before = match?.[0] ?? '(attr)';
+  if (ordered.length === 0) {
+    return { text: match ? block.replace(pattern, '') : block, before, after: '(attr)' };
+  }
+  const next = '(attr ' + ordered.join(' ') + ')';
+  if (match) return { text: block.replace(pattern, next), before, after: next };
+  const point = insertionPoint(block);
+  if (point < 0) throw new Error('Malformed KiCad footprint block.');
+  return { text: block.slice(0, point) + '\n    ' + next + block.slice(point), before, after: next };
+}
+
+function operationAfter(operation: KicadEditOperation): string {
+  if (operation.kind === 'pcb_footprint_move') {
+    return '(at ' + operation.x + ' ' + operation.y + (operation.rotation === undefined ? '' : ' ' + operation.rotation) + ')';
+  }
+  if (operation.kind === 'schematic_symbol_property' || operation.kind === 'pcb_footprint_property') return operation.value;
+  if (operation.kind === 'schematic_symbol_flags') {
+    return JSON.stringify({ ...(operation.inBom !== undefined ? { inBom: operation.inBom } : {}), ...(operation.onBoard !== undefined ? { onBoard: operation.onBoard } : {}) });
+  }
+  if (operation.kind === 'pcb_footprint_attributes') {
+    return JSON.stringify({
+      ...(operation.boardOnly !== undefined ? { boardOnly: operation.boardOnly } : {}),
+      ...(operation.excludeFromBom !== undefined ? { excludeFromBom: operation.excludeFromBom } : {}),
+      ...(operation.excludeFromPosFiles !== undefined ? { excludeFromPosFiles: operation.excludeFromPosFiles } : {})
+    });
+  }
+  return JSON.stringify({
+    ...(operation.clearance !== undefined ? { clearance: operation.clearance } : {}),
+    ...(operation.zoneConnect !== undefined ? { zoneConnect: operation.zoneConnect } : {})
+  });
+}
+
 function patchOne(
   source: string,
   token: 'symbol' | 'footprint',
@@ -131,9 +215,7 @@ function patchOne(
       operation,
       matched: 1,
       before: changed.before,
-      after: operation.kind === 'pcb_footprint_move'
-        ? '(at ' + operation.x + ' ' + operation.y + (operation.rotation === undefined ? '' : ' ' + operation.rotation) + ')'
-        : operation.value
+      after: operationAfter(operation)
     }
   };
 }
@@ -148,11 +230,26 @@ export function patchKicadDocument(source: string, operations: KicadEditOperatio
   const results: KicadEditPatchResult[] = [];
   for (const operation of operations) {
     if (normalizedExtension === '.kicad_sch') {
-      if (operation.kind !== 'schematic_symbol_property') throw new Error('Only schematic_symbol_property is valid for .kicad_sch.');
-      const patched = patchOne(text, 'symbol', operation, block => replaceProperty(block, operation.property, operation.value));
-      text = patched.text;
-      results.push(patched.result);
-      continue;
+      if (operation.kind === 'schematic_symbol_property') {
+        const patched = patchOne(text, 'symbol', operation, block => replaceProperty(block, operation.property, operation.value));
+        text = patched.text;
+        results.push(patched.result);
+        continue;
+      }
+      if (operation.kind === 'schematic_symbol_flags') {
+        if (operation.inBom === undefined && operation.onBoard === undefined) throw new Error('schematic_symbol_flags requires inBom and/or onBoard.');
+        const patched = patchOne(text, 'symbol', operation, block => {
+          let next = block;
+          const before: Record<string, string> = {};
+          if (operation.inBom !== undefined) { const changed = replaceBooleanToken(next, 'in_bom', operation.inBom); next = changed.text; before.inBom = changed.before; }
+          if (operation.onBoard !== undefined) { const changed = replaceBooleanToken(next, 'on_board', operation.onBoard); next = changed.text; before.onBoard = changed.before; }
+          return { text: next, before: JSON.stringify(before) };
+        });
+        text = patched.text;
+        results.push(patched.result);
+        continue;
+      }
+      throw new Error('Only schematic symbol property/flags operations are valid for .kicad_sch.');
     }
     if (operation.kind === 'pcb_footprint_property') {
       const patched = patchOne(text, 'footprint', operation, block => replaceProperty(block, operation.property, operation.value));
@@ -166,7 +263,32 @@ export function patchKicadDocument(source: string, operations: KicadEditOperatio
       results.push(patched.result);
       continue;
     }
-    throw new Error('Only PCB footprint property/move operations are valid for .kicad_pcb.');
+    if (operation.kind === 'pcb_footprint_attributes') {
+      if (operation.boardOnly === undefined && operation.excludeFromBom === undefined && operation.excludeFromPosFiles === undefined) throw new Error('pcb_footprint_attributes requires at least one attribute flag.');
+      const patched = patchOne(text, 'footprint', operation, block => {
+        const changed = updateFootprintAttributes(block, operation);
+        return { text: changed.text, before: changed.before };
+      });
+      text = patched.text;
+      results.push(patched.result);
+      continue;
+    }
+    if (operation.kind === 'pcb_footprint_copper') {
+      if (operation.clearance === undefined && operation.zoneConnect === undefined) throw new Error('pcb_footprint_copper requires clearance and/or zoneConnect.');
+      if (operation.clearance !== undefined && (!Number.isFinite(operation.clearance) || operation.clearance < 0 || operation.clearance > 100)) throw new Error('KiCad footprint clearance must be in range 0..100 mm.');
+      if (operation.zoneConnect !== undefined && ![0, 1, 2, 3].includes(operation.zoneConnect)) throw new Error('KiCad footprint zoneConnect must be 0..3.');
+      const patched = patchOne(text, 'footprint', operation, block => {
+        let next = block;
+        const before: Record<string, string | undefined> = {};
+        if (operation.clearance !== undefined) { const changed = upsertScalarToken(next, 'clearance', operation.clearance); next = changed.text; before.clearance = changed.before; }
+        if (operation.zoneConnect !== undefined) { const changed = upsertScalarToken(next, 'zone_connect', operation.zoneConnect); next = changed.text; before.zoneConnect = changed.before; }
+        return { text: next, before: JSON.stringify(before) };
+      });
+      text = patched.text;
+      results.push(patched.result);
+      continue;
+    }
+    throw new Error('Unsupported KiCad PCB edit operation.');
   }
   return { text, results };
 }
@@ -191,6 +313,27 @@ function firstAt(block: string): { x: number; y: number; rotation?: number } | u
   };
 }
 
+function firstBooleanToken(block: string, token: 'in_bom' | 'on_board'): boolean | undefined {
+  const match = block.match(new RegExp('\\(' + token + '\\s+(yes|no)\\)', 'i'));
+  return match?.[1] ? match[1].toLowerCase() === 'yes' : undefined;
+}
+
+function firstScalarToken(block: string, token: 'clearance' | 'zone_connect'): number | undefined {
+  const match = block.match(new RegExp('\\(' + token + '\\s+(-?\\d+(?:\\.\\d+)?)\\)', 'i'));
+  return match?.[1] !== undefined ? Number(match[1]) : undefined;
+}
+
+function footprintAttributes(block: string) {
+  const match = block.match(/\(attr(?:\s+([^()\r\n]*))?\)/i);
+  const flags = new Set((match?.[1] ?? '').trim().split(/\s+/).filter(Boolean));
+  return {
+    boardOnly: flags.has('board_only'),
+    excludeFromBom: flags.has('exclude_from_bom'),
+    excludeFromPosFiles: flags.has('exclude_from_pos_files'),
+    type: flags.has('smd') ? 'smd' as const : flags.has('through_hole') ? 'through_hole' as const : undefined
+  };
+}
+
 export function inspectKicadDocument(source: string, extension: string, maxItems = 500) {
   if (Buffer.byteLength(source, 'utf8') > 32 * 1024 * 1024) throw new Error('KiCad source exceeds the 32 MiB inspection limit.');
   if (!Number.isInteger(maxItems) || maxItems < 1 || maxItems > 2000) throw new Error('KiCad edit inspection maxItems must be 1 to 2000.');
@@ -203,6 +346,9 @@ export function inspectKicadDocument(source: string, extension: string, maxItems
         reference: firstQuotedProperty(item.text, 'Reference') ?? item.text.match(/\(reference\s+"([^"]+)"\)/i)?.[1],
         value: firstQuotedProperty(item.text, 'Value'),
         footprint: firstQuotedProperty(item.text, 'Footprint'),
+        datasheet: firstQuotedProperty(item.text, 'Datasheet'),
+        inBom: firstBooleanToken(item.text, 'in_bom'),
+        onBoard: firstBooleanToken(item.text, 'on_board'),
         at: firstAt(item.text)
       }))
       .filter(item => item.uuid || item.reference);
@@ -214,7 +360,10 @@ export function inspectKicadDocument(source: string, extension: string, maxItems
         uuid: firstUuid(item.text),
         reference: firstQuotedProperty(item.text, 'Reference'),
         value: firstQuotedProperty(item.text, 'Value'),
-        at: firstAt(item.text)
+        at: firstAt(item.text),
+        attributes: footprintAttributes(item.text),
+        clearance: firstScalarToken(item.text, 'clearance'),
+        zoneConnect: firstScalarToken(item.text, 'zone_connect')
       }))
       .filter(item => item.uuid || item.reference);
     return { kind: 'board' as const, sha256: sha256Text(source), itemCount: all.length, items: all.slice(0, maxItems), truncated: all.length > maxItems };

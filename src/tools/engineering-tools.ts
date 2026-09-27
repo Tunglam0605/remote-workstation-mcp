@@ -511,9 +511,17 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     z.object({
       kind: z.literal('schematic_symbol_property'),
       ...kicadEditSelector,
-      property: z.enum(['Value', 'Footprint']),
+      property: z.enum(['Value', 'Footprint', 'Datasheet']),
       value: z.string().max(512)
     }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' }),
+    z.object({
+      kind: z.literal('schematic_symbol_flags'),
+      ...kicadEditSelector,
+      inBom: z.boolean().optional(),
+      onBoard: z.boolean().optional()
+    }).strict()
+      .refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' })
+      .refine(value => value.inBom !== undefined || value.onBoard !== undefined, { message: 'inBom and/or onBoard is required' }),
     z.object({
       kind: z.literal('pcb_footprint_property'),
       ...kicadEditSelector,
@@ -526,9 +534,32 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
       x: z.number().finite().min(-100000).max(100000),
       y: z.number().finite().min(-100000).max(100000),
       rotation: z.number().finite().min(-100000).max(100000).optional()
-    }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' })
+    }).strict().refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' }),
+    z.object({
+      kind: z.literal('pcb_footprint_attributes'),
+      ...kicadEditSelector,
+      boardOnly: z.boolean().optional(),
+      excludeFromBom: z.boolean().optional(),
+      excludeFromPosFiles: z.boolean().optional()
+    }).strict()
+      .refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' })
+      .refine(value => value.boardOnly !== undefined || value.excludeFromBom !== undefined || value.excludeFromPosFiles !== undefined, { message: 'at least one footprint attribute is required' }),
+    z.object({
+      kind: z.literal('pcb_footprint_copper'),
+      ...kicadEditSelector,
+      clearance: z.number().finite().min(0).max(100).optional(),
+      zoneConnect: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional()
+    }).strict()
+      .refine(value => Boolean(value.uuid || value.reference), { message: 'uuid or reference is required' })
+      .refine(value => value.clearance !== undefined || value.zoneConnect !== undefined, { message: 'clearance and/or zoneConnect is required' })
   ]);
 
+
+  server.registerTool('kicad_ipc_status', {
+    description: 'Inspect readiness for the official KiCad IPC API and kicad-python (kipy) without modifying a design. Reports KiCad version support, Python/package availability, GUI-vs-headless requirements, live connection state, and whether a PCB is open.',
+    inputSchema: kicadProject,
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'kicad_ipc_status', workspace, () => ctx.engineering.kicad.ipcStatus(workspace, projectPath))));
 
   server.registerTool('kicad_provider_status', {
     description: 'Inspect the resolved KiCad CLI provider/version without modifying project files.',

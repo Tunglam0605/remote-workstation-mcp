@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.57.0 - channel=stable - Action Schema 29 - Engineering API 5** - adds **KiCad Editing Phase 2 + official IPC readiness**. Transactional edits now include schematic `Datasheet`, `in_bom`/`on_board`, PCB footprint manufacturing attributes (`board_only`, `exclude_from_bom`, `exclude_from_pos_files`) and footprint-level `clearance` / `zone_connect`, while retaining v0.56 SHA-256 concurrency, Work Session ownership, per-file leases, same-directory ERC/DRC acceptance, backup and atomic commit. `kicad_ipc_status` probes official `kicad-python`/`kipy` readiness without modifying designs and reports GUI/headless prerequisites. Raw `.kicad_dru`, arbitrary S-expression/scripts, track/via/zone mutation and autorouting remain unavailable.
+**Stable release: v0.58.0 - channel=stable - Action Schema 30 - Engineering API 5** - adds **KiCad IPC Live Control Phase 3**. `kicad_ipc_board_inspect` reads the active PCB through official `kicad-python`/`kipy` only when that live board resolves to the explicitly authorized project file, returning a SHA-256 live-board fingerprint plus bounded footprint metadata. `kicad_ipc_footprint_move` requires a Work Session and exact fingerprint, performs one typed footprint move/rotation as a KiCad undo commit, validates before/after PCB snapshots with DRC, restores the prior pose on regression, and intentionally leaves the board unsaved. RWMCP prefers its isolated owner-local `kicad-python` provider environment. Raw IPC commands/scripts, implicit save, raw `.kicad_dru`, track/via/zone mutation and autorouting remain unavailable.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -511,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.57.0.tgz`
+- `remote-workstation-mcp-v0.58.0.tgz`
 - `SHA256SUMS.txt`
 
 

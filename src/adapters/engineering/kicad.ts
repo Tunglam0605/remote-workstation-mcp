@@ -131,6 +131,33 @@ function summarizeErc(value: unknown) {
   };
 }
 
+async function discoverKicadPythonProvider(): Promise<string | undefined> {
+  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+    const candidate = path.join(process.env.LOCALAPPDATA, 'RemoteWorkstationMCP', 'providers', 'kicad-python', 'venv', 'Scripts', 'python.exe');
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isFile()) return candidate;
+    } catch {
+      // Fall through to normal executable discovery.
+    }
+  }
+  return (await resolveFirstExecutable(['python3', 'python', 'python.exe']))?.path;
+}
+
+function parseBoundedJsonResult(result: { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }, label: string): JsonRecord {
+  if (result.timedOut) throw new Error(label + ' timed out.');
+  let parsed: JsonRecord = {};
+  try {
+    parsed = asRecord(JSON.parse(result.stdout.trim() || '{}'));
+  } catch {
+    throw new Error(label + ' returned invalid JSON: ' + (result.stderr || result.stdout).slice(-1024));
+  }
+  if (result.exitCode !== 0 || parsed.state === 'error') {
+    throw new Error(typeof parsed.error === 'string' ? parsed.error : label + ' failed.');
+  }
+  return parsed;
+}
+
 async function readJsonBounded(file: string): Promise<unknown> {
   const stat = await fs.stat(file);
   if (!stat.isFile()) throw new Error('KiCad report output is not a regular file.');
@@ -305,8 +332,8 @@ export class KicadAdapter {
     }
     const cliVersion = (cliVersionResult.stdout.trim() || cliVersionResult.stderr.trim()).slice(0, 160);
     const major = Number(cliVersion.match(/(\d+)(?:\.\d+)?/)?.[1] ?? 0);
-    const python = await resolveFirstExecutable(['python3', 'python', 'python.exe', 'py.exe']);
-    if (!python) {
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) {
       return {
         provider: 'kicad-ipc',
         cliVersion,
@@ -320,7 +347,7 @@ export class KicadAdapter {
       };
     }
     const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_probe.py', import.meta.url));
-    const probe = await this.runner.run(python.path, [script], cwd, 5_000);
+    const probe = await this.runner.run(pythonPath, [script], cwd, 5_000);
     let parsed: Record<string, unknown> = {};
     try {
       parsed = asRecord(JSON.parse(probe.stdout.trim() || '{}'));
@@ -334,10 +361,11 @@ export class KicadAdapter {
       guiRequired: major >= 9 && major <= 10,
       headlessApiSupported: major >= 11,
       pythonAvailable: true,
-      pythonExecutable: python.path,
+      pythonExecutable: pythonPath,
       probeExitCode: probe.exitCode,
       probeTimedOut: probe.timedOut,
       packageAvailable: parsed.packageAvailable === true,
+      ...(typeof parsed.packageVersion === 'string' ? { packageVersion: parsed.packageVersion } : {}),
       connected: parsed.connected === true,
       socketConfigured: parsed.socketConfigured === true,
       tokenConfigured: parsed.tokenConfigured === true,
@@ -346,6 +374,76 @@ export class KicadAdapter {
       ...(typeof parsed.boardName === 'string' && parsed.boardName ? { boardName: parsed.boardName } : {}),
       ...(typeof parsed.reason === 'string' && parsed.reason ? { reason: parsed.reason } : {})
     };
+  }
+
+  async ipcBoardInspect(workspace: string, projectPath: string, board: string, maxItems = 500) {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad live IPC board');
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) throw new Error('KICAD_IPC_PROVIDER_UNAVAILABLE: Python provider was not found.');
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_live.py', import.meta.url));
+    const result = await this.runner.run(
+      pythonPath,
+      [script, '--action', 'inspect', '--board-path', boardPath, '--max-items', String(Math.max(1, Math.min(maxItems, 2000)))],
+      cwd,
+      8_000
+    );
+    const parsed = parseBoundedJsonResult(result, 'KiCad IPC board inspection');
+    const footprints = Array.isArray(parsed.footprints) ? parsed.footprints.slice(0, 2000) : [];
+    return {
+      provider: 'kicad-ipc',
+      board,
+      boardPath: typeof parsed.boardPath === 'string' ? parsed.boardPath : boardPath,
+      boardSha256: typeof parsed.boardSha256 === 'string' ? parsed.boardSha256 : undefined,
+      footprintCount: typeof parsed.footprintCount === 'number' ? parsed.footprintCount : footprints.length,
+      footprints,
+      truncated: parsed.truncated === true
+    };
+  }
+
+  async ipcFootprintMove(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    selector: { uuid?: string; reference?: string },
+    xMm: number,
+    yMm: number,
+    rotationDeg?: number
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(expectedBoardSha256)) throw new Error('KiCad live IPC expectedBoardSha256 must be a SHA-256 digest.');
+    if (!selector.uuid && !selector.reference) throw new Error('KiCad live IPC footprint move requires uuid or reference.');
+    for (const value of [xMm, yMm, rotationDeg].filter((item): item is number => item !== undefined)) {
+      if (!Number.isFinite(value) || Math.abs(value) > 100000) throw new Error('KiCad live IPC placement value is out of range.');
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad live IPC board');
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) throw new Error('KICAD_IPC_PROVIDER_UNAVAILABLE: Python provider was not found.');
+    const cli = await discoverKicadCli();
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_live.py', import.meta.url));
+    const args = [
+      script,
+      '--action', 'move',
+      '--board-path', boardPath,
+      '--kicad-cli', cli.path,
+      '--expected-sha', expectedBoardSha256,
+      ...(selector.uuid ? ['--uuid', selector.uuid] : []),
+      ...(selector.reference ? ['--reference', selector.reference] : []),
+      '--x-mm', String(xMm),
+      '--y-mm', String(yMm),
+      ...(rotationDeg !== undefined ? ['--rotation-deg', String(rotationDeg)] : [])
+    ];
+    const execute = async () => {
+      const result = await this.runner.run(pythonPath, args, cwd, 45_000);
+      return parseBoundedJsonResult(result, 'KiCad IPC footprint move');
+    };
+    return this.resources
+      ? await this.resources.withLease('kicad-ipc-board:' + boardPath, 'orchestrating', execute)
+      : await execute();
   }
 
   async version(workspace: string, projectPath = '.') {

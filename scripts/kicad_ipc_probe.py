@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import importlib.util
+import importlib.metadata
 import json
 import os
 import sys
 
+package_available = importlib.util.find_spec("kipy") is not None
 result = {
     "schemaVersion": 1,
-    "packageAvailable": importlib.util.find_spec("kipy") is not None,
+    "packageAvailable": package_available,
+    "packageVersion": importlib.metadata.version("kicad-python") if package_available else None,
     "connected": False,
     "socketConfigured": bool(os.environ.get("KICAD_API_SOCKET")),
     "tokenConfigured": bool(os.environ.get("KICAD_API_TOKEN")),

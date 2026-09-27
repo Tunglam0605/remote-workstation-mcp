@@ -2,6 +2,19 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.58.0 - KiCad IPC Live Control Phase 3
+
+- standardize an isolated owner-local `kicad-python` 0.8.0 provider environment on the Windows production node instead of mutating global/Espressif Python;
+- make `kicad_ipc_status` prefer the isolated provider and continue to fail closed when the KiCad API server is unavailable;
+- add `kicad_ipc_board_inspect` for official live-board inspection with strict authorized board-path matching, SHA-256 live fingerprint and bounded footprint UUID/reference/value/position/rotation metadata;
+- add `kicad_ipc_footprint_move` for one typed live footprint move/rotation selected by UUID/reference;
+- require Work Session ownership, exact live board fingerprint, unlocked target footprint and a per-board resource lease for live mutation;
+- use official kipy `begin_commit` / `update_items` / `push_commit` so an accepted edit is one KiCad undo step;
+- validate DRC on before/after live-board snapshots and restore the previous pose through a compensating KiCad commit if active errors, unconnected items or parity findings regress;
+- leave the live PCB intentionally unsaved so RWMCP never overwrites unrelated user edits implicitly;
+- keep raw IPC commands/scripts, implicit save, track/via/zone mutation, autorouting and raw `.kicad_dru` editing unavailable;
+- advance Action Schema to 30 for the two new public IPC tools; Engineering API remains 5.
+
 ## v0.57.0 - KiCad Editing Phase 2 + IPC Readiness
 
 - extend typed schematic edits with `Datasheet` plus explicit `in_bom` / `on_board` flags;

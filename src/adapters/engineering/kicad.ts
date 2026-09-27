@@ -573,6 +573,125 @@ export class KicadAdapter {
       : await execute();
   }
 
+  async ipcRoutingInspect(workspace: string, projectPath: string, board: string, maxItems = 1000) {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad live IPC board');
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) throw new Error('KICAD_IPC_PROVIDER_UNAVAILABLE: Python provider was not found.');
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_routing.py', import.meta.url));
+    const result = await this.runner.run(
+      pythonPath,
+      [script, '--action', 'inspect', '--board-path', boardPath, '--max-items', String(Math.max(1, Math.min(maxItems, 2000)))],
+      cwd,
+      10_000
+    );
+    return parseBoundedJsonResult(result, 'KiCad IPC routing inspection');
+  }
+
+  async ipcTrackAdd(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    payload: {
+      netName: string;
+      layerName: string;
+      start: { xMm: number; yMm: number };
+      end: { xMm: number; yMm: number };
+      widthMm: number;
+      locked?: boolean;
+    }
+  ) {
+    return await this.ipcRoutingMutation(workspace, projectPath, board, expectedBoardSha256, 'track-add', payload, 'KiCad IPC track add');
+  }
+
+  async ipcTrackUpdate(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    payload: {
+      uuid: string;
+      netName?: string;
+      layerName?: string;
+      start?: { xMm: number; yMm: number };
+      end?: { xMm: number; yMm: number };
+      widthMm?: number;
+      locked?: boolean;
+    }
+  ) {
+    return await this.ipcRoutingMutation(workspace, projectPath, board, expectedBoardSha256, 'track-update', payload, 'KiCad IPC track update');
+  }
+
+  async ipcViaAdd(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    payload: {
+      netName: string;
+      position: { xMm: number; yMm: number };
+      diameterMm: number;
+      drillMm: number;
+      locked?: boolean;
+    }
+  ) {
+    return await this.ipcRoutingMutation(workspace, projectPath, board, expectedBoardSha256, 'via-add', payload, 'KiCad IPC via add');
+  }
+
+  async ipcViaUpdate(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    payload: {
+      uuid: string;
+      netName?: string;
+      position?: { xMm: number; yMm: number };
+      diameterMm?: number;
+      drillMm?: number;
+      locked?: boolean;
+    }
+  ) {
+    return await this.ipcRoutingMutation(workspace, projectPath, board, expectedBoardSha256, 'via-update', payload, 'KiCad IPC via update');
+  }
+
+  private async ipcRoutingMutation(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    expectedBoardSha256: string,
+    action: 'track-add' | 'track-update' | 'via-add' | 'via-update',
+    payload: Record<string, unknown>,
+    label: string
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(expectedBoardSha256)) throw new Error('KiCad live IPC expectedBoardSha256 must be a SHA-256 digest.');
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad live IPC board');
+    const pythonPath = await discoverKicadPythonProvider();
+    if (!pythonPath) throw new Error('KICAD_IPC_PROVIDER_UNAVAILABLE: Python provider was not found.');
+    const cli = await discoverKicadCli();
+    const script = fileURLToPath(new URL('../../../scripts/kicad_ipc_routing.py', import.meta.url));
+    const args = [
+      script,
+      '--action', action,
+      '--board-path', boardPath,
+      '--kicad-cli', cli.path,
+      '--expected-sha', expectedBoardSha256,
+      '--payload-b64', Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
+    ];
+    const execute = async () => {
+      const result = await this.runner.run(pythonPath, args, cwd, 60_000);
+      return parseBoundedJsonResult(result, label);
+    };
+    return this.resources
+      ? await this.resources.withLease('kicad-ipc-board:' + boardPath, 'orchestrating', execute)
+      : await execute();
+  }
+
   async version(workspace: string, projectPath = '.') {
     this.policy.assertEngineeringEnabled();
     const cwd = await this.paths.resolveExisting(workspace, projectPath);

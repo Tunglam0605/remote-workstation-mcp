@@ -1,5 +1,15 @@
 # Roadmap
 
+## v0.64.0 - ESP32 / ESP-IDF Ubuntu Tooling Hardening
+
+- add typed `esp32_preflight` for bounded SDK, target, build-metadata and serial-device readiness checks before flash;
+- bind projects to an explicit `firmware.espIdfPath` when multiple ESP-IDF installations coexist and fail closed instead of picking an SDK implicitly;
+- preserve ESP-IDF build provenance through `idf_path` metadata and warn when configured SDK and an existing build directory disagree;
+- honor the project build directory for build, size analysis and flash, including stable serial-device selection for ESP-IDF flash;
+- fix the packaged Linux ESP-IDF activation helper so BOM and sourced-environment variable collisions cannot break `idf.py` execution;
+- keep eFuse writes, key burning, erase-flash, arbitrary esptool flags and raw ROM commands outside the public surface;
+- advance Action Schema to 36 for `esp32_preflight` and expanded typed ESP-IDF inputs; Engineering API remains 5.
+
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
 ## v0.63.0 - Typed Network Diagnostics Phase 1

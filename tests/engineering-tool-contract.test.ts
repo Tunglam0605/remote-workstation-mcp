@@ -36,7 +36,7 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const capabilities = await read('src/capabilities.ts');
   assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 36;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.63\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.64\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');

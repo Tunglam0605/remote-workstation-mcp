@@ -591,6 +591,24 @@ export class FirmwareAdapter {
       buildBlockers.push(message);
       flashBlockers.push(message);
     }
+
+    const metadataIdfPath = typeof diagnostics.buildMetadata.project?.idfPath === 'string'
+      ? diagnostics.buildMetadata.project.idfPath
+      : undefined;
+    if (options.espIdfPath && metadataIdfPath && path.resolve(options.espIdfPath) !== path.resolve(metadataIdfPath)) {
+      flashBlockers.push(
+        `Existing build metadata was produced by a different ESP-IDF root (build=${path.resolve(metadataIdfPath)}, selected=${path.resolve(options.espIdfPath)}). Rebuild/reconfigure with the selected SDK before flashing.`
+      );
+    }
+    const metadataTarget = typeof diagnostics.buildMetadata.project?.target === 'string'
+      ? diagnostics.buildMetadata.project.target
+      : undefined;
+    if (diagnostics.project.target && metadataTarget && metadataTarget !== diagnostics.project.target) {
+      flashBlockers.push(
+        `Existing build metadata target '${metadataTarget}' does not match detected project target '${diagnostics.project.target}'. Rebuild/reconfigure before flashing.`
+      );
+    }
+
     if (diagnostics.buildMetadata.config?.secureBootEnabled) {
       warnings.push('Secure Boot is enabled in build metadata; key/eFuse mutation remains intentionally unavailable.');
     }

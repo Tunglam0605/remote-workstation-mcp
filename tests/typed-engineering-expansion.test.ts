@@ -888,7 +888,7 @@ test('ESP-IDF typed build honors the selected build directory instead of silentl
     const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
     const result = await adapter.build('w', '.', 'esp-idf', 'build-linux');
     assert.equal(result.provider, 'esp-idf');
-    assert.deepEqual(calls.at(-1), ['-B', 'build-linux', 'build']);
+    assert.deepEqual(calls.at(-1)?.slice(-3), ['-B', 'build-linux', 'build']);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

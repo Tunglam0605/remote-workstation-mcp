@@ -916,6 +916,16 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
       'project(stable_flash_fixture)'
     ].join('\n'));
     await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+    const build = path.join(root, 'build-linux');
+    await fs.mkdir(build, { recursive: true });
+    await fs.writeFile(path.join(build, 'project_description.json'), JSON.stringify({
+      project_name: 'stable_flash_fixture',
+      target: 'esp32s3'
+    }));
+    await fs.writeFile(path.join(build, 'flasher_args.json'), JSON.stringify({
+      flash_files: { '0x10000': 'app.bin' }
+    }));
+    await fs.writeFile(path.join(build, 'app.bin'), Buffer.from([1, 2, 3, 4]));
     await fakeExecutable(bin, 'idf.py');
     await fakeExecutable(bin, 'python');
     process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;

@@ -493,6 +493,29 @@ export class EngineeringWorkflowEngine {
     return this.profiles.write(workspace, projectPath, profile, options.overwrite ?? false);
   }
 
+
+  async esp32Preflight(
+    workspace: string,
+    projectPath = '.',
+    overrides: {
+      buildDir?: string;
+      espIdfPath?: string;
+      port?: string;
+      portSelector?: SerialDeviceSelector;
+    } = {}
+  ) {
+    const state = await this.state(workspace, projectPath);
+    const fw = this.effectiveFirmware(state.profile.firmware).config;
+    return this.firmware.esp32Preflight({
+      workspace,
+      projectPath,
+      buildDir: overrides.buildDir ?? fw.buildDir ?? 'build',
+      espIdfPath: overrides.espIdfPath ?? fw.espIdfPath,
+      port: overrides.port ?? fw.port,
+      portSelector: overrides.portSelector ?? fw.portSelector
+    });
+  }
+
   private workflowIds(state: ProjectState): EngineeringWorkflowId[] {
     const ids: EngineeringWorkflowId[] = [
       'platform.transfer_prepare',

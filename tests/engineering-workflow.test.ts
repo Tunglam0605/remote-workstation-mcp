@@ -1101,6 +1101,72 @@ test('Keil warning exit code 1 succeeds while error exit code 2 fails', async ()
   }
 });
 
+test('ESP-IDF profile persists bounded environment provenance and exposes maintenance through the frozen workflow envelope', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'esp32', framework: 'esp-idf',
+    target: 'esp32s3', buildSystem: 'idf.py', markers: ['CMakeLists.txt', 'sdkconfig'], ros2: false, docker: false
+  };
+  const f = await fixture(project);
+  try {
+    const sdkRoot = path.join(f.root, 'esp', 'esp-idf-t500');
+    const pythonEnvPath = path.join(f.root, '.espressif', 'python_env', 'idf6.1_py3.11_env');
+    const compilerPath = path.join(f.root, '.espressif', 'tools', 'xtensa-esp-elf', 'bin', 'xtensa-esp32s3-elf-gcc');
+    const written = await f.engine.initProfile('w', 'project', {
+      profile: {
+        version: 1,
+        id: 'esp32-s3-t500',
+        kind: 'esp-idf',
+        firmware: {
+          buildProvider: 'esp-idf',
+          buildDir: 'build-ready4',
+          espIdfPath: sdkRoot,
+          espIdfEnvironment: {
+            pythonEnvPath,
+            skipCheckSubmodules: true,
+            expectedPythonVersion: '3.11',
+            expectedCompilerPath: compilerPath,
+            expectedCompilerVersion: '15.2.0'
+          }
+        }
+      }
+    });
+    assert.equal(written.profile.firmware?.espIdfEnvironment?.pythonEnvPath, pythonEnvPath);
+    assert.equal(written.profile.firmware?.espIdfEnvironment?.skipCheckSubmodules, true);
+    assert.equal(written.profile.firmware?.espIdfEnvironment?.expectedCompilerVersion, '15.2.0');
+
+    const listed = await f.engine.list('w', 'project');
+    const workflows = new Map(listed.workflows.map(item => [item.id, item]));
+    assert.equal(workflows.get('espidf.preflight')?.destructive, false);
+    assert.equal(workflows.get('espidf.fullclean')?.destructive, true);
+    assert.equal(workflows.get('espidf.reconfigure')?.destructive, false);
+
+    const plan = await f.engine.plan('w', 'project', 'espidf.preflight');
+    assert.deepEqual(plan.steps, ['espidf.preflight']);
+    assert.equal((plan as any).resolved.firmware.buildDir, 'build-ready4');
+    assert.equal((plan as any).resolved.firmware.espIdfEnvironment.pythonEnvPath, pythonEnvPath);
+    assert.equal((plan as any).resolved.firmware.espIdfEnvironment.expectedCompilerPath, compilerPath);
+
+    await assert.rejects(
+      () => f.engine.initProfile('w', 'project', {
+        profile: {
+          version: 1,
+          id: 'unsafe-env',
+          kind: 'esp-idf',
+          firmware: {
+            buildProvider: 'esp-idf',
+            espIdfPath: sdkRoot,
+            espIdfEnvironment: { pythonEnvPath: '../venv' }
+          }
+        },
+        overwrite: true
+      }),
+      /pythonEnvPath must be an absolute host path/i
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('generic versioned profile payload is validated and persisted for frozen action schemas', async () => {
   const project: FirmwareProjectInfo = {
     workspace: 'w', projectPath: 'project', family: 'stm32', framework: 'keil-mdk',

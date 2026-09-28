@@ -46,8 +46,11 @@ export type EngineeringWorkflowId =
   | 'firmware.artifact_accept'
   | 'firmware.artifact_receive_offer'
   | 'firmware.artifact_push'
+  | 'espidf.preflight'
   | 'espidf.diagnostics'
   | 'espidf.size_analysis'
+  | 'espidf.fullclean'
+  | 'espidf.reconfigure'
   | 'platformio.diagnostics'
   | 'platformio.build'
   | 'platformio.upload'
@@ -384,6 +387,9 @@ export class EngineeringWorkflowEngine {
       config: {
         ...base,
         ...(selected ?? {}),
+        espIdfEnvironment: selected?.espIdfEnvironment
+          ? { ...(base.espIdfEnvironment ?? {}), ...selected.espIdfEnvironment }
+          : base.espIdfEnvironment,
         ...(overrides.keilProject ? { keilProject: overrides.keilProject } : {}),
         ...(overrides.keilTarget ? { keilTarget: overrides.keilTarget } : {})
       }
@@ -464,6 +470,9 @@ export class EngineeringWorkflowEngine {
       ? {
           ...(base.firmware ?? {}),
           ...options.firmware,
+          espIdfEnvironment: options.firmware.espIdfEnvironment
+            ? { ...(base.firmware?.espIdfEnvironment ?? {}), ...options.firmware.espIdfEnvironment }
+            : base.firmware?.espIdfEnvironment,
           monitor: options.firmware.monitor
             ? { ...(base.firmware?.monitor ?? {}), ...options.firmware.monitor }
             : base.firmware?.monitor
@@ -511,6 +520,7 @@ export class EngineeringWorkflowEngine {
       projectPath,
       buildDir: overrides.buildDir ?? fw.buildDir ?? 'build',
       espIdfPath: overrides.espIdfPath ?? fw.espIdfPath,
+      espIdfEnvironment: fw.espIdfEnvironment,
       port: overrides.port ?? fw.port,
       portSelector: overrides.portSelector ?? fw.portSelector
     });
@@ -542,7 +552,7 @@ export class EngineeringWorkflowEngine {
         ids.push('firmware.build_flash_monitor_expect');
       }
       if (state.project.family === 'esp32' || state.profile.kind === 'esp-idf') {
-        ids.push('espidf.diagnostics');
+        ids.push('espidf.preflight', 'espidf.diagnostics', 'espidf.fullclean', 'espidf.reconfigure');
         if (state.project.framework === 'esp-idf' || state.profile.kind === 'esp-idf') ids.push('espidf.size_analysis');
       }
     }
@@ -574,6 +584,7 @@ export class EngineeringWorkflowEngine {
           id === 'platform.relay_finalize' ||
           id === 'platform.relay_abort' ||
           id.startsWith('firmware.build_flash') ||
+          id === 'espidf.fullclean' ||
           id === 'platformio.upload' ||
           id === 'stm32.debug_fault_snapshot' ||
           id === 'stm32.deep_diagnostics' ||
@@ -596,8 +607,11 @@ export class EngineeringWorkflowEngine {
           'firmware.artifact_accept': 'Verify a staged firmware artifact against an expected SHA-256/size and atomically promote it into the project verified store.',
           'firmware.artifact_receive_offer': 'Create one short-lived, one-shot Tailscale receive ticket for a known SHA-256/size and atomically accept only matching bytes.',
           'firmware.artifact_push': 'Stream one verified local firmware artifact directly to a Tailscale peer receive ticket without routing payload bytes through ChatGPT.',
-          'espidf.diagnostics': 'Inspect ESP-IDF provider/version, project metadata, firmware artifacts and discovered serial ports without flashing.',
+          'espidf.preflight': 'Validate ESP-IDF SDK, Python environment, compiler/build provenance, target, serial identity and flash manifest before build or flash without mutating hardware.',
+          'espidf.diagnostics': 'Inspect ESP-IDF provider/version, Python/toolchain provenance, project metadata, firmware artifacts and discovered serial ports without flashing.',
           'espidf.size_analysis': 'Collect official ESP-IDF JSON size, component and file memory analysis without flashing or changing project configuration.',
+          'espidf.fullclean': 'Run the bounded ESP-IDF fullclean action for the configured project-local build directory under the shared build lease.',
+          'espidf.reconfigure': 'Run the bounded ESP-IDF reconfigure action for the configured project-local build directory and selected SDK environment under the shared build lease.',
           'platformio.diagnostics': 'Inspect PlatformIO Core version, project metadata, computed-config lint, system info and serial device inventory through official JSON outputs without build/upload mutation.',
           'platformio.build': 'Build exactly one validated PlatformIO environment through the official pio run environment contract.',
           'platformio.upload': 'Build/upload exactly one validated PlatformIO environment to one explicit or stable-selector-resolved upload port under a hardware resource lease.',
@@ -934,17 +948,34 @@ export class EngineeringWorkflowEngine {
     const state = await this.state(workspace, projectPath);
     if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
 
-    if (workflow === 'espidf.diagnostics' || workflow === 'espidf.size_analysis') {
+    if (workflow.startsWith('espidf.')) {
+      const effective = this.effectiveFirmware(state.profile.firmware, overrides);
+      const fw = effective.config;
+      const steps = workflow === 'espidf.size_analysis'
+        ? ['espidf.size.json', 'espidf.size-components.json', 'espidf.size-files.json']
+        : workflow === 'espidf.preflight'
+          ? ['espidf.preflight']
+          : workflow === 'espidf.fullclean'
+            ? ['espidf.fullclean']
+            : workflow === 'espidf.reconfigure'
+              ? ['espidf.reconfigure']
+              : ['espidf.project.inspect', 'espidf.provider.version', 'espidf.environment.provenance', 'espidf.targets.list', 'espidf.build_metadata.read', 'espidf.compiler.provenance', 'espidf.artifacts.list', 'hardware.serial.list'];
       return {
         workflow,
         profileFound: state.profileFound,
         manifestPath: state.manifestPath,
         project: state.project,
         profile: state.profile,
-        steps: workflow === 'espidf.size_analysis'
-          ? ['espidf.size.json', 'espidf.size-components.json', 'espidf.size-files.json']
-          : ['espidf.project.inspect', 'espidf.provider.version', 'espidf.targets.list', 'espidf.build_metadata.read', 'espidf.artifacts.list', 'hardware.serial.list'],
-        resolved: { firmware: { provider: 'esp-idf', buildDir: state.profile.firmware?.buildDir ?? 'build' } }
+        steps,
+        resolved: {
+          firmware: {
+            provider: 'esp-idf',
+            variant: effective.variant,
+            buildDir: fw.buildDir ?? 'build',
+            espIdfPath: fw.espIdfPath,
+            espIdfEnvironment: fw.espIdfEnvironment
+          }
+        }
       };
     }
 
@@ -1699,21 +1730,61 @@ export class EngineeringWorkflowEngine {
     const plan = await this.plan(workspace, projectPath, workflow, overrides);
     const state = await this.state(workspace, projectPath);
 
-    if (workflow === 'espidf.diagnostics' || workflow === 'espidf.size_analysis') {
+    if (workflow.startsWith('espidf.')) {
+      const fw = this.effectiveFirmware(state.profile.firmware, overrides).config;
+      const buildDir = fw.buildDir ?? 'build';
+      if (workflow === 'espidf.preflight') {
+        const preflight = await capture('espidf.preflight', () => this.firmware.esp32Preflight({
+          workspace,
+          projectPath,
+          buildDir,
+          espIdfPath: fw.espIdfPath,
+          espIdfEnvironment: fw.espIdfEnvironment,
+          port: overrides.port ?? fw.port,
+          portSelector: fw.portSelector
+        }));
+        return {
+          workflow,
+          status: preflight.ok ? 'succeeded' : 'failed',
+          plan,
+          steps,
+          ...(preflight.ok ? { outputs: { preflight: preflight.value } } : {})
+        };
+      }
+      if (workflow === 'espidf.fullclean' || workflow === 'espidf.reconfigure') {
+        const action = workflow === 'espidf.fullclean' ? 'fullclean' : 'reconfigure';
+        const maintenance = await capture(workflow, () => this.firmware.espIdfMaintenance(
+          workspace,
+          projectPath,
+          action,
+          buildDir,
+          fw.espIdfPath,
+          fw.espIdfEnvironment
+        ));
+        return {
+          workflow,
+          status: maintenance.ok && maintenance.value.result.exitCode === 0 && !maintenance.value.result.timedOut ? 'succeeded' : 'failed',
+          plan,
+          steps,
+          ...(maintenance.ok ? { outputs: { maintenance: maintenance.value } } : {})
+        };
+      }
       const diagnostics = await capture<unknown>(
         workflow,
         () => workflow === 'espidf.size_analysis'
           ? this.firmware.espIdfSizeAnalysis(
               workspace,
               projectPath,
-              state.profile.firmware?.buildDir ?? 'build',
-              state.profile.firmware?.espIdfPath
+              buildDir,
+              fw.espIdfPath,
+              fw.espIdfEnvironment
             )
           : this.firmware.espIdfDiagnostics(
               workspace,
               projectPath,
-              state.profile.firmware?.buildDir ?? 'build',
-              state.profile.firmware?.espIdfPath
+              buildDir,
+              fw.espIdfPath,
+              fw.espIdfEnvironment
             )
       );
       return {
@@ -2046,7 +2117,8 @@ export class EngineeringWorkflowEngine {
         fw.buildDir ?? 'build',
         fw.keilProject,
         fw.keilTarget,
-        fw.espIdfPath
+        fw.espIdfPath,
+        fw.espIdfEnvironment
       ));
       if (!build.ok) return { workflow, status: 'failed', plan, steps };
       if (!successfulBuild(build.value.provider, build.value.result)) {
@@ -2307,7 +2379,8 @@ export class EngineeringWorkflowEngine {
         fw.buildDir ?? 'build',
         fw.keilProject,
         fw.keilTarget,
-        fw.espIdfPath
+        fw.espIdfPath,
+        fw.espIdfEnvironment
       ));
       if (!build.ok) return { workflow, status: 'failed', plan, steps };
       if (!successfulBuild(build.value.provider, build.value.result)) {
@@ -2340,6 +2413,7 @@ export class EngineeringWorkflowEngine {
         port: portResolution.port,
         buildDir: fw.buildDir ?? 'build',
         espIdfPath: fw.espIdfPath,
+        espIdfEnvironment: fw.espIdfEnvironment,
         probeSerial: overrides.probeSerial ?? fw.probeSerial,
         targetConfig: overrides.targetConfig ?? fw.targetConfig,
         adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz

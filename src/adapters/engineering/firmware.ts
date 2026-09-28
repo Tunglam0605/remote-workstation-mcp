@@ -10,6 +10,7 @@ import { PathGuard } from '../../security/path-guard.js';
 import { FirmwareArtifactFinder } from './artifact-finder.js';
 import { EngineeringCommandRunner } from './command-runner.js';
 import { readEspIdfBuildMetadata } from './esp-idf-metadata.js';
+import type { EspIdfEnvironmentProfile } from './project-profile.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import { validateOpenOcdTargetConfig, validateProbeSerial } from './openocd-policy.js';
@@ -56,6 +57,26 @@ function validateEspIdfBuildDir(value: string): string {
   const normalized = path.normalize(buildDir);
   if (normalized === '.' || normalized === '') throw new Error('ESP-IDF buildDir must name a project-local build directory.');
   return normalized;
+}
+
+async function assertEspIdfBuildDirContained(projectRoot: string, value: string): Promise<string> {
+  const buildDir = validateEspIdfBuildDir(value);
+  const canonicalProjectRoot = await fs.realpath(projectRoot);
+  let probe = path.resolve(projectRoot, buildDir);
+  while (true) {
+    try {
+      const canonicalProbe = await fs.realpath(probe);
+      if (!pathInside(canonicalProjectRoot, canonicalProbe)) {
+        throw new Error('ESP-IDF buildDir resolves through a symlink outside the selected project root.');
+      }
+      return buildDir;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = path.dirname(probe);
+      if (parent === probe) throw error;
+      probe = parent;
+    }
+  }
 }
 
 type EspIdfRootSource = 'explicit' | 'build-metadata' | 'owner-override' | 'path' | 'known-install';
@@ -136,6 +157,69 @@ function helperPath(name: string): string {
   return path.resolve(here, '../../../scripts', name);
 }
 
+function validateEspIdfEnvironment(environment?: EspIdfEnvironmentProfile): EspIdfEnvironmentProfile | undefined {
+  if (!environment) return undefined;
+  const validateAbsolute = (value: string | undefined, label: string) => {
+    if (!value) return;
+    if (!path.isAbsolute(value) || /[\0\r\n]/.test(value)) throw new Error(`${label} must be an absolute host path without control characters.`);
+  };
+  const validateVersion = (value: string | undefined, label: string) => {
+    if (!value) return;
+    if (value.length > 128 || /[\0\r\n]/.test(value)) throw new Error(`${label} must be a bounded version string without control characters.`);
+  };
+  validateAbsolute(environment.pythonEnvPath, 'ESP-IDF pythonEnvPath');
+  validateAbsolute(environment.expectedCompilerPath, 'ESP-IDF expectedCompilerPath');
+  validateVersion(environment.expectedPythonVersion, 'ESP-IDF expectedPythonVersion');
+  validateVersion(environment.expectedCompilerVersion, 'ESP-IDF expectedCompilerVersion');
+  return { ...environment };
+}
+
+function espIdfHelperEnvironmentArgs(environment?: EspIdfEnvironmentProfile): string[] {
+  const validated = validateEspIdfEnvironment(environment);
+  if (!validated) return [];
+  return [
+    ...(validated.pythonEnvPath ? ['--rwmcp-python-env-path', validated.pythonEnvPath] : []),
+    ...(validated.skipCheckSubmodules !== undefined ? ['--rwmcp-skip-check-submodules', validated.skipCheckSubmodules ? '1' : '0'] : [])
+  ];
+}
+
+export interface EspIdfRuntimeProvenance {
+  pythonExecutable?: string;
+  pythonVersion?: string;
+  pythonEnvPath?: string;
+  idfPath?: string;
+  idfToolsPath?: string;
+  skipCheckSubmodules?: boolean;
+}
+
+function parseEspIdfRuntimeProvenance(output: string): EspIdfRuntimeProvenance {
+  const line = output.split(/\r?\n/).map(item => item.trim()).filter(Boolean).at(-1);
+  if (!line) throw new Error('ESP-IDF environment provenance probe returned no JSON output.');
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    throw new Error('ESP-IDF environment provenance probe returned invalid JSON.');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('ESP-IDF environment provenance probe returned a non-object payload.');
+  }
+  const record = value as Record<string, unknown>;
+  const stringValue = (key: string) => typeof record[key] === 'string' && record[key] ? record[key] as string : undefined;
+  return {
+    pythonExecutable: stringValue('pythonExecutable'),
+    pythonVersion: stringValue('pythonVersion'),
+    pythonEnvPath: stringValue('pythonEnvPath'),
+    idfPath: stringValue('idfPath'),
+    idfToolsPath: stringValue('idfToolsPath'),
+    ...(typeof record.skipCheckSubmodules === 'boolean' ? { skipCheckSubmodules: record.skipCheckSubmodules } : {})
+  };
+}
+
+function firstOutputLine(result: EngineeringCommandResult): string | undefined {
+  return `${result.stdout}\n${result.stderr}`.split(/\r?\n/).map(item => item.trim()).find(Boolean);
+}
+
 interface CommandSpec {
   program: string;
   args: string[];
@@ -146,10 +230,16 @@ interface CommandSpec {
 async function espIdfCommand(
   args: string[],
   preferredRoot?: string,
-  preferredSource: EspIdfRootSource = 'explicit'
+  preferredSource: EspIdfRootSource = 'explicit',
+  environment?: EspIdfEnvironmentProfile,
+  provenance = false
 ): Promise<CommandSpec> {
+  const validatedEnvironment = validateEspIdfEnvironment(environment);
   const resolvedRoot = await resolveEspIdfRoot(preferredRoot, preferredSource);
   if (!resolvedRoot) {
+    if (validatedEnvironment || provenance) {
+      throw new Error('An explicit/resolved ESP-IDF root is required when environment policy or provenance probing is requested.');
+    }
     const direct = await resolveExecutable('idf.py');
     if (direct) {
       if (direct.toLowerCase().endsWith('.py')) {
@@ -168,7 +258,15 @@ async function espIdfCommand(
     if (!powershell) throw new Error('PowerShell is required to activate an installed ESP-IDF environment on Windows.');
     return {
       program: powershell.path,
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperPath('esp-idf-run.ps1'), '-IdfPath', root, '-ArgsJson', JSON.stringify(args)],
+      args: [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', helperPath('esp-idf-run.ps1'),
+        '-IdfPath', root,
+        '-ArgsJson', JSON.stringify(args),
+        ...(validatedEnvironment?.pythonEnvPath ? ['-PythonEnvPath', validatedEnvironment.pythonEnvPath] : []),
+        ...(validatedEnvironment?.skipCheckSubmodules !== undefined ? ['-SkipCheckSubmodules', validatedEnvironment.skipCheckSubmodules ? '1' : '0'] : []),
+        ...(provenance ? ['-Provenance'] : [])
+      ],
       idfRoot: root,
       idfRootSource: resolvedRoot.source
     };
@@ -177,7 +275,14 @@ async function espIdfCommand(
   if (!bash) throw new Error('bash is required to activate an installed ESP-IDF environment on Linux.');
   return {
     program: bash.path,
-    args: [helperPath('esp-idf-run.sh'), root, ...args],
+    args: [
+      helperPath('esp-idf-run.sh'),
+      root,
+      ...espIdfHelperEnvironmentArgs(validatedEnvironment),
+      ...(provenance ? ['--rwmcp-print-provenance'] : []),
+      '--',
+      ...args
+    ],
     idfRoot: root,
     idfRootSource: resolvedRoot.source
   };
@@ -502,8 +607,15 @@ export class FirmwareAdapter {
       diagnostic: classifyOpenOcdResult(result)
     };
   }
-  async espIdfDiagnostics(workspace: string, projectPath = '.', buildDir = 'build', espIdfPath?: string) {
+  async espIdfDiagnostics(
+    workspace: string,
+    projectPath = '.',
+    buildDir = 'build',
+    espIdfPath?: string,
+    espIdfEnvironment?: EspIdfEnvironmentProfile
+  ) {
     this.policy.assertEngineeringExecute();
+    const environment = validateEspIdfEnvironment(espIdfEnvironment);
     const project = await this.inspect(workspace, projectPath);
     if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
       throw new Error('espidf.diagnostics requires a detected ESP-IDF/ESP32 project.');
@@ -513,20 +625,90 @@ export class FirmwareAdapter {
     const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
     const preferredRoot = espIdfPath ?? metadataIdfPath;
     const preferredSource: EspIdfRootSource = espIdfPath ? 'explicit' : 'build-metadata';
-    const versionCommand = await espIdfCommand(['--version'], preferredRoot, preferredSource);
-    const targetsCommand = await espIdfCommand(['--list-targets'], preferredRoot, preferredSource);
-    const [versionResult, targetsResult, artifacts, devices] = await Promise.all([
+    const versionCommand = await espIdfCommand(['--version'], preferredRoot, preferredSource, environment);
+    const targetsCommand = await espIdfCommand(['--list-targets'], preferredRoot, preferredSource, environment);
+    const provenanceCommand = await espIdfCommand([], preferredRoot, preferredSource, environment, true);
+    const [versionResult, targetsResult, provenanceResult, artifacts, devices] = await Promise.all([
       this.runner.run(versionCommand.program, versionCommand.args, cwd, 10_000),
       this.runner.run(targetsCommand.program, targetsCommand.args, cwd, 15_000),
+      this.runner.run(provenanceCommand.program, provenanceCommand.args, cwd, 15_000),
       this.listArtifacts(workspace, projectPath),
       this.hardware.list()
     ]);
     if (versionResult.exitCode !== 0 || versionResult.timedOut) {
       throw new Error(`ESP-IDF version probe failed: ${versionResult.stderr || versionResult.stdout || `exit=${versionResult.exitCode}`}`);
     }
+    if (provenanceResult.exitCode !== 0 || provenanceResult.timedOut) {
+      throw new Error(`ESP-IDF environment provenance probe failed: ${provenanceResult.stderr || provenanceResult.stdout || `exit=${provenanceResult.exitCode}`}`);
+    }
+
+    const runtimeProvenance = parseEspIdfRuntimeProvenance(provenanceResult.stdout);
     const supportedTargets = targetsResult.exitCode === 0 && !targetsResult.timedOut
       ? targetsResult.stdout.split(/\r?\n/).map(item => item.trim()).filter(item => /^[a-z0-9_-]+$/.test(item)).slice(0, 64)
       : [];
+
+    const compilerPath = typeof buildMetadata.project?.cCompiler === 'string'
+      ? buildMetadata.project.cCompiler
+      : undefined;
+    let compilerVersion: string | undefined;
+    let compilerProbeWarning: string | undefined;
+    if (compilerPath) {
+      if (!path.isAbsolute(compilerPath) || /[\0\r\n]/.test(compilerPath)) {
+        compilerProbeWarning = `Build metadata reports an invalid compiler path: ${compilerPath}`;
+      } else if (!runtimeProvenance.idfToolsPath || !path.isAbsolute(runtimeProvenance.idfToolsPath) || /[\0\r\n]/.test(runtimeProvenance.idfToolsPath)) {
+        compilerProbeWarning = 'Compiler version probe was skipped because the activated ESP-IDF environment did not report a trusted absolute IDF_TOOLS_PATH.';
+      } else if (!await exists(compilerPath)) {
+        compilerProbeWarning = `Build metadata compiler is no longer present: ${compilerPath}`;
+      } else {
+        try {
+          const [canonicalCompiler, canonicalToolsRoot] = await Promise.all([
+            fs.realpath(compilerPath),
+            fs.realpath(runtimeProvenance.idfToolsPath)
+          ]);
+          if (!pathInside(canonicalToolsRoot, canonicalCompiler)) {
+            compilerProbeWarning = `Compiler version probe was refused because build metadata points outside the activated IDF_TOOLS_PATH: ${compilerPath}`;
+          } else {
+            const compilerResult = await this.runner.run(canonicalCompiler, ['--version'], cwd, 10_000);
+            if (compilerResult.exitCode === 0 && !compilerResult.timedOut) compilerVersion = firstOutputLine(compilerResult);
+            else compilerProbeWarning = `Compiler version probe failed: ${compilerResult.stderr || compilerResult.stdout || `exit=${compilerResult.exitCode}`}`;
+          }
+        } catch (error) {
+          compilerProbeWarning = `Compiler provenance validation failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+    }
+
+    const runtimeMismatches: string[] = [];
+    const buildMismatches: string[] = [];
+    if (versionCommand.idfRoot && runtimeProvenance.idfPath && path.resolve(versionCommand.idfRoot) !== path.resolve(runtimeProvenance.idfPath)) {
+      runtimeMismatches.push(`Activated IDF_PATH differs from selected SDK root (selected=${path.resolve(versionCommand.idfRoot)}, active=${path.resolve(runtimeProvenance.idfPath)}).`);
+    }
+    if (environment?.pythonEnvPath) {
+      if (!runtimeProvenance.pythonEnvPath || path.resolve(environment.pythonEnvPath) !== path.resolve(runtimeProvenance.pythonEnvPath)) {
+        runtimeMismatches.push(`Active ESP-IDF Python environment does not match profile expectation (expected=${path.resolve(environment.pythonEnvPath)}, active=${runtimeProvenance.pythonEnvPath ? path.resolve(runtimeProvenance.pythonEnvPath) : 'unknown'}).`);
+      }
+    }
+    if (environment?.expectedPythonVersion && !runtimeProvenance.pythonVersion?.includes(environment.expectedPythonVersion)) {
+      runtimeMismatches.push(`Active Python version '${runtimeProvenance.pythonVersion ?? 'unknown'}' does not satisfy expected version '${environment.expectedPythonVersion}'.`);
+    }
+    if (environment?.skipCheckSubmodules !== undefined && runtimeProvenance.skipCheckSubmodules !== environment.skipCheckSubmodules) {
+      runtimeMismatches.push(`IDF_SKIP_CHECK_SUBMODULES effective state '${String(runtimeProvenance.skipCheckSubmodules)}' does not match profile expectation '${String(environment.skipCheckSubmodules)}'.`);
+    }
+    if (environment?.expectedCompilerPath) {
+      if (buildMetadata.available && !compilerPath) {
+        buildMismatches.push('Existing build metadata does not report a compiler path required by the profile expectation.');
+      } else if (compilerPath && path.resolve(environment.expectedCompilerPath) !== path.resolve(compilerPath)) {
+        buildMismatches.push(`Existing build compiler path differs from profile expectation (expected=${path.resolve(environment.expectedCompilerPath)}, build=${path.resolve(compilerPath)}).`);
+      }
+    }
+    if (environment?.expectedCompilerVersion) {
+      if (buildMetadata.available && !compilerPath) {
+        buildMismatches.push('Existing build metadata cannot satisfy the expected compiler version because no compiler path is recorded.');
+      } else if (compilerPath && !compilerVersion?.includes(environment.expectedCompilerVersion)) {
+        buildMismatches.push(`Existing build compiler version '${compilerVersion ?? 'unknown'}' does not satisfy expected version '${environment.expectedCompilerVersion}'.`);
+      }
+    }
+
     const warnings = [
       ...buildMetadata.warnings,
       ...(espIdfPath && metadataIdfPath && path.resolve(espIdfPath) !== path.resolve(metadataIdfPath)
@@ -534,7 +716,10 @@ export class FirmwareAdapter {
         : []),
       ...(targetsResult.exitCode === 0 && !targetsResult.timedOut
         ? []
-        : [`ESP-IDF target discovery failed: ${targetsResult.stderr || targetsResult.stdout || `exit=${targetsResult.exitCode}`}`])
+        : [`ESP-IDF target discovery failed: ${targetsResult.stderr || targetsResult.stdout || `exit=${targetsResult.exitCode}`}`]),
+      ...(compilerProbeWarning ? [compilerProbeWarning] : []),
+      ...runtimeMismatches,
+      ...buildMismatches
     ];
     return {
       provider: 'esp-idf' as const,
@@ -544,6 +729,17 @@ export class FirmwareAdapter {
       supportedTargets,
       project,
       buildMetadata,
+      environment: {
+        configured: environment,
+        runtime: runtimeProvenance,
+        compiler: compilerPath ? { path: compilerPath, ...(compilerVersion ? { version: compilerVersion } : {}) } : undefined,
+        validation: {
+          runtimeMismatches,
+          buildMismatches,
+          runtimeReady: runtimeMismatches.length === 0,
+          existingBuildMatchesExpectedCompiler: buildMismatches.length === 0
+        }
+      },
       artifacts,
       serialPorts: devices
         .filter(item => item.kind === 'serial')
@@ -566,19 +762,23 @@ export class FirmwareAdapter {
     projectPath?: string;
     buildDir?: string;
     espIdfPath?: string;
+    espIdfEnvironment?: EspIdfEnvironmentProfile;
     port?: string;
     portSelector?: SerialDeviceSelector;
   }) {
     this.policy.assertEngineeringExecute();
     const projectPath = options.projectPath ?? '.';
     const buildDir = options.buildDir ?? 'build';
-    const diagnostics = await this.espIdfDiagnostics(options.workspace, projectPath, buildDir, options.espIdfPath);
+    const diagnostics = await this.espIdfDiagnostics(options.workspace, projectPath, buildDir, options.espIdfPath, options.espIdfEnvironment);
     if (diagnostics.project.family !== 'esp32' && diagnostics.project.framework !== 'esp-idf') {
       throw new Error('esp32_preflight requires a detected ESP32/ESP-IDF project.');
     }
 
-    const buildBlockers: string[] = [];
-    const flashBlockers: string[] = [];
+    const buildBlockers: string[] = [...diagnostics.environment.validation.runtimeMismatches];
+    const flashBlockers: string[] = [
+      ...diagnostics.environment.validation.runtimeMismatches,
+      ...diagnostics.environment.validation.buildMismatches
+    ];
     const warnings = [...diagnostics.warnings];
     let portResolution: { path: string; source: 'explicit-port' | 'stable-selector'; device?: Awaited<ReturnType<HardwareDiscoveryAdapter['resolveSerial']>>['device'] } | undefined;
 
@@ -703,6 +903,7 @@ export class FirmwareAdapter {
       idfRootSource: diagnostics.idfRootSource,
       buildDir,
       buildMetadata: diagnostics.buildMetadata,
+      environment: diagnostics.environment,
       flashManifest,
       portResolution,
       readyForBuild: buildBlockers.length === 0,
@@ -714,7 +915,13 @@ export class FirmwareAdapter {
     };
   }
 
-  async espIdfSizeAnalysis(workspace: string, projectPath = '.', buildDir = 'build', espIdfPath?: string) {
+  async espIdfSizeAnalysis(
+    workspace: string,
+    projectPath = '.',
+    buildDir = 'build',
+    espIdfPath?: string,
+    espIdfEnvironment?: EspIdfEnvironmentProfile
+  ) {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
     if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
@@ -744,7 +951,7 @@ export class FirmwareAdapter {
       let accepted: { stdout: string; format: 'json2' | 'json' } | undefined;
       const failures: string[] = [];
       for (const format of ['json2', 'json'] as const) {
-        const command = await espIdfCommand(['-B', buildDir, verb, '--format', format], preferredRoot, preferredSource);
+        const command = await espIdfCommand(['-B', buildDir, verb, '--format', format], preferredRoot, preferredSource, espIdfEnvironment);
         idfRoot = command.idfRoot ?? idfRoot;
         idfRootSource = command.idfRootSource ?? idfRootSource;
         const result = await this.runner.run(command.program, command.args, cwd, 120_000);
@@ -769,6 +976,47 @@ export class FirmwareAdapter {
     return { provider: 'esp-idf' as const, project, buildDir, idfRoot, idfRootSource, formats, ...outputs };
   }
 
+  async espIdfMaintenance(
+    workspace: string,
+    projectPath = '.',
+    action: 'fullclean' | 'reconfigure',
+    buildDir = 'build',
+    espIdfPath?: string,
+    espIdfEnvironment?: EspIdfEnvironmentProfile
+  ) {
+    this.policy.assertEngineeringExecute();
+    const project = await this.inspect(workspace, projectPath);
+    if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
+      throw new Error('ESP-IDF maintenance requires a detected ESP-IDF/ESP32 project.');
+    }
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const selectedBuildDir = await assertEspIdfBuildDirContained(cwd, buildDir);
+    const buildMetadata = await readEspIdfBuildMetadata(cwd, selectedBuildDir);
+    const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
+    const preferredRoot = espIdfPath ?? metadataIdfPath;
+    const command = await espIdfCommand(
+      ['-B', selectedBuildDir, action],
+      preferredRoot,
+      espIdfPath ? 'explicit' : 'build-metadata',
+      espIdfEnvironment
+    );
+    const resourceId = `project-variant:esp-idf:${workspace}:${projectPath}:${selectedBuildDir.replaceAll('\\\\', '/')}`;
+    const result = await this.resources.withLease(
+      resourceId,
+      'building',
+      () => this.runner.run(command.program, command.args, cwd)
+    );
+    return {
+      provider: 'esp-idf' as const,
+      action,
+      project,
+      buildDir: selectedBuildDir,
+      idfRoot: command.idfRoot,
+      idfRootSource: command.idfRootSource,
+      result
+    };
+  }
+
   async build(
     workspace: string,
     projectPath = '.',
@@ -776,7 +1024,8 @@ export class FirmwareAdapter {
     buildDir = 'build',
     keilProject?: string,
     keilTarget?: string,
-    espIdfPath?: string
+    espIdfPath?: string,
+    espIdfEnvironment?: EspIdfEnvironmentProfile
   ): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult; keil?: KeilBuildSummary }> {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
@@ -823,14 +1072,15 @@ export class FirmwareAdapter {
 
     let command: CommandSpec;
     if (selected === 'esp-idf') {
-      const selectedBuildDir = validateEspIdfBuildDir(buildDir);
+      const selectedBuildDir = await assertEspIdfBuildDirContained(cwd, buildDir);
       const buildMetadata = await readEspIdfBuildMetadata(cwd, selectedBuildDir);
       const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
       const preferredRoot = espIdfPath ?? metadataIdfPath;
       command = await espIdfCommand(
         ['-B', selectedBuildDir, 'build'],
         preferredRoot,
-        espIdfPath ? 'explicit' : 'build-metadata'
+        espIdfPath ? 'explicit' : 'build-metadata',
+        espIdfEnvironment
       );
       const buildResourceId = `project-variant:esp-idf:${workspace}:${projectPath}:${selectedBuildDir.replaceAll('\\\\', '/')}`;
       const result = await this.resources.withLease(
@@ -861,6 +1111,7 @@ export class FirmwareAdapter {
     portSelector?: SerialDeviceSelector;
     buildDir?: string;
     espIdfPath?: string;
+    espIdfEnvironment?: EspIdfEnvironmentProfile;
     probeSerial?: string;
     targetConfig?: string;
     adapterSpeedKhz?: number;
@@ -874,7 +1125,7 @@ export class FirmwareAdapter {
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
 
     if (selected === 'esp-idf') {
-      const buildDir = validateEspIdfBuildDir(options.buildDir ?? 'build');
+      const buildDir = await assertEspIdfBuildDirContained(cwd, options.buildDir ?? 'build');
       const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
       if (!buildMetadata.available) {
         throw new Error('ESP-IDF flash requires prepared build metadata in the selected build directory. Run the typed firmware build before flashing.');
@@ -910,6 +1161,22 @@ export class FirmwareAdapter {
         }
       }
       const preferredRoot = options.espIdfPath ?? metadataIdfPath;
+      if (options.espIdfEnvironment) {
+        const diagnostics = await this.espIdfDiagnostics(
+          options.workspace,
+          projectPath,
+          buildDir,
+          options.espIdfPath,
+          options.espIdfEnvironment
+        );
+        const mismatches = [
+          ...diagnostics.environment.validation.runtimeMismatches,
+          ...diagnostics.environment.validation.buildMismatches
+        ];
+        if (mismatches.length > 0) {
+          throw new Error(`ESP-IDF flash provenance validation failed: ${mismatches.join(' ')}`);
+        }
+      }
       let port: string;
       let selectorNote: string;
       if (options.port) {
@@ -925,7 +1192,8 @@ export class FirmwareAdapter {
       const command = await espIdfCommand(
         ['-B', buildDir, '-p', port, 'flash'],
         preferredRoot,
-        options.espIdfPath ? 'explicit' : 'build-metadata'
+        options.espIdfPath ? 'explicit' : 'build-metadata',
+        options.espIdfEnvironment
       );
       return {
         provider: 'esp-idf', family: project.family, target: project.target, port, buildDir,

@@ -52,6 +52,11 @@ function summarizeProjectDescription(value: unknown) {
     target: scalar(record, 'target', 'idf_target', 'idfTarget'),
     idfVersion: scalar(record, 'idf_ver', 'idf_version', 'idfVersion'),
     idfPath: scalar(record, 'idf_path', 'idfPath'),
+    projectPath: scalar(record, 'project_path', 'projectPath'),
+    buildDir: scalar(record, 'build_dir', 'buildDir'),
+    gitRevision: scalar(record, 'git_revision', 'gitRevision'),
+    cCompiler: scalar(record, 'c_compiler', 'cCompiler'),
+    monitorBaud: scalar(record, 'monitor_baud', 'monitorBaud'),
     appElf: scalar(record, 'app_elf', 'appElf'),
     sdkconfig: scalar(record, 'sdkconfig'),
     ...(buildComponents !== undefined ? { buildComponentCount: buildComponents } : {})

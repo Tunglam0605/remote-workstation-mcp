@@ -58,6 +58,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
         flashProvider: z.enum(['auto', 'openocd', 'esp-idf']).optional(),
         artifact: z.string().min(1).optional(),
         port: z.string().min(1).optional(),
+        portSelector: serialDeviceSelector.optional(),
         probeSerial: z.string().min(1).optional(),
         targetConfig: z.string().min(1).optional(),
         adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
@@ -67,6 +68,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
         variants: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
         monitor: z.object({
           port: z.string().min(1).optional(),
+          selector: serialDeviceSelector.optional(),
           baudRate: z.number().int().min(300).max(12_000_000).optional(),
           expectText: z.string().min(1).max(512).optional(),
           expectTimeoutMs: z.number().int().min(100).max(120_000).optional()
@@ -359,18 +361,18 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   }, async ({ workspace, projectPath, svdFile }) => result(await audited(ctx.audit, 'stm32_svd_inspect', workspace, () => ctx.engineering.stm32Svd.inspect(workspace, projectPath, svdFile))));
 
   server.registerTool('esp32_preflight', {
-    description: 'Preflight one ESP32/ESP-IDF project on the current host: resolve the selected ESP-IDF installation, build metadata, target support and one explicit/stable serial device without flashing or mutating target state.',
+    description: 'Preflight one ESP32/ESP-IDF project on the current host. Project profile defaults are honored for ESP-IDF root, build directory and stable serial identity; explicit arguments only override those defaults. No flash or target mutation is performed.',
     inputSchema: workspacePath.extend({
-      buildDir: z.string().min(1).max(512).default('build'),
+      buildDir: z.string().min(1).max(512).optional(),
       espIdfPath: z.string().min(1).max(1024).optional(),
       port: z.string().min(1).max(512).optional(),
       portSelector: serialDeviceSelector.optional()
     }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workspace, projectPath, buildDir, espIdfPath, port, portSelector }) =>
-    result(await audited(ctx.audit, 'esp32_preflight', workspace, () => ctx.engineering.firmware.esp32Preflight({
-      workspace, projectPath, buildDir, espIdfPath, port, portSelector
-    }))));
+    result(await audited(ctx.audit, 'esp32_preflight', workspace, () => ctx.engineering.workflows.esp32Preflight(
+      workspace, projectPath, { buildDir, espIdfPath, port, portSelector }
+    ))));
 
   server.registerTool('firmware_project_inspect', {
     description: 'Detect firmware/project family and build framework from project markers without executing project code.',

@@ -74,7 +74,7 @@ print(json.dumps({
     "pythonVersion": platform.python_version(),
     "pythonEnvPath": os.environ.get("IDF_PYTHON_ENV_PATH"),
     "idfPath": os.environ.get("IDF_PATH"),
-    "idfToolsPath": os.environ.get("IDF_TOOLS_PATH"),
+    "idfToolsPath": os.environ.get("IDF_TOOLS_PATH") or os.path.expanduser("~/.espressif"),
     "skipCheckSubmodules": os.environ.get("IDF_SKIP_CHECK_SUBMODULES") == "1",
 }, separators=(",", ":")))
 PY

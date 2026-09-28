@@ -658,7 +658,8 @@ export class FirmwareAdapter {
     provider: 'auto' | 'esp-idf' | 'cmake' | 'make' | 'keil' = 'auto',
     buildDir = 'build',
     keilProject?: string,
-    keilTarget?: string
+    keilTarget?: string,
+    espIdfPath?: string
   ): Promise<{ project: FirmwareProjectInfo; provider: string; result: EngineeringCommandResult; keil?: KeilBuildSummary }> {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
@@ -705,7 +706,14 @@ export class FirmwareAdapter {
 
     let command: CommandSpec;
     if (selected === 'esp-idf') {
-      command = await espIdfCommand(['build']);
+      const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
+      const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
+      const preferredRoot = espIdfPath ?? metadataIdfPath;
+      command = await espIdfCommand(
+        ['-B', buildDir, 'build'],
+        preferredRoot,
+        espIdfPath ? 'explicit' : 'build-metadata'
+      );
     } else if (selected === 'cmake') {
       const cmake = await resolveFirstExecutable(['cmake']);
       if (!cmake) throw new Error('CMake is unavailable.');
@@ -725,6 +733,9 @@ export class FirmwareAdapter {
     artifact?: string;
     provider?: 'auto' | 'openocd' | 'esp-idf';
     port?: string;
+    portSelector?: SerialDeviceSelector;
+    buildDir?: string;
+    espIdfPath?: string;
     probeSerial?: string;
     targetConfig?: string;
     adapterSpeedKhz?: number;
@@ -738,13 +749,32 @@ export class FirmwareAdapter {
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
 
     if (selected === 'esp-idf') {
-      if (!options.port) throw new Error('ESP-IDF flash requires an explicit serial port; automatic first-port flashing is intentionally disabled.');
-      const port = validateSerialPortPath(options.port);
-      const command = await espIdfCommand(['-p', port, 'flash']);
+      const buildDir = options.buildDir ?? 'build';
+      const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
+      const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
+      const preferredRoot = options.espIdfPath ?? metadataIdfPath;
+      let port: string;
+      let selectorNote: string;
+      if (options.port) {
+        port = validateSerialPortPath(options.port);
+        selectorNote = 'The serial port is explicit to prevent flashing the wrong board.';
+      } else if (options.portSelector) {
+        const resolution = await this.hardware.resolveSerial(options.portSelector);
+        port = validateSerialPortPath(resolution.path);
+        selectorNote = `Stable device selector resolved to ${resolution.device.id} at ${port}.`;
+      } else {
+        throw new Error('ESP-IDF flash requires an explicit serial port or stable portSelector; automatic first-port flashing is intentionally disabled.');
+      }
+      const command = await espIdfCommand(
+        ['-B', buildDir, '-p', port, 'flash'],
+        preferredRoot,
+        options.espIdfPath ? 'explicit' : 'build-metadata'
+      );
       return {
-        provider: 'esp-idf', family: project.family, target: project.target, port,
+        provider: 'esp-idf', family: project.family, target: project.target, port, buildDir,
+        ...(command.idfRoot ? { idfPath: command.idfRoot } : {}),
         program: command.program, args: command.args, resourceId: `serial:${port}`, destructive: true,
-        notes: ['idf.py flash rebuilds changed outputs automatically.', 'The serial port is explicit to prevent flashing the wrong board.']
+        notes: ['idf.py flash rebuilds changed outputs automatically in the selected build directory.', selectorNote, 'eFuse writes, flash-encryption keys, Secure Boot key burning and arbitrary esptool arguments are intentionally unavailable.']
       };
     }
 

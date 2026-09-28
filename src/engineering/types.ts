@@ -341,6 +341,8 @@ export interface FirmwareFlashPlan {
   target?: string;
   artifact?: string;
   port?: string;
+  buildDir?: string;
+  idfPath?: string;
   probeSerial?: string;
   adapterSpeedKhz?: number;
   targetConfig?: string;

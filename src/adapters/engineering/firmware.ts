@@ -874,9 +874,41 @@ export class FirmwareAdapter {
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
 
     if (selected === 'esp-idf') {
-      const buildDir = options.buildDir ?? 'build';
+      const buildDir = validateEspIdfBuildDir(options.buildDir ?? 'build');
       const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
+      if (!buildMetadata.available) {
+        throw new Error('ESP-IDF flash requires prepared build metadata in the selected build directory. Run the typed firmware build before flashing.');
+      }
       const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
+      if (options.espIdfPath && metadataIdfPath && path.resolve(options.espIdfPath) !== path.resolve(metadataIdfPath)) {
+        throw new Error(
+          `ESP-IDF flash is blocked because build metadata was produced by a different SDK root (build=${path.resolve(metadataIdfPath)}, selected=${path.resolve(options.espIdfPath)}). Rebuild/reconfigure with the selected SDK first.`
+        );
+      }
+      const metadataTarget = typeof buildMetadata.project?.target === 'string' ? buildMetadata.project.target : undefined;
+      if (project.target && metadataTarget && metadataTarget !== project.target) {
+        throw new Error(`ESP-IDF flash is blocked because build target '${metadataTarget}' does not match project target '${project.target}'. Rebuild/reconfigure first.`);
+      }
+      const flashFiles = buildMetadata.flash?.files ?? [];
+      if (flashFiles.length === 0) {
+        throw new Error('ESP-IDF flash is blocked because the selected build metadata has no flash image manifest. Run the typed firmware build first.');
+      }
+      const canonicalBuildRoot = await fs.realpath(path.resolve(cwd, buildDir));
+      if (!pathInside(await fs.realpath(cwd), canonicalBuildRoot)) {
+        throw new Error('ESP-IDF flash build directory resolves outside the selected project root.');
+      }
+      for (const entry of flashFiles) {
+        const candidate = path.isAbsolute(entry.file) ? path.resolve(entry.file) : path.resolve(canonicalBuildRoot, entry.file);
+        let canonicalImage: string;
+        try {
+          canonicalImage = await fs.realpath(candidate);
+        } catch {
+          throw new Error(`ESP-IDF flash image is missing: ${entry.file}. Run the typed firmware build first.`);
+        }
+        if (!pathInside(canonicalBuildRoot, canonicalImage)) {
+          throw new Error(`ESP-IDF flash image escapes the selected build directory: ${entry.file}.`);
+        }
+      }
       const preferredRoot = options.espIdfPath ?? metadataIdfPath;
       let port: string;
       let selectorNote: string;
@@ -1074,8 +1106,20 @@ export class FirmwareAdapter {
   async flash(options: Parameters<FirmwareAdapter['flashPlan']>[0]): Promise<{ plan: FirmwareFlashPlan; result: EngineeringCommandResult; diagnostic?: ReturnType<typeof classifyOpenOcdResult> }> {
     this.policy.assertHardwareMutation();
     const plan = await this.flashPlan(options);
-    const cwd = await this.paths.resolveExisting(options.workspace, options.projectPath ?? '.');
-    const result = await this.resources.withLease(plan.resourceId, 'flashing', () => this.runner.run(plan.program, plan.args, cwd));
+    const projectPath = options.projectPath ?? '.';
+    const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
+    const runFlash = () => this.resources.withLease(
+      plan.resourceId,
+      'flashing',
+      () => this.runner.run(plan.program, plan.args, cwd)
+    );
+    const result = plan.provider === 'esp-idf' && plan.buildDir
+      ? await this.resources.withLease(
+          `project-variant:esp-idf:${options.workspace}:${projectPath}:${plan.buildDir.replaceAll('\\\\', '/')}`,
+          'building',
+          runFlash
+        )
+      : await runFlash();
     return { plan, result, ...(plan.provider === 'openocd' ? { diagnostic: classifyOpenOcdResult(result) } : {}) };
   }
 

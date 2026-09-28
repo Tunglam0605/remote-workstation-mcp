@@ -821,8 +821,10 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
   assert.match(helperLinux, /--rwmcp-skip-check-submodules/);
   assert.match(helperLinux, /--rwmcp-print-provenance/);
   assert.match(helperLinux, /IDF_PYTHON_ENV_PATH/);
+  assert.match(helperLinux, /IDF_TOOLS_PATH.*~\/\.espressif/);
   assert.match(helperWindows, /\[switch\]\$Provenance/);
   assert.match(helperWindows, /IDF_SKIP_CHECK_SUBMODULES/);
+  assert.match(helperWindows, /IDF_TOOLS_PATH.*~\/\.espressif/);
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);

@@ -983,9 +983,10 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
         throw new Error('resource lease must not be acquired after stable device identity changes');
       }
     };
+    const mutationEngine = new PolicyEngine(config(root, 'full_control'));
     const mutating = new FirmwareAdapter(
-      new PolicyEngine(config(root, 'full_control')),
-      new PathGuard(new PolicyEngine(config(root, 'full_control'))),
+      mutationEngine,
+      new PathGuard(mutationEngine),
       mutationRunner as never,
       mutationResources as never,
       changingHardware as never

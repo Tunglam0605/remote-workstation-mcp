@@ -1032,6 +1032,21 @@ test('ESP32 preflight fingerprints the exact flash set and blocks flash without 
     assert.equal(ready.flashManifest.totalImageBytes, 12);
     assert.equal(ready.flashManifest.images.every(item => /^[a-f0-9]{64}$/.test(item.sha256)), true);
 
+    const alternateSdkRoot = path.join(root, 'sdk', 'esp-idf-v6.2');
+    await fs.mkdir(path.join(alternateSdkRoot, 'tools'), { recursive: true });
+    await fs.writeFile(path.join(alternateSdkRoot, 'tools', 'idf.py'), '# fixture\n');
+    await fs.writeFile(path.join(alternateSdkRoot, 'export.sh'), '# fixture\n');
+    const staleSdk = await adapter.esp32Preflight({
+      workspace: 'w',
+      projectPath: '.',
+      buildDir: 'build-linux',
+      espIdfPath: alternateSdkRoot,
+      portSelector: { serialNumber: 'ESPTEST' }
+    });
+    assert.equal(staleSdk.readyForBuild, true);
+    assert.equal(staleSdk.readyForFlash, false);
+    assert.match(staleSdk.flashBlockers.join(' '), /different ESP-IDF root/i);
+
     await fs.rm(path.join(build, 'app.bin'));
     const missing = await adapter.esp32Preflight({
       workspace: 'w',

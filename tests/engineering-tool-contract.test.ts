@@ -741,3 +741,36 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(context, /new EngineeringWorkflowExecutionService/);
   assert.match(context, /new TaskWorkflowExecutionService/);
 });
+
+
+test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and excludes dangerous ROM surfaces', async () => {
+  const tools = await read('src/tools/engineering-tools.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+  const metadata = await read('src/adapters/engineering/esp-idf-metadata.ts');
+  const profile = await read('src/adapters/engineering/project-profile.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  const helper = await read('scripts/esp-idf-run.sh');
+
+  assert.equal(helper.charCodeAt(0), '#'.charCodeAt(0));
+  assert.match(helper, /^#!\/usr\/bin\/env bash/);
+  assert.match(helper, /rwmcp_idf_path/);
+  assert.match(helper, /rwmcp_idf_args/);
+  assert.doesNotMatch(helper, /^\uFEFF/);
+
+  assert.match(tools, /server\.registerTool\('esp32_preflight'/);
+  assert.match(scopes, /esp32_preflight: 'workstation\.execute'/);
+  assert.match(capabilities, /engineering\.esp32/);
+  assert.match(capabilities, /eFuse writes/);
+  assert.match(capabilities, /erase-flash/);
+
+  assert.match(metadata, /idfPath: scalar\(record, 'idf_path', 'idfPath'\)/);
+  assert.match(profile, /espIdfPath\?: string/);
+  assert.match(profile, /firmware\.espIdfPath/);
+  assert.match(firmware, /Multiple ESP-IDF installations were found/);
+  assert.match(firmware, /\['-B', buildDir, 'build'\]/);
+  assert.match(firmware, /stable portSelector/);
+  assert.match(firmware, /flash-encryption keys/);
+
+  assert.doesNotMatch(tools, /esp32_erase|esp32_efuse|esptool_raw|esp32_rom_command/);
+});

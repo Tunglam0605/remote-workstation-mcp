@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 35;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 36;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   assert.match(capabilities, /export const SERVER_VERSION = '0\.63\.0';/);
   const settings = await read('src/setup/settings.ts');
@@ -572,7 +572,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 35;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 36;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

@@ -8,9 +8,18 @@ import { PathGuard } from '../../security/path-guard.js';
 
 export type EngineeringProjectKind = 'stm32' | 'esp-idf' | 'platformio' | 'ros2' | 'mixed' | 'generic';
 
+export interface EspIdfEnvironmentProfile {
+  pythonEnvPath?: string;
+  skipCheckSubmodules?: boolean;
+  expectedPythonVersion?: string;
+  expectedCompilerPath?: string;
+  expectedCompilerVersion?: string;
+}
+
 export interface EngineeringFirmwareVariant {
   buildDir?: string;
   espIdfPath?: string;
+  espIdfEnvironment?: EspIdfEnvironmentProfile;
   artifact?: string;
   probeSerial?: string;
   targetConfig?: string;
@@ -25,6 +34,7 @@ export interface EngineeringFirmwareProfile {
   buildProvider?: 'auto' | 'esp-idf' | 'cmake' | 'make' | 'keil';
   buildDir?: string;
   espIdfPath?: string;
+  espIdfEnvironment?: EspIdfEnvironmentProfile;
   flashProvider?: 'auto' | 'openocd' | 'esp-idf';
   artifact?: string;
   port?: string;
@@ -96,10 +106,21 @@ const svdRegisterSelectorSchema = z.object({
   peripheral: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.%-]+$/),
   register: z.string().min(1).max(192).regex(/^[A-Za-z0-9_.%\[\]-]+$/)
 }).strict();
+const boundedVersionString = z.string().min(1).max(128).refine(value => !/[\0\r\n]/.test(value), {
+  message: 'Version expectations must not contain control characters.'
+});
+const espIdfEnvironmentSchema = z.object({
+  pythonEnvPath: z.string().min(1).max(1024).optional(),
+  skipCheckSubmodules: z.boolean().optional(),
+  expectedPythonVersion: boundedVersionString.optional(),
+  expectedCompilerPath: z.string().min(1).max(1024).optional(),
+  expectedCompilerVersion: boundedVersionString.optional()
+}).strict();
 
 const variantSchema = z.object({
   buildDir: relativePath.optional(),
   espIdfPath: z.string().min(1).max(1024).optional(),
+  espIdfEnvironment: espIdfEnvironmentSchema.optional(),
   artifact: relativePath.optional(),
   probeSerial: z.string().min(1).max(256).optional(),
   targetConfig: z.string().min(1).max(256).optional(),
@@ -119,6 +140,7 @@ const profileSchema = z.object({
     buildProvider: z.enum(['auto', 'esp-idf', 'cmake', 'make', 'keil']).default('auto'),
     buildDir: relativePath.default('build'),
     espIdfPath: z.string().min(1).max(1024).optional(),
+    espIdfEnvironment: espIdfEnvironmentSchema.optional(),
     flashProvider: z.enum(['auto', 'openocd', 'esp-idf']).default('auto'),
     artifact: relativePath.optional(),
     port: z.string().min(1).max(256).optional(),
@@ -176,11 +198,15 @@ function assertAbsoluteToolchainPath(value: string | undefined, label: string): 
 function validatePaths(profile: EngineeringProjectProfile): void {
   assertRelative(profile.firmware?.buildDir, 'firmware.buildDir');
   assertAbsoluteToolchainPath(profile.firmware?.espIdfPath, 'firmware.espIdfPath');
+  assertAbsoluteToolchainPath(profile.firmware?.espIdfEnvironment?.pythonEnvPath, 'firmware.espIdfEnvironment.pythonEnvPath');
+  assertAbsoluteToolchainPath(profile.firmware?.espIdfEnvironment?.expectedCompilerPath, 'firmware.espIdfEnvironment.expectedCompilerPath');
   assertRelative(profile.firmware?.artifact, 'firmware.artifact');
   assertRelative(profile.firmware?.keilProject, 'firmware.keilProject');
   for (const [variant, config] of Object.entries(profile.firmware?.variants ?? {})) {
     assertRelative(config.buildDir, `firmware.variants.${variant}.buildDir`);
     assertAbsoluteToolchainPath(config.espIdfPath, `firmware.variants.${variant}.espIdfPath`);
+    assertAbsoluteToolchainPath(config.espIdfEnvironment?.pythonEnvPath, `firmware.variants.${variant}.espIdfEnvironment.pythonEnvPath`);
+    assertAbsoluteToolchainPath(config.espIdfEnvironment?.expectedCompilerPath, `firmware.variants.${variant}.espIdfEnvironment.expectedCompilerPath`);
     assertRelative(config.artifact, `firmware.variants.${variant}.artifact`);
     assertRelative(config.keilProject, `firmware.variants.${variant}.keilProject`);
   }

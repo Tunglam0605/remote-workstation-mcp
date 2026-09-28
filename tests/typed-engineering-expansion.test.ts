@@ -947,3 +947,105 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('ESP32 preflight fingerprints the exact flash set and blocks flash without blocking rebuild when an image is missing', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-esp32-preflight-manifest-'));
+  const oldPath = process.env.PATH;
+  try {
+    await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+      'cmake_minimum_required(VERSION 3.16)',
+      'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+      'project(preflight_manifest_fixture)'
+    ].join('\n'));
+    await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+
+    const sdkRoot = path.join(root, 'sdk', 'esp-idf-v6.1');
+    await fs.mkdir(path.join(sdkRoot, 'tools'), { recursive: true });
+    await fs.writeFile(path.join(sdkRoot, 'tools', 'idf.py'), '# fixture\n');
+    await fs.writeFile(path.join(sdkRoot, 'export.sh'), '# fixture\n');
+
+    const build = path.join(root, 'build-linux');
+    await fs.mkdir(path.join(build, 'bootloader'), { recursive: true });
+    await fs.mkdir(path.join(build, 'partition_table'), { recursive: true });
+    await fs.mkdir(path.join(build, 'config'), { recursive: true });
+    await fs.writeFile(path.join(build, 'project_description.json'), JSON.stringify({
+      project_name: 'preflight_manifest_fixture',
+      target: 'esp32s3',
+      idf_ver: 'v6.1',
+      idf_path: sdkRoot
+    }));
+    await fs.writeFile(path.join(build, 'flasher_args.json'), JSON.stringify({
+      flash_settings: { flash_mode: 'dio', flash_size: '8MB', flash_freq: '40m' },
+      flash_files: {
+        '0x0': 'bootloader/bootloader.bin',
+        '0x8000': 'partition_table/partition-table.bin',
+        '0x10000': 'app.bin'
+      }
+    }));
+    await fs.writeFile(path.join(build, 'config', 'sdkconfig.json'), JSON.stringify({
+      IDF_TARGET: 'esp32s3',
+      CONFIG_ESPTOOLPY_FLASHMODE: 'dio',
+      CONFIG_ESPTOOLPY_FLASHSIZE: '8MB'
+    }));
+    await fs.writeFile(path.join(build, 'bootloader', 'bootloader.bin'), Buffer.from([1, 2, 3, 4]));
+    await fs.writeFile(path.join(build, 'partition_table', 'partition-table.bin'), Buffer.from([5, 6, 7]));
+    await fs.writeFile(path.join(build, 'app.bin'), Buffer.from([8, 9, 10, 11, 12]));
+
+    const port = process.platform === 'win32' ? 'COM9' : '/dev/ttyACM0';
+    const device = {
+      id: 'serial:fixture:ESPTEST',
+      kind: 'serial',
+      name: 'ESP32-S3 USB',
+      path: port,
+      serialNumber: 'ESPTEST',
+      vendorId: '303A',
+      productId: '1001',
+      manufacturer: 'Espressif',
+      provider: 'fixture',
+      capabilities: ['serial-monitor', 'serial-write']
+    };
+    const hardware = {
+      async list() { return [device]; },
+      async resolveSerial(selector: unknown) { return { selector, device, path: port }; }
+    };
+    const runner = {
+      async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+        if (args.includes('--version')) return command(program, args, cwd, 'ESP-IDF v6.1\n');
+        if (args.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\nesp32c3\n');
+        return command(program, args, cwd);
+      }
+    };
+
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, hardware as never);
+    const ready = await adapter.esp32Preflight({
+      workspace: 'w',
+      projectPath: '.',
+      buildDir: 'build-linux',
+      espIdfPath: sdkRoot,
+      portSelector: { serialNumber: 'ESPTEST' }
+    });
+    assert.equal(ready.readyForBuild, true);
+    assert.equal(ready.readyForFlash, true);
+    assert.equal(ready.flashManifest.available, true);
+    assert.deepEqual(ready.flashManifest.images.map(item => item.address), [0, 0x8000, 0x10000]);
+    assert.equal(ready.flashManifest.totalImageBytes, 12);
+    assert.equal(ready.flashManifest.images.every(item => /^[a-f0-9]{64}$/.test(item.sha256)), true);
+
+    await fs.rm(path.join(build, 'app.bin'));
+    const missing = await adapter.esp32Preflight({
+      workspace: 'w',
+      projectPath: '.',
+      buildDir: 'build-linux',
+      espIdfPath: sdkRoot,
+      portSelector: { serialNumber: 'ESPTEST' }
+    });
+    assert.equal(missing.readyForBuild, true);
+    assert.equal(missing.readyForFlash, false);
+    assert.match(missing.flashBlockers.join(' '), /flash image is missing: app\.bin/i);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+

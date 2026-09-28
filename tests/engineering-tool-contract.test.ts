@@ -34,9 +34,9 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 34;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 35;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.62\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.63\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -375,6 +375,25 @@ test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface'
   assert.doesNotMatch(modbus, /function:\s*5|function:\s*6|function:\s*15|function:\s*16/);
 });
 
+test('v0.63 network diagnostics remain bounded and read-only', async () => {
+  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const network = await read('src/adapters/engineering/network-diagnostics.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  for (const tool of ['network_provider_status', 'network_interface_list', 'network_route_list', 'network_dns_lookup', 'network_ping', 'network_tcp_reachability']) {
+    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(capabilities, new RegExp(tool));
+    assert.match(scopes, new RegExp(`${tool}: 'workstation\\.read'`));
+  }
+  assert.match(network, /authority: 'read-only'/);
+  assert.match(network, /IP configuration/);
+  assert.match(network, /route mutation/);
+  assert.match(network, /firewall mutation/);
+  assert.doesNotMatch(engineeringTools, /network_route_add|network_route_delete|network_interface_set|network_firewall/);
+  assert.doesNotMatch(network, /shell:\s*true/);
+});
+
 test('vendor hardening keeps watchpoint guarantees truthful and avoids duplicate OpenOCD verify', async () => {
   const debug = await read('src/adapters/engineering/debug-session.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
@@ -553,7 +572,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 34;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 35;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);

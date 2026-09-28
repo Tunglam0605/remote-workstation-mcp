@@ -2,6 +2,18 @@
 
 > All roadmap work must remain consistent with [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). The charter defines **why** the project exists and the platform/extension boundary; this roadmap only defines **when** capabilities are developed.
 
+## v0.63.0 - Typed Network Diagnostics Phase 1
+
+- add `network_provider_status` for bounded cross-platform provider availability and authority reporting;
+- add `network_interface_list` using the host networking API for local interface/address inventory without changing interface state;
+- add `network_route_list` using fixed machine-readable platform commands (`ip -json route` on Linux and fixed `Get-NetRoute` projection on Windows), with no user-supplied command arguments;
+- add `network_dns_lookup` for bounded host DNS resolution with IPv4/IPv6 family selection;
+- add `network_ping` for 1..20 ICMP probes with bounded timeout and normalized loss/RTT evidence;
+- add `network_tcp_reachability` for one explicit host/port TCP connect check with no application payload;
+- validate hostnames/IPs and ports; reject URLs, command-like values and arbitrary CLI flags;
+- keep IP/interface configuration, DNS configuration, route mutation, firewall mutation, packet injection and packet capture unavailable;
+- advance Action Schema to 35 for the six public network tools; Engineering API remains 5.
+
 ## v0.62.0 - Typed RS485 / Modbus RTU Diagnostics Phase 1
 
 - add `modbus_rtu_provider_status` and `modbus_rtu_endpoint_status` for bounded cross-platform provider and explicit serial-endpoint discovery;

@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.65.0 - channel=stable - Action Schema 36 - Engineering API 5** - extends the ESP32 / ESP-IDF production tooling with typed Python-environment and compiler provenance, bounded `IDF_SKIP_CHECK_SUBMODULES` policy, profile-aware `espidf.preflight`, and build-lease-scoped `espidf.fullclean` / `espidf.reconfigure` workflows. Runtime Python/SDK mismatch blocks build and flash; stale compiler provenance from an existing build blocks flash while still allowing rebuild/reconfigure to repair metadata. Build directories are checked for symlink escape before maintenance/build/flash, and compiler probes execute only inside the activated `IDF_TOOLS_PATH`. The v0.64.2 Linux Control Center approval UX remains included. eFuse writes, Secure Boot or flash-encryption key burning, erase-flash, arbitrary environment maps, arbitrary esptool arguments and raw ROM commands remain unavailable.
+**Stable release: v0.65.1 - channel=stable - Action Schema 36 - Engineering API 5** - extends the ESP32 / ESP-IDF production tooling with typed Python-environment and compiler provenance, bounded `IDF_SKIP_CHECK_SUBMODULES` policy, profile-aware `espidf.preflight`, and build-lease-scoped `espidf.fullclean` / `espidf.reconfigure` workflows. Runtime Python/SDK mismatch blocks build and flash; stale compiler provenance from an existing build blocks flash while still allowing rebuild/reconfigure to repair metadata. Build directories are checked for symlink escape before maintenance/build/flash, and compiler probes execute only inside the activated effective ESP-IDF tools root. v0.65.1 also resolves ESP-IDF's default `~/.espressif` tools directory when `IDF_TOOLS_PATH` is not explicitly exported, so compiler-version provenance is verified instead of being skipped. The v0.64.2 Linux Control Center approval UX remains included. eFuse writes, Secure Boot or flash-encryption key burning, erase-flash, arbitrary environment maps, arbitrary esptool arguments and raw ROM commands remain unavailable.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -511,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.65.0.tgz`
+- `remote-workstation-mcp-v0.65.1.tgz`
 - `SHA256SUMS.txt`
 
 

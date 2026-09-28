@@ -72,6 +72,20 @@ function helperSelectedIdfRoot(args: string[], fallback: string): string {
   return fallback;
 }
 
+function decodedEspIdfArgs(args: string[]): string[] {
+  const jsonIndex = args.indexOf('-ArgsJson');
+  if (jsonIndex >= 0 && args[jsonIndex + 1]) {
+    const parsed = JSON.parse(args[jsonIndex + 1]!) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every(item => typeof item === 'string')) {
+      throw new Error('Fixture received invalid ESP-IDF ArgsJson.');
+    }
+    return parsed as string[];
+  }
+  const separator = args.indexOf('--');
+  if (separator >= 0) return args.slice(separator + 1);
+  return [...args];
+}
+
 function espIdfProvenanceJson(idfRoot: string, options: {
   pythonExecutable?: string;
   pythonVersion?: string;
@@ -281,7 +295,8 @@ test('ESP-IDF diagnostics expose provider, project, artifacts and serial invento
       if (args.includes('--rwmcp-print-provenance') || args.includes('-Provenance')) {
         return command(program, args, cwd, espIdfProvenanceJson(sdkRoot));
       }
-      if (args.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\nesp32c6\n');
+      const idfArgs = decodedEspIdfArgs(args);
+      if (idfArgs.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\nesp32c6\n');
       return command(program, args, cwd, 'ESP-IDF v5.3.1\n');
     }
   };
@@ -319,7 +334,7 @@ test('ESP-IDF diagnostics expose provider, project, artifacts and serial invento
     assert.equal(result.buildMetadata.project?.target, 'esp32s3');
     assert.equal(result.buildMetadata.flash?.files.length, 2);
     assert.equal(result.buildMetadata.config?.partitionTable, 'partitions.csv');
-    assert.equal(calls.some(args => args.includes('flash')), false);
+    assert.equal(calls.some(args => decodedEspIdfArgs(args).includes('flash')), false);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });
@@ -461,7 +476,8 @@ test('ESP-IDF size analysis consumes official JSON size outputs and never flashe
   const runner = {
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
-      const joined = args.join(' ');
+      const idfArgs = decodedEspIdfArgs(args);
+      const joined = idfArgs.join(' ');
       if (joined.includes('size-components')) return command(program, args, cwd, JSON.stringify({ components: [{ name: 'main', total: 1200 }] }));
       if (joined.includes('size-files')) return command(program, args, cwd, JSON.stringify({ files: [{ name: 'main.c.obj', total: 800 }] }));
       if (joined.match(/\bsize\b/) && joined.includes('--format') && joined.includes('json')) {
@@ -481,7 +497,10 @@ test('ESP-IDF size analysis consumes official JSON size outputs and never flashe
     assert.equal((result.summary as any).total_size, 4096);
     assert.equal((result.components as any).components[0].name, 'main');
     assert.equal((result.files as any).files[0].name, 'main.c.obj');
-    assert.equal(calls.some(args => args.includes('flash') || args.includes('erase-flash')), false);
+    assert.equal(calls.some(args => {
+      const idfArgs = decodedEspIdfArgs(args);
+      return idfArgs.includes('flash') || idfArgs.includes('erase-flash');
+    }), false);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });
@@ -506,10 +525,11 @@ test('ESP-IDF size analysis falls back from json2 to json for ESP-IDF 5.x compat
   const runner = {
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
-      if (args.includes('json2')) return command(program, args, cwd, '', 'invalid choice: json2', 2);
-      if (args.includes('json')) {
-        if (args.includes('size-components')) return command(program, args, cwd, JSON.stringify({ components: [] }));
-        if (args.includes('size-files')) return command(program, args, cwd, JSON.stringify({ files: [] }));
+      const idfArgs = decodedEspIdfArgs(args);
+      if (idfArgs.includes('json2')) return command(program, args, cwd, '', 'invalid choice: json2', 2);
+      if (idfArgs.includes('json')) {
+        if (idfArgs.includes('size-components')) return command(program, args, cwd, JSON.stringify({ components: [] }));
+        if (idfArgs.includes('size-files')) return command(program, args, cwd, JSON.stringify({ files: [] }));
         return command(program, args, cwd, JSON.stringify({ total_size: 2048 }));
       }
       return command(program, args, cwd, 'ESP-IDF v5.5.4\n');
@@ -522,8 +542,8 @@ test('ESP-IDF size analysis falls back from json2 to json for ESP-IDF 5.x compat
     const result = await adapter.espIdfSizeAnalysis('w', '.', 'build', sdkRoot);
     assert.deepEqual(result.formats, { summary: 'json', components: 'json', files: 'json' });
     assert.equal((result.summary as any).total_size, 2048);
-    assert.ok(calls.some(args => args.includes('json2')));
-    assert.ok(calls.some(args => args.includes('json')));
+    assert.ok(calls.some(args => decodedEspIdfArgs(args).includes('json2')));
+    assert.ok(calls.some(args => decodedEspIdfArgs(args).includes('json')));
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });
@@ -935,7 +955,7 @@ test('ESP-IDF typed build honors the selected build directory instead of silentl
     const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, resources as never, { list: async () => [] } as never);
     const result = await adapter.build('w', '.', 'esp-idf', 'build-linux', undefined, undefined, sdkRoot);
     assert.equal(result.provider, 'esp-idf');
-    assert.deepEqual(calls.at(-1)?.slice(-3), ['-B', 'build-linux', 'build']);
+    assert.deepEqual(decodedEspIdfArgs(calls.at(-1) ?? []).slice(-3), ['-B', 'build-linux', 'build']);
     assert.deepEqual(leases, [{ resourceId: 'project-variant:esp-idf:w:.:build-linux', mode: 'building' }]);
     await assert.rejects(() => adapter.build('w', '.', 'esp-idf', '../escape'), /must not escape/i);
     await assert.rejects(() => adapter.build('w', '.', 'esp-idf', path.resolve(root, 'absolute-build')), /bounded relative project path/i);
@@ -999,11 +1019,12 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
     });
     assert.equal(plan.port, port);
     assert.equal(plan.buildDir, 'build-linux');
-    assert.ok(plan.args.includes('-B'));
-    assert.ok(plan.args.includes('build-linux'));
-    assert.ok(plan.args.includes('-p'));
-    assert.ok(plan.args.includes(port));
-    assert.equal(plan.args.at(-1), 'flash');
+    const flashArgs = decodedEspIdfArgs(plan.args);
+    assert.ok(flashArgs.includes('-B'));
+    assert.ok(flashArgs.includes('build-linux'));
+    assert.ok(flashArgs.includes('-p'));
+    assert.ok(flashArgs.includes(port));
+    assert.equal(flashArgs.at(-1), 'flash');
 
     const movedPort = process.platform === 'win32' ? 'COM10' : '/dev/ttyACM1';
     let resolutions = 0;
@@ -1226,7 +1247,8 @@ test('ESP32 preflight validates active Python and existing compiler provenance w
     const runner = {
       async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
         executedPrograms.push(program);
-        if (program === compilerPath && args.includes('--version')) {
+        const programName = path.basename(program).toLowerCase();
+        if (args.includes('--version') && programName.startsWith('xtensa-esp32s3-elf-gcc')) {
           return command(program, args, cwd, 'xtensa-esp32s3-elf-gcc (crosstool-NG esp-15.2.0) 15.2.0\n');
         }
         if (args.includes('--rwmcp-print-provenance') || args.includes('-Provenance')) {
@@ -1235,8 +1257,9 @@ test('ESP32 preflight validates active Python and existing compiler provenance w
             { pythonExecutable: path.join(pythonEnvPath, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'), pythonVersion: '3.11.16', pythonEnvPath, idfToolsPath: path.join(root, '.espressif'), skipCheckSubmodules: true }
           ));
         }
-        if (args.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\n');
-        if (args.includes('--version')) return command(program, args, cwd, 'ESP-IDF v6.1.0\n');
+        const idfArgs = decodedEspIdfArgs(args);
+        if (idfArgs.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\n');
+        if (idfArgs.includes('--version')) return command(program, args, cwd, 'ESP-IDF v6.1.0\n');
         return command(program, args, cwd);
       }
     };
@@ -1303,7 +1326,7 @@ test('ESP32 preflight validates active Python and existing compiler provenance w
       espIdfEnvironment: policy,
       portSelector: { serialNumber: 'ENV' }
     });
-    assert.equal(executedPrograms.includes(untrustedCompiler), false);
+    assert.equal(executedPrograms.some(program => path.basename(program).toLowerCase().startsWith('fake-compiler')), false);
     assert.equal(untrusted.readyForBuild, true);
     assert.equal(untrusted.readyForFlash, false);
     assert.match(untrusted.warnings.join(' '), /outside the activated IDF_TOOLS_PATH/i);
@@ -1347,9 +1370,10 @@ test('ESP-IDF fullclean and reconfigure stay bounded to the build lease and reje
     assert.equal(fullclean.action, 'fullclean');
     assert.equal(reconfigure.action, 'reconfigure');
     assert.equal(calls.length, 2);
-    assert.ok(calls[0]!.includes('build-v065'));
-    assert.ok(calls[0]!.includes('fullclean'));
-    assert.ok(calls[1]!.includes('reconfigure'));
+    const maintenanceArgs = calls.map(decodedEspIdfArgs);
+    assert.ok(maintenanceArgs[0]!.includes('build-v065'));
+    assert.ok(maintenanceArgs[0]!.includes('fullclean'));
+    assert.ok(maintenanceArgs[1]!.includes('reconfigure'));
     assert.ok(calls.every(args => args.includes(pythonEnvPath)));
     assert.equal(leases.length, 2);
     assert.ok(leases.every(item => item.resourceId === 'project-variant:esp-idf:w:.:build-v065' && item.mode === 'building'));

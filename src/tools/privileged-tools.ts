@@ -4,7 +4,7 @@ import type { AppContext } from '../context.js';
 import { createAdminRequest, readAdminRequest } from '../privileged/approval-store.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal } from '../security/request-principal.js';
-import { linuxHostRebootCommand } from '../tui/admin-requests.js';
+import { isLinuxAptInstallCommand, linuxHostRebootCommand } from '../tui/admin-requests.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -13,7 +13,7 @@ const result = (value: unknown) => ({
 
 export function registerPrivilegedTools(server: McpServer, ctx: AppContext): void {
   server.registerTool('admin_request', {
-    description: 'Request one generic Administrator/UAC action. This never elevates or executes by itself. Generic privileged execution remains Windows-only; Linux host reboot uses node_reboot_request so the Ubuntu TUI can approve one allowlisted reboot without opening a generic root shell.',
+    description: 'Request one owner-approved privileged action. Windows retains the generic Administrator/UAC path. Linux accepts only a bounded apt-get install -y package request here; host reboot uses node_reboot_request. The request never elevates or executes by itself.',
     inputSchema: z.object({
       program: z.string().min(1).max(4096),
       args: z.array(z.string().max(4096)).max(100).default([]),
@@ -22,6 +22,12 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
     }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   }, async ({ program, args, cwd, reason }) => result(await audited(ctx.audit, 'admin_request', undefined, async () => {
+    if (process.platform === 'linux' && !isLinuxAptInstallCommand({ program, args, cwd })) {
+      throw new Error('Linux admin_request accepts only typed apt-get install -y package requests. Use node_reboot_request for host reboot.');
+    }
+    if (process.platform !== 'linux' && process.platform !== 'win32') {
+      throw new Error('admin_request is unavailable on this platform.');
+    }
     const request = await createAdminRequest({ program, args, cwd, reason });
     await ctx.desktopNotifications.notify({
       title: 'RWMCP cần quyền Administrator',
@@ -37,7 +43,7 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
   })));
 
   server.registerTool('node_reboot_request', {
-    description: 'Request one owner-approved Linux host reboot. The request is fixed to /usr/bin/systemctl --no-block reboot, never executes by itself, and must be reviewed in the Ubuntu TUI Admin requests screen. This is distinct from restarting only the RWMCP runtime.',
+    description: 'Request one owner-approved Linux host reboot. The request is fixed to /usr/bin/systemctl --no-block reboot, never executes by itself, and must be reviewed in an owner-local Ubuntu approval surface (Control Center or TUI). This is distinct from restarting only the RWMCP runtime.',
     inputSchema: z.object({ reason: z.string().min(1).max(1000) }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ reason }) => result(await audited(ctx.audit, 'node_reboot_request', undefined, async () => {
@@ -49,7 +55,7 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
       state: request.state,
       expiresAt: request.expiresAt,
       command: [request.program, ...request.args],
-      message: 'Waiting for local owner approval in the Ubuntu Remote Workstation TUI -> Admin requests. Restart runtime does not reboot the host.'
+      message: 'Waiting for local owner approval in Ubuntu Remote Workstation Control Center or TUI -> Admin requests. Restart runtime does not reboot the host.'
     };
   })));
 

@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  approveLinuxAptInstallRequest,
   approveLinuxHostRebootRequest,
+  isLinuxAptInstallCommand,
+  isLinuxAptInstallRequest,
   isLinuxHostRebootRequest,
   linuxHostRebootCommand
 } from '../src/tui/admin-requests.js';
@@ -57,6 +60,65 @@ test('typed Linux host reboot approval executes only fixed sudo/systemctl argv a
   assert.equal(finished.state, 'succeeded');
   assert.equal(finished.result?.exitCode, 0);
   assert.equal((await readAdminRequest(request.id)).state, 'succeeded');
+});
+
+test('Linux Control Center approval uses pkexec for the same fixed reboot action', async t => {
+  const fx = await fixture(t);
+  const command = linuxHostRebootCommand();
+  const request = await createAdminRequest({
+    program: command.program,
+    args: command.args,
+    reason: 'Owner approved reboot from local Control Center'
+  });
+
+  const calls: Array<{ program: string; args: string[] }> = [];
+  const finished = await approveLinuxHostRebootRequest(request.id, request.commandHash, {
+    ...fx.options,
+    privilegeMode: 'pkexec',
+    runPrivileged: async (program, args) => {
+      calls.push({ program, args });
+      return { code: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  assert.deepEqual(calls, [{
+    program: '/usr/bin/pkexec',
+    args: ['/usr/bin/systemctl', '--no-block', 'reboot']
+  }]);
+  assert.equal(finished.state, 'succeeded');
+});
+
+test('Linux Control Center approves only bounded apt-get install package requests through pkexec', async t => {
+  const fx = await fixture(t);
+  const args = ['install', '-y', 'smbclient', 'cifs-utils', 'winbind', 'libnss-winbind'];
+  assert.equal(isLinuxAptInstallCommand({ program: '/usr/bin/apt-get', args, cwd: '/' }), true);
+  assert.equal(isLinuxAptInstallCommand({ program: '/usr/bin/apt-get', args: ['install', '-y', '--allow-unauthenticated'], cwd: '/' }), false);
+  assert.equal(isLinuxAptInstallCommand({ program: '/usr/bin/apt-get', args: ['install', '-y', '../../tmp/payload'], cwd: '/' }), false);
+  assert.equal(isLinuxAptInstallCommand({ program: '/bin/sh', args: ['-c', 'apt-get install -y smbclient'] }), false);
+
+  const request = await createAdminRequest({
+    program: '/usr/bin/apt-get',
+    args,
+    cwd: '/',
+    reason: 'Install SMB/CIFS client packages'
+  });
+  assert.equal(isLinuxAptInstallRequest(request), true);
+
+  const calls: Array<{ program: string; args: string[] }> = [];
+  const finished = await approveLinuxAptInstallRequest(request.id, request.commandHash, {
+    ...fx.options,
+    privilegeMode: 'pkexec',
+    runPrivileged: async (program, privilegedArgs) => {
+      calls.push({ program, args: privilegedArgs });
+      return { code: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  assert.deepEqual(calls, [{
+    program: '/usr/bin/pkexec',
+    args: ['/usr/bin/apt-get', ...args]
+  }]);
+  assert.equal(finished.state, 'succeeded');
 });
 
 test('Ubuntu TUI refuses arbitrary Linux admin requests instead of becoming a generic root shell', async t => {

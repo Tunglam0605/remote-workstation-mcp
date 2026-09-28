@@ -22,7 +22,13 @@ import { QualityObservationStore } from '../quality-learning.js';
 import { QualityLearningSettingsStore } from '../quality-learning-policy.js';
 import { QualityKnowledgeStore } from '../quality-knowledge.js';
 import { OwnerQualityReviewStore, type OwnerQualityDecisionKind } from '../quality-review.js';
-import { approveAdminRequest, denyAdminRequest, listAdminRequests } from '../privileged/approval-store.js';
+import { approveAdminRequest, denyAdminRequest, listAdminRequests, readAdminRequest } from '../privileged/approval-store.js';
+import {
+  approveLinuxAptInstallRequest,
+  approveLinuxHostRebootRequest,
+  isLinuxAptInstallRequest,
+  isLinuxHostRebootRequest
+} from '../tui/admin-requests.js';
 import { linuxOpenAiEnvPath, readEnvFile, readTuiRuntimeState, updateEnvFile } from '../tui/config.js';
 import {
   applyOwnerPermissionMode,
@@ -1504,9 +1510,28 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           json(res, 200, await denyAdminRequest(requestId!));
           return;
         }
-        if (process.platform !== 'win32') throw new Error('Administrator approval helper currently supports Windows only.');
         const body = await readJsonBody(req) as { expectedCommandHash?: string };
         if (!body.expectedCommandHash) throw new Error('expectedCommandHash is required for Administrator approval.');
+        if (process.platform === 'linux') {
+          const pending = await readAdminRequest(requestId!);
+          const runPrivileged = async (program: string, args: string[], env: NodeJS.ProcessEnv) => {
+            const result = await runProcess(program, args, {
+              cwd: repoRoot,
+              timeoutMs: 120_000,
+              env
+            });
+            return { code: result.code, stdout: result.output, stderr: '' };
+          };
+          const approvalOptions = { privilegeMode: 'pkexec' as const, runPrivileged };
+          const finished = isLinuxHostRebootRequest(pending)
+            ? await approveLinuxHostRebootRequest(requestId!, body.expectedCommandHash, approvalOptions)
+            : isLinuxAptInstallRequest(pending)
+              ? await approveLinuxAptInstallRequest(requestId!, body.expectedCommandHash, approvalOptions)
+              : (() => { throw new Error('Linux Control Center approval is restricted to supported typed actions.'); })();
+          json(res, 200, { requestId: finished.id, state: finished.state, authorizationPrompted: true });
+          return;
+        }
+        if (process.platform !== 'win32') throw new Error('Administrator approval helper is unavailable on this platform.');
         const approved = await approveAdminRequest(requestId!, body.expectedCommandHash);
         const launcher = path.join(repoRoot, 'scripts', 'admin-approval-windows.ps1');
         const child = spawn('powershell.exe', [

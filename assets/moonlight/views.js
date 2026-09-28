@@ -52,6 +52,32 @@ function selectValue(value, choices) {
 }
 function requestError(error) { return error?.message || t('The control center rejected this request.'); }
 function emptyState(message) { return el('div', { class: 'moon-empty' }, el('p', { class: 'moon-muted', text: t(message) })); }
+function isLinuxHostRebootRequest(item) {
+  return item?.program === '/usr/bin/systemctl'
+    && Array.isArray(item?.args)
+    && item.args.length === 2
+    && item.args[0] === '--no-block'
+    && item.args[1] === 'reboot'
+    && !item.cwd;
+}
+function isLinuxAptInstallRequest(item) {
+  const packages = Array.isArray(item?.args) ? item.args.slice(2) : [];
+  return item?.program === '/usr/bin/apt-get'
+    && (!item.cwd || item.cwd === '/')
+    && item.args?.[0] === 'install'
+    && item.args?.[1] === '-y'
+    && packages.length >= 1
+    && packages.length <= 32
+    && packages.every((value) => /^[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?$/.test(value));
+}
+function isLinuxApprovableRequest(item) {
+  return isLinuxHostRebootRequest(item) || isLinuxAptInstallRequest(item);
+}
+function linuxApprovalPrompt(item) {
+  return isLinuxHostRebootRequest(item)
+    ? 'Approve this exact Linux reboot request? The host will reboot.'
+    : 'Approve this exact Linux package installation request? System packages will be modified.';
+}
 
 export function createViews({ api, store, openModal, openPage = (_page, title, content) => { openModal(title, content); return content; }, openExecutionConsole = () => {}, toast, refresh }) {
   async function mutate(path, body, keys, message, method = 'POST', timeoutMs = 180_000) {
@@ -378,7 +404,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     scopeDetails.append(scopeSection);
     content.append(scopeDetails);
 
-    const adminSection = section('Admin requests', 'Review the exact command and reason before authorizing Windows UAC.', 'moon-page-full security-admin-section');
+    const adminSection = section('Admin requests', 'Review the exact command and reason before authorizing an elevated action.', 'moon-page-full security-admin-section');
     const adminSummary = el('div', { class: 'security-admin-summary' },
       el('div', {},
         el('strong', { text: pendingRequests.length ? t('{count} pending request(s)', { count: pendingRequests.length }) : t('No pending requests') }),
@@ -414,8 +440,15 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
             await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/approve`, { expectedCommandHash: item.commandHash }, ['admin'], 'UAC approval requested.');
             openAccess();
           }, 'primary-button'));
+        } else if (/^linux/i.test(String(platform || '')) && isLinuxApprovableRequest(item)) {
+          requestActions.unshift(button('Approve', async () => {
+            if (!confirm(t(linuxApprovalPrompt(item)))) return;
+            await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/approve`, { expectedCommandHash: item.commandHash }, ['admin'], 'System authorization requested.');
+            openAccess();
+          }, 'primary-button'));
+          row.append(el('small', { class: 'moon-muted', text: t('Linux approval uses the local desktop authorization agent and remains restricted to supported typed actions.') }));
         } else {
-          row.append(el('small', { class: 'moon-muted', text: t('Approval is available through the platform owner interface.') }));
+          row.append(el('small', { class: 'moon-muted', text: t('Only supported typed actions can be approved from Control Center on this platform.') }));
         }
         row.append(actions(...requestActions));
       }
@@ -859,7 +892,48 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     return content;
   }
 
-  function openNotifications() { const content = el('div', { class: 'moon-view' }); openModal(t('Notifications'), content); const notices = deriveNotifications(store.getState()); if (!notices.length) notices.push({ title: t('No current notifications.'), description: '' }); content.append(...notices.map((notice) => el('article', { class: 'moon-row' }, el('strong', { text: text(notice.title) }), notice.description && el('span', { text: text(notice.description) })))); return content; }
+  function openNotifications() {
+    const content = el('div', { class: 'moon-view' });
+    openModal(t('Notifications'), content);
+    const notices = deriveNotifications(store.getState());
+    const platform = live('status')?.platform;
+    if (!notices.length) notices.push({ title: t('No current notifications.'), description: '' });
+    for (const notice of notices) {
+      const row = el('article', { class: 'moon-row' },
+        el('strong', { text: text(notice.title) }),
+        notice.description && el('span', { text: text(notice.description) })
+      );
+      const item = notice.adminRequest;
+      if (item?.state === 'pending') {
+        row.append(el('details', { class: 'security-request-hash' },
+          el('summary', { text: t('Review request details') }),
+          el('code', { text: [item.program, ...(item.args || [])].join(' ') }),
+          el('code', { text: text(item.commandHash) })
+        ));
+        const requestActions = [button('Deny', async () => {
+          if (!confirm(t('Deny this admin request?'))) return;
+          await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/deny`, undefined, ['admin'], 'Request denied.');
+          openNotifications();
+        }, 'secondary-button danger-button')];
+        if (/^win/i.test(String(platform || ''))) {
+          requestActions.unshift(button('Approve + UAC', async () => {
+            if (!confirm(t('Approve this exact command and trigger UAC?'))) return;
+            await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/approve`, { expectedCommandHash: item.commandHash }, ['admin'], 'UAC approval requested.');
+            openNotifications();
+          }, 'primary-button'));
+        } else if (/^linux/i.test(String(platform || '')) && isLinuxApprovableRequest(item)) {
+          requestActions.unshift(button('Approve', async () => {
+            if (!confirm(t(linuxApprovalPrompt(item)))) return;
+            await mutate(`/api/admin/requests/${encodeURIComponent(item.id)}/approve`, { expectedCommandHash: item.commandHash }, ['admin'], 'System authorization requested.');
+            openNotifications();
+          }, 'primary-button'));
+        }
+        row.append(actions(...requestActions));
+      }
+      content.append(row);
+    }
+    return content;
+  }
   function openProfile() { const status = live('status'); const content = el('div', { class: 'moon-view' }); openModal(t('Local owner session'), content); content.append(el('p', { text: t('Node: {name}', { name: text(status?.identity?.name) }) }), el('p', { text: t('Platform: {platform}', { platform: text(status?.platform) }) }), el('p', { class: 'moon-muted', text: t('This interface operates through the local, authenticated Control Center.') })); return content; }
   function openDevice(card) { const content = el('div', { class: 'moon-view' }); openModal(text(card?.name || t('Device')), content); for (const spec of card?.specs || []) content.append(el('p', { text: `${text(spec.label)}: ${text(spec.value)}` })); return content; }
   function open(page) {

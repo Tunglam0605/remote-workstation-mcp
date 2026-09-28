@@ -641,18 +641,19 @@ RWMCP exposes exactly three owner-selected access modes:
 
 **Full Access is not Administrator.**
 
-Privileged execution is a separate one-shot path. Windows generic Administrator actions remain Control Center + RunAs/UAC. Ubuntu host reboot is deliberately narrower:
+Privileged execution is a separate one-shot path. Windows generic Administrator actions remain Control Center + RunAs/UAC. Linux Control Center approval is typed and bounded: it accepts the exact host-reboot action and `/usr/bin/apt-get install -y <package...>` with validated package names only; arbitrary privileged commands and extra apt options remain rejected. Ubuntu host reboot is deliberately narrower:
 
 ```text
 ChatGPT node_reboot_request
    -> pending typed request
-   -> local Ubuntu TUI review
+   -> owner-local Ubuntu review
+      -> Control Center: desktop authorization (pkexec)
+      -> TUI: terminal authorization (sudo -k)
    -> Work Session interlock re-check
-   -> Allow once + explicit host-reboot confirmation
-   -> sudo -k -- /usr/bin/systemctl --no-block reboot
+   -> exact typed /usr/bin/systemctl --no-block reboot
 ```
 
-The Ubuntu TUI does **not** expose a generic root shell. `Restart runtime` restarts only RWMCP and is never presented as a host reboot.
+Neither owner-local Ubuntu approval surface exposes a generic root shell. `Restart runtime` restarts only RWMCP and is never presented as a host reboot.
 
 ![Full access confirmation](docs/images/v0.8.1/06-full-access-confirm-v081.png)
 

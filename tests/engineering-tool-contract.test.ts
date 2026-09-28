@@ -759,6 +759,9 @@ test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and exclu
   assert.doesNotMatch(helper, /^\uFEFF/);
 
   assert.match(tools, /server\.registerTool\('esp32_preflight'/);
+  assert.match(tools, /portSelector: serialDeviceSelector\.optional\(\)/);
+  assert.match(tools, /selector: serialDeviceSelector\.optional\(\)/);
+  assert.match(tools, /ctx\.engineering\.workflows\.esp32Preflight/);
   assert.match(scopes, /esp32_preflight: 'workstation\.execute'/);
   assert.match(capabilities, /engineering\.esp32/);
   assert.match(capabilities, /eFuse writes/);
@@ -770,6 +773,9 @@ test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and exclu
   assert.match(firmware, /Multiple ESP-IDF installations were found/);
   assert.match(firmware, /\['-B', buildDir, 'build'\]/);
   assert.match(firmware, /stable portSelector/);
+  assert.match(firmware, /boundedFileIdentity/);
+  assert.match(firmware, /flashManifest/);
+  assert.match(firmware, /readyForBuild: buildBlockers\.length === 0/);
   assert.match(firmware, /flash-encryption keys/);
 
   assert.doesNotMatch(tools, /esp32_erase|esp32_efuse|esptool_raw|esp32_rom_command/);

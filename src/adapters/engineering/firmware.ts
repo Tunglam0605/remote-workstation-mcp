@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,6 +31,19 @@ function normalizedOpenOcdPath(value: string): string {
 
 async function exists(file: string): Promise<boolean> {
   try { await fs.access(file); return true; } catch { return false; }
+}
+
+function pathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+async function boundedFileIdentity(file: string, maxBytes = 32 * 1024 * 1024): Promise<{ size: number; sha256: string }> {
+  const stat = await fs.stat(file);
+  if (!stat.isFile()) throw new Error('Flash image is not a regular file.');
+  if (stat.size > maxBytes) throw new Error(`Flash image exceeds the ${maxBytes}-byte preflight hashing limit.`);
+  const bytes = await fs.readFile(file);
+  return { size: stat.size, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
 type EspIdfRootSource = 'explicit' | 'build-metadata' | 'owner-override' | 'path' | 'known-install';
@@ -551,28 +565,31 @@ export class FirmwareAdapter {
       throw new Error('esp32_preflight requires a detected ESP32/ESP-IDF project.');
     }
 
-    const blockers: string[] = [];
+    const buildBlockers: string[] = [];
+    const flashBlockers: string[] = [];
     const warnings = [...diagnostics.warnings];
     let portResolution: { path: string; source: 'explicit-port' | 'stable-selector'; device?: Awaited<ReturnType<HardwareDiscoveryAdapter['resolveSerial']>>['device'] } | undefined;
 
     if (options.port) {
       const port = validateSerialPortPath(options.port);
       const device = (await this.hardware.list()).find(item => item.kind === 'serial' && item.path === port);
-      if (!device) blockers.push(`Explicit serial port '${port}' is not currently discovered.`);
+      if (!device) flashBlockers.push(`Explicit serial port '${port}' is not currently discovered.`);
       else portResolution = { path: port, source: 'explicit-port', device };
     } else if (options.portSelector) {
       try {
         const resolution = await this.hardware.resolveSerial(options.portSelector);
         portResolution = { path: resolution.path, source: 'stable-selector', device: resolution.device };
       } catch (error) {
-        blockers.push(error instanceof Error ? error.message : String(error));
+        flashBlockers.push(error instanceof Error ? error.message : String(error));
       }
     } else {
-      blockers.push('No ESP32 flash port is configured. Use a stable portSelector or one explicit serial port.');
+      flashBlockers.push('No ESP32 flash port is configured. Use a stable portSelector or one explicit serial port.');
     }
 
     if (diagnostics.project.target && diagnostics.supportedTargets.length > 0 && !diagnostics.supportedTargets.includes(diagnostics.project.target)) {
-      blockers.push(`ESP-IDF installation does not report support for target '${diagnostics.project.target}'.`);
+      const message = `ESP-IDF installation does not report support for target '${diagnostics.project.target}'.`;
+      buildBlockers.push(message);
+      flashBlockers.push(message);
     }
     if (diagnostics.buildMetadata.config?.secureBootEnabled) {
       warnings.push('Secure Boot is enabled in build metadata; key/eFuse mutation remains intentionally unavailable.');
@@ -581,6 +598,73 @@ export class FirmwareAdapter {
       warnings.push('Flash encryption is enabled in build metadata; key/eFuse mutation remains intentionally unavailable.');
     }
 
+    const flashManifest = {
+      available: false,
+      buildDir,
+      settings: diagnostics.buildMetadata.flash?.settings,
+      images: [] as Array<{ offset: string; address: number; file: string; size: number; sha256: string }>,
+      totalImageBytes: 0,
+      highestWrittenAddress: 0
+    };
+    const flashFiles = diagnostics.buildMetadata.flash?.files ?? [];
+    if (flashFiles.length > 0) {
+      const projectRoot = await this.paths.resolveExisting(options.workspace, projectPath);
+      const buildRootCandidate = path.resolve(projectRoot, buildDir);
+      try {
+        const [canonicalProjectRoot, buildRoot] = await Promise.all([
+          fs.realpath(projectRoot),
+          fs.realpath(buildRootCandidate)
+        ]);
+        if (!pathInside(canonicalProjectRoot, buildRoot)) {
+          flashBlockers.push('ESP-IDF build directory resolves outside the selected project root.');
+        } else {
+          for (const entry of flashFiles) {
+            const address = Number.parseInt(entry.offset, 0);
+            if (!Number.isSafeInteger(address) || address < 0 || address > 0xffffffff) {
+              flashBlockers.push(`Invalid ESP-IDF flash offset '${entry.offset}'.`);
+              continue;
+            }
+            const candidate = path.isAbsolute(entry.file)
+              ? path.resolve(entry.file)
+              : path.resolve(buildRoot, entry.file);
+            let canonical: string;
+            try {
+              canonical = await fs.realpath(candidate);
+            } catch {
+              flashBlockers.push(`ESP-IDF flash image is missing: ${entry.file}.`);
+              continue;
+            }
+            if (!pathInside(buildRoot, canonical)) {
+              flashBlockers.push(`ESP-IDF flash image escapes the selected build directory: ${entry.file}.`);
+              continue;
+            }
+            try {
+              const identity = await boundedFileIdentity(canonical);
+              flashManifest.images.push({
+                offset: entry.offset,
+                address,
+                file: path.relative(buildRoot, canonical).replaceAll('\\\\', '/'),
+                size: identity.size,
+                sha256: identity.sha256
+              });
+              flashManifest.totalImageBytes += identity.size;
+              flashManifest.highestWrittenAddress = Math.max(flashManifest.highestWrittenAddress, address + identity.size);
+            } catch (error) {
+              flashBlockers.push(`Unable to fingerprint ESP-IDF flash image '${entry.file}': ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+          flashManifest.images.sort((a, b) => a.address - b.address);
+          flashManifest.available = flashManifest.images.length === flashFiles.length && flashFiles.length > 0;
+        }
+      } catch (error) {
+        flashBlockers.push(`ESP-IDF build directory is unavailable for flash preflight: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } else if (diagnostics.buildMetadata.available) {
+      warnings.push('ESP-IDF build metadata does not currently contain flash_files; build/reconfigure before flashing.');
+      flashBlockers.push('No ESP-IDF flash image manifest is available from the selected build directory.');
+    }
+
+    const blockers = [...new Set([...buildBlockers, ...flashBlockers])];
     return {
       provider: 'esp-idf' as const,
       project: diagnostics.project,
@@ -589,10 +673,13 @@ export class FirmwareAdapter {
       idfRootSource: diagnostics.idfRootSource,
       buildDir,
       buildMetadata: diagnostics.buildMetadata,
+      flashManifest,
       portResolution,
-      readyForBuild: blockers.filter(item => !item.startsWith('No ESP32 flash port')).length === 0,
+      readyForBuild: buildBlockers.length === 0,
       readyForFlash: blockers.length === 0,
       blockers,
+      buildBlockers,
+      flashBlockers,
       warnings
     };
   }

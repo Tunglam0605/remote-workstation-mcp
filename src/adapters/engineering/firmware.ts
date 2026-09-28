@@ -46,6 +46,18 @@ async function boundedFileIdentity(file: string, maxBytes = 32 * 1024 * 1024): P
   return { size: stat.size, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
+function validateEspIdfBuildDir(value: string): string {
+  const buildDir = value.trim();
+  if (!buildDir || buildDir.length > 512 || path.isAbsolute(buildDir) || /[\0\r\n]/.test(buildDir)) {
+    throw new Error('ESP-IDF buildDir must be a bounded relative project path.');
+  }
+  const segments = buildDir.split(/[\\/]+/);
+  if (segments.includes('..')) throw new Error('ESP-IDF buildDir must not escape the selected project root.');
+  const normalized = path.normalize(buildDir);
+  if (normalized === '.' || normalized === '') throw new Error('ESP-IDF buildDir must name a project-local build directory.');
+  return normalized;
+}
+
 type EspIdfRootSource = 'explicit' | 'build-metadata' | 'owner-override' | 'path' | 'known-install';
 
 interface EspIdfRootResolution {
@@ -811,14 +823,22 @@ export class FirmwareAdapter {
 
     let command: CommandSpec;
     if (selected === 'esp-idf') {
-      const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
+      const selectedBuildDir = validateEspIdfBuildDir(buildDir);
+      const buildMetadata = await readEspIdfBuildMetadata(cwd, selectedBuildDir);
       const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
       const preferredRoot = espIdfPath ?? metadataIdfPath;
       command = await espIdfCommand(
-        ['-B', buildDir, 'build'],
+        ['-B', selectedBuildDir, 'build'],
         preferredRoot,
         espIdfPath ? 'explicit' : 'build-metadata'
       );
+      const buildResourceId = `project-variant:esp-idf:${workspace}:${projectPath}:${selectedBuildDir.replaceAll('\\\\', '/')}`;
+      const result = await this.resources.withLease(
+        buildResourceId,
+        'building',
+        () => this.runner.run(command.program, command.args, cwd)
+      );
+      return { project, provider: selected, result };
     } else if (selected === 'cmake') {
       const cmake = await resolveFirstExecutable(['cmake']);
       if (!cmake) throw new Error('CMake is unavailable.');

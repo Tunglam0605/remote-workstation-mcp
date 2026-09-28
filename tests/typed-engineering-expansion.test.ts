@@ -884,11 +884,21 @@ test('ESP-IDF typed build honors the selected build directory instead of silentl
         return command(program, args, cwd, 'Build complete\n');
       }
     };
+    const leases: Array<{ resourceId: string; mode: string }> = [];
+    const resources = {
+      async withLease<T>(resourceId: string, mode: string, run: () => Promise<T>): Promise<T> {
+        leases.push({ resourceId, mode });
+        return run();
+      }
+    };
     const engine = new PolicyEngine(config(root, 'workspace'));
-    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, resources as never, { list: async () => [] } as never);
     const result = await adapter.build('w', '.', 'esp-idf', 'build-linux');
     assert.equal(result.provider, 'esp-idf');
     assert.deepEqual(calls.at(-1)?.slice(-3), ['-B', 'build-linux', 'build']);
+    assert.deepEqual(leases, [{ resourceId: 'project-variant:esp-idf:w:.:build-linux', mode: 'building' }]);
+    await assert.rejects(() => adapter.build('w', '.', 'esp-idf', '../escape'), /must not escape/i);
+    await assert.rejects(() => adapter.build('w', '.', 'esp-idf', path.resolve(root, 'absolute-build')), /bounded relative project path/i);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

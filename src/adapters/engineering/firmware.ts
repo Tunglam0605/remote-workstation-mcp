@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EngineeringCommandResult, FirmwareArtifact, FirmwareFlashPlan, FirmwareProjectInfo, FirmwareProjectTarget, FirmwareProviderStatus, KeilBuildSummary } from '../../engineering/types.js';
+import type { EngineeringCommandResult, FirmwareArtifact, FirmwareFlashPlan, FirmwareProjectInfo, FirmwareProjectTarget, FirmwareProviderStatus, KeilBuildSummary, SerialDeviceSelector } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { parseBuildDiagnostics } from '../build-diagnostics.js';
 import { PathGuard } from '../../security/path-guard.js';
@@ -32,26 +32,77 @@ async function exists(file: string): Promise<boolean> {
   try { await fs.access(file); return true; } catch { return false; }
 }
 
-async function discoverEspIdfRoot(): Promise<string | undefined> {
-  const configured = process.env.RWMCP_ESP_IDF_PATH || process.env.IDF_PATH;
-  if (configured && await exists(path.join(configured, 'tools', 'idf.py'))) return path.resolve(configured);
+type EspIdfRootSource = 'explicit' | 'build-metadata' | 'owner-override' | 'path' | 'known-install';
+
+interface EspIdfRootResolution {
+  root: string;
+  source: EspIdfRootSource;
+}
+
+async function validateEspIdfRoot(candidate: string, label: string): Promise<string> {
+  const root = path.resolve(candidate);
+  if (!path.isAbsolute(root) || /[\0\r\n]/.test(root)) throw new Error(`${label} is not a valid absolute ESP-IDF path.`);
+  if (!await exists(path.join(root, 'tools', 'idf.py')) || !await exists(path.join(root, 'export.sh')) && os.platform() !== 'win32') {
+    throw new Error(`${label} does not contain a usable ESP-IDF installation: ${root}`);
+  }
+  return root;
+}
+
+async function discoverEspIdfRoots(): Promise<string[]> {
   const candidates: string[] = [];
   if (os.platform() === 'win32') {
     const base = process.env.RWMCP_ESPRESSIF_HOME || 'C:\\Espressif';
     try {
       for (const entry of await fs.readdir(base, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
-        const root = path.join(base, entry.name, 'esp-idf');
-        if (await exists(path.join(root, 'tools', 'idf.py'))) candidates.push(root);
+        const nested = path.join(base, entry.name, 'esp-idf');
+        if (await exists(path.join(nested, 'tools', 'idf.py'))) candidates.push(nested);
       }
     } catch { /* optional installation */ }
   } else {
     const home = os.homedir();
-    candidates.push(path.join(home, 'esp', 'esp-idf'), path.join(home, 'esp-idf'), '/opt/esp/esp-idf');
+    const espHome = path.join(home, 'esp');
+    try {
+      for (const entry of await fs.readdir(espHome, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const nested = path.join(espHome, entry.name);
+        if (await exists(path.join(nested, 'tools', 'idf.py'))) candidates.push(nested);
+      }
+    } catch { /* optional installation */ }
+    candidates.push(path.join(home, 'esp-idf'), '/opt/esp/esp-idf');
   }
   const valid: string[] = [];
-  for (const candidate of candidates) if (await exists(path.join(candidate, 'tools', 'idf.py'))) valid.push(candidate);
-  return valid.sort().at(-1);
+  for (const candidate of candidates) {
+    if (await exists(path.join(candidate, 'tools', 'idf.py'))) valid.push(path.resolve(candidate));
+  }
+  return [...new Set(valid)].sort();
+}
+
+async function resolveEspIdfRoot(
+  preferredRoot?: string,
+  preferredSource: EspIdfRootSource = 'explicit'
+): Promise<EspIdfRootResolution | undefined> {
+  if (preferredRoot) {
+    return { root: await validateEspIdfRoot(preferredRoot, 'Selected ESP-IDF path'), source: preferredSource };
+  }
+
+  const configured = process.env.RWMCP_ESP_IDF_PATH || process.env.IDF_PATH;
+  if (configured) {
+    return { root: await validateEspIdfRoot(configured, 'Configured ESP-IDF path'), source: 'owner-override' };
+  }
+
+  const direct = await resolveExecutable('idf.py');
+  if (direct && direct.toLowerCase().endsWith('.py')) {
+    const root = path.dirname(path.dirname(path.resolve(direct)));
+    if (await exists(path.join(root, 'tools', 'idf.py'))) return { root, source: 'path' };
+  }
+
+  const roots = await discoverEspIdfRoots();
+  if (roots.length === 1) return { root: roots[0]!, source: 'known-install' };
+  if (roots.length > 1) {
+    throw new Error(`Multiple ESP-IDF installations were found (${roots.join(', ')}). Configure firmware.espIdfPath or RWMCP_ESP_IDF_PATH instead of selecting one implicitly.`);
+  }
+  return undefined;
 }
 
 function helperPath(name: string): string {
@@ -59,31 +110,51 @@ function helperPath(name: string): string {
   return path.resolve(here, '../../../scripts', name);
 }
 
-interface CommandSpec { program: string; args: string[]; }
+interface CommandSpec {
+  program: string;
+  args: string[];
+  idfRoot?: string;
+  idfRootSource?: EspIdfRootSource;
+}
 
-async function espIdfCommand(args: string[]): Promise<CommandSpec> {
-  const direct = await resolveExecutable('idf.py');
-  if (direct) {
-    if (direct.toLowerCase().endsWith('.py')) {
-      const python = await resolveFirstExecutable(['python', 'python3']);
-      if (!python) throw new Error('idf.py was found but Python is unavailable.');
-      return { program: python.path, args: [direct, ...args] };
+async function espIdfCommand(
+  args: string[],
+  preferredRoot?: string,
+  preferredSource: EspIdfRootSource = 'explicit'
+): Promise<CommandSpec> {
+  const resolvedRoot = await resolveEspIdfRoot(preferredRoot, preferredSource);
+  if (!resolvedRoot) {
+    const direct = await resolveExecutable('idf.py');
+    if (direct) {
+      if (direct.toLowerCase().endsWith('.py')) {
+        const python = await resolveFirstExecutable(['python', 'python3']);
+        if (!python) throw new Error('idf.py was found but Python is unavailable.');
+        return { program: python.path, args: [direct, ...args] };
+      }
+      return { program: direct, args };
     }
-    return { program: direct, args };
+    throw new Error('ESP-IDF was not found. Configure firmware.espIdfPath/RWMCP_ESP_IDF_PATH or install ESP-IDF.');
   }
-  const root = await discoverEspIdfRoot();
-  if (!root) throw new Error('ESP-IDF was not found. Configure RWMCP_ESP_IDF_PATH or install/export ESP-IDF.');
+
+  const root = resolvedRoot.root;
   if (os.platform() === 'win32') {
     const powershell = await resolveFirstExecutable(['powershell.exe', 'pwsh.exe']);
     if (!powershell) throw new Error('PowerShell is required to activate an installed ESP-IDF environment on Windows.');
     return {
       program: powershell.path,
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperPath('esp-idf-run.ps1'), '-IdfPath', root, '-ArgsJson', JSON.stringify(args)]
+      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperPath('esp-idf-run.ps1'), '-IdfPath', root, '-ArgsJson', JSON.stringify(args)],
+      idfRoot: root,
+      idfRootSource: resolvedRoot.source
     };
   }
   const bash = await resolveFirstExecutable(['bash']);
   if (!bash) throw new Error('bash is required to activate an installed ESP-IDF environment on Linux.');
-  return { program: bash.path, args: [helperPath('esp-idf-run.sh'), root, ...args] };
+  return {
+    program: bash.path,
+    args: [helperPath('esp-idf-run.sh'), root, ...args],
+    idfRoot: root,
+    idfRootSource: resolvedRoot.source
+  };
 }
 
 async function discoverKeilUv4(): Promise<{ path: string; source: 'owner-override' | 'path' | 'known-install' } | undefined> {

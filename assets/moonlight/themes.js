@@ -1,4 +1,5 @@
 import { getLanguage, onLanguageChange, registerTranslations, t } from './i18n.js';
+import { CONTROL_CENTER_TIME_ZONE } from './time.js';
 
 const asset = (id) => `/assets/moonlight/assets/backgrounds/${id}.png`;
 export const THEME_PACKS = [
@@ -33,83 +34,181 @@ registerTranslations(Object.fromEntries(THEME_PACKS.flatMap((theme) =>
 registerTranslations({
   'Theme · {name}': 'Giao diện · {name}',
   'Choose an event theme': 'Chọn giao diện sự kiện',
-  'Choose a theme to preview it on the dashboard. Your choice is stored in this browser.': 'Chọn một chủ đề để xem ngay trên dashboard. Lựa chọn được lưu riêng trên trình duyệt này.',
+  'Choose a theme to preview it for this tab. A new browser session returns to the automatic seasonal cycle.': 'Chọn một chủ đề để xem tạm trong tab này. Khi mở phiên trình duyệt mới, giao diện sẽ quay về chu trình mùa/sự kiện tự động.',
   'Seasonal & event themes': 'Sắc màu bốn mùa & sự kiện',
+  'Automatic cycle · {name}': 'Tự động · {name}',
+  'Use automatic seasonal cycle': 'Dùng chu trình mùa/sự kiện tự động',
+  'Automatic seasonal cycle restored.': 'Đã quay về chu trình mùa/sự kiện tự động.',
+  'Temporary preview · automatic mode resumes in a new browser session.': 'Xem tạm · phiên trình duyệt mới sẽ quay về chế độ tự động.',
   'Unable to load the theme image. Please try again.': 'Không tải được ảnh chủ đề. Bạn thử lại nhé.',
-  'Theme changed to {name}.': 'Đã chuyển sang giao diện {name}.',
+  'Theme changed to {name}.': 'Đã chuyển tạm sang giao diện {name}.',
   'Symbol {name}': 'Biểu tượng {name}',
   'MOONLIGHT EDITION · {name}': 'MOONLIGHT EDITION · {name}'
 });
 
 const localizedTheme = (theme) => Object.fromEntries(THEME_TEXT_FIELDS.map((field) => [field, t(ENGLISH_THEME_COPY[theme.id][field])]));
+const pick = (id) => THEME_PACKS.find((theme) => theme.id === id) ?? THEME_PACKS.find((theme) => theme.id === 'autumn');
+const SESSION_KEY = 'moonlight-theme-session';
+const LEGACY_KEY = 'moonlight-theme';
 
-const KEY = 'moonlight-theme';
-const pick = (id) => THEME_PACKS.find((theme) => theme.id === id) ?? THEME_PACKS[0];
+const LUNAR_EVENT_DATES = Object.freeze({
+  2026: { tet: '2026-02-17', 'hung-kings': '2026-04-26', 'mid-autumn': '2026-09-25' },
+  2027: { tet: '2027-02-06', 'hung-kings': '2027-04-16', 'mid-autumn': '2027-09-15' },
+  2028: { tet: '2028-01-26', 'hung-kings': '2028-04-04', 'mid-autumn': '2028-10-03' },
+  2029: { tet: '2029-02-13', 'hung-kings': '2029-04-23', 'mid-autumn': '2029-09-22' },
+  2030: { tet: '2030-02-03', 'hung-kings': '2030-04-12', 'mid-autumn': '2030-09-12' }
+});
+
+const LUNAR_EVENT_SPECS = Object.freeze([
+  { id: 'tet', before: 5, after: 2, priority: 100 },
+  { id: 'mid-autumn', before: 5, after: 1, priority: 95 },
+  { id: 'hung-kings', before: 4, after: 1, priority: 80 }
+]);
+
+const FIXED_EVENT_SPECS = Object.freeze([
+  { id: 'reunification', month: 4, day: 30, before: 5, after: 0, priority: 90 },
+  { id: 'labour-day', month: 5, day: 1, before: 3, after: 1, priority: 85 },
+  { id: 'national-day', month: 9, day: 2, before: 5, after: 1, priority: 95 }
+]);
+
+function ymdParts(date) {
+  const parts = {};
+  for (const part of new Intl.DateTimeFormat('en-CA', {
+    timeZone: CONTROL_CENTER_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date)) {
+    if (part.type !== 'literal') parts[part.type] = Number(part.value);
+  }
+  return { year: parts.year, month: parts.month, day: parts.day };
+}
+
+function parseYmd(value) {
+  const [year, month, day] = String(value).split('-').map(Number);
+  return { year, month, day };
+}
+
+function dayNumber(parts) {
+  return Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day) / 86_400_000);
+}
+
+function daysFrom(parts, target) {
+  return dayNumber(target) - dayNumber(parts);
+}
+
+export function seasonForMonth(month) {
+  if (month >= 2 && month <= 4) return 'spring';
+  if (month >= 5 && month <= 7) return 'summer';
+  if (month >= 8 && month <= 10) return 'autumn';
+  return 'winter';
+}
+
+export function resolveAutomaticTheme(now = new Date()) {
+  const parts = ymdParts(now);
+  const candidates = [];
+  const lunar = LUNAR_EVENT_DATES[parts.year] ?? {};
+  for (const spec of LUNAR_EVENT_SPECS) {
+    const raw = lunar[spec.id];
+    if (!raw) continue;
+    const target = parseYmd(raw);
+    const delta = daysFrom(parts, target);
+    if (delta <= spec.before && delta >= -spec.after) candidates.push({ ...spec, target, delta });
+  }
+  for (const spec of FIXED_EVENT_SPECS) {
+    const target = { year: parts.year, month: spec.month, day: spec.day };
+    const delta = daysFrom(parts, target);
+    if (delta <= spec.before && delta >= -spec.after) candidates.push({ ...spec, target, delta });
+  }
+  candidates.sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta) || b.priority - a.priority);
+  const event = candidates[0] ?? null;
+  const season = seasonForMonth(parts.month);
+  return {
+    id: event?.id ?? season,
+    season,
+    event,
+    target: event?.target ?? null,
+    parts,
+    mode: 'automatic'
+  };
+}
+
+function targetTime(target) {
+  if (!target) return null;
+  const ymd = `${String(target.year).padStart(4, '0')}-${String(target.month).padStart(2, '0')}-${String(target.day).padStart(2, '0')}`;
+  return Date.parse(`${ymd}T00:00:00+07:00`);
+}
+
+function countdownValues(target, now) {
+  const timestamp = targetTime(target);
+  if (!Number.isFinite(timestamp)) return [0, 0, 0, 0];
+  const seconds = Math.max(0, Math.floor((timestamp - now.getTime()) / 1000));
+  return [
+    Math.floor(seconds / 86400),
+    Math.floor(seconds % 86400 / 3600),
+    Math.floor(seconds % 3600 / 60),
+    seconds % 60
+  ];
+}
 
 export function createThemeController({ openModal, toast }) {
   const $ = (selector) => document.querySelector(selector);
-  let current = THEME_PACKS[0];
   let generation = 0;
+  let automatic = resolveAutomaticTheme();
+  let manualId = null;
+  try {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (THEME_PACKS.some((theme) => theme.id === stored)) manualId = stored;
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {}
+  try {
+    const url = new URL(location.href);
+    if (url.searchParams.has('theme')) {
+      url.searchParams.delete('theme');
+      history.replaceState(null, '', url);
+    }
+  } catch {}
+
+  let current = pick(manualId ?? automatic.id);
+  let context = manualId
+    ? { mode: 'manual', event: null, target: null, parts: automatic.parts }
+    : automatic;
+
   const caption = document.createElement('div');
-  caption.className = 'theme-caption'; caption.hidden = true;
+  caption.className = 'theme-caption';
+  caption.hidden = true;
   $('#countdown').after(caption);
+
   const control = document.createElement('button');
-  control.type = 'button'; control.className = 'theme-launcher';
-  control.id = 'theme-picker'; control.textContent = t('Theme · {name}', { name: localizedTheme(current).name });
+  control.type = 'button';
+  control.className = 'theme-launcher';
+  control.id = 'theme-picker';
+  control.textContent = t('Theme · {name}', { name: localizedTheme(current).name });
   control.setAttribute('aria-label', t('Choose an event theme'));
   $('.sidebar nav').after(control);
 
-  function show() {
-    document.body.classList.remove('menu-open');
-    $('#menu-toggle').setAttribute('aria-expanded', 'false');
-    $('#scrim').hidden = true;
-    const grid = document.createElement('div'); grid.className = 'theme-grid';
-    for (const theme of THEME_PACKS) {
-      const copy = localizedTheme(theme);
-      const button = document.createElement('button'); button.type = 'button';
-      button.className = 'theme-option'; button.dataset.themeId = theme.id;
-      button.setAttribute('aria-pressed', String(current.id === theme.id));
-      button.style.setProperty('--swatch', theme.accent);
-      const img = document.createElement('img'); img.src = theme.background; img.alt = ''; img.loading = 'lazy';
-      const label = document.createElement('strong'); label.textContent = copy.name;
-      const detail = document.createElement('span'); detail.textContent = copy.description;
-      button.append(img, label, detail);
-      button.addEventListener('click', async () => {
-        button.disabled = true;
-        const applied = await apply(theme.id);
-        if (applied) $('#modal').close();
-        button.disabled = false;
-      });
-      grid.append(button);
-    }
-    const intro = document.createElement('p'); intro.className = 'theme-intro';
-    intro.textContent = t('Choose a theme to preview it on the dashboard. Your choice is stored in this browser.');
-    const content = document.createElement('div'); content.append(intro, grid);
-    openModal(t('Seasonal & event themes'), content);
-    $('#modal').classList.add('theme-dialog');
+  function preload(theme) {
+    if (typeof Image !== 'function') return Promise.resolve(true);
+    const img = new Image();
+    img.src = theme.background;
+    return img.decode().then(() => true, () => false);
   }
 
-  async function apply(id, { persist = true } = {}) {
-    const theme = pick(id); const request = ++generation;
-    if (theme.id !== 'mid-autumn') {
-      try { const img = new Image(); img.src = theme.background; await img.decode(); }
-      catch { if (request === generation) toast(t('Unable to load the theme image. Please try again.')); return false; }
-    }
-    if (request !== generation) return false;
-    current = theme;
-    render(theme);
-    if (persist) {
-      try { localStorage.setItem(KEY, theme.id); } catch {}
-      const url = new URL(location.href); url.searchParams.set('theme', theme.id); history.replaceState(null, '', url);
-      toast(t('Theme changed to {name}.', { name: localizedTheme(theme).name }));
-    }
-    return true;
+  function updateCountdown(now = new Date()) {
+    const activeTarget = context.mode === 'automatic' && context.event?.delta >= 0 ? context.target : null;
+    if (!activeTarget) return;
+    const values = countdownValues(activeTarget, now);
+    document.querySelectorAll('#countdown b').forEach((node, index) => {
+      node.textContent = String(values[index]).padStart(2, '0');
+    });
   }
 
-  function render(theme) {
+  function render(theme, nextContext = context) {
+    context = nextContext;
     const copy = localizedTheme(theme);
     const root = document.documentElement;
     root.dataset.season = theme.id;
+    root.dataset.themeMode = context.mode;
     root.style.setProperty('--gold', theme.accent);
     root.style.setProperty('--theme-panel', theme.panel);
     root.style.setProperty('--theme-base', theme.base);
@@ -122,38 +221,165 @@ export function createThemeController({ openModal, toast }) {
     $('.festival-title p').textContent = copy.subtitle;
     $('.stamp').hidden = theme.id !== 'mid-autumn';
     $('.festival-bottom blockquote').textContent = `“ ${copy.quote} ”`;
+
     const side = $('.sidebar blockquote');
     side.replaceChildren();
-    const opening = document.createElement('span'); opening.className = 'quote-mark'; opening.textContent = '“'; side.append(opening);
-    for (const [index, line] of copy.sidebar.split('\n').entries()) { if (index) side.append(document.createElement('br')); side.append(document.createTextNode(line)); }
-    const closing = document.createElement('span'); closing.className = 'quote-end'; closing.textContent = '”'; side.append(closing);
-    const countdown = theme.id === 'mid-autumn';
-    $('#countdown').hidden = !countdown; caption.hidden = countdown;
-    $('.countdown>div>p').textContent = countdown ? t('Mid-Autumn Festival') : copy.name;
-    caption.textContent = copy.subtitle;
-    $('.page-footer>span:last-child').textContent = t('MOONLIGHT EDITION · {name}', { name: copy.name.toLocaleUpperCase(getLanguage() === 'vi' ? 'vi-VN' : 'en-US') });
+    const opening = document.createElement('span');
+    opening.className = 'quote-mark';
+    opening.textContent = '“';
+    side.append(opening);
+    for (const [index, line] of copy.sidebar.split('\n').entries()) {
+      if (index) side.append(document.createElement('br'));
+      side.append(document.createTextNode(line));
+    }
+    const closing = document.createElement('span');
+    closing.className = 'quote-end';
+    closing.textContent = '”';
+    side.append(closing);
+
+    const countdown = context.mode === 'automatic' && Boolean(context.event) && context.event.delta >= 0;
+    $('#countdown').hidden = !countdown;
+    caption.hidden = countdown;
+    $('.countdown>div>p').textContent = copy.name;
+    caption.textContent = context.mode === 'manual'
+      ? t('Temporary preview · automatic mode resumes in a new browser session.')
+      : copy.subtitle;
+
+    $('.page-footer>span:last-child').textContent = t('MOONLIGHT EDITION · {name}', {
+      name: copy.name.toLocaleUpperCase(getLanguage() === 'vi' ? 'vi-VN' : 'en-US')
+    });
     control.textContent = t('Theme · {name}', { name: copy.name });
     control.setAttribute('aria-label', t('Choose an event theme'));
-    const iconHolder = $('.season-icon'); iconHolder.replaceChildren();
-    const icon = document.createElement('i'); icon.dataset.lucide = countdown ? 'flower' : theme.icon; iconHolder.append(icon);
+
+    const iconHolder = $('.season-icon');
+    iconHolder.replaceChildren();
+    const icon = document.createElement('i');
+    icon.dataset.lucide = theme.icon;
+    iconHolder.append(icon);
+
     const seal = $('.moon-seal');
-    const sealIcon = document.createElement('i'); sealIcon.dataset.lucide = countdown ? 'rabbit' : theme.icon;
+    const sealIcon = document.createElement('i');
+    sealIcon.dataset.lucide = theme.id === 'mid-autumn' ? 'rabbit' : theme.icon;
     seal.replaceChildren(sealIcon);
     seal.setAttribute('role', 'img');
     seal.setAttribute('aria-label', t('Symbol {name}', { name: copy.name }));
     seal.title = copy.name;
+
+    root.dataset.themeReady = 'true';
+    updateCountdown();
     globalThis.lucide?.createIcons?.();
   }
+
+  async function apply(id, { manual = true, silent = false, nextContext = null } = {}) {
+    const theme = pick(id);
+    const request = ++generation;
+    if (manual) {
+      const loaded = await preload(theme);
+      if (!loaded) {
+        if (request === generation) toast(t('Unable to load the theme image. Please try again.'));
+        return false;
+      }
+    }
+    if (request !== generation) return false;
+    current = theme;
+    if (manual) {
+      manualId = theme.id;
+      try { sessionStorage.setItem(SESSION_KEY, theme.id); } catch {}
+      render(theme, { mode: 'manual', event: null, target: null, parts: resolveAutomaticTheme().parts });
+      if (!silent) toast(t('Theme changed to {name}.', { name: localizedTheme(theme).name }));
+    } else {
+      manualId = null;
+      render(theme, nextContext ?? resolveAutomaticTheme());
+    }
+    return true;
+  }
+
+  async function useAutomatic({ silent = false } = {}) {
+    try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+    automatic = resolveAutomaticTheme();
+    await apply(automatic.id, { manual: false, silent: true, nextContext: automatic });
+    if (!silent) toast(t('Automatic seasonal cycle restored.'));
+  }
+
+  function tick(now = new Date()) {
+    if (manualId) return;
+    const next = resolveAutomaticTheme(now);
+    const targetChanged = JSON.stringify(next.target) !== JSON.stringify(context.target);
+    if (next.id !== current.id || targetChanged || context.mode !== 'automatic') {
+      automatic = next;
+      current = pick(next.id);
+      render(current, next);
+    } else {
+      context = next;
+      updateCountdown(now);
+    }
+  }
+
+  function show() {
+    document.body.classList.remove('menu-open');
+    $('#menu-toggle').setAttribute('aria-expanded', 'false');
+    $('#scrim').hidden = true;
+
+    const resolved = resolveAutomaticTheme();
+    const content = document.createElement('div');
+    const intro = document.createElement('p');
+    intro.className = 'theme-intro';
+    intro.textContent = t('Choose a theme to preview it for this tab. A new browser session returns to the automatic seasonal cycle.');
+
+    const automaticButton = document.createElement('button');
+    automaticButton.type = 'button';
+    automaticButton.className = 'theme-auto-button';
+    automaticButton.textContent = t('Automatic cycle · {name}', { name: localizedTheme(pick(resolved.id)).name });
+    automaticButton.setAttribute('aria-pressed', String(!manualId));
+    automaticButton.addEventListener('click', async () => {
+      automaticButton.disabled = true;
+      await useAutomatic();
+      $('#modal').close();
+    });
+
+    const grid = document.createElement('div');
+    grid.className = 'theme-grid';
+    for (const theme of THEME_PACKS) {
+      const copy = localizedTheme(theme);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'theme-option';
+      button.dataset.themeId = theme.id;
+      button.setAttribute('aria-pressed', String(Boolean(manualId) && current.id === theme.id));
+      button.style.setProperty('--swatch', theme.accent);
+      const img = document.createElement('img');
+      img.src = theme.background;
+      img.alt = '';
+      img.loading = 'lazy';
+      const label = document.createElement('strong');
+      label.textContent = copy.name;
+      const detail = document.createElement('span');
+      detail.textContent = copy.description;
+      button.append(img, label, detail);
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const applied = await apply(theme.id, { manual: true });
+        if (applied) $('#modal').close();
+        button.disabled = false;
+      });
+      grid.append(button);
+    }
+
+    content.append(intro, automaticButton, grid);
+    openModal(t('Seasonal & event themes'), content);
+    $('#modal').classList.add('theme-dialog');
+  }
+
   control.addEventListener('click', show);
   $('#appearance').setAttribute('aria-label', t('Choose an event theme'));
   $('#appearance').title = t('Choose an event theme');
   onLanguageChange(() => {
-    render(current);
+    render(current, context);
     const modal = $('#modal');
     if (modal.open && modal.classList.contains('theme-dialog')) show();
   });
-  let saved; try { saved = localStorage.getItem(KEY); } catch {}
-  const initial = new URL(location.href).searchParams.get('theme') || saved || 'mid-autumn';
-  void apply(initial, { persist: false });
-  return { show, apply, current: () => current };
+
+  render(current, context);
+  tick();
+  return { show, apply, useAutomatic, tick, current: () => current, automatic: () => automatic, mode: () => context.mode };
 }

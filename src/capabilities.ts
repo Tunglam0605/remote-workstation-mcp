@@ -1,7 +1,7 @@
-export const SERVER_VERSION = '0.63.0';
+export const SERVER_VERSION = '0.64.0';
 export const BUILD_CHANNEL = 'stable' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
-export const ACTION_SCHEMA_VERSION = 35;
+export const ACTION_SCHEMA_VERSION = 36;
 export const ENGINEERING_API_VERSION = 5;
 
 export type CapabilityStatus = 'available' | 'planned';

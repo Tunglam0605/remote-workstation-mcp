@@ -56,6 +56,39 @@ async function fakeExecutable(dir: string, name: string): Promise<string> {
   return file;
 }
 
+async function fakeEspIdfRoot(root: string, name = 'esp-idf-fixture'): Promise<string> {
+  const sdkRoot = path.join(root, 'sdk', name);
+  await fs.mkdir(path.join(sdkRoot, 'tools'), { recursive: true });
+  await fs.writeFile(path.join(sdkRoot, 'tools', 'idf.py'), '# fixture\n');
+  await fs.writeFile(path.join(sdkRoot, 'export.sh'), '# fixture\n');
+  await fs.writeFile(path.join(sdkRoot, 'export.ps1'), '# fixture\n');
+  return sdkRoot;
+}
+
+function helperSelectedIdfRoot(args: string[], fallback: string): string {
+  const powershellIndex = args.indexOf('-IdfPath');
+  if (powershellIndex >= 0 && args[powershellIndex + 1]) return args[powershellIndex + 1]!;
+  if (args.length > 1 && /esp-idf-run\.sh$/i.test(args[0] ?? '')) return args[1]!;
+  return fallback;
+}
+
+function espIdfProvenanceJson(idfRoot: string, options: {
+  pythonExecutable?: string;
+  pythonVersion?: string;
+  pythonEnvPath?: string | null;
+  idfToolsPath?: string | null;
+  skipCheckSubmodules?: boolean;
+} = {}): string {
+  return JSON.stringify({
+    pythonExecutable: options.pythonExecutable ?? '/fixture/python',
+    pythonVersion: options.pythonVersion ?? '3.11.16',
+    pythonEnvPath: options.pythonEnvPath ?? null,
+    idfPath: idfRoot,
+    idfToolsPath: options.idfToolsPath ?? null,
+    skipCheckSubmodules: options.skipCheckSubmodules ?? false
+  }) + '\n';
+}
+
 function command(
   program: string,
   args: string[],
@@ -238,12 +271,16 @@ test('ESP-IDF diagnostics expose provider, project, artifacts and serial invento
   }));
   await fakeExecutable(bin, 'idf.py');
   await fakeExecutable(bin, 'python');
+  const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-v5.3.1');
   process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
 
   const calls: string[][] = [];
   const runner = {
     async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
       calls.push([...args]);
+      if (args.includes('--rwmcp-print-provenance') || args.includes('-Provenance')) {
+        return command(program, args, cwd, espIdfProvenanceJson(sdkRoot));
+      }
       if (args.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\nesp32c6\n');
       return command(program, args, cwd, 'ESP-IDF v5.3.1\n');
     }
@@ -271,7 +308,7 @@ test('ESP-IDF diagnostics expose provider, project, artifacts and serial invento
       {} as never,
       hardware as never
     );
-    const result = await adapter.espIdfDiagnostics('w');
+    const result = await adapter.espIdfDiagnostics('w', '.', 'build', sdkRoot);
     assert.equal(result.provider, 'esp-idf');
     assert.match(result.version, /ESP-IDF v5\.3\.1/);
     assert.equal(result.project.family, 'esp32');
@@ -418,6 +455,7 @@ test('ESP-IDF size analysis consumes official JSON size outputs and never flashe
   await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
   await fakeExecutable(bin, 'idf.py');
   await fakeExecutable(bin, 'python');
+  const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-size-v6');
   process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
   const calls: string[][] = [];
   const runner = {
@@ -436,7 +474,7 @@ test('ESP-IDF size analysis consumes official JSON size outputs and never flashe
   try {
     const engine = new PolicyEngine(config(root, 'workspace'));
     const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
-    const result = await adapter.espIdfSizeAnalysis('w');
+    const result = await adapter.espIdfSizeAnalysis('w', '.', 'build', sdkRoot);
     assert.equal(result.formats.summary, 'json2');
     assert.equal(result.formats.components, 'json2');
     assert.equal(result.formats.files, 'json2');
@@ -462,6 +500,7 @@ test('ESP-IDF size analysis falls back from json2 to json for ESP-IDF 5.x compat
   await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
   await fakeExecutable(bin, 'idf.py');
   await fakeExecutable(bin, 'python');
+  const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-size-v5');
   process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
   const calls: string[][] = [];
   const runner = {
@@ -480,7 +519,7 @@ test('ESP-IDF size analysis falls back from json2 to json for ESP-IDF 5.x compat
   try {
     const engine = new PolicyEngine(config(root, 'workspace'));
     const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
-    const result = await adapter.espIdfSizeAnalysis('w');
+    const result = await adapter.espIdfSizeAnalysis('w', '.', 'build', sdkRoot);
     assert.deepEqual(result.formats, { summary: 'json', components: 'json', files: 'json' });
     assert.equal((result.summary as any).total_size, 2048);
     assert.ok(calls.some(args => args.includes('json2')));
@@ -876,6 +915,7 @@ test('ESP-IDF typed build honors the selected build directory instead of silentl
     await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
     await fakeExecutable(bin, 'idf.py');
     await fakeExecutable(bin, 'python');
+    const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-builddir');
     process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
     const calls: string[][] = [];
     const runner = {
@@ -893,7 +933,7 @@ test('ESP-IDF typed build honors the selected build directory instead of silentl
     };
     const engine = new PolicyEngine(config(root, 'workspace'));
     const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, resources as never, { list: async () => [] } as never);
-    const result = await adapter.build('w', '.', 'esp-idf', 'build-linux');
+    const result = await adapter.build('w', '.', 'esp-idf', 'build-linux', undefined, undefined, sdkRoot);
     assert.equal(result.provider, 'esp-idf');
     assert.deepEqual(calls.at(-1)?.slice(-3), ['-B', 'build-linux', 'build']);
     assert.deepEqual(leases, [{ resourceId: 'project-variant:esp-idf:w:.:build-linux', mode: 'building' }]);
@@ -916,6 +956,7 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
       'project(stable_flash_fixture)'
     ].join('\n'));
     await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+    const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-stable-flash');
     const build = path.join(root, 'build-linux');
     await fs.mkdir(build, { recursive: true });
     await fs.writeFile(path.join(build, 'project_description.json'), JSON.stringify({
@@ -953,6 +994,7 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
       projectPath: '.',
       provider: 'esp-idf',
       buildDir: 'build-linux',
+      espIdfPath: sdkRoot,
       portSelector: { serialNumber: 'ESPTEST' }
     });
     assert.equal(plan.port, port);
@@ -997,6 +1039,7 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
         projectPath: '.',
         provider: 'esp-idf',
         buildDir: 'build-linux',
+        espIdfPath: sdkRoot,
         portSelector: { serialNumber: 'ESPTEST' }
       }),
       /device changed after planning/i
@@ -1023,6 +1066,7 @@ test('ESP32 preflight fingerprints the exact flash set and blocks flash without 
     await fs.mkdir(path.join(sdkRoot, 'tools'), { recursive: true });
     await fs.writeFile(path.join(sdkRoot, 'tools', 'idf.py'), '# fixture\n');
     await fs.writeFile(path.join(sdkRoot, 'export.sh'), '# fixture\n');
+    await fs.writeFile(path.join(sdkRoot, 'export.ps1'), '# fixture\n');
 
     const build = path.join(root, 'build-linux');
     await fs.mkdir(path.join(build, 'bootloader'), { recursive: true });
@@ -1070,6 +1114,10 @@ test('ESP32 preflight fingerprints the exact flash set and blocks flash without 
     };
     const runner = {
       async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+        if (args.includes('--rwmcp-print-provenance') || args.includes('-Provenance')) {
+          const selectedRoot = helperSelectedIdfRoot(args, sdkRoot);
+          return command(program, args, cwd, espIdfProvenanceJson(selectedRoot));
+        }
         if (args.includes('--version')) return command(program, args, cwd, 'ESP-IDF v6.1\n');
         if (args.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\nesp32c3\n');
         return command(program, args, cwd);
@@ -1096,6 +1144,7 @@ test('ESP32 preflight fingerprints the exact flash set and blocks flash without 
     await fs.mkdir(path.join(alternateSdkRoot, 'tools'), { recursive: true });
     await fs.writeFile(path.join(alternateSdkRoot, 'tools', 'idf.py'), '# fixture\n');
     await fs.writeFile(path.join(alternateSdkRoot, 'export.sh'), '# fixture\n');
+    await fs.writeFile(path.join(alternateSdkRoot, 'export.ps1'), '# fixture\n');
     const staleSdk = await adapter.esp32Preflight({
       workspace: 'w',
       projectPath: '.',
@@ -1124,3 +1173,197 @@ test('ESP32 preflight fingerprints the exact flash set and blocks flash without 
   }
 });
 
+
+
+test('ESP32 preflight validates active Python and existing compiler provenance with rebuild-safe semantics', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-esp32-env-provenance-'));
+  try {
+    await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+      'cmake_minimum_required(VERSION 3.16)',
+      'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+      'project(env_provenance_fixture)'
+    ].join('\n'));
+    await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+    const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-v6.1');
+    const pythonEnvPath = path.join(root, '.espressif', 'python_env', 'idf6.1_py3.11_env');
+    const compilerDir = path.join(root, '.espressif', 'tools', 'xtensa-esp-elf', 'bin');
+    const compilerPath = await fakeExecutable(compilerDir, 'xtensa-esp32s3-elf-gcc');
+
+    const build = path.join(root, 'build-ready4');
+    await fs.mkdir(path.join(build, 'config'), { recursive: true });
+    await fs.writeFile(path.join(build, 'project_description.json'), JSON.stringify({
+      project_name: 'env_provenance_fixture',
+      target: 'esp32s3',
+      idf_path: sdkRoot,
+      build_dir: build,
+      git_revision: 'fixture-dirty',
+      c_compiler: compilerPath
+    }));
+    await fs.writeFile(path.join(build, 'flasher_args.json'), JSON.stringify({
+      flash_files: { '0x10000': 'app.bin' }
+    }));
+    await fs.writeFile(path.join(build, 'config', 'sdkconfig.json'), JSON.stringify({ IDF_TARGET: 'esp32s3' }));
+    await fs.writeFile(path.join(build, 'app.bin'), Buffer.from([1, 2, 3, 4]));
+
+    const port = process.platform === 'win32' ? 'COM9' : '/dev/ttyACM0';
+    const device = {
+      id: 'serial:fixture:ENV',
+      kind: 'serial',
+      name: 'ESP32-S3 USB',
+      path: port,
+      serialNumber: 'ENV',
+      vendorId: '303A',
+      productId: '1001',
+      manufacturer: 'Espressif',
+      provider: 'fixture',
+      capabilities: ['serial-monitor', 'serial-write']
+    };
+    const hardware = {
+      async list() { return [device]; },
+      async resolveSerial(selector: unknown) { return { selector, device, path: port }; }
+    };
+    const executedPrograms: string[] = [];
+    const runner = {
+      async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+        executedPrograms.push(program);
+        if (program === compilerPath && args.includes('--version')) {
+          return command(program, args, cwd, 'xtensa-esp32s3-elf-gcc (crosstool-NG esp-15.2.0) 15.2.0\n');
+        }
+        if (args.includes('--rwmcp-print-provenance') || args.includes('-Provenance')) {
+          return command(program, args, cwd, espIdfProvenanceJson(
+            helperSelectedIdfRoot(args, sdkRoot),
+            { pythonExecutable: path.join(pythonEnvPath, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'), pythonVersion: '3.11.16', pythonEnvPath, idfToolsPath: path.join(root, '.espressif'), skipCheckSubmodules: true }
+          ));
+        }
+        if (args.includes('--list-targets')) return command(program, args, cwd, 'esp32\nesp32s3\n');
+        if (args.includes('--version')) return command(program, args, cwd, 'ESP-IDF v6.1.0\n');
+        return command(program, args, cwd);
+      }
+    };
+
+    const policy = {
+      pythonEnvPath,
+      skipCheckSubmodules: true,
+      expectedPythonVersion: '3.11',
+      expectedCompilerPath: compilerPath,
+      expectedCompilerVersion: '15.2.0'
+    };
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, hardware as never);
+
+    const ready = await adapter.esp32Preflight({
+      workspace: 'w',
+      buildDir: 'build-ready4',
+      espIdfPath: sdkRoot,
+      espIdfEnvironment: policy,
+      portSelector: { serialNumber: 'ENV' }
+    });
+    assert.equal(ready.readyForBuild, true);
+    assert.equal(ready.readyForFlash, true);
+    assert.equal(ready.environment.runtime.pythonEnvPath, pythonEnvPath);
+    assert.match(ready.environment.compiler?.version ?? '', /15\.2\.0/);
+    assert.deepEqual(ready.environment.validation.runtimeMismatches, []);
+    assert.deepEqual(ready.environment.validation.buildMismatches, []);
+
+    const wrongPython = await adapter.esp32Preflight({
+      workspace: 'w',
+      buildDir: 'build-ready4',
+      espIdfPath: sdkRoot,
+      espIdfEnvironment: { ...policy, expectedPythonVersion: '3.14' },
+      portSelector: { serialNumber: 'ENV' }
+    });
+    assert.equal(wrongPython.readyForBuild, false);
+    assert.equal(wrongPython.readyForFlash, false);
+    assert.match(wrongPython.buildBlockers.join(' '), /Python version/i);
+
+    const staleCompiler = await adapter.esp32Preflight({
+      workspace: 'w',
+      buildDir: 'build-ready4',
+      espIdfPath: sdkRoot,
+      espIdfEnvironment: { ...policy, expectedCompilerVersion: '14.2.0' },
+      portSelector: { serialNumber: 'ENV' }
+    });
+    assert.equal(staleCompiler.readyForBuild, true);
+    assert.equal(staleCompiler.readyForFlash, false);
+    assert.match(staleCompiler.flashBlockers.join(' '), /compiler version/i);
+
+    const untrustedCompiler = await fakeExecutable(path.join(root, 'untrusted'), 'fake-compiler');
+    await fs.writeFile(path.join(build, 'project_description.json'), JSON.stringify({
+      project_name: 'env_provenance_fixture',
+      target: 'esp32s3',
+      idf_path: sdkRoot,
+      build_dir: build,
+      git_revision: 'fixture-dirty',
+      c_compiler: untrustedCompiler
+    }));
+    const untrusted = await adapter.esp32Preflight({
+      workspace: 'w',
+      buildDir: 'build-ready4',
+      espIdfPath: sdkRoot,
+      espIdfEnvironment: policy,
+      portSelector: { serialNumber: 'ENV' }
+    });
+    assert.equal(executedPrograms.includes(untrustedCompiler), false);
+    assert.equal(untrusted.readyForBuild, true);
+    assert.equal(untrusted.readyForFlash, false);
+    assert.match(untrusted.warnings.join(' '), /outside the activated IDF_TOOLS_PATH/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ESP-IDF fullclean and reconfigure stay bounded to the build lease and reject symlink escape', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-maintenance-'));
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-maintenance-outside-'));
+  try {
+    await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+      'cmake_minimum_required(VERSION 3.16)',
+      'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+      'project(maintenance_fixture)'
+    ].join('\n'));
+    await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+    const sdkRoot = await fakeEspIdfRoot(root, 'esp-idf-maintenance');
+    const pythonEnvPath = path.join(root, '.espressif', 'python_env', 'idf6.1_py3.11_env');
+    const calls: string[][] = [];
+    const runner = {
+      async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+        calls.push([...args]);
+        return command(program, args, cwd, 'Done\n');
+      }
+    };
+    const leases: Array<{ resourceId: string; mode: string }> = [];
+    const resources = {
+      async withLease<T>(resourceId: string, mode: string, run: () => Promise<T>): Promise<T> {
+        leases.push({ resourceId, mode });
+        return run();
+      }
+    };
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, resources as never, { list: async () => [] } as never);
+    const environment = { pythonEnvPath, skipCheckSubmodules: true };
+
+    const fullclean = await adapter.espIdfMaintenance('w', '.', 'fullclean', 'build-v065', sdkRoot, environment);
+    const reconfigure = await adapter.espIdfMaintenance('w', '.', 'reconfigure', 'build-v065', sdkRoot, environment);
+    assert.equal(fullclean.action, 'fullclean');
+    assert.equal(reconfigure.action, 'reconfigure');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0]!.includes('build-v065'));
+    assert.ok(calls[0]!.includes('fullclean'));
+    assert.ok(calls[1]!.includes('reconfigure'));
+    assert.ok(calls.every(args => args.includes(pythonEnvPath)));
+    assert.equal(leases.length, 2);
+    assert.ok(leases.every(item => item.resourceId === 'project-variant:esp-idf:w:.:build-v065' && item.mode === 'building'));
+
+    if (process.platform !== 'win32') {
+      await fs.symlink(outside, path.join(root, 'build-escape'));
+      await assert.rejects(
+        () => adapter.espIdfMaintenance('w', '.', 'fullclean', 'build-escape', sdkRoot, environment),
+        /symlink outside the selected project root/i
+      );
+      assert.equal(calls.length, 2);
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});

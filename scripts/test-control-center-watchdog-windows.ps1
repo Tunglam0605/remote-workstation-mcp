@@ -111,7 +111,7 @@ try {
 
 
   $hostLog = Join-Path $tempRoot 'control-center-host.log'
-  $recoveryPids = Wait-RecoveryReplacement $hostLog 15
+  $recoveryPids = @(Wait-RecoveryReplacement $hostLog 15)
   if ($recoveryPids.Count -lt 2) {
     $log = if (Test-Path -LiteralPath $hostLog) { Get-Content -LiteralPath $hostLog -Raw } else { '<no host log>' }
     throw "Recovery heartbeat watchdog did not replace the hung recovery child.`n$log"

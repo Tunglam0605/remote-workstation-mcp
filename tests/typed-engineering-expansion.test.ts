@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { DockerAdapter } from '../src/adapters/engineering/docker.js';
 import { FirmwareAdapter } from '../src/adapters/engineering/firmware.js';
+import { readEspIdfBuildMetadata } from '../src/adapters/engineering/esp-idf-metadata.js';
 import { KicadAdapter } from '../src/adapters/engineering/kicad.js';
 import { PlatformioAdapter } from '../src/adapters/engineering/platformio.js';
 import { EngineeringResourceManager } from '../src/adapters/engineering/resource-manager.js';
@@ -835,6 +836,112 @@ test('systemd adapter diagnostics are bounded and restart remains exact-allowlis
       () => adapter.restart('w', 'tunglam-apriltag.service', '.', false, 25),
       /allowRestartUnits/i
     );
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('ESP-IDF build metadata preserves the exact IDF root used by the build', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-provenance-'));
+  try {
+    const build = path.join(root, 'build-linux');
+    await fs.mkdir(build, { recursive: true });
+    const idfPath = path.join(root, 'sdk', 'esp-idf-v6.1');
+    await fs.writeFile(path.join(build, 'project_description.json'), JSON.stringify({
+      project_name: 'provenance_fixture',
+      target: 'esp32s3',
+      idf_ver: 'v6.1',
+      idf_path: idfPath
+    }));
+    const metadata = await readEspIdfBuildMetadata(root, 'build-linux');
+    assert.equal(metadata.available, true);
+    assert.equal(metadata.project?.idfPath, idfPath);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ESP-IDF typed build honors the selected build directory instead of silently using build', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-builddir-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  try {
+    await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+      'cmake_minimum_required(VERSION 3.16)',
+      'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+      'project(builddir_fixture)'
+    ].join('\n'));
+    await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+    await fakeExecutable(bin, 'idf.py');
+    await fakeExecutable(bin, 'python');
+    process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+    const calls: string[][] = [];
+    const runner = {
+      async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+        calls.push([...args]);
+        return command(program, args, cwd, 'Build complete\n');
+      }
+    };
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), runner as never, {} as never, { list: async () => [] } as never);
+    const result = await adapter.build('w', '.', 'esp-idf', 'build-linux');
+    assert.equal(result.provider, 'esp-idf');
+    assert.deepEqual(calls.at(-1), ['-B', 'build-linux', 'build']);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ESP-IDF flash plan resolves one stable device selector and binds build directory without flashing', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-espidf-stable-flash-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  try {
+    await fs.writeFile(path.join(root, 'CMakeLists.txt'), [
+      'cmake_minimum_required(VERSION 3.16)',
+      'include($ENV{IDF_PATH}/tools/cmake/project.cmake)',
+      'project(stable_flash_fixture)'
+    ].join('\n'));
+    await fs.writeFile(path.join(root, 'sdkconfig'), 'CONFIG_IDF_TARGET="esp32s3"\n');
+    await fakeExecutable(bin, 'idf.py');
+    await fakeExecutable(bin, 'python');
+    process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+    const port = process.platform === 'win32' ? 'COM9' : '/dev/ttyACM0';
+    const device = {
+      id: 'serial:fixture:ESPTEST',
+      kind: 'serial',
+      name: 'ESP32-S3 USB',
+      path: port,
+      serialNumber: 'ESPTEST',
+      vendorId: '303A',
+      productId: '1001',
+      manufacturer: 'Espressif',
+      provider: 'fixture',
+      capabilities: ['serial-monitor', 'serial-write']
+    };
+    const hardware = {
+      async list() { return [device]; },
+      async resolveSerial(selector: unknown) { return { selector, device, path: port }; }
+    };
+    const engine = new PolicyEngine(config(root, 'workspace'));
+    const adapter = new FirmwareAdapter(engine, new PathGuard(engine), {} as never, {} as never, hardware as never);
+    const plan = await adapter.flashPlan({
+      workspace: 'w',
+      projectPath: '.',
+      provider: 'esp-idf',
+      buildDir: 'build-linux',
+      portSelector: { serialNumber: 'ESPTEST' }
+    });
+    assert.equal(plan.port, port);
+    assert.equal(plan.buildDir, 'build-linux');
+    assert.ok(plan.args.includes('-B'));
+    assert.ok(plan.args.includes('build-linux'));
+    assert.ok(plan.args.includes('-p'));
+    assert.ok(plan.args.includes(port));
+    assert.equal(plan.args.at(-1), 'flash');
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

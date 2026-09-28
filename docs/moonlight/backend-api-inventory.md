@@ -68,10 +68,10 @@ The server does **not** expose a separate detailed tunnel endpoint or live host-
 | `POST /api/update/config` | `{enabled:boolean}` | Same updater status shape. | `setup-server.ts:1327-1332` |
 | `POST /api/update/install` | none | Updater result; `202` iff `{accepted:true}`, otherwise `200`. May include `alreadyRunning`, `transaction`. | `setup-server.ts:1334-1339` |
 | `GET /api/admin/requests` | none | `{requests: AdminRequest[]}` (maximum 20): request includes `{id,state,createdAt,expiresAt,clientId,clientType,program,args,cwd?,reason,commandHash,approvedAt?,deniedAt?,startedAt?,result?}`. | `setup-server.ts:1341-1345`; `approval-store.ts:7-33` |
-| `POST /api/admin/requests/:uuid/approve` | `{expectedCommandHash:string}` | Windows: `202 {requestId,state,uacPrompted:true}`. | `setup-server.ts:1347-1368` |
+| `POST /api/admin/requests/:uuid/approve` | `{expectedCommandHash:string}` | Windows: `202 {requestId,state,uacPrompted:true}`. Linux: only the exact typed host-reboot request is accepted after hash/interlock validation; local desktop authorization uses `pkexec` and returns `200 {requestId,state,authorizationPrompted:true}`. Other Linux admin requests are rejected. | `setup-server.ts` |
 | `POST /api/admin/requests/:uuid/deny` | no body | The resulting AdminRequest. | `setup-server.ts:1347-1354` |
 
-Notifications are client-composed, not a backend endpoint: legacy UI polls execution policy, update status, and admin requests, then derives Codex fallback/unavailable, update available, and pending-admin notices (`ui.ts:533-538`). It keeps read state in browser storage. Preserve this composition or add a new aggregated endpoint only with a backend change.
+Notifications are client-composed, not a backend endpoint: the UI polls execution policy, update status, and admin requests, then derives fallback/unavailable, update-available, and pending-admin notices. Pending admin notices may expose bounded review plus approve/deny actions, while the backend remains authoritative about which platform actions are approvable. Read state remains browser-local.
 
 ## Other retained server routes (avoid accidental regression)
 

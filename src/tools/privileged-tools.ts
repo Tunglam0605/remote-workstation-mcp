@@ -13,7 +13,7 @@ const result = (value: unknown) => ({
 
 export function registerPrivilegedTools(server: McpServer, ctx: AppContext): void {
   server.registerTool('admin_request', {
-    description: 'Request one generic Administrator/UAC action. This never elevates or executes by itself. Generic privileged execution remains Windows-only; Linux host reboot uses node_reboot_request so the Ubuntu TUI can approve one allowlisted reboot without opening a generic root shell.',
+    description: 'Request one generic Administrator/UAC action. This never elevates or executes by itself. Generic privileged execution remains Windows-only; Linux host reboot uses node_reboot_request so an owner-local Ubuntu approval surface (Control Center or TUI) can approve one allowlisted reboot without opening a generic root shell.',
     inputSchema: z.object({
       program: z.string().min(1).max(4096),
       args: z.array(z.string().max(4096)).max(100).default([]),
@@ -37,7 +37,7 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
   })));
 
   server.registerTool('node_reboot_request', {
-    description: 'Request one owner-approved Linux host reboot. The request is fixed to /usr/bin/systemctl --no-block reboot, never executes by itself, and must be reviewed in the Ubuntu TUI Admin requests screen. This is distinct from restarting only the RWMCP runtime.',
+    description: 'Request one owner-approved Linux host reboot. The request is fixed to /usr/bin/systemctl --no-block reboot, never executes by itself, and must be reviewed in an owner-local Ubuntu approval surface (Control Center or TUI). This is distinct from restarting only the RWMCP runtime.',
     inputSchema: z.object({ reason: z.string().min(1).max(1000) }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ reason }) => result(await audited(ctx.audit, 'node_reboot_request', undefined, async () => {
@@ -49,7 +49,7 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
       state: request.state,
       expiresAt: request.expiresAt,
       command: [request.program, ...request.args],
-      message: 'Waiting for local owner approval in the Ubuntu Remote Workstation TUI -> Admin requests. Restart runtime does not reboot the host.'
+      message: 'Waiting for local owner approval in Ubuntu Remote Workstation Control Center or TUI -> Admin requests. Restart runtime does not reboot the host.'
     };
   })));
 

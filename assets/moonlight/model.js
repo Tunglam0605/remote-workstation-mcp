@@ -64,7 +64,17 @@ export function deriveNotifications(resources, readIds = new Set()) {
   if (runtime.error || typeof runtime.data?.error === 'string') add('runtime-unavailable', 'error', 'Runtime unavailable', runtime.error?.message ?? runtime.data.error);
   if (executionData.status?.fallbackActive) add('codex-fallback', 'warning', 'Codex fallback active', executionData.status.fallbackReason ?? 'Execution policy selected a fallback.');
   if (updatesData.updateAvailable === true) add('update-available', 'info', 'Update available', [updatesData.installedVersion, updatesData.latestVersion].filter(Boolean).join(' → ') || 'A managed update is available.');
-  for (const request of adminData.requests ?? []) if (request.state === 'pending' && request.id) add(`admin:${request.id}`, 'warning', 'Admin approval pending', request.program ?? 'An administrative action needs approval.');
+  for (const request of adminData.requests ?? []) {
+    if (request.state !== 'pending' || !request.id) continue;
+    notifications.push({
+      id: `admin:${request.id}`,
+      level: 'warning',
+      title: 'Admin approval pending',
+      description: request.reason ?? request.program ?? 'An administrative action needs approval.',
+      read: readIds.has(`admin:${request.id}`),
+      adminRequest: request
+    });
+  }
   return notifications;
 }
 

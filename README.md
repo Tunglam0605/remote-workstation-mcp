@@ -646,13 +646,14 @@ Privileged execution is a separate one-shot path. Windows generic Administrator 
 ```text
 ChatGPT node_reboot_request
    -> pending typed request
-   -> local Ubuntu TUI review
+   -> owner-local Ubuntu review
+      -> Control Center: desktop authorization (pkexec)
+      -> TUI: terminal authorization (sudo -k)
    -> Work Session interlock re-check
-   -> Allow once + explicit host-reboot confirmation
-   -> sudo -k -- /usr/bin/systemctl --no-block reboot
+   -> exact typed /usr/bin/systemctl --no-block reboot
 ```
 
-The Ubuntu TUI does **not** expose a generic root shell. `Restart runtime` restarts only RWMCP and is never presented as a host reboot.
+Neither owner-local Ubuntu approval surface exposes a generic root shell. `Restart runtime` restarts only RWMCP and is never presented as a host reboot.
 
 ![Full access confirmation](docs/images/v0.8.1/06-full-access-confirm-v081.png)
 

@@ -33,14 +33,15 @@ Relevant evidence:
 
 RWMCP decisions:
 - The owner-local TUI invokes `sudo -k -- /usr/bin/systemctl --no-block reboot`.
-- RWMCP does not collect, proxy, store or log the sudo password; sudo interacts directly with the owner's terminal.
-- A generic Linux root-shell approval path is not introduced.
-- Only the exact typed reboot request can be approved from the Ubuntu TUI; other Linux admin requests can be denied but not elevated.
+- The owner-local Linux Control Center invokes `/usr/bin/pkexec /usr/bin/systemctl --no-block reboot` so authorization is handled by the desktop policy agent.
+- RWMCP does not collect, proxy, store or log the owner credential; authorization remains between the owner and the local operating-system authorization surface.
+- A generic Linux privileged-command approval path is not introduced.
+- Only the exact typed reboot request can be approved from the Ubuntu Control Center or TUI; other Linux admin requests can be denied but not elevated.
 - Work Session workflow interlocks are checked immediately before approval so a reboot fails closed while owned engineering work is active.
 
 ## Runtime confinement note
 
-The managed MCP service is intentionally constrained and may run with Linux `NoNewPrivileges`-style restrictions. Therefore privileged host reboot is not executed from the remote MCP service. The remote side may only create a pending typed request. Privilege escalation occurs only from the separate owner-local TUI launched in the user's interactive terminal.
+The managed MCP service is intentionally constrained and may run with Linux `NoNewPrivileges`-style restrictions. Therefore privileged host reboot is not executed from the remote MCP service. The remote side may only create a pending typed request. Authorization occurs only from an owner-local surface: the Control Center through the desktop policy agent, or the TUI through the owner's interactive terminal.
 
 ## Acceptance requirements
 

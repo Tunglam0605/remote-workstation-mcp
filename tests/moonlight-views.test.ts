@@ -271,6 +271,49 @@ test('Security page balances primary controls and keeps advanced scopes full-wid
   } finally { dom.restore(); }
 });
 
+test('Linux Control Center exposes approve actions for typed host reboot requests in Access and Notifications', () => {
+  const dom = installDom();
+  const pages: Array<{ title: string; content: InstanceType<typeof dom.Node> }> = [];
+  const modals: Array<{ title: string; content: InstanceType<typeof dom.Node> }> = [];
+  const state = {
+    permissions: { data: { mode: 'full_control', httpScopes: ['workstation.read'], allowHostFilesystem: true, allowRawShell: true, lease: undefined } },
+    admin: { data: { requests: [{
+      id: 'req-linux-reboot',
+      program: '/usr/bin/systemctl',
+      args: ['--no-block', 'reboot'],
+      state: 'pending',
+      reason: 'Apply host update',
+      commandHash: 'abc123'
+    }] } },
+    status: { data: { platform: 'linux' } }
+  };
+  try {
+    setLanguage('en');
+    const views = createViews({
+      api: { request: async () => ({}) },
+      store: { getState: () => state },
+      openModal: (title: string, content: InstanceType<typeof dom.Node>) => { modals.push({ title, content }); },
+      openPage: (_page: string, title: string, content: InstanceType<typeof dom.Node>) => pages.push({ title, content }),
+      toast: () => {},
+      refresh: async () => {}
+    });
+
+    views.open('Access');
+    const access = pages[0]!.content;
+    const accessButtons = dom.descendants(access).filter((node) => node.listeners.has('click')).map((node) => node.textContent);
+    assert.ok(accessButtons.includes('Approve'));
+    assert.match(access.textContent, /local desktop authorization agent/);
+
+    views.openNotifications();
+    const notifications = modals.at(-1)!.content;
+    const notificationButtons = dom.descendants(notifications).filter((node) => node.listeners.has('click')).map((node) => node.textContent);
+    assert.ok(notificationButtons.includes('Approve'));
+    assert.ok(notificationButtons.includes('Deny'));
+    assert.match(notifications.textContent, /Apply host update/);
+    assert.match(notifications.textContent, /\/usr\/bin\/systemctl --no-block reboot/);
+  } finally { dom.restore(); }
+});
+
 test('Vietnamese views localize interactive text while retaining backend request values', async () => {
   const dom = installDom();
   const confirmations: string[] = [];

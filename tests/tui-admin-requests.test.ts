@@ -59,6 +59,32 @@ test('typed Linux host reboot approval executes only fixed sudo/systemctl argv a
   assert.equal((await readAdminRequest(request.id)).state, 'succeeded');
 });
 
+test('Linux Control Center approval uses pkexec for the same fixed reboot action', async t => {
+  const fx = await fixture(t);
+  const command = linuxHostRebootCommand();
+  const request = await createAdminRequest({
+    program: command.program,
+    args: command.args,
+    reason: 'Owner approved reboot from local Control Center'
+  });
+
+  const calls: Array<{ program: string; args: string[] }> = [];
+  const finished = await approveLinuxHostRebootRequest(request.id, request.commandHash, {
+    ...fx.options,
+    privilegeMode: 'pkexec',
+    runPrivileged: async (program, args) => {
+      calls.push({ program, args });
+      return { code: 0, stdout: '', stderr: '' };
+    }
+  });
+
+  assert.deepEqual(calls, [{
+    program: '/usr/bin/pkexec',
+    args: ['/usr/bin/systemctl', '--no-block', 'reboot']
+  }]);
+  assert.equal(finished.state, 'succeeded');
+});
+
 test('Ubuntu TUI refuses arbitrary Linux admin requests instead of becoming a generic root shell', async t => {
   const fx = await fixture(t);
   const request = await createAdminRequest({

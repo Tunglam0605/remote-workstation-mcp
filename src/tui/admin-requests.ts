@@ -20,6 +20,7 @@ export interface TuiAdminOptions {
   platform?: NodeJS.Platform;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  privilegeMode?: 'sudo' | 'pkexec';
   runPrivileged?: (program: string, args: string[], env: NodeJS.ProcessEnv) => Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
@@ -94,11 +95,16 @@ export async function approveLinuxHostRebootRequest(
 
   await markAdminRequestRunning(requestId);
   const runner = options.runPrivileged ?? defaultRunPrivileged;
+  const privilegeMode = options.privilegeMode ?? 'sudo';
+  const privilegedProgram = privilegeMode === 'pkexec' ? '/usr/bin/pkexec' : 'sudo';
+  const privilegedArgs = privilegeMode === 'pkexec'
+    ? [LINUX_SYSTEMCTL, ...LINUX_REBOOT_ARGS]
+    : ['-k', '--', LINUX_SYSTEMCTL, ...LINUX_REBOOT_ARGS];
   let execution: { code: number; stdout: string; stderr: string };
   try {
     execution = await runner(
-      'sudo',
-      ['-k', '--', LINUX_SYSTEMCTL, ...LINUX_REBOOT_ARGS],
+      privilegedProgram,
+      privilegedArgs,
       envOf(options)
     );
   } catch (error) {

@@ -476,21 +476,24 @@ export class FirmwareAdapter {
       diagnostic: classifyOpenOcdResult(result)
     };
   }
-  async espIdfDiagnostics(workspace: string, projectPath = '.', buildDir = 'build') {
+  async espIdfDiagnostics(workspace: string, projectPath = '.', buildDir = 'build', espIdfPath?: string) {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
     if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
       throw new Error('espidf.diagnostics requires a detected ESP-IDF/ESP32 project.');
     }
     const cwd = await this.paths.resolveExisting(workspace, projectPath);
-    const versionCommand = await espIdfCommand(['--version']);
-    const targetsCommand = await espIdfCommand(['--list-targets']);
-    const [versionResult, targetsResult, artifacts, devices, buildMetadata] = await Promise.all([
+    const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
+    const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
+    const preferredRoot = espIdfPath ?? metadataIdfPath;
+    const preferredSource: EspIdfRootSource = espIdfPath ? 'explicit' : 'build-metadata';
+    const versionCommand = await espIdfCommand(['--version'], preferredRoot, preferredSource);
+    const targetsCommand = await espIdfCommand(['--list-targets'], preferredRoot, preferredSource);
+    const [versionResult, targetsResult, artifacts, devices] = await Promise.all([
       this.runner.run(versionCommand.program, versionCommand.args, cwd, 10_000),
       this.runner.run(targetsCommand.program, targetsCommand.args, cwd, 15_000),
       this.listArtifacts(workspace, projectPath),
-      this.hardware.list(),
-      readEspIdfBuildMetadata(cwd, buildDir)
+      this.hardware.list()
     ]);
     if (versionResult.exitCode !== 0 || versionResult.timedOut) {
       throw new Error(`ESP-IDF version probe failed: ${versionResult.stderr || versionResult.stdout || `exit=${versionResult.exitCode}`}`);
@@ -500,6 +503,9 @@ export class FirmwareAdapter {
       : [];
     const warnings = [
       ...buildMetadata.warnings,
+      ...(espIdfPath && metadataIdfPath && path.resolve(espIdfPath) !== path.resolve(metadataIdfPath)
+        ? [`Configured ESP-IDF path differs from existing build metadata: configured=${path.resolve(espIdfPath)}, build=${path.resolve(metadataIdfPath)}. A clean/reconfigure may be required.`]
+        : []),
       ...(targetsResult.exitCode === 0 && !targetsResult.timedOut
         ? []
         : [`ESP-IDF target discovery failed: ${targetsResult.stderr || targetsResult.stdout || `exit=${targetsResult.exitCode}`}`])
@@ -507,24 +513,101 @@ export class FirmwareAdapter {
     return {
       provider: 'esp-idf' as const,
       version: versionResult.stdout.trim() || versionResult.stderr.trim(),
+      idfRoot: versionCommand.idfRoot,
+      idfRootSource: versionCommand.idfRootSource,
       supportedTargets,
       project,
       buildMetadata,
       artifacts,
       serialPorts: devices
         .filter(item => item.kind === 'serial')
-        .map(item => ({ id: item.id, path: item.path, name: item.name, serialNumber: item.serialNumber, provider: item.provider })),
+        .map(item => ({
+          id: item.id,
+          path: item.path,
+          name: item.name,
+          serialNumber: item.serialNumber,
+          vendorId: item.vendorId,
+          productId: item.productId,
+          manufacturer: item.manufacturer,
+          provider: item.provider
+        })),
       warnings
     };
   }
 
-  async espIdfSizeAnalysis(workspace: string, projectPath = '.') {
+  async esp32Preflight(options: {
+    workspace: string;
+    projectPath?: string;
+    buildDir?: string;
+    espIdfPath?: string;
+    port?: string;
+    portSelector?: SerialDeviceSelector;
+  }) {
+    this.policy.assertEngineeringExecute();
+    const projectPath = options.projectPath ?? '.';
+    const buildDir = options.buildDir ?? 'build';
+    const diagnostics = await this.espIdfDiagnostics(options.workspace, projectPath, buildDir, options.espIdfPath);
+    if (diagnostics.project.family !== 'esp32' && diagnostics.project.framework !== 'esp-idf') {
+      throw new Error('esp32_preflight requires a detected ESP32/ESP-IDF project.');
+    }
+
+    const blockers: string[] = [];
+    const warnings = [...diagnostics.warnings];
+    let portResolution: { path: string; source: 'explicit-port' | 'stable-selector'; device?: Awaited<ReturnType<HardwareDiscoveryAdapter['resolveSerial']>>['device'] } | undefined;
+
+    if (options.port) {
+      const port = validateSerialPortPath(options.port);
+      const device = (await this.hardware.list()).find(item => item.kind === 'serial' && item.path === port);
+      if (!device) blockers.push(`Explicit serial port '${port}' is not currently discovered.`);
+      else portResolution = { path: port, source: 'explicit-port', device };
+    } else if (options.portSelector) {
+      try {
+        const resolution = await this.hardware.resolveSerial(options.portSelector);
+        portResolution = { path: resolution.path, source: 'stable-selector', device: resolution.device };
+      } catch (error) {
+        blockers.push(error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      blockers.push('No ESP32 flash port is configured. Use a stable portSelector or one explicit serial port.');
+    }
+
+    if (diagnostics.project.target && diagnostics.supportedTargets.length > 0 && !diagnostics.supportedTargets.includes(diagnostics.project.target)) {
+      blockers.push(`ESP-IDF installation does not report support for target '${diagnostics.project.target}'.`);
+    }
+    if (diagnostics.buildMetadata.config?.secureBootEnabled) {
+      warnings.push('Secure Boot is enabled in build metadata; key/eFuse mutation remains intentionally unavailable.');
+    }
+    if (diagnostics.buildMetadata.config?.flashEncryptionEnabled) {
+      warnings.push('Flash encryption is enabled in build metadata; key/eFuse mutation remains intentionally unavailable.');
+    }
+
+    return {
+      provider: 'esp-idf' as const,
+      project: diagnostics.project,
+      version: diagnostics.version,
+      idfRoot: diagnostics.idfRoot,
+      idfRootSource: diagnostics.idfRootSource,
+      buildDir,
+      buildMetadata: diagnostics.buildMetadata,
+      portResolution,
+      readyForBuild: blockers.filter(item => !item.startsWith('No ESP32 flash port')).length === 0,
+      readyForFlash: blockers.length === 0,
+      blockers,
+      warnings
+    };
+  }
+
+  async espIdfSizeAnalysis(workspace: string, projectPath = '.', buildDir = 'build', espIdfPath?: string) {
     this.policy.assertEngineeringExecute();
     const project = await this.inspect(workspace, projectPath);
     if (project.framework !== 'esp-idf' && project.family !== 'esp32') {
       throw new Error('espidf.size_analysis requires a detected ESP-IDF/ESP32 project.');
     }
     const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const buildMetadata = await readEspIdfBuildMetadata(cwd, buildDir);
+    const metadataIdfPath = typeof buildMetadata.project?.idfPath === 'string' ? buildMetadata.project.idfPath : undefined;
+    const preferredRoot = espIdfPath ?? metadataIdfPath;
+    const preferredSource: EspIdfRootSource = espIdfPath ? 'explicit' : 'build-metadata';
     const outputs: Record<'summary' | 'components' | 'files', unknown> = {
       summary: {},
       components: {},
@@ -538,11 +621,15 @@ export class FirmwareAdapter {
       ['components', 'size-components'],
       ['files', 'size-files']
     ] as const;
+    let idfRoot: string | undefined;
+    let idfRootSource: EspIdfRootSource | undefined;
     for (const [key, verb] of commands) {
       let accepted: { stdout: string; format: 'json2' | 'json' } | undefined;
       const failures: string[] = [];
       for (const format of ['json2', 'json'] as const) {
-        const command = await espIdfCommand([verb, '--format', format]);
+        const command = await espIdfCommand(['-B', buildDir, verb, '--format', format], preferredRoot, preferredSource);
+        idfRoot = command.idfRoot ?? idfRoot;
+        idfRootSource = command.idfRootSource ?? idfRootSource;
         const result = await this.runner.run(command.program, command.args, cwd, 120_000);
         if (result.exitCode !== 0 || result.timedOut) {
           failures.push(`${format}: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
@@ -562,7 +649,7 @@ export class FirmwareAdapter {
       outputs[key] = JSON.parse(accepted.stdout.trim()) as unknown;
       formats[key] = accepted.format;
     }
-    return { provider: 'esp-idf' as const, project, formats, ...outputs };
+    return { provider: 'esp-idf' as const, project, buildDir, idfRoot, idfRootSource, formats, ...outputs };
   }
 
   async build(

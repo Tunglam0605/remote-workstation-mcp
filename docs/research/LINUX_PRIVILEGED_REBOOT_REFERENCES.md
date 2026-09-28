@@ -36,8 +36,9 @@ RWMCP decisions:
 - The owner-local Linux Control Center invokes `/usr/bin/pkexec /usr/bin/systemctl --no-block reboot` so authorization is handled by the desktop policy agent.
 - RWMCP does not collect, proxy, store or log the owner credential; authorization remains between the owner and the local operating-system authorization surface.
 - A generic Linux privileged-command approval path is not introduced.
-- Only the exact typed reboot request can be approved from the Ubuntu Control Center or TUI; other Linux admin requests can be denied but not elevated.
-- Work Session workflow interlocks are checked immediately before approval so a reboot fails closed while owned engineering work is active.
+- The exact typed reboot request can be approved from the Ubuntu Control Center or TUI.
+- Linux Control Center additionally accepts only bounded `/usr/bin/apt-get install -y <package...>` requests with validated Debian package names; arbitrary apt options, paths, shell commands and other privileged programs remain rejected.
+- Work Session workflow interlocks are checked immediately before approval so privileged system changes fail closed while owned engineering work is active.
 
 ## Runtime confinement note
 

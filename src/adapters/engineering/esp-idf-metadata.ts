@@ -98,8 +98,12 @@ export async function readEspIdfBuildMetadata(projectRoot: string, buildDir = 'b
   if (!isInside(projectRoot, candidate)) throw new Error('ESP-IDF buildDir cannot escape the selected project root.');
 
   let buildRoot: string;
+  let canonicalProjectRoot: string;
   try {
-    buildRoot = await fs.realpath(candidate);
+    [buildRoot, canonicalProjectRoot] = await Promise.all([
+      fs.realpath(candidate),
+      fs.realpath(projectRoot)
+    ]);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return {
@@ -111,7 +115,7 @@ export async function readEspIdfBuildMetadata(projectRoot: string, buildDir = 'b
     }
     throw error;
   }
-  if (!isInside(projectRoot, buildRoot)) throw new Error('ESP-IDF buildDir resolves outside the selected project root.');
+  if (!isInside(canonicalProjectRoot, buildRoot)) throw new Error('ESP-IDF buildDir resolves outside the selected project root.');
 
   const [description, flasher, sdkconfig] = await Promise.all([
     readJson(path.join(buildRoot, 'project_description.json')),

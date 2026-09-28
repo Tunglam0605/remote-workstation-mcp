@@ -771,7 +771,9 @@ test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and exclu
   assert.match(profile, /espIdfPath\?: string/);
   assert.match(profile, /firmware\.espIdfPath/);
   assert.match(firmware, /Multiple ESP-IDF installations were found/);
-  assert.match(firmware, /\['-B', buildDir, 'build'\]/);
+  assert.match(firmware, /\['-B', selectedBuildDir, 'build'\]/);
+  assert.match(firmware, /project-variant:esp-idf:/);
+  assert.match(firmware, /this\.resources\.withLease\([\s\S]*'building'/);
   assert.match(firmware, /stable portSelector/);
   assert.match(firmware, /boundedFileIdentity/);
   assert.match(firmware, /flashManifest/);

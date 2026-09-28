@@ -10,6 +10,7 @@ export type EngineeringProjectKind = 'stm32' | 'esp-idf' | 'platformio' | 'ros2'
 
 export interface EngineeringFirmwareVariant {
   buildDir?: string;
+  espIdfPath?: string;
   artifact?: string;
   probeSerial?: string;
   targetConfig?: string;
@@ -23,6 +24,7 @@ export interface EngineeringFirmwareVariant {
 export interface EngineeringFirmwareProfile {
   buildProvider?: 'auto' | 'esp-idf' | 'cmake' | 'make' | 'keil';
   buildDir?: string;
+  espIdfPath?: string;
   flashProvider?: 'auto' | 'openocd' | 'esp-idf';
   artifact?: string;
   port?: string;
@@ -97,6 +99,7 @@ const svdRegisterSelectorSchema = z.object({
 
 const variantSchema = z.object({
   buildDir: relativePath.optional(),
+  espIdfPath: z.string().min(1).max(1024).optional(),
   artifact: relativePath.optional(),
   probeSerial: z.string().min(1).max(256).optional(),
   targetConfig: z.string().min(1).max(256).optional(),
@@ -115,6 +118,7 @@ const profileSchema = z.object({
   firmware: z.object({
     buildProvider: z.enum(['auto', 'esp-idf', 'cmake', 'make', 'keil']).default('auto'),
     buildDir: relativePath.default('build'),
+    espIdfPath: z.string().min(1).max(1024).optional(),
     flashProvider: z.enum(['auto', 'openocd', 'esp-idf']).default('auto'),
     artifact: relativePath.optional(),
     port: z.string().min(1).max(256).optional(),
@@ -163,12 +167,20 @@ function assertRelative(value: string | undefined, label: string): void {
   if (segments.includes('..')) throw new Error(`${label} must not escape the selected project root.`);
 }
 
+function assertAbsoluteToolchainPath(value: string | undefined, label: string): void {
+  if (!value) return;
+  if (!path.isAbsolute(value)) throw new Error(`${label} must be an absolute host path.`);
+  if (/[\0\r\n]/.test(value)) throw new Error(`${label} must not contain control characters.`);
+}
+
 function validatePaths(profile: EngineeringProjectProfile): void {
   assertRelative(profile.firmware?.buildDir, 'firmware.buildDir');
+  assertAbsoluteToolchainPath(profile.firmware?.espIdfPath, 'firmware.espIdfPath');
   assertRelative(profile.firmware?.artifact, 'firmware.artifact');
   assertRelative(profile.firmware?.keilProject, 'firmware.keilProject');
   for (const [variant, config] of Object.entries(profile.firmware?.variants ?? {})) {
     assertRelative(config.buildDir, `firmware.variants.${variant}.buildDir`);
+    assertAbsoluteToolchainPath(config.espIdfPath, `firmware.variants.${variant}.espIdfPath`);
     assertRelative(config.artifact, `firmware.variants.${variant}.artifact`);
     assertRelative(config.keilProject, `firmware.variants.${variant}.keilProject`);
   }

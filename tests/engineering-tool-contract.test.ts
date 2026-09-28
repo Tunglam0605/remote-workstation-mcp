@@ -34,9 +34,9 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 35;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 36;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
-  assert.match(capabilities, /export const SERVER_VERSION = '0\.63\.0';/);
+  assert.match(capabilities, /export const SERVER_VERSION = '0\.64\.0';/);
   const settings = await read('src/setup/settings.ts');
   const policy = await read('src/execution-policy.ts');
   const routes = await read('src/worker-route-plan.ts');
@@ -572,7 +572,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 35;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 36;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -740,4 +740,45 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
   assert.match(context, /new ObjectiveProgressService/);
   assert.match(context, /new EngineeringWorkflowExecutionService/);
   assert.match(context, /new TaskWorkflowExecutionService/);
+});
+
+
+test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and excludes dangerous ROM surfaces', async () => {
+  const tools = await read('src/tools/engineering-tools.ts');
+  const firmware = await read('src/adapters/engineering/firmware.ts');
+  const metadata = await read('src/adapters/engineering/esp-idf-metadata.ts');
+  const profile = await read('src/adapters/engineering/project-profile.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+  const helper = await read('scripts/esp-idf-run.sh');
+
+  assert.equal(helper.charCodeAt(0), '#'.charCodeAt(0));
+  assert.match(helper, /^#!\/usr\/bin\/env bash/);
+  assert.match(helper, /rwmcp_idf_path/);
+  assert.match(helper, /rwmcp_idf_args/);
+  assert.doesNotMatch(helper, /^\uFEFF/);
+
+  assert.match(tools, /server\.registerTool\('esp32_preflight'/);
+  assert.match(tools, /portSelector: serialDeviceSelector\.optional\(\)/);
+  assert.match(tools, /selector: serialDeviceSelector\.optional\(\)/);
+  assert.match(tools, /ctx\.engineering\.workflows\.esp32Preflight/);
+  assert.match(scopes, /esp32_preflight: 'workstation\.execute'/);
+  assert.match(capabilities, /engineering\.esp32/);
+  assert.match(capabilities, /eFuse writes/);
+  assert.match(capabilities, /erase-flash/);
+
+  assert.match(metadata, /idfPath: scalar\(record, 'idf_path', 'idfPath'\)/);
+  assert.match(profile, /espIdfPath\?: string/);
+  assert.match(profile, /firmware\.espIdfPath/);
+  assert.match(firmware, /Multiple ESP-IDF installations were found/);
+  assert.match(firmware, /\['-B', selectedBuildDir, 'build'\]/);
+  assert.match(firmware, /project-variant:esp-idf:/);
+  assert.match(firmware, /this\.resources\.withLease\([\s\S]*'building'/);
+  assert.match(firmware, /stable portSelector/);
+  assert.match(firmware, /boundedFileIdentity/);
+  assert.match(firmware, /flashManifest/);
+  assert.match(firmware, /readyForBuild: buildBlockers\.length === 0/);
+  assert.match(firmware, /flash-encryption keys/);
+
+  assert.doesNotMatch(tools, /esp32_erase|esp32_efuse|esptool_raw|esp32_rom_command/);
 });

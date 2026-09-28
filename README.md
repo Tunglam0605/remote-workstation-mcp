@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.63.0 - channel=stable - Action Schema 35 - Engineering API 5** - adds **Typed Network Diagnostics Phase 1**. `network_provider_status`, `network_interface_list`, `network_route_list`, `network_dns_lookup`, `network_ping`, and `network_tcp_reachability` provide bounded cross-platform read-only network inspection for engineering systems such as ROS2, MQTT, cameras, gateways and AGV/AMR nodes. Inputs are validated and platform commands are fixed by the adapter; IP/DNS/route/firewall mutation, packet injection and packet capture remain unavailable.
+**Stable release: v0.64.0 - channel=stable - Action Schema 36 - Engineering API 5** - hardens **ESP32 / ESP-IDF engineering on Ubuntu and Windows**. `esp32_preflight` resolves project-profile SDK/build/device defaults, checks target/build provenance, fingerprints the exact flash image set and offsets with SHA-256, and separates build readiness from flash readiness before mutation. Project profiles may bind an exact `firmware.espIdfPath` plus stable firmware/monitor serial selectors; ESP-IDF build/size/flash honor the selected build directory; multiple discovered SDK trees fail closed instead of being chosen implicitly; and Linux activation no longer depends on a globally sourced shell environment. See [ESP32 / ESP-IDF on Ubuntu](docs/ESP32_UBUNTU.md) for the production workflow. eFuse writes, Secure Boot or flash-encryption key burning, erase-flash, arbitrary esptool arguments and raw ROM commands remain unavailable.
 v0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
 v0.20 adds **human-managed Multi-Chat Coordination + Typed Engineering Diagnostics**. The human opens/assigns ChatGPT Web conversations; ChatGPT Web remains the reasoning and engineering-decision layer; RWMCP exposes deterministic project/session status, explicit current-task labels, read-only handoff/lifecycle previews, worktree isolation and typed execution. The same release adds typed ESP-IDF, ROS 2 and Docker diagnostics plus bounded Linux systemd diagnostics/restart; systemd restart remains fail-closed behind `full_control` and an exact owner allowlist. Worker Provider Registry remains empty by default and gains no autonomous activation authority.
@@ -511,7 +511,7 @@ The current stable release contains:
 
 - `install-windows.cmd`
 - `install-windows.ps1`
-- `remote-workstation-mcp-v0.63.0.tgz`
+- `remote-workstation-mcp-v0.64.0.tgz`
 - `SHA256SUMS.txt`
 
 

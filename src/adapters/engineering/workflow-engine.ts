@@ -493,6 +493,29 @@ export class EngineeringWorkflowEngine {
     return this.profiles.write(workspace, projectPath, profile, options.overwrite ?? false);
   }
 
+
+  async esp32Preflight(
+    workspace: string,
+    projectPath = '.',
+    overrides: {
+      buildDir?: string;
+      espIdfPath?: string;
+      port?: string;
+      portSelector?: SerialDeviceSelector;
+    } = {}
+  ) {
+    const state = await this.state(workspace, projectPath);
+    const fw = this.effectiveFirmware(state.profile.firmware).config;
+    return this.firmware.esp32Preflight({
+      workspace,
+      projectPath,
+      buildDir: overrides.buildDir ?? fw.buildDir ?? 'build',
+      espIdfPath: overrides.espIdfPath ?? fw.espIdfPath,
+      port: overrides.port ?? fw.port,
+      portSelector: overrides.portSelector ?? fw.portSelector
+    });
+  }
+
   private workflowIds(state: ProjectState): EngineeringWorkflowId[] {
     const ids: EngineeringWorkflowId[] = [
       'platform.transfer_prepare',
@@ -1300,6 +1323,7 @@ export class EngineeringWorkflowEngine {
           variant: effective.variant,
           buildProvider: fw.buildProvider ?? 'auto',
           buildDir: fw.buildDir ?? 'build',
+          espIdfPath: fw.espIdfPath,
           keilProject: fw.keilProject,
           keilTarget: fw.keilTarget,
           flashProvider,
@@ -1679,8 +1703,18 @@ export class EngineeringWorkflowEngine {
       const diagnostics = await capture<unknown>(
         workflow,
         () => workflow === 'espidf.size_analysis'
-          ? this.firmware.espIdfSizeAnalysis(workspace, projectPath)
-          : this.firmware.espIdfDiagnostics(workspace, projectPath, state.profile.firmware?.buildDir ?? 'build')
+          ? this.firmware.espIdfSizeAnalysis(
+              workspace,
+              projectPath,
+              state.profile.firmware?.buildDir ?? 'build',
+              state.profile.firmware?.espIdfPath
+            )
+          : this.firmware.espIdfDiagnostics(
+              workspace,
+              projectPath,
+              state.profile.firmware?.buildDir ?? 'build',
+              state.profile.firmware?.espIdfPath
+            )
       );
       return {
         workflow,
@@ -2011,7 +2045,8 @@ export class EngineeringWorkflowEngine {
         fw.buildProvider ?? 'auto',
         fw.buildDir ?? 'build',
         fw.keilProject,
-        fw.keilTarget
+        fw.keilTarget,
+        fw.espIdfPath
       ));
       if (!build.ok) return { workflow, status: 'failed', plan, steps };
       if (!successfulBuild(build.value.provider, build.value.result)) {
@@ -2271,7 +2306,8 @@ export class EngineeringWorkflowEngine {
         fw.buildProvider ?? 'auto',
         fw.buildDir ?? 'build',
         fw.keilProject,
-        fw.keilTarget
+        fw.keilTarget,
+        fw.espIdfPath
       ));
       if (!build.ok) return { workflow, status: 'failed', plan, steps };
       if (!successfulBuild(build.value.provider, build.value.result)) {
@@ -2302,6 +2338,8 @@ export class EngineeringWorkflowEngine {
         artifact: overrides.artifact ?? fw.artifact,
         provider: fw.flashProvider ?? 'auto',
         port: portResolution.port,
+        buildDir: fw.buildDir ?? 'build',
+        espIdfPath: fw.espIdfPath,
         probeSerial: overrides.probeSerial ?? fw.probeSerial,
         targetConfig: overrides.targetConfig ?? fw.targetConfig,
         adapterSpeedKhz: overrides.adapterSpeedKhz ?? fw.adapterSpeedKhz

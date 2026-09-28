@@ -184,6 +184,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   terminal_stop: 'workstation.execute',
   stm32_ioc_inspect: 'workstation.read',
   stm32_svd_inspect: 'workstation.read',
+  esp32_preflight: 'workstation.execute',
   firmware_project_inspect: 'workstation.read',
   firmware_artifacts: 'workstation.read',
   firmware_memory_report: 'workstation.read',

@@ -51,6 +51,7 @@ function summarizeProjectDescription(value: unknown) {
     version: scalar(record, 'project_version', 'projectVersion'),
     target: scalar(record, 'target', 'idf_target', 'idfTarget'),
     idfVersion: scalar(record, 'idf_ver', 'idf_version', 'idfVersion'),
+    idfPath: scalar(record, 'idf_path', 'idfPath'),
     appElf: scalar(record, 'app_elf', 'appElf'),
     sdkconfig: scalar(record, 'sdkconfig'),
     ...(buildComponents !== undefined ? { buildComponentCount: buildComponents } : {})
@@ -97,8 +98,12 @@ export async function readEspIdfBuildMetadata(projectRoot: string, buildDir = 'b
   if (!isInside(projectRoot, candidate)) throw new Error('ESP-IDF buildDir cannot escape the selected project root.');
 
   let buildRoot: string;
+  let canonicalProjectRoot: string;
   try {
-    buildRoot = await fs.realpath(candidate);
+    [buildRoot, canonicalProjectRoot] = await Promise.all([
+      fs.realpath(candidate),
+      fs.realpath(projectRoot)
+    ]);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return {
@@ -110,7 +115,7 @@ export async function readEspIdfBuildMetadata(projectRoot: string, buildDir = 'b
     }
     throw error;
   }
-  if (!isInside(projectRoot, buildRoot)) throw new Error('ESP-IDF buildDir resolves outside the selected project root.');
+  if (!isInside(canonicalProjectRoot, buildRoot)) throw new Error('ESP-IDF buildDir resolves outside the selected project root.');
 
   const [description, flasher, sdkconfig] = await Promise.all([
     readJson(path.join(buildRoot, 'project_description.json')),

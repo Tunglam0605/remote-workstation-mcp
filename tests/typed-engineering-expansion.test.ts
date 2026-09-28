@@ -962,6 +962,45 @@ test('ESP-IDF flash plan resolves one stable device selector and binds build dir
     assert.ok(plan.args.includes('-p'));
     assert.ok(plan.args.includes(port));
     assert.equal(plan.args.at(-1), 'flash');
+
+    const movedPort = process.platform === 'win32' ? 'COM10' : '/dev/ttyACM1';
+    let resolutions = 0;
+    const changingHardware = {
+      async list() { return [device]; },
+      async resolveSerial(selector: unknown) {
+        resolutions += 1;
+        const currentPath = resolutions === 1 ? port : movedPort;
+        return { selector, device: { ...device, path: currentPath }, path: currentPath };
+      }
+    };
+    const mutationRunner = {
+      async run(): Promise<EngineeringCommandResult> {
+        throw new Error('backend must not execute after stable device identity changes');
+      }
+    };
+    const mutationResources = {
+      async withLease(): Promise<never> {
+        throw new Error('resource lease must not be acquired after stable device identity changes');
+      }
+    };
+    const mutating = new FirmwareAdapter(
+      new PolicyEngine(config(root, 'full_control')),
+      new PathGuard(new PolicyEngine(config(root, 'full_control'))),
+      mutationRunner as never,
+      mutationResources as never,
+      changingHardware as never
+    );
+    await assert.rejects(
+      () => mutating.flash({
+        workspace: 'w',
+        projectPath: '.',
+        provider: 'esp-idf',
+        buildDir: 'build-linux',
+        portSelector: { serialNumber: 'ESPTEST' }
+      }),
+      /device changed after planning/i
+    );
+    assert.equal(resolutions, 2);
   } finally {
     process.env.PATH = oldPath;
     await fs.rm(root, { recursive: true, force: true });

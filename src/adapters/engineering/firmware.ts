@@ -1108,6 +1108,13 @@ export class FirmwareAdapter {
     const plan = await this.flashPlan(options);
     const projectPath = options.projectPath ?? '.';
     const cwd = await this.paths.resolveExisting(options.workspace, projectPath);
+    if (plan.provider === 'esp-idf' && options.portSelector) {
+      const current = await this.hardware.resolveSerial(options.portSelector);
+      const currentPort = validateSerialPortPath(current.path);
+      if (currentPort !== plan.port) {
+        throw new Error(`ESP-IDF flash device changed after planning (planned=${plan.port ?? 'unknown'}, current=${currentPort}); refusing to flash.`);
+      }
+    }
     const runFlash = () => this.resources.withLease(
       plan.resourceId,
       'flashing',

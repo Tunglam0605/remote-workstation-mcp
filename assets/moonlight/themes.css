@@ -1,7 +1,12 @@
+:root[data-theme-ready=false] .landscape,
+:root[data-theme-ready=false] .hero,
+:root[data-theme-ready=false] .moon-seal,
+:root[data-theme-ready=false] .sidebar blockquote,
+:root[data-theme-ready=false] .page-footer>span:last-child{visibility:hidden}
 .theme-launcher{margin:8px 0 0;padding:11px 12px;text-align:left;font-size:11px;color:var(--gold);border:1px solid var(--line);border-radius:8px;background:#102238aa;min-height:44px;line-height:1.5}
 .theme-launcher:hover{border-color:var(--gold)}
 dialog.theme-dialog{width:min(890px,calc(100vw - 32px))}
-.theme-intro{margin-top:0}
+.theme-intro{margin-top:0;line-height:1.6}.theme-auto-button{display:flex;align-items:center;justify-content:center;width:100%;min-height:40px;margin:0 0 14px;padding:9px 12px;border:1px solid color-mix(in srgb,var(--gold) 62%,var(--line));border-radius:10px;background:linear-gradient(135deg,rgba(var(--theme-panel,18,35,57),.78),rgba(var(--theme-base,3,17,36),.9));color:var(--gold);font-weight:600}.theme-auto-button:hover,.theme-auto-button[aria-pressed=true]{border-color:var(--gold);box-shadow:0 0 0 1px color-mix(in srgb,var(--gold) 45%,transparent),0 10px 28px #0003}
 .theme-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
 .theme-option{display:flex;flex-direction:column;min-width:0;padding:0 0 13px;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#0a1c30;color:var(--text);text-align:left}
 .theme-option img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;margin-bottom:11px}
@@ -24,3 +29,5 @@ dialog.theme-dialog{width:min(890px,calc(100vw - 32px))}
 .festival-title.long-theme-title p{font-size:clamp(16px,1.45vw,23px)}
 @media(max-width:700px){.theme-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.theme-option strong{font-size:12px}.theme-option>span{font-size:9px}.theme-launcher{flex-shrink:0}}
 @media(prefers-reduced-motion:reduce){.theme-option{transition:none}}
+
+:root[data-theme-ready=true] .overview-detail-heading>span{color:var(--gold)}

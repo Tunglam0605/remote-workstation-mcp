@@ -161,65 +161,6 @@ function renderCards(cards) {
   searchCards(); paintIcons();
 }
 
-const TARGET_MODE_LABELS = Object.freeze({
-  auto: 'Auto / Smart',
-  'rwmcp-only': 'RWMCP only',
-  'codex-only': 'Codex only',
-  'antigravity-only': 'Antigravity only',
-  'rwmcp-codex': 'RWMCP + Codex',
-  'rwmcp-antigravity': 'RWMCP + Antigravity',
-  'codex-antigravity': 'Codex + Antigravity',
-  'all-three': 'All three'
-});
-
-function inferOverviewTargetMode(execution) {
-  const settings = execution?.settings ?? {};
-  if (settings.targetMode) return settings.targetMode;
-  if (settings.workerRoutingProfile === 'smart') return 'auto';
-  if (settings.defaultMode === 'rwmcp-only') return 'rwmcp-only';
-  if (settings.defaultMode === 'codex-only') return 'codex-only';
-  if (settings.codexEnabled && settings.antigravityEnabled) return 'auto';
-  if (settings.codexEnabled) return 'rwmcp-codex';
-  if (settings.antigravityEnabled) return 'rwmcp-antigravity';
-  return 'rwmcp-only';
-}
-
-function setOverviewCard(id, value, detail, tone = '') {
-  const card = $(`#${id}-card`);
-  const valueNode = $(`#${id}`);
-  const detailNode = $(`#${id}-detail`);
-  if (!card || !valueNode || !detailNode) return;
-  card.classList.remove('is-good', 'is-warning', 'is-danger', 'is-loading');
-  if (tone) card.classList.add(tone);
-  valueNode.textContent = value;
-  detailNode.textContent = detail;
-}
-
-function renderOverviewSummary(resources, notifications) {
-  const runtimeResource = resources.runtime ?? {};
-  const runtime = runtimeResource.data ?? {};
-  const executionResource = resources.execution ?? {};
-  const execution = executionResource.data ?? {};
-  if (runtimeResource.loading && !runtimeResource.data) {
-    setOverviewCard('overview-health', tr('Checking...'), tr('Checking runtime and tunnel...'), 'is-loading');
-  } else {
-    const known = Boolean(runtimeResource.data) || Boolean(runtimeResource.error);
-    const healthy = !runtimeResource.error && runtime.mcpHealthy === true && runtime.tunnelReady !== false;
-    setOverviewCard('overview-health', tr(!known ? 'Unavailable' : healthy ? 'Ready' : 'Needs attention'), tr(!known ? 'Runtime status is not available yet.' : healthy ? 'Runtime and secure tunnel are ready.' : 'Runtime or secure tunnel needs attention.'), !known ? 'is-warning' : healthy ? 'is-good' : 'is-danger');
-  }
-  if (executionResource.loading && !executionResource.data) {
-    setOverviewCard('overview-ai-mode', tr('Checking...'), tr('Checking routing policy...'), 'is-loading');
-  } else {
-    const targetMode = inferOverviewTargetMode(execution);
-    const fallbackActive = Boolean(execution.status?.fallbackActive);
-    setOverviewCard('overview-ai-mode', tr(TARGET_MODE_LABELS[targetMode] ?? targetMode), tr(fallbackActive ? 'Fallback is active for the current session.' : targetMode === 'auto' ? 'Task affinity chooses between RWMCP, Codex and Antigravity automatically.' : 'Routing follows the execution target set you selected.'), fallbackActive ? 'is-warning' : 'is-good');
-  }
-  const unread = notifications.filter((notice) => !notice.read);
-  const urgent = unread.filter((notice) => notice.level === 'error' || notice.level === 'warning');
-  const first = urgent[0] ?? unread[0];
-  setOverviewCard('overview-attention', unread.length ? tr('{count} item(s)', { count: unread.length }) : tr('Nothing urgent'), first ? tr(first.title) : tr('No action is required right now.'), urgent.some((notice) => notice.level === 'error') ? 'is-danger' : urgent.length || unread.length ? 'is-warning' : 'is-good');
-}
-
 function renderMetrics(metrics, resources) {
   const root = $('#metrics'); root.replaceChildren();
   for (const metric of metrics) root.append(element('div', {}, element('strong', { text: metric.value }), element('span', { text: tr(metric.label) })));
@@ -288,7 +229,7 @@ function render() {
   const resources = store.getState();
   const cards = deriveCards(resources);
   const notices = deriveNotifications(resources, readIds());
-  renderOverviewSummary(resources, notices); renderCards(cards); renderMetrics(deriveMetrics(resources), resources); renderActivities(deriveActivities(resources)); renderNotifications(notices); renderConsole(resources); renderIdentity(resources);
+  renderCards(cards); renderMetrics(deriveMetrics(resources), resources); renderActivities(deriveActivities(resources)); renderNotifications(notices); renderConsole(resources); renderIdentity(resources);
 }
 
 function localizeShell() {
@@ -440,23 +381,9 @@ function tick() {
   const locale = getLanguage() === 'vi' ? 'vi-VN' : 'en-US';
   $('#clock').textContent = `${new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: CONTROL_CENTER_TIME_ZONE }).format(now)}  ${new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', timeZone: CONTROL_CENTER_TIME_ZONE }).format(now)}`;
   renderGreeting(now);
-  const seconds = Math.max(0, Math.floor((Date.parse('2026-09-25T18:00:00+07:00') - now.getTime()) / 1000));
-  const values = [Math.floor(seconds / 86400), Math.floor(seconds % 86400 / 3600), Math.floor(seconds % 3600 / 60), seconds % 60];
-  $$('#countdown b').forEach((node, index) => { node.textContent = String(values[index]).padStart(2, '0'); });
+  themes.tick(now);
 }
 
-$$('[data-quick-page]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.quickPage)));
-$('#overview-refresh').addEventListener('click', async () => {
-  const button = $('#overview-refresh');
-  if (button.disabled) return;
-  button.disabled = true;
-  try {
-    await store.refresh(['status', 'runtime', 'execution', 'antigravity', 'updates', 'admin']);
-    toast(tr('Overview refreshed.'));
-  } finally {
-    button.disabled = false;
-  }
-});
 $('#close-modal').addEventListener('click', () => modal.close());
 modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
 $('#search').addEventListener('input', searchCards);

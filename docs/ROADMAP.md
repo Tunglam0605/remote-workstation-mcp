@@ -18,8 +18,9 @@ Goal: make repository structure match the long-term product boundaries without c
 
 ### B. Extension boundary
 - introduce a typed Extension Registry and stable extension identifiers;
-- migrate Office and NotebookLM composition first;
-- then migrate STM32, ESP32, ROS 2, CAN, Modbus and KiCad behind extension manifests without renaming public MCP actions unnecessarily;
+- Office and NotebookLM composition migrated first;
+- CAN and Modbus RTU MCP handlers migrated out of the engineering monolith into domain extensions;
+- next migrate STM32, ESP32, ROS 2 and KiCad behind extension manifests without renaming public MCP actions unnecessarily;
 - keep generic browser/process/Git/LSP/resource primitives in Platform.
 
 ### C. Source modularization

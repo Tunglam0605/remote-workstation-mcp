@@ -55,9 +55,13 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   assert.match(waveExecution, /bounded-wave-execution/);
   assert.match(taskGraph, /addTaskBatch/);
   const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const canTools = await read('src/extensions/can/register.ts');
   const officeTools = await read('src/tools/office-tools.ts');
-  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect', 'can_provider_status', 'can_interface_list', 'can_interface_status', 'can_capture']) {
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
     assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+  }
+  for (const tool of ['can_provider_status', 'can_interface_list', 'can_interface_status', 'can_capture']) {
+    assert.match(canTools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
   for (const tool of ['excel_inspect', 'excel_edit', 'powerpoint_inspect', 'powerpoint_edit']) {
     assert.match(officeTools, new RegExp(`server\\.registerTool\\('${tool}'`));
@@ -115,19 +119,19 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
 });
 
 test('v0.54 SocketCAN surface stays bounded and read-only', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const canTools = await read('src/extensions/can/register.ts');
   const canAdapter = await read('src/adapters/engineering/can.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
   for (const tool of ['can_provider_status', 'can_interface_list', 'can_interface_status', 'can_capture']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(canTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(scopes, new RegExp(`${tool}: 'workstation\\.read'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(canAdapter, /\['-json', '-details', '-statistics', 'link', 'show'\]/);
   assert.match(canAdapter, /\['-L', '-n', String\(count\), '-T', String\(inactivityTimeoutMs\), interfaceSpec\]/);
   assert.match(canAdapter, /at most 32 filters|accepts at most 32 filters/);
-  assert.doesNotMatch(engineeringTools, /can_send|cansend|canplayer|can_interface_set|can_bitrate_set/);
+  assert.doesNotMatch(canTools, /can_send|cansend|canplayer|can_interface_set|can_bitrate_set/);
   assert.doesNotMatch(canAdapter, /'cansend'|'canplayer'|'cangen'|'cangw'/);
   const pythonFallback = await read('scripts/socketcan_capture.py');
   assert.match(pythonFallback, /socket\.PF_CAN/);
@@ -356,13 +360,13 @@ test('v0.61 KiCad IPC Phase 6 routing primitives stay bounded and rollback-gated
 });
 
 test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const modbusTools = await read('src/extensions/modbus/register.ts');
   const modbus = await read('src/adapters/engineering/modbus-rtu.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
   for (const tool of ['modbus_rtu_provider_status', 'modbus_rtu_endpoint_status', 'modbus_rtu_read', 'modbus_rtu_probe']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(modbusTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(scopes, /modbus_rtu_provider_status: 'workstation\.read'/);
@@ -373,7 +377,7 @@ test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface'
   assert.match(modbus, /withLease\(`serial:\$\{selected\}`, 'monitoring'/);
   assert.match(modbus, /Modbus probe accepts 1\.\.32 explicit unit IDs/);
   assert.match(modbus, /raw RTU frame injection/);
-  assert.doesNotMatch(engineeringTools, /modbus_rtu_write|modbus_rtu_raw|write_single_coil|write_single_register|write_multiple/);
+  assert.doesNotMatch(modbusTools, /modbus_rtu_write|modbus_rtu_raw|write_single_coil|write_single_register|write_multiple/);
   assert.doesNotMatch(modbus, /function:\s*5|function:\s*6|function:\s*15|function:\s*16/);
 });
 

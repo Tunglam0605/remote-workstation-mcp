@@ -1,9 +1,24 @@
 import { registerNotebookLmTools } from '../tools/notebooklm-tools.js';
 import { registerOfficeTools } from '../tools/office-tools.js';
+import { registerCanTools } from './can/register.js';
+import { registerModbusTools } from './modbus/register.js';
 import { ExtensionRegistry } from './registry.js';
 
 export function createBuiltinExtensionRegistry(): ExtensionRegistry {
   return new ExtensionRegistry()
+    .add({
+      id: 'domain.can',
+      version: 1,
+      kind: 'domain',
+      platforms: ['linux'],
+      register: registerCanTools
+    })
+    .add({
+      id: 'domain.modbus-rtu',
+      version: 1,
+      kind: 'domain',
+      register: registerModbusTools
+    })
     .add({
       id: 'productivity.office',
       version: 1,

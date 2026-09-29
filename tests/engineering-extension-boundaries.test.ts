@@ -40,27 +40,40 @@ const ROS2_TOOLS = [
   'ros2_bag_record'
 ] as const;
 
+const STM32_TOOLS = [
+  'stm32_ioc_inspect',
+  'stm32_svd_inspect'
+] as const;
+
+const ESP32_TOOLS = [
+  'esp32_preflight'
+] as const;
+
 function registeredTools(source: string): string[] {
   return [...source.matchAll(/server\.registerTool\('([^']+)'/g)].map(match => match[1]);
 }
 
 test('migrated engineering MCP handlers live behind domain extension boundaries', async () => {
-  const [monolith, canSource, modbusSource, ros2Source, builtin] = await Promise.all([
+  const [monolith, canSource, modbusSource, ros2Source, stm32Source, esp32Source, builtin] = await Promise.all([
     fs.readFile(path.resolve('src/tools/engineering-tools.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/can/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/modbus/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/ros2/register.ts'), 'utf8'),
+    fs.readFile(path.resolve('src/extensions/stm32/register.ts'), 'utf8'),
+    fs.readFile(path.resolve('src/extensions/esp32/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/builtin.ts'), 'utf8')
   ]);
 
   const monolithTools = new Set(registeredTools(monolith));
-  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS]) {
+  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS, ...STM32_TOOLS, ...ESP32_TOOLS]) {
     assert.equal(monolithTools.has(tool), false, `${tool} must not drift back into engineering-tools.ts`);
   }
 
   assert.deepEqual(registeredTools(canSource), [...CAN_TOOLS]);
   assert.deepEqual(registeredTools(modbusSource), [...MODBUS_TOOLS]);
   assert.deepEqual(registeredTools(ros2Source), [...ROS2_TOOLS]);
+  assert.deepEqual(registeredTools(stm32Source), [...STM32_TOOLS]);
+  assert.deepEqual(registeredTools(esp32Source), [...ESP32_TOOLS]);
 
   assert.match(builtin, /id: 'domain\.can'/);
   assert.match(builtin, /platforms: \['linux'\]/);
@@ -69,4 +82,8 @@ test('migrated engineering MCP handlers live behind domain extension boundaries'
   assert.match(builtin, /register: registerModbusTools/);
   assert.match(builtin, /id: 'domain\.ros2'/);
   assert.match(builtin, /register: registerRos2Tools/);
+  assert.match(builtin, /id: 'domain\.stm32'/);
+  assert.match(builtin, /register: registerStm32Tools/);
+  assert.match(builtin, /id: 'domain\.esp32'/);
+  assert.match(builtin, /register: registerEsp32Tools/);
 });

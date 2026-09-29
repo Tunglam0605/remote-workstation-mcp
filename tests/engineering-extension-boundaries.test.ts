@@ -30,7 +30,11 @@ const MEDIA_TOOLS = [
   'media_transcode_plan',
   'media_transcode',
   'media_remotion_status',
-  'media_comfyui_status'
+  'media_comfyui_status',
+  'media_comfyui_preset_list',
+  'media_comfyui_job_plan',
+  'media_comfyui_job_submit',
+  'media_comfyui_job_status'
 ] as const;
 
 const MQTT_TOOLS = [

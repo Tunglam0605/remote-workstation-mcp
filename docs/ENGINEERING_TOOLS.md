@@ -293,7 +293,52 @@ Available tools:
 - `media_remotion_status` — inspects project-local Remotion packages and render-oriented scripts without invoking npm/npx.
 - `media_comfyui_status` — read-only `/system_stats` and `/queue` health observation.
 
-Phase 1 does not accept raw FFmpeg arguments, arbitrary output formats, implicit overwrite, ComfyUI workflow submission/model download, or arbitrary process execution.
+Phase 1 does not accept raw FFmpeg arguments, arbitrary output formats, implicit overwrite, arbitrary ComfyUI workflow submission/model download, or arbitrary process execution.
+
+### ComfyUI preset jobs (Phase 2)
+
+Phase 2 allows queue submission only through owner-local presets declared in `comfyui-presets.json` and workflow API JSON files under `comfyui-workflows/`. MCP never accepts raw workflow JSON.
+
+Example manifest:
+
+```json
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "image-basic",
+      "profileId": "gpu",
+      "workflowFile": "image-basic.json",
+      "bindings": {
+        "prompt": {
+          "type": "string",
+          "nodeId": "6",
+          "input": "text",
+          "required": true,
+          "maxLength": 2000
+        },
+        "seed": {
+          "type": "number",
+          "nodeId": "3",
+          "input": "seed",
+          "default": 7,
+          "min": 0,
+          "max": 4294967295
+        }
+      }
+    }
+  ]
+}
+```
+
+Available Phase 2 tools:
+
+- `media_comfyui_preset_list` — exposes only preset IDs, labels, provider IDs and public typed binding metadata.
+- `media_comfyui_job_plan` — validates workflow existence plus typed overrides without queue mutation.
+- `media_comfyui_job_submit` — Work Session-owned POST to `/prompt` using only the owner-local preset and whitelisted scalar bindings.
+- `media_comfyui_job_status` — reads bounded `/history/<promptId>` status and artifact metadata without returning raw workflow/history payloads.
+
+Arbitrary workflow JSON, custom node configuration through MCP, model download, queue cancellation and raw output retrieval remain unavailable in this phase.
 
 ## Safety model
 

@@ -124,7 +124,7 @@ export class MediaVideoAdapter {
       ...(npx ? { remotionLauncher: npx } : {}),
       profiles: await this.profiles.status(),
       ...(diagnostics.length ? { diagnostics: diagnostics.slice(0, 8).map(item => item.slice(0, 512)) } : {}),
-      intentionallyUnavailable: ['raw ffmpeg arguments', 'arbitrary process execution', 'ComfyUI workflow submission', 'remote model download', 'implicit overwrite']
+      intentionallyUnavailable: ['raw ffmpeg arguments', 'arbitrary process execution', 'arbitrary ComfyUI workflow submission', 'remote model download', 'implicit overwrite']
     };
   }
 

@@ -36,7 +36,8 @@ Goal: make repository structure match the long-term product boundaries without c
 ### D. Control Center and runtime composition
 - Moonlight shared DOM primitives and capability-driven Work/Engineering/Office/Web pages split out of the oversized `views.js` while preserving DOM/API contracts;
 - System and Security/Access pages split into dedicated Moonlight modules, with shared Linux admin-approval predicates separated for reuse by Notifications;
-- next separate Execution page ownership from shared view composition;
+- Execution/AI routing page split into a dedicated Moonlight module without changing execution-policy payloads or routing behavior;
+- next finish remaining Devices/Updates/Settings/Notifications composition cleanup and release/script hygiene;
 - expose extension capability/status through generic metadata instead of hard-coded app/domain UI;
 - retain local-only security boundaries and platform-specific approval behavior.
 

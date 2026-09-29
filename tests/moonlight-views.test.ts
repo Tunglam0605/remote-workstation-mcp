@@ -10,10 +10,11 @@ const viewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/views.j
 const primitivesPath = path.resolve(import.meta.dirname, '../assets/moonlight/view-primitives.js');
 const capabilityViewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/capability-views.js');
 const systemAccessViewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/system-access-views.js');
+const executionViewPath = path.resolve(import.meta.dirname, '../assets/moonlight/execution-view.js');
 
 test('Moonlight views retain documented owner-control routes', async () => {
-  const [viewsSource, systemAccessSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(systemAccessViewsPath, 'utf8')]);
-  const source = `${viewsSource}\n${systemAccessSource}`;
+  const [viewsSource, systemAccessSource, executionSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(systemAccessViewsPath, 'utf8'), readFile(executionViewPath, 'utf8')]);
+  const source = `${viewsSource}\n${systemAccessSource}\n${executionSource}`;
   for (const route of [
     '/api/bootstrap', '/api/recovery/status', '/api/recovery/test', '/api/recovery/apply', '/api/save', '/api/runtime-key', '/api/runtime/action',
     '/api/install-tunnel-client', '/api/permissions/mode', '/api/permissions/config', '/api/permissions/lease',
@@ -24,7 +25,7 @@ test('Moonlight views retain documented owner-control routes', async () => {
 });
 
 test('Moonlight views use actual workstation scope names and transient secret inputs', async () => {
-  const [source, primitives] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(primitivesPath, 'utf8')]);
+  const [source, primitives, executionSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(primitivesPath, 'utf8'), readFile(executionViewPath, 'utf8')]);
   for (const scope of ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control', 'workstation.cross_node_transfer']) assert.match(source, new RegExp(scope.replace('.', '\\.')));
   assert.match(source, /type: 'password'/);
   assert.match(source, /finally \{ bootstrapKey\.value = ''; \}/);
@@ -36,12 +37,12 @@ test('Moonlight views use actual workstation scope names and transient secret in
   assert.doesNotMatch(primitives, /innerHTML/);
   assert.doesNotMatch(source, /sessionStorage/);
   assert.doesNotMatch(primitives, /sessionStorage/);
-  assert.match(source, /codexModel/);
-  assert.match(source, /codexAgentsEnabled/);
-  assert.match(source, /codexSkillsEnabled/);
-  assert.match(source, /Codex model/);
-  assert.match(source, /Enable Codex EAS agents/);
-  assert.match(source, /Share Codex skills with RWMCP workers/);
+  assert.match(executionSource, /codexModel/);
+  assert.match(executionSource, /codexAgentsEnabled/);
+  assert.match(executionSource, /codexSkillsEnabled/);
+  assert.match(executionSource, /Codex model/);
+  assert.match(executionSource, /Enable Codex EAS agents/);
+  assert.match(executionSource, /Share Codex skills with RWMCP workers/);
 });
 
 test('opening a view reads store state without issuing an API request', async () => {

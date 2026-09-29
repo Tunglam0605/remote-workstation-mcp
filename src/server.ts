@@ -6,13 +6,12 @@ import { registerDeviceTools } from './tools/device-tools.js';
 import { registerCoreTools } from './tools/core-tools.js';
 import { registerFullControlTools } from './tools/full-control-tools.js';
 import { registerEngineeringTools } from './tools/engineering-tools.js';
-import { officePlatformSupported, registerOfficeTools } from './tools/office-tools.js';
 import { registerInteractiveProcessTools } from './tools/interactive-process-tools.js';
 import { registerLspTools } from './tools/lsp-tools.js';
 import { registerPrivilegedTools } from './tools/privileged-tools.js';
 import { registerSshTools } from './tools/ssh-tools.js';
 import { registerBrowserTools } from './tools/browser-tools.js';
-import { registerNotebookLmTools } from './tools/notebooklm-tools.js';
+import { registerBuiltinExtensions } from './extensions/builtin.js';
 
 export function buildServer(ctx: AppContext): McpServer {
   const server = new McpServer(
@@ -36,13 +35,12 @@ export function buildServer(ctx: AppContext): McpServer {
   registerDeviceTools(server, ctx);
   registerCoreTools(server, ctx);
   registerBrowserTools(server, ctx);
-  registerNotebookLmTools(server, ctx);
   registerEngineeringTools(server, ctx);
-  if (officePlatformSupported(process.platform)) registerOfficeTools(server, ctx);
   registerInteractiveProcessTools(server, ctx);
   registerLspTools(server, ctx);
   registerSshTools(server, ctx);
   registerFullControlTools(server, ctx);
   registerPrivilegedTools(server, ctx);
+  registerBuiltinExtensions(server, ctx);
   return server;
 }

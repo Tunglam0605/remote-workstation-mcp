@@ -1,6 +1,8 @@
 # Architecture
 
 > Product direction is defined by [`PROJECT_CHARTER.md`](PROJECT_CHARTER.md). This document explains **how** that charter is implemented. If an architectural shortcut conflicts with the charter, the charter takes precedence until it is deliberately amended.
+>
+> The canonical long-term layer/dependency map is maintained in [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md). It is the migration target for source ownership; this document remains authoritative for runtime behavior and invariants.
 
 Remote Workstation MCP is an **AI-vendor-neutral engineering control plane**. ChatGPT Web, ChatGPT desktop, Codex, Claude Code, Cursor, VS Code integrations and custom MCP clients are peers of the same workstation interface; none is trusted merely because of vendor or model identity.
 

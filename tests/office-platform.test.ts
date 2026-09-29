@@ -28,8 +28,13 @@ test('Office capability pack is exposed only on Windows hosts', () => {
   assert.deepEqual(darwin, nonOffice);
 });
 
-test('server registration fail-closes Office tools behind the Windows platform gate', async () => {
-  const source = await fs.readFile(path.resolve('src/server.ts'), 'utf8');
-  assert.match(source, /if \(officePlatformSupported\(process\.platform\)\) registerOfficeTools\(server, ctx\);/);
-  assert.doesNotMatch(source, /^\s*registerOfficeTools\(server, ctx\);/m);
+test('server registration fail-closes Office tools behind the Windows extension gate', async () => {
+  const serverSource = await fs.readFile(path.resolve('src/server.ts'), 'utf8');
+  const extensionSource = await fs.readFile(path.resolve('src/extensions/builtin.ts'), 'utf8');
+
+  assert.match(serverSource, /registerBuiltinExtensions\(server, ctx\);/);
+  assert.doesNotMatch(serverSource, /registerOfficeTools\(server, ctx\);/);
+  assert.match(extensionSource, /id: 'productivity\.office'/);
+  assert.match(extensionSource, /platforms: \['win32'\]/);
+  assert.match(extensionSource, /register: registerOfficeTools/);
 });

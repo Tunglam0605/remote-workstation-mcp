@@ -10,8 +10,8 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 46 / Engineering API 5;
-- no public MCP action/schema, Work Session authority, hardware interlock, updater or rollback contract is intentionally changed.
+- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 47 / Engineering API 5;
+- stable v0.66.0 authority, Work Session, hardware-interlock, updater and rollback contracts remain unchanged; v0.67 development tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
 
@@ -21,6 +21,15 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - allow explicit node observation or passive traffic discovery only; an empty node list never performs an active scan;
 - keep frame transmission, NMT commands, active SDO requests/writes, PDO transmission, LSS, node guarding requests and bus configuration unavailable;
 - advance Action Schema to 37; Engineering API remains 5.
+
+## Post-v0.66 tool expansion — Media/Video Phase 4
+
+- add owner-local `remotion-presets.json` with bounded entry point, composition, encoder and scalar-binding declarations;
+- add `media_remotion_preset_list`, `media_remotion_render_plan` and Work Session-owned `media_remotion_render`;
+- require project-local Remotion CLI and a local Chrome/Chromium executable; never download a browser implicitly through RWMCP;
+- accept only manifest-whitelisted scalar props, keep temporary props outside the project tree, reject existing/non-MP4 output and return SHA-256 artifact evidence;
+- keep raw Remotion arguments, arbitrary entry points/composition IDs from MCP, arbitrary environment injection and implicit overwrite unavailable;
+- advance Action Schema to 47; Engineering API remains 5.
 
 ## Next — post-v0.66 hardening
 

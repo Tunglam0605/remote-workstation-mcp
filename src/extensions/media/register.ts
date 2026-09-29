@@ -6,6 +6,8 @@ import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
 import { ComfyUiPresetJobs } from './comfyui-jobs.js';
 import { MediaVideoAdapter, type MediaTranscodePreset } from './media-adapter.js';
 import { MediaProfileStore } from './profile-store.js';
+import { RemotionRenderAdapter } from './remotion-render.js';
+import { RemotionPresetStore } from './remotion-store.js';
 import { ComfyUiPresetStore } from './workflow-store.js';
 
 const result = (value: unknown) => ({
@@ -27,10 +29,18 @@ const comfyParameters = z.record(
 ).superRefine((value, ctx) => {
   if (Object.keys(value).length > 64) ctx.addIssue({ code: 'custom', message: 'ComfyUI parameters are limited to 64 bindings.' });
 });
+const remotionPresetId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const remotionParameters = z.record(
+  z.string().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/),
+  z.union([z.string().max(16_384), z.number().finite(), z.boolean()])
+).superRefine((value, ctx) => {
+  if (Object.keys(value).length > 64) ctx.addIssue({ code: 'custom', message: 'Remotion parameters are limited to 64 bindings.' });
+});
 
 export function registerMediaTools(server: McpServer, ctx: AppContext): void {
   const profiles = new MediaProfileStore();
   const adapter = new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles);
+  const remotion = new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore());
   const jobs = new ComfyUiPresetJobs(profiles, new ComfyUiPresetStore());
   const artifacts = new ComfyUiArtifactImporter(ctx.paths, profiles, jobs);
 
@@ -82,6 +92,41 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) =>
     result(await audited(ctx.audit, 'media_remotion_status', workspace, () => adapter.remotionStatus(workspace, projectPath))));
+
+  server.registerTool('media_remotion_preset_list', {
+    description: 'List owner-local typed Remotion render presets and public scalar bindings. Entry-point filesystem paths are not returned.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () =>
+    result(await audited(ctx.audit, 'media_remotion_preset_list', undefined, () => remotion.listPresets())));
+
+  server.registerTool('media_remotion_render_plan', {
+    description: 'Validate one owner-local Remotion preset, typed parameter overrides and project-scoped MP4 destination without starting a render or modifying the project.',
+    inputSchema: project.extend({
+      presetId: remotionPresetId,
+      parameters: remotionParameters.default({}),
+      output: relativeFile
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, presetId, parameters, output }) =>
+    result(await audited(ctx.audit, 'media_remotion_render_plan', workspace, () =>
+      remotion.plan(workspace, projectPath, presetId, parameters, output)
+    )));
+
+  server.registerTool('media_remotion_render', {
+    description: 'Render one owner-local typed Remotion preset into a project-scoped MP4. Requires Work Session ownership, project-local Remotion CLI, a local Chrome/Chromium executable, fail-if-exists output and returns SHA-256 artifact evidence.',
+    inputSchema: project.extend({
+      workSessionId: z.string().uuid(),
+      presetId: remotionPresetId,
+      parameters: remotionParameters.default({}),
+      output: relativeFile,
+      timeoutMs: z.number().int().min(5_000).max(3_600_000).default(900_000)
+    }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, presetId, parameters, output, timeoutMs }) =>
+    result(await audited(ctx.audit, 'media_remotion_render', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => remotion.render(workspace, projectPath, presetId, parameters, output, timeoutMs))
+    )));
 
   server.registerTool('media_comfyui_status', {
     description: 'Inspect one owner-local non-secret ComfyUI endpoint using only GET /system_stats and GET /queue. Returns bounded device/queue summaries and never submits workflows or downloads models.',

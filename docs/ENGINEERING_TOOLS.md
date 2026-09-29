@@ -153,6 +153,38 @@ ros2:
       - robot_control
 ```
 
+## MQTT diagnostics Phase 1
+
+MQTT diagnostics are subscribe-only and use owner-local profiles instead of accepting broker credentials through MCP arguments. Profiles are stored outside the repository at the platform setup-config directory in `mqtt-profiles.json`.
+
+Example profile file:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "agv",
+      "host": "broker.example.internal",
+      "port": 1883,
+      "tls": false,
+      "username": "operator",
+      "passwordEnv": "RWMCP_MQTT_AGV_PASSWORD"
+    }
+  ]
+}
+```
+
+The password value itself is never stored in this file; only the environment-variable name is persisted. TLS profiles always verify the broker certificate in Phase 1.
+
+Available tools:
+
+- `mqtt_provider_status` — reports non-secret profile readiness and the subscribe-only authority boundary.
+- `mqtt_subscribe_sample` — collects a bounded MQTT 3.1.1 topic sample and parses bounded UTF-8/JSON evidence.
+- `mqtt_agv_lift_observe` — observes `aubotagv/2.0.0/AUBOT/<vehicle>/state` and extracts nested `liftSensorStatus` evidence, deriving `up`, `down`, `between`, `conflict` or `unknown` conservatively.
+
+Phase 1 does not expose PUBLISH, retained-message mutation, broker configuration or credential mutation.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

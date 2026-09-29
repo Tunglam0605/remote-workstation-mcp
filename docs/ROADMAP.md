@@ -1,8 +1,8 @@
 # Roadmap
 
-## Current baseline — v0.66.0
+## Stable baseline — v0.66.0 / Development head — v0.67.0-dev.0
 
-Architecture Consolidation is complete for the v0.66 release candidate:
+Architecture Consolidation is complete in stable v0.66.0. Current development continues toward v0.67.0 with the stable release kept immutable:
 
 - Platform / Sessions / Engineering Framework / Extensions / Orchestration / MCP / Control Center boundaries are explicit and CI-enforced;
 - domain-specific CAN, Modbus RTU, ROS 2, STM32, ESP32 and KiCad MCP handlers register through the Extension Registry;
@@ -10,7 +10,7 @@ Architecture Consolidation is complete for the v0.66 release candidate:
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- Action Schema remains 36 and Engineering API remains 5;
+- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 46 / Engineering API 5;
 - no public MCP action/schema, Work Session authority, hardware interlock, updater or rollback contract is intentionally changed.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1

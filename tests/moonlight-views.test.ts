@@ -9,9 +9,11 @@ import { createViews } from '../assets/moonlight/views.js';
 const viewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/views.js');
 const primitivesPath = path.resolve(import.meta.dirname, '../assets/moonlight/view-primitives.js');
 const capabilityViewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/capability-views.js');
+const systemAccessViewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/system-access-views.js');
 
 test('Moonlight views retain documented owner-control routes', async () => {
-  const source = await readFile(viewsPath, 'utf8');
+  const [viewsSource, systemAccessSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(systemAccessViewsPath, 'utf8')]);
+  const source = `${viewsSource}\n${systemAccessSource}`;
   for (const route of [
     '/api/bootstrap', '/api/recovery/status', '/api/recovery/test', '/api/recovery/apply', '/api/save', '/api/runtime-key', '/api/runtime/action',
     '/api/install-tunnel-client', '/api/permissions/mode', '/api/permissions/config', '/api/permissions/lease',
@@ -43,15 +45,15 @@ test('Moonlight views use actual workstation scope names and transient secret in
 });
 
 test('opening a view reads store state without issuing an API request', async () => {
-  const [source, capabilitySource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(capabilityViewsPath, 'utf8')]);
+  const [source, capabilitySource, systemAccessSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(capabilityViewsPath, 'utf8'), readFile(systemAccessViewsPath, 'utf8')]);
   assert.match(source, /function open\(page\)/);
   for (const mapping of ['Work: openWork', 'Agents: openExecution', 'Engineering: openEngineering', 'Office: openOffice', 'Web: openWeb', 'Devices: openDevices', 'Security: openAccess', 'System: openSystem']) assert.match(source, new RegExp(mapping.replace(/[.*+?^${}()|[\\]\\]/g, '\\  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);')));
   assert.match(capabilitySource, /function capabilityDomain\(/);
-  assert.match(source, /Advanced access scopes/);
-  assert.match(source, /security-summary/);
-  assert.match(source, /security-primary-grid/);
-  assert.match(source, /security-admin-section/);
-  assert.match(source, /Show command hash/);
+  assert.match(systemAccessSource, /Advanced access scopes/);
+  assert.match(systemAccessSource, /security-summary/);
+  assert.match(systemAccessSource, /security-primary-grid/);
+  assert.match(systemAccessSource, /security-admin-section/);
+  assert.match(systemAccessSource, /Show command hash/);
   assert.match(source, /Pair a new device/);
   assert.match(source, /Advanced multi-node transfers/);
   assert.match(capabilitySource, /live\('capabilities'\)/);

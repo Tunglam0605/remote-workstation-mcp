@@ -29,6 +29,7 @@ Architecture Consolidation is complete for the v0.66 release candidate:
 - move additional Moonlight Devices/Updates/Settings/Notifications ownership only when the change remains contract-preserving;
 - add runtime capability readiness reporting so implemented contracts distinguish node-ready, degraded and unavailable providers without changing legacy capability status;
 - keep new domain capabilities behind extension manifests;
+- extend industrial diagnostics incrementally: passive CANopen and subscribe-only MQTT/AGV observation first, then PLC/OPC UA behind separate domain extensions;
 - optimize large static Moonlight image assets with measured visual/regression checks;
 - treat CHANGELOG.md as shipped history and keep this roadmap focused on future work.
 

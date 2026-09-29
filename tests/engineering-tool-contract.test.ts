@@ -58,9 +58,13 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const canTools = await read('src/extensions/can/register.ts');
   const ros2Tools = await read('src/extensions/ros2/register.ts');
   const stm32Tools = await read('src/extensions/stm32/register.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const officeTools = await read('src/tools/office-tools.ts');
-  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add']) {
     assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+  }
+  for (const tool of ['kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
+    assert.match(kicadTools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
   assert.match(stm32Tools, /server\.registerTool\('stm32_svd_inspect'/);
   for (const tool of ['ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info']) {
@@ -187,29 +191,29 @@ test('v0.44 ROS2 professional diagnostics stay bounded and defer unsafe action-g
 });
 
 test('v0.44 KiCad professional tools expose typed temporary diagnostics without arbitrary plugins', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
   for (const tool of ['kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(kicadTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(scopes, new RegExp(`${tool}: 'workstation\\.read'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(kicad, /'sch', 'export', 'bom'/);
   assert.match(kicad, /'Reference,Value,Footprint,QUANTITY,DNP'/);
-  assert.doesNotMatch(engineeringTools, /kicad_script|kicad_plugin|python-bom/);
+  assert.doesNotMatch(kicadTools, /kicad_script|kicad_plugin|python-bom/);
   assert.match(capabilities, /arbitrary BOM plugins\/scripts/);
 });
 
 test('v0.56 KiCad editing stays typed, transactional and bounded', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const edit = await read('src/adapters/engineering/kicad-edit.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
-  assert.match(engineeringTools, /server\.registerTool\('kicad_edit_inspect'/);
-  assert.match(engineeringTools, /server\.registerTool\('kicad_edit'/);
+  assert.match(kicadTools, /server\.registerTool\('kicad_edit_inspect'/);
+  assert.match(kicadTools, /server\.registerTool\('kicad_edit'/);
   assert.match(scopes, /kicad_edit_inspect: 'workstation\.read'/);
   assert.match(scopes, /kicad_edit: 'workstation\.write'/);
   assert.match(capabilities, /kicad_edit_inspect/);
@@ -221,19 +225,19 @@ test('v0.56 KiCad editing stays typed, transactional and bounded', async () => {
   assert.match(edit, /schematic_symbol_property/);
   assert.match(edit, /pcb_footprint_property/);
   assert.match(edit, /pcb_footprint_move/);
-  assert.doesNotMatch(engineeringTools, /kicad_raw|kicad_sexpr|kicad_autoroute|kicad_track_add|kicad_via_add|kicad_zone_add/);
+  assert.doesNotMatch(kicadTools, /kicad_raw|kicad_sexpr|kicad_autoroute|kicad_track_add|kicad_via_add|kicad_zone_add/);
   assert.doesNotMatch(edit, /eval\(|new Function|child_process|spawn\(|exec\(/);
 });
 
 test('v0.57 KiCad Phase 2 adds documented fabrication flags and official IPC readiness only', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const edit = await read('src/adapters/engineering/kicad-edit.ts');
   const probe = await read('scripts/kicad_ipc_probe.py');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
-  assert.match(engineeringTools, /server\.registerTool\('kicad_ipc_status'/);
+  assert.match(kicadTools, /server\.registerTool\('kicad_ipc_status'/);
   assert.match(scopes, /kicad_ipc_status: 'workstation\.read'/);
   assert.match(capabilities, /kicad_ipc_status/);
   assert.match(edit, /schematic_symbol_flags/);
@@ -246,18 +250,18 @@ test('v0.57 KiCad Phase 2 adds documented fabrication flags and official IPC rea
   assert.match(probe, /from kipy import KiCad/);
   assert.match(probe, /get_board/);
   assert.doesNotMatch(probe, /save\(|update_items|add_items|delete_items|refill_zones|import_netlist/);
-  assert.doesNotMatch(engineeringTools, /kicad_dru_edit|kicad_raw_rule|kicad_autoroute|kicad_track_add|kicad_via_add|kicad_zone_add/);
+  assert.doesNotMatch(kicadTools, /kicad_dru_edit|kicad_raw_rule|kicad_autoroute|kicad_track_add|kicad_via_add|kicad_zone_add/);
 });
 
 test('v0.58 KiCad IPC live control remains bounded, project-scoped and unsaved', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const live = await read('scripts/kicad_ipc_live.py');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
   for (const tool of ['kicad_ipc_board_inspect', 'kicad_ipc_footprint_move']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(kicadTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(scopes, /kicad_ipc_board_inspect: 'workstation\.read'/);
@@ -273,18 +277,18 @@ test('v0.58 KiCad IPC live control remains bounded, project-scoped and unsaved',
   assert.match(live, /rollback rejected footprint move/);
   assert.match(live, /"saved": False/);
   assert.doesNotMatch(live, /board\.save\(/);
-  assert.doesNotMatch(engineeringTools, /kicad_ipc_raw|kicad_ipc_command|kicad_ipc_script|kicad_ipc_save/);
+  assert.doesNotMatch(kicadTools, /kicad_ipc_raw|kicad_ipc_command|kicad_ipc_script|kicad_ipc_save/);
 });
 
 test('v0.59 KiCad IPC preparation and path hardening stay bounded', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const live = await read('scripts/kicad_ipc_live.py');
   const prepare = await read('scripts/kicad_ipc_prepare.ps1');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
-  assert.match(engineeringTools, /server\.registerTool\('kicad_ipc_prepare'/);
+  assert.match(kicadTools, /server\.registerTool\('kicad_ipc_prepare'/);
   assert.match(scopes, /kicad_ipc_prepare: 'workstation\.write'/);
   assert.match(capabilities, /kicad_ipc_prepare/);
   assert.match(kicad, /KICAD_IPC_PREPARE_UNSUPPORTED/);
@@ -295,18 +299,18 @@ test('v0.59 KiCad IPC preparation and path hardening stay bounded', async () => 
   assert.match(live, /board\.document\.project\.path/);
   assert.match(live, /wanted\.parent \/ value/);
   assert.doesNotMatch(prepare, /pip install|Invoke-WebRequest|Start-Process/);
-  assert.doesNotMatch(engineeringTools, /kicad_ipc_raw|kicad_ipc_save|kicad_ipc_script/);
+  assert.doesNotMatch(kicadTools, /kicad_ipc_raw|kicad_ipc_save|kicad_ipc_script/);
 });
 
 test('v0.60 KiCad IPC Phase 5 stays typed, transactional and unsaved', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const live = await read('scripts/kicad_ipc_live.py');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
   for (const tool of ['kicad_ipc_footprint_update', 'kicad_ipc_batch_place']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(kicadTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(scopes, /kicad_ipc_footprint_update: 'workstation\.write'/);
@@ -324,12 +328,12 @@ test('v0.60 KiCad IPC Phase 5 stays typed, transactional and unsaved', async () 
   assert.match(live, /--placements-b64/);
   assert.match(live, /rollback rejected batch placement/);
   assert.match(live, /"saved": False/);
-  assert.doesNotMatch(engineeringTools, /kicad_ipc_reference_rename|kicad_ipc_save|kicad_ipc_routing_remove|kicad_ipc_zone_refill|kicad_ipc_autoroute|kicad_ipc_arc_track/);
+  assert.doesNotMatch(kicadTools, /kicad_ipc_reference_rename|kicad_ipc_save|kicad_ipc_routing_remove|kicad_ipc_zone_refill|kicad_ipc_autoroute|kicad_ipc_arc_track/);
   assert.doesNotMatch(live, /board\.save\(/);
 });
 
 test('v0.61 KiCad IPC Phase 6 routing primitives stay bounded and rollback-gated', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const kicadTools = await read('src/extensions/kicad/register.ts');
   const kicad = await read('src/adapters/engineering/kicad.ts');
   const routing = await read('scripts/kicad_ipc_routing.py');
   const scopes = await read('src/security/request-principal.ts');
@@ -342,7 +346,7 @@ test('v0.61 KiCad IPC Phase 6 routing primitives stay bounded and rollback-gated
     'kicad_ipc_via_add',
     'kicad_ipc_via_update'
   ]) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(kicadTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(scopes, /kicad_ipc_routing_inspect: 'workstation\.read'/);
@@ -360,7 +364,7 @@ test('v0.61 KiCad IPC Phase 6 routing primitives stay bounded and rollback-gated
   assert.match(routing, /rollback rejected via update/);
   assert.match(routing, /VT_THROUGH/);
   assert.match(routing, /only through-via mutation is exposed in Phase 6/);
-  assert.doesNotMatch(engineeringTools, /kicad_ipc_routing_remove|kicad_ipc_zone_refill|kicad_ipc_autoroute|kicad_ipc_arc_track/);
+  assert.doesNotMatch(kicadTools, /kicad_ipc_routing_remove|kicad_ipc_zone_refill|kicad_ipc_autoroute|kicad_ipc_arc_track/);
   assert.doesNotMatch(routing, /board\.save\(/);
   assert.doesNotMatch(capabilities, /track\/via\/zone mutation, autorouting and implicit board save remain unavailable/);
 });

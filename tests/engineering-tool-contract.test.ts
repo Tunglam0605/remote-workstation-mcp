@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 42;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 43;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   const packageJson = JSON.parse(await read('package.json')) as { version: string };
   assert.ok(capabilities.includes(`export const SERVER_VERSION = '${packageJson.version}';`));
@@ -593,7 +593,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 42;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 43;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -849,7 +849,7 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 42/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 43/);
   assert.doesNotMatch(workflows, /workflow === 'espidf\.(erase|efuse|raw)'/);
   assert.doesNotMatch(firmware, /async\s+(?:eraseFlash|writeEfuse|runRawEsptool)\s*\(/);
 });
@@ -875,8 +875,41 @@ test('Camera Diagnostics Phase 1 stays bounded and read-only toward camera state
   assert.match(scopes, /camera_stream_metadata: 'workstation\.execute'/);
 
   assert.match(capabilities, /engineering\.camera/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 42/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 43/);
   assert.doesNotMatch(store, /password|username|tokenEnv|clientSecret/i);
   assert.doesNotMatch(register, /registerTool\('camera_(ptz|talk|snapshot|write|config)/);
   assert.match(rtsp, /DESCRIBE/);
+});
+
+
+test('Media/Video Phase 1 stays typed, project-scoped and bounded', async () => {
+  const register = await read('src/extensions/media/register.ts');
+  const adapter = await read('src/extensions/media/media-adapter.ts');
+  const store = await read('src/extensions/media/profile-store.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  assert.match(register, /registerTool\('media_provider_status'/);
+  assert.match(register, /registerTool\('media_file_probe'/);
+  assert.match(register, /registerTool\('media_transcode_plan'/);
+  assert.match(register, /registerTool\('media_transcode'/);
+  assert.match(register, /registerTool\('media_remotion_status'/);
+  assert.match(register, /registerTool\('media_comfyui_status'/);
+
+  assert.match(scopes, /media_provider_status: 'workstation\.read'/);
+  assert.match(scopes, /media_file_probe: 'workstation\.execute'/);
+  assert.match(scopes, /media_transcode_plan: 'workstation\.read'/);
+  assert.match(scopes, /media_transcode: 'workstation\.execute'/);
+  assert.match(scopes, /media_remotion_status: 'workstation\.read'/);
+  assert.match(scopes, /media_comfyui_status: 'workstation\.read'/);
+
+  assert.match(capabilities, /engineering\.media/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 43/);
+  assert.match(adapter, /ffmpeg/);
+  assert.match(adapter, /ffprobe/);
+  assert.match(adapter, /fail-if-exists/);
+  assert.match(adapter, /partial-output cleanup|fs\.rm\(outputAbsolute/);
+  assert.match(register, /ctx\.runInWorkSession/);
+  assert.doesNotMatch(register, /rawArgs|commandLine|shellCommand/);
+  assert.doesNotMatch(store, /password|username|tokenEnv|clientSecret/i);
 });

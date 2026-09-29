@@ -263,6 +263,38 @@ Available tools:
 
 PTZ, two-way audio, camera configuration, credentials and snapshot/output mutation remain unavailable in Phase 1.
 
+## Media and video Phase 1
+
+Media/Video Phase 1 adds typed local media operations without exposing arbitrary FFmpeg command strings or arbitrary ComfyUI workflow injection.
+
+Owner-local ComfyUI endpoints are stored in `media-profiles.json`:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "gpu",
+      "kind": "comfyui",
+      "host": "127.0.0.1",
+      "port": 8188,
+      "scheme": "http"
+    }
+  ]
+}
+```
+
+Available tools:
+
+- `media_provider_status` — reports FFmpeg/FFprobe availability, Remotion launcher readiness and configured ComfyUI profiles.
+- `media_file_probe` — project-scoped FFprobe inspection with bounded metadata output.
+- `media_transcode_plan` — validates one fixed-preset MP4 transcode without executing FFmpeg.
+- `media_transcode` — Work Session-owned fixed-preset FFmpeg MP4 transcode with fail-if-exists, partial-output cleanup and SHA-256 evidence.
+- `media_remotion_status` — inspects project-local Remotion packages and render-oriented scripts without invoking npm/npx.
+- `media_comfyui_status` — read-only `/system_stats` and `/queue` health observation.
+
+Phase 1 does not accept raw FFmpeg arguments, arbitrary output formats, implicit overwrite, ComfyUI workflow submission/model download, or arbitrary process execution.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

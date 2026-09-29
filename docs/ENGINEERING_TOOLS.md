@@ -153,6 +153,19 @@ ros2:
       - robot_control
 ```
 
+## OPC UA diagnostics Phase 1
+
+OPC UA Phase 1 is cross-platform, anonymous and read-only over one explicit `opc.tcp://host:port/path` endpoint. It uses the official NodeOPCUA client stack and an in-memory certificate/key provider, so it does not create PKI files on the workstation.
+
+Available tools:
+
+- `opcua_provider_status` — reports the SDK/provider boundary and intentionally unavailable mutation surfaces.
+- `opcua_endpoint_describe` — returns bounded endpoint, security-mode/policy and user-token metadata without returning server certificate bytes.
+- `opcua_browse` — performs one bounded forward Browse from an explicit NodeId; server continuation points are reported but never followed automatically.
+- `opcua_read` — reads 1..32 explicit NodeId/attribute pairs and bounds strings, arrays, buffers and nested values before returning them.
+
+Phase 1 fixes the client session to anonymous `SecurityPolicy.None / MessageSecurityMode.None`. Username/password identity, certificate enrollment, Write, Method Call, subscriptions, monitored-item mutation, HistoryUpdate and NodeManagement are intentionally unavailable and belong to separately reviewed future phases.
+
 ## Modbus TCP diagnostics Phase 1
 
 Modbus TCP diagnostics are cross-platform and read-only. The caller must provide one explicit host, port and Unit ID; RWMCP does not discover hosts or scan a subnet.

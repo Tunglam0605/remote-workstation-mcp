@@ -171,6 +171,19 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
       };
     }
 
+    if (id === 'engineering.opcua') {
+      return {
+        state: 'ready',
+        source: 'static-contract',
+        evidence: {
+          providerAvailable: true,
+          backend: 'node-opcua-client',
+          authentication: 'anonymous-only',
+          readOnly: true
+        }
+      };
+    }
+
     if (id === 'engineering.modbus_tcp') {
       return {
         state: 'ready',

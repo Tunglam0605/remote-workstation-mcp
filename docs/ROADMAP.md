@@ -18,6 +18,7 @@ Architecture Consolidation is complete for the v0.66 release candidate:
 - continue incremental source-size reduction only where it improves ownership or testability;
 - organize remaining lifecycle/install/CI scripts by responsibility without changing packaging paths prematurely;
 - move additional Moonlight Devices/Updates/Settings/Notifications ownership only when the change remains contract-preserving;
+- add runtime capability readiness reporting so implemented contracts distinguish node-ready, degraded and unavailable providers without changing legacy capability status;
 - keep new domain capabilities behind extension manifests;
 - optimize large static Moonlight image assets with measured visual/regression checks;
 - treat CHANGELOG.md as shipped history and keep this roadmap focused on future work.

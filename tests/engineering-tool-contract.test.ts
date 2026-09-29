@@ -392,13 +392,13 @@ test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface'
 });
 
 test('v0.63 network diagnostics remain bounded and read-only', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const networkTools = await read('src/engineering/mcp/network-tools.ts');
   const network = await read('src/adapters/engineering/network-diagnostics.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
   for (const tool of ['network_provider_status', 'network_interface_list', 'network_route_list', 'network_dns_lookup', 'network_ping', 'network_tcp_reachability']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(networkTools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(capabilities, new RegExp(tool));
     assert.match(scopes, new RegExp(`${tool}: 'workstation\\.read'`));
   }
@@ -406,7 +406,7 @@ test('v0.63 network diagnostics remain bounded and read-only', async () => {
   assert.match(network, /IP configuration/);
   assert.match(network, /route mutation/);
   assert.match(network, /firewall mutation/);
-  assert.doesNotMatch(engineeringTools, /network_route_add|network_route_delete|network_interface_set|network_firewall/);
+  assert.doesNotMatch(networkTools, /network_route_add|network_route_delete|network_interface_set|network_firewall/);
   assert.doesNotMatch(network, /shell:\s*true/);
 });
 

@@ -362,6 +362,37 @@ Phase 3 can import a completed durable ComfyUI `output` artifact into an owned p
 
 Raw provider paths, arbitrary `/view` query parameters and implicit overwrite remain unavailable.
 
+### Remotion typed render (Phase 4)
+
+Phase 4 promotes Remotion from package inspection to a typed render workflow. Presets are owner-local in `remotion-presets.json`; MCP callers select only a preset ID, whitelisted scalar props and a project-relative `.mp4` output.
+
+- `media_remotion_preset_list` exposes preset IDs, labels, composition/encoder settings and public binding metadata without returning entry-point filesystem paths;
+- `media_remotion_render_plan` validates the owner preset, entry point, local project Remotion CLI, local Chrome/Chromium availability and fail-if-exists destination without rendering;
+- `media_remotion_render` requires Work Session ownership, uses fixed H.264 arguments plus bounded preset settings, stores temporary props outside the project tree, removes partial output on failure and returns size + SHA-256 evidence on success;
+- RWMCP never accepts raw Remotion flags, arbitrary entry points/composition IDs, shell commands or browser-download requests through MCP.
+
+Example owner-local preset manifest:
+
+```json
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "lesson-vertical",
+      "entryPoint": "src/remotion/index.ts",
+      "compositionId": "LessonVertical",
+      "crf": 20,
+      "concurrency": 4,
+      "x264Preset": "medium",
+      "bindings": {
+        "title": { "type": "string", "required": true, "maxLength": 200 },
+        "lesson": { "type": "number", "min": 1, "max": 100 }
+      }
+    }
+  ]
+}
+```
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

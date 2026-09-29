@@ -1,6 +1,7 @@
 import { registerNotebookLmTools } from '../tools/notebooklm-tools.js';
 import { registerOfficeTools } from '../tools/office-tools.js';
 import { registerCanTools } from './can/register.js';
+import { registerCameraTools } from './camera/register.js';
 import { registerCanopenTools } from './canopen/register.js';
 import { registerModbusTools } from './modbus/register.js';
 import { registerModbusTcpTools } from './modbus-tcp/register.js';
@@ -15,6 +16,12 @@ import { ExtensionRegistry } from './registry.js';
 
 export function createBuiltinExtensionRegistry(): ExtensionRegistry {
   return new ExtensionRegistry()
+    .add({
+      id: 'domain.camera',
+      version: 1,
+      kind: 'domain',
+      register: registerCameraTools
+    })
     .add({
       id: 'domain.can',
       version: 1,

@@ -113,3 +113,13 @@ test('built-in Modbus TCP provider is ready without an external executable', asy
   assert.equal(result?.readiness.evidence?.backend, 'node:net');
   assert.equal(result?.readiness.evidence?.readOnly, true);
 });
+
+
+test('built-in OPC UA provider is ready with anonymous read-only SDK mode', async () => {
+  const [result] = await resolveCapabilityReadiness([capability('engineering.opcua')], deps());
+  assert.equal(result?.readiness.state, 'ready');
+  assert.equal(result?.readiness.source, 'static-contract');
+  assert.equal(result?.readiness.evidence?.backend, 'node-opcua-client');
+  assert.equal(result?.readiness.evidence?.authentication, 'anonymous-only');
+  assert.equal(result?.readiness.evidence?.readOnly, true);
+});

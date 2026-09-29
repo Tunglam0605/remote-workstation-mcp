@@ -5,6 +5,7 @@ import { registerCanopenTools } from './canopen/register.js';
 import { registerModbusTools } from './modbus/register.js';
 import { registerModbusTcpTools } from './modbus-tcp/register.js';
 import { registerMqttTools } from './mqtt/register.js';
+import { registerOpcUaTools } from './opcua/register.js';
 import { registerRos2Tools } from './ros2/register.js';
 import { registerStm32Tools } from './stm32/register.js';
 import { registerEsp32Tools } from './esp32/register.js';
@@ -32,6 +33,12 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       register: registerMqttTools
+    })
+    .add({
+      id: 'domain.opcua',
+      version: 1,
+      kind: 'domain',
+      register: registerOpcUaTools
     })
     .add({
       id: 'domain.modbus-tcp',

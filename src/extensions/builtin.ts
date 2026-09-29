@@ -5,6 +5,7 @@ import { registerModbusTools } from './modbus/register.js';
 import { registerRos2Tools } from './ros2/register.js';
 import { registerStm32Tools } from './stm32/register.js';
 import { registerEsp32Tools } from './esp32/register.js';
+import { registerKicadTools } from './kicad/register.js';
 import { ExtensionRegistry } from './registry.js';
 
 export function createBuiltinExtensionRegistry(): ExtensionRegistry {
@@ -33,6 +34,12 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       register: registerEsp32Tools
+    })
+    .add({
+      id: 'domain.kicad',
+      version: 1,
+      kind: 'domain',
+      register: registerKicadTools
     })
     .add({
       id: 'domain.ros2',

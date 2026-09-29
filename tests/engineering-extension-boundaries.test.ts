@@ -49,23 +49,46 @@ const ESP32_TOOLS = [
   'esp32_preflight'
 ] as const;
 
+const KICAD_TOOLS = [
+  'kicad_ipc_prepare',
+  'kicad_ipc_status',
+  'kicad_ipc_board_inspect',
+  'kicad_ipc_footprint_move',
+  'kicad_ipc_footprint_update',
+  'kicad_ipc_batch_place',
+  'kicad_ipc_routing_inspect',
+  'kicad_ipc_track_add',
+  'kicad_ipc_track_update',
+  'kicad_ipc_via_add',
+  'kicad_ipc_via_update',
+  'kicad_provider_status',
+  'kicad_board_stats',
+  'kicad_drc',
+  'kicad_erc',
+  'kicad_validate',
+  'kicad_bom_report',
+  'kicad_edit_inspect',
+  'kicad_edit'
+] as const;
+
 function registeredTools(source: string): string[] {
   return [...source.matchAll(/server\.registerTool\('([^']+)'/g)].map(match => match[1]);
 }
 
 test('migrated engineering MCP handlers live behind domain extension boundaries', async () => {
-  const [monolith, canSource, modbusSource, ros2Source, stm32Source, esp32Source, builtin] = await Promise.all([
+  const [monolith, canSource, modbusSource, ros2Source, stm32Source, esp32Source, kicadSource, builtin] = await Promise.all([
     fs.readFile(path.resolve('src/tools/engineering-tools.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/can/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/modbus/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/ros2/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/stm32/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/esp32/register.ts'), 'utf8'),
+    fs.readFile(path.resolve('src/extensions/kicad/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/builtin.ts'), 'utf8')
   ]);
 
   const monolithTools = new Set(registeredTools(monolith));
-  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS, ...STM32_TOOLS, ...ESP32_TOOLS]) {
+  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS, ...STM32_TOOLS, ...ESP32_TOOLS, ...KICAD_TOOLS]) {
     assert.equal(monolithTools.has(tool), false, `${tool} must not drift back into engineering-tools.ts`);
   }
 
@@ -74,6 +97,7 @@ test('migrated engineering MCP handlers live behind domain extension boundaries'
   assert.deepEqual(registeredTools(ros2Source), [...ROS2_TOOLS]);
   assert.deepEqual(registeredTools(stm32Source), [...STM32_TOOLS]);
   assert.deepEqual(registeredTools(esp32Source), [...ESP32_TOOLS]);
+  assert.deepEqual(registeredTools(kicadSource), [...KICAD_TOOLS]);
 
   assert.match(builtin, /id: 'domain\.can'/);
   assert.match(builtin, /platforms: \['linux'\]/);
@@ -86,4 +110,6 @@ test('migrated engineering MCP handlers live behind domain extension boundaries'
   assert.match(builtin, /register: registerStm32Tools/);
   assert.match(builtin, /id: 'domain\.esp32'/);
   assert.match(builtin, /register: registerEsp32Tools/);
+  assert.match(builtin, /id: 'domain\.kicad'/);
+  assert.match(builtin, /register: registerKicadTools/);
 });

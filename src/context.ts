@@ -3,27 +3,10 @@ import { BuildDiagnosticsAdapter } from './adapters/build-diagnostics.js';
 import { ControlPlaneRelayAdapter } from './adapters/control-plane-relay.js';
 import { DataPlaneAdapter } from './adapters/data-plane.js';
 import { DeviceRegistryAdapter } from './adapters/devices.js';
-import { ArtifactIntegrityAdapter } from './adapters/engineering/artifact-integrity.js';
-import { ArtifactTransferAdapter } from './adapters/engineering/artifact-transfer.js';
 import { EngineeringCommandRunner } from './adapters/engineering/command-runner.js';
-import { DebugSessionManager } from './adapters/engineering/debug-session.js';
-import { DockerAdapter } from './adapters/engineering/docker.js';
-import { CanAdapter } from './adapters/engineering/can.js';
-import { ModbusRtuAdapter } from './adapters/engineering/modbus-rtu.js';
-import { NetworkDiagnosticsAdapter } from './adapters/engineering/network-diagnostics.js';
-import { SystemdAdapter } from './adapters/engineering/systemd.js';
-import { Stm32IocAdapter } from './adapters/engineering/stm32-ioc.js';
-import { Stm32SvdAdapter } from './adapters/engineering/stm32-svd.js';
-import { FirmwareAdapter } from './adapters/engineering/firmware.js';
-import { HardwareDiscoveryAdapter } from './adapters/engineering/hardware-discovery.js';
-import { KicadAdapter } from './adapters/engineering/kicad.js';
-import { PlatformioAdapter } from './adapters/engineering/platformio.js';
-import { EngineeringProjectProfileStore } from './adapters/engineering/project-profile.js';
 import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
-import { Ros2Adapter } from './adapters/engineering/ros2.js';
-import { SerialSessionManager } from './adapters/engineering/serial-session.js';
-import { TerminalManager } from './adapters/engineering/terminal-manager.js';
-import { EngineeringWorkflowEngine } from './adapters/engineering/workflow-engine.js';
+import { createEngineeringServices } from './bootstrap/engineering-services.js';
+import { createWebServices } from './bootstrap/web-services.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
 import { GitAdapter } from './adapters/git.js';
@@ -73,11 +56,6 @@ import { CodexAccountBroker } from './workers/codex-account-broker.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
 import { DesktopNotificationService } from './desktop-notification.js';
-import { BrowserCore } from './web/browser-core.js';
-import { PlaywrightBrowserProvider } from './web/browser-provider.js';
-import { ExistingChromeBridgeClient } from './web/existing-chrome-bridge.js';
-import { ExistingChromeSessionService } from './web/existing-chrome-session.js';
-import { NotebookLmAdapter } from './web/adapters/notebooklm-adapter.js';
 
 export async function createContext() {
   const actor = {
@@ -174,31 +152,30 @@ export async function createContext() {
     requireSandboxAutomationPolicy: true
   });
   if (setupSettings.execution.antigravityEnabled) workerProviders.register(antigravityWorker);
-  const engineeringHardware = new HardwareDiscoveryAdapter();
-  const engineeringSerial = new SerialSessionManager(policy, engineeringResources, currentClientId);
-  const engineeringTerminals = new TerminalManager(policy, paths, currentClientId);
-  const engineeringArtifacts = new ArtifactIntegrityAdapter(policy, paths);
-  const engineeringArtifactTransfer = new ArtifactTransferAdapter(policy, paths, engineeringArtifacts);
-  const engineeringFirmware = new FirmwareAdapter(policy, paths, engineeringRunner, engineeringResources, engineeringHardware);
-  const engineeringStm32Ioc = new Stm32IocAdapter(paths);
-  const engineeringStm32Svd = new Stm32SvdAdapter(paths);
-  const engineeringProfiles = new EngineeringProjectProfileStore(policy, paths);
-  const engineeringDebug = new DebugSessionManager(policy, paths, engineeringResources, currentClientId);
-  const browser = new BrowserCore(new PlaywrightBrowserProvider());
-  const existingChrome = new ExistingChromeSessionService(new ExistingChromeBridgeClient());
-  const notebooklm = new NotebookLmAdapter(existingChrome);
+  const engineering = createEngineeringServices({
+    policy,
+    paths,
+    currentClientId,
+    processes,
+    dataPlane,
+    controlPlaneRelay,
+    multiNodeAuthorization,
+    resources: engineeringResources,
+    runner: engineeringRunner
+  });
+  const web = createWebServices();
   const workSessionLifecycle = new WorkSessionLifecycleService(
     workSessions,
     worktreeManager,
     async (sessionId) => runWithWorkSession(sessionId, async () => ({
       processes: processes.list().length,
-      terminals: engineeringTerminals.list().length,
-      serialSessions: engineeringSerial.list().length,
-      debugSessions: engineeringDebug.list().length,
-      hardwareLeases: engineeringResources.listOwned().length,
+      terminals: engineering.terminals.list().length,
+      serialSessions: engineering.serial.list().length,
+      debugSessions: engineering.debug.list().length,
+      hardwareLeases: engineering.resources.listOwned().length,
       nodeInterlocks: (await nodeInterlocks.listOwned()).length,
-      browserSessions: browser.countOwned(currentClientId(), sessionId),
-      existingChromeSessions: existingChrome.countOwned(currentClientId(), sessionId)
+      browserSessions: web.browser.countOwned(currentClientId(), sessionId),
+      existingChromeSessions: web.existingChrome.countOwned(currentClientId(), sessionId)
     }))
   );
   const schedulerAwareness = new SchedulerAwarenessService(
@@ -206,10 +183,10 @@ export async function createContext() {
     taskGraphs,
     workSessions,
     taskAttempts,
-    engineeringResources,
+    engineering.resources,
     nodeInterlocks,
-    engineeringSerial,
-    engineeringDebug,
+    engineering.serial,
+    engineering.debug,
     workerProviders
   );
   const objectiveProgress = new ObjectiveProgressService(
@@ -224,25 +201,16 @@ export async function createContext() {
   const taskExecutor = new TaskExecutionCoordinator(
     taskGraphs,
     taskScheduler,
-    engineeringResources,
+    engineering.resources,
     nodeInterlocks,
     schedulerAwareness
   );
-  const engineeringCan = new CanAdapter(policy, engineeringRunner);
-  const engineeringModbusRtu = new ModbusRtuAdapter(policy, engineeringResources);
-  const engineeringNetwork = new NetworkDiagnosticsAdapter(policy, engineeringRunner);
-  const engineeringRos2 = new Ros2Adapter(policy, paths, engineeringRunner, processes);
-  const engineeringDocker = new DockerAdapter(policy, paths, engineeringRunner);
-  const engineeringSystemd = new SystemdAdapter(policy, paths, engineeringRunner);
-  const engineeringKicad = new KicadAdapter(policy, paths, engineeringRunner, engineeringResources);
-  const engineeringPlatformio = new PlatformioAdapter(policy, paths, engineeringRunner, engineeringResources);
-  const engineeringWorkflows = new EngineeringWorkflowEngine(policy, engineeringProfiles, dataPlane, controlPlaneRelay, multiNodeAuthorization, engineeringArtifacts, engineeringArtifactTransfer, engineeringFirmware, engineeringHardware, engineeringSerial, engineeringDebug, engineeringRos2, engineeringDocker, engineeringSystemd, engineeringKicad, engineeringPlatformio, engineeringStm32Svd);
-  const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineeringWorkflows, workflowRuns, qualityObservations, nodeInterlocks);
+  const engineeringWorkflowExecution = new EngineeringWorkflowExecutionService(engineering.workflows, workflowRuns, qualityObservations, nodeInterlocks);
   const taskWorkflowExecution = new TaskWorkflowExecutionService(taskGraphs, taskExecutor, engineeringWorkflowExecution, taskAttempts, workerProviders, workSessions, worktreeManager, executionPolicy, desktopNotifications);
   const objectiveWaveExecution = new ObjectiveWaveExecutionService(schedulerAwareness, taskWorkflowExecution, taskGraphs);
   process.once('beforeExit', () => {
-    void browser.closeAll();
-    existingChrome.closeAll();
+    void web.browser.closeAll();
+    web.existingChrome.closeAll();
   });
   return {
     config,
@@ -252,9 +220,9 @@ export async function createContext() {
     actor,
     identity,
     audit,
-    browser,
-    existingChrome,
-    notebooklm,
+    browser: web.browser,
+    existingChrome: web.existingChrome,
+    notebooklm: web.notebooklm,
     multiNodeAuthorization,
     workSessions,
     workSessionLifecycle,
@@ -307,28 +275,8 @@ export async function createContext() {
     dataPlane,
     controlPlaneRelay,
     engineering: {
-      resources: engineeringResources,
-      runner: engineeringRunner,
-      hardware: engineeringHardware,
-      serial: engineeringSerial,
-      terminals: engineeringTerminals,
-      firmware: engineeringFirmware,
-      stm32Ioc: engineeringStm32Ioc,
-      stm32Svd: engineeringStm32Svd,
-      artifacts: engineeringArtifacts,
-      artifactTransfer: engineeringArtifactTransfer,
-      profiles: engineeringProfiles,
-      workflows: engineeringWorkflows,
-      execution: engineeringWorkflowExecution,
-      debug: engineeringDebug,
-      can: engineeringCan,
-      modbusRtu: engineeringModbusRtu,
-      network: engineeringNetwork,
-      ros2: engineeringRos2,
-      docker: engineeringDocker,
-      systemd: engineeringSystemd,
-      kicad: engineeringKicad,
-      platformio: engineeringPlatformio
+      ...engineering,
+      execution: engineeringWorkflowExecution
     },
     updates: new UpdateAdapter(SERVER_VERSION)
   };

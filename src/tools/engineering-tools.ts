@@ -10,24 +10,13 @@ import {
 } from '../engineering-workflow-contract.js';
 import { decodeCortexMFault } from '../adapters/engineering/fault-decode.js';
 import { audited } from '../security/audit.js';
+import { serialDeviceSelectorSchema, workspacePathSchema } from '../engineering/mcp-schemas.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
   structuredContent: value as Record<string, unknown>
 });
 
-const workspacePath = z.object({ workspace: z.string().min(1), projectPath: z.string().default('.') });
-const serialDeviceSelector = z.object({
-  deviceId: z.string().min(1).max(512).optional(),
-  serialNumber: z.string().min(1).max(256).optional(),
-  vendorId: z.string().regex(/^(?:0x)?[A-Fa-f0-9]{4}$/).optional(),
-  productId: z.string().regex(/^(?:0x)?[A-Fa-f0-9]{4}$/).optional(),
-  manufacturer: z.string().min(1).max(160).optional(),
-  nameContains: z.string().min(1).max(160).optional()
-}).strict().refine(
-  value => Boolean(value.deviceId || value.serialNumber || (value.vendorId && value.productId)),
-  { message: 'Serial selector requires deviceId, serialNumber, or both vendorId and productId.' }
-);
 const debugSession = z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() });
 
 export function registerEngineeringTools(server: McpServer, ctx: AppContext): void {
@@ -58,7 +47,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
         flashProvider: z.enum(['auto', 'openocd', 'esp-idf']).optional(),
         artifact: z.string().min(1).optional(),
         port: z.string().min(1).optional(),
-        portSelector: serialDeviceSelector.optional(),
+        portSelector: serialDeviceSelectorSchema.optional(),
         probeSerial: z.string().min(1).optional(),
         targetConfig: z.string().min(1).optional(),
         adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
@@ -68,7 +57,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
         variants: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
         monitor: z.object({
           port: z.string().min(1).optional(),
-          selector: serialDeviceSelector.optional(),
+          selector: serialDeviceSelectorSchema.optional(),
           baudRate: z.number().int().min(300).max(12_000_000).optional(),
           expectText: z.string().min(1).max(512).optional(),
           expectTimeoutMs: z.number().int().min(100).max(120_000).optional()
@@ -257,47 +246,21 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'terminal_stop', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.stop(id)))));
 
-  server.registerTool('stm32_ioc_inspect', {
-    description: 'Read a bounded STM32 CubeMX .ioc file and return typed MCU/package, project/toolchain, clock-frequency, pin/signal/label and peripheral-parameter metadata without running CubeMX or project code.',
-    inputSchema: workspacePath.extend({ iocFile: z.string().min(1).max(255).regex(/^[^\\/]+\.ioc$/i).optional() }),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ workspace, projectPath, iocFile }) => result(await audited(ctx.audit, 'stm32_ioc_inspect', workspace, () => ctx.engineering.stm32Ioc.inspect(workspace, projectPath, iocFile))));
-
-  server.registerTool('stm32_svd_inspect', {
-    description: 'Inspect a project-scoped CMSIS-SVD file and return bounded STM32 device, peripheral, register, cluster and bit-field metadata without connecting to target hardware or allowing register writes.',
-    inputSchema: workspacePath.extend({ svdFile: z.string().min(1).max(1024) }),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ workspace, projectPath, svdFile }) => result(await audited(ctx.audit, 'stm32_svd_inspect', workspace, () => ctx.engineering.stm32Svd.inspect(workspace, projectPath, svdFile))));
-
-  server.registerTool('esp32_preflight', {
-    description: 'Preflight one ESP32/ESP-IDF project on the current host. Project profile defaults are honored for ESP-IDF root, build directory and stable serial identity; explicit arguments only override those defaults. No flash or target mutation is performed.',
-    inputSchema: workspacePath.extend({
-      buildDir: z.string().min(1).max(512).optional(),
-      espIdfPath: z.string().min(1).max(1024).optional(),
-      port: z.string().min(1).max(512).optional(),
-      portSelector: serialDeviceSelector.optional()
-    }),
-    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, projectPath, buildDir, espIdfPath, port, portSelector }) =>
-    result(await audited(ctx.audit, 'esp32_preflight', workspace, () => ctx.engineering.workflows.esp32Preflight(
-      workspace, projectPath, { buildDir, espIdfPath, port, portSelector }
-    ))));
-
   server.registerTool('firmware_project_inspect', {
     description: 'Detect firmware/project family and build framework from project markers without executing project code.',
-    inputSchema: workspacePath,
+    inputSchema: workspacePathSchema,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'firmware_project_inspect', workspace, () => ctx.engineering.firmware.inspect(workspace, projectPath))));
 
   server.registerTool('firmware_artifacts', {
     description: 'Discover bounded ELF/AXF/HEX/BIN/MAP firmware artifacts under a project.',
-    inputSchema: workspacePath,
+    inputSchema: workspacePathSchema,
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result({ artifacts: await audited(ctx.audit, 'firmware_artifacts', workspace, () => ctx.engineering.firmware.listArtifacts(workspace, projectPath)) }));
 
   server.registerTool('firmware_memory_report', {
     description: 'Analyze one ELF/AXF firmware artifact with an allowlisted size/nm toolchain and return bounded Flash/RAM totals, sections and largest symbols without executing project code or touching target hardware.',
-    inputSchema: workspacePath.extend({ artifact: z.string().min(1).max(1024).optional(), topSymbols: z.number().int().min(1).max(100).default(25) }),
+    inputSchema: workspacePathSchema.extend({ artifact: z.string().min(1).max(1024).optional(), topSymbols: z.number().int().min(1).max(100).default(25) }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath, artifact, topSymbols }) => result(await audited(ctx.audit, 'firmware_memory_report', workspace, () => ctx.engineering.firmware.memoryReport(workspace, projectPath, artifact, topSymbols))));
 
@@ -316,7 +279,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
   const flashSchema = z.object({
     workspace: z.string(), projectPath: z.string().default('.'), artifact: z.string().optional(),
     provider: z.enum(['auto', 'openocd', 'esp-idf']).default('auto'), port: z.string().optional(),
-    portSelector: serialDeviceSelector.optional(), buildDir: z.string().min(1).max(512).default('build'), espIdfPath: z.string().min(1).max(1024).optional(),
+    portSelector: serialDeviceSelectorSchema.optional(), buildDir: z.string().min(1).max(512).default('build'), espIdfPath: z.string().min(1).max(1024).optional(),
     probeSerial: z.string().optional(), targetConfig: z.string().optional(), adapterSpeedKhz: z.number().int().min(50).max(24000).optional(),
     workSessionId: z.string().uuid().optional()
   });

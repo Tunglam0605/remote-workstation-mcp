@@ -21,7 +21,8 @@ Goal: make repository structure match the long-term product boundaries without c
 - Office and NotebookLM composition migrated first;
 - CAN and Modbus RTU MCP handlers migrated out of the engineering monolith into domain extensions;
 - ROS 2 MCP handlers migrated into a dedicated domain extension;
-- next migrate STM32, ESP32 and KiCad behind extension manifests without renaming public MCP actions unnecessarily;
+- STM32 inspection and ESP32 preflight handlers migrated into dedicated domain extensions, with shared engineering MCP schemas promoted out of the monolith;
+- next migrate KiCad behind an extension manifest and continue reducing remaining framework/tool registration responsibilities without renaming public MCP actions unnecessarily;
 - keep generic browser/process/Git/LSP/resource primitives in Platform.
 
 ### C. Source modularization

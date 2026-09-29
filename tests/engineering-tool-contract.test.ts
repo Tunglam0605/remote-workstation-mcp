@@ -57,10 +57,12 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const canTools = await read('src/extensions/can/register.ts');
   const ros2Tools = await read('src/extensions/ros2/register.ts');
+  const stm32Tools = await read('src/extensions/stm32/register.ts');
   const officeTools = await read('src/tools/office-tools.ts');
-  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report']) {
     assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
+  assert.match(stm32Tools, /server\.registerTool\('stm32_svd_inspect'/);
   for (const tool of ['ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info']) {
     assert.match(ros2Tools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
@@ -463,7 +465,7 @@ test('v0.20 currentTask ownership label can be explicitly released without auto-
 });
 
 test('STM32 IOC inspection is a bounded read-only typed surface', async () => {
-  const tools = await read('src/tools/engineering-tools.ts');
+  const tools = await read('src/extensions/stm32/register.ts');
   const adapter = await read('src/adapters/engineering/stm32-ioc.ts');
   const capabilities = await read('src/capabilities.ts');
 
@@ -482,15 +484,14 @@ test('STM32 IOC inspection is a bounded read-only typed surface', async () => {
 
 
 test('STM32 SVD inspection is project-scoped, bounded and read-only', async () => {
-  const tools = await read('src/tools/engineering-tools.ts');
+  const tools = await read('src/extensions/stm32/register.ts');
   const adapter = await read('src/adapters/engineering/stm32-svd.ts');
   const capabilities = await read('src/capabilities.ts');
   const scopes = await read('src/security/request-principal.ts');
 
   const start = tools.indexOf("server.registerTool('stm32_svd_inspect'");
-  const end = tools.indexOf("server.registerTool('firmware_project_inspect'", start);
-  assert.ok(start >= 0 && end > start);
-  const block = tools.slice(start, end);
+  assert.ok(start >= 0);
+  const block = tools.slice(start);
   assert.match(block, /readOnlyHint: true/);
   assert.match(block, /ctx\.engineering\.stm32Svd\.inspect/);
   assert.doesNotMatch(block, /runInWorkSession|assertHardwareMutation|memoryWrite|firmware_flash|target_reset/);
@@ -754,7 +755,8 @@ test('Phase 3 Task Graph exposes one bounded typed executor without becoming an 
 
 
 test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and excludes dangerous ROM surfaces', async () => {
-  const tools = await read('src/tools/engineering-tools.ts');
+  const tools = await read('src/extensions/esp32/register.ts');
+  const sharedSchemas = await read('src/engineering/mcp-schemas.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
   const metadata = await read('src/adapters/engineering/esp-idf-metadata.ts');
   const profile = await read('src/adapters/engineering/project-profile.ts');
@@ -769,8 +771,8 @@ test('v0.64 ESP32 Ubuntu tooling is project-bound, stable-device aware and exclu
   assert.doesNotMatch(helper, /^\uFEFF/);
 
   assert.match(tools, /server\.registerTool\('esp32_preflight'/);
-  assert.match(tools, /portSelector: serialDeviceSelector\.optional\(\)/);
-  assert.match(tools, /selector: serialDeviceSelector\.optional\(\)/);
+  assert.match(tools, /portSelector: serialDeviceSelectorSchema\.optional\(\)/);
+  assert.match(sharedSchemas, /export const serialDeviceSelectorSchema/);
   assert.match(tools, /ctx\.engineering\.workflows\.esp32Preflight/);
   assert.match(scopes, /esp32_preflight: 'workstation\.execute'/);
   assert.match(capabilities, /engineering\.esp32/);

@@ -171,6 +171,18 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
       };
     }
 
+    if (id === 'engineering.industrial_profiles') {
+      return {
+        state: 'ready',
+        source: 'static-contract',
+        evidence: {
+          providerAvailable: true,
+          storage: 'owner-local-non-secret',
+          readOnly: true
+        }
+      };
+    }
+
     if (id === 'engineering.opcua') {
       return {
         state: 'ready',

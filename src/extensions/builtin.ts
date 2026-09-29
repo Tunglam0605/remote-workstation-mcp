@@ -10,6 +10,7 @@ import { registerRos2Tools } from './ros2/register.js';
 import { registerStm32Tools } from './stm32/register.js';
 import { registerEsp32Tools } from './esp32/register.js';
 import { registerKicadTools } from './kicad/register.js';
+import { registerIndustrialTools } from './industrial/register.js';
 import { ExtensionRegistry } from './registry.js';
 
 export function createBuiltinExtensionRegistry(): ExtensionRegistry {
@@ -33,6 +34,12 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       register: registerMqttTools
+    })
+    .add({
+      id: 'domain.industrial-profiles',
+      version: 1,
+      kind: 'domain',
+      register: registerIndustrialTools
     })
     .add({
       id: 'domain.opcua',

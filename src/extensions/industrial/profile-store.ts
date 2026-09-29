@@ -1,0 +1,93 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { z } from 'zod/v4';
+import { setupConfigDir } from '../../setup/settings.js';
+
+const profileId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const label = z.string().min(1).max(128).optional();
+
+const modbusTcpProfile = z.object({
+  id: profileId,
+  label,
+  kind: z.literal('modbus-tcp'),
+  host: z.string().min(1).max(253),
+  port: z.number().int().min(1).max(65_535).default(502),
+  unitId: z.number().int().min(0).max(255),
+  function: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(3),
+  address: z.number().int().min(0).max(65_535).default(0)
+}).strict();
+
+const opcuaProfile = z.object({
+  id: profileId,
+  label,
+  kind: z.literal('opcua'),
+  endpointUrl: z.string().min(1).max(1024),
+  rootNodeId: z.string().min(1).max(512).default('RootFolder')
+}).strict();
+
+const mqttAgvProfile = z.object({
+  id: profileId,
+  label,
+  kind: z.literal('mqtt-agv'),
+  mqttProfileId: profileId,
+  vehicle: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/)
+}).strict();
+
+const industrialProfile = z.discriminatedUnion('kind', [
+  modbusTcpProfile,
+  opcuaProfile,
+  mqttAgvProfile
+]);
+
+const configSchema = z.object({
+  version: z.literal(1),
+  profiles: z.array(industrialProfile).max(64)
+}).strict();
+
+export type IndustrialProfile = z.infer<typeof industrialProfile>;
+
+export function industrialProfilesPath(): string {
+  return path.join(setupConfigDir(), 'industrial-endpoints.json');
+}
+
+export class IndustrialProfileStore {
+  constructor(private readonly filename = industrialProfilesPath()) {}
+
+  async list(): Promise<IndustrialProfile[]> {
+    let raw: string;
+    try {
+      raw = await fs.readFile(this.filename, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    if (Buffer.byteLength(raw, 'utf8') > 128 * 1024) throw new Error('Industrial endpoint profile file exceeds 128 KiB.');
+    const parsed = configSchema.parse(JSON.parse(raw));
+    const seen = new Set<string>();
+    return parsed.profiles.map(profile => {
+      if (seen.has(profile.id)) throw new Error(`Duplicate industrial profile id '${profile.id}'.`);
+      seen.add(profile.id);
+      return profile;
+    });
+  }
+
+  async get(id: string): Promise<IndustrialProfile> {
+    const selected = profileId.parse(id);
+    const profile = (await this.list()).find(item => item.id === selected);
+    if (!profile) throw new Error(`Industrial profile '${selected}' is not configured.`);
+    return profile;
+  }
+
+  async status() {
+    const profiles = await this.list();
+    const byKind = profiles.reduce<Record<string, number>>((acc, profile) => {
+      acc[profile.kind] = (acc[profile.kind] ?? 0) + 1;
+      return acc;
+    }, {});
+    return {
+      configured: profiles.length > 0,
+      profileCount: profiles.length,
+      byKind
+    };
+  }
+}

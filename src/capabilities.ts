@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.65.2';
+export const SERVER_VERSION = '0.66.0';
 export const BUILD_CHANNEL = 'stable' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
 export const ACTION_SCHEMA_VERSION = 36;

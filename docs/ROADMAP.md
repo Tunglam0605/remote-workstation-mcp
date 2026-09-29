@@ -1,63 +1,28 @@
 # Roadmap
 
-## Current baseline — v0.65.2
+## Current baseline — v0.66.0
 
-- production baseline on Windows, Ubuntu Vision and Ubuntu Personal;
-- Action Schema 36; Engineering API 5;
-- Direct Node, Work Session, typed engineering workflows, safe update/rollback and Moonlight seasonal UX are established;
-- architecture consolidation now takes priority over adding large new domain surfaces.
+Architecture Consolidation is complete for the v0.66 release candidate:
 
-## Next — v0.66.0 Architecture Consolidation Foundation
+- Platform / Sessions / Engineering Framework / Extensions / Orchestration / MCP / Control Center boundaries are explicit and CI-enforced;
+- domain-specific CAN, Modbus RTU, ROS 2, STM32, ESP32 and KiCad MCP handlers register through the Extension Registry;
+- generic Engineering Framework MCP families are modularized without changing public actions;
+- AppContext delegates engineering and web construction to bootstrap factories;
+- Moonlight shared primitives and major page ownership are split out of the central view composition module;
+- release publication uses one canonical publisher workflow;
+- Action Schema remains 36 and Engineering API remains 5;
+- no public MCP action/schema, Work Session authority, hardware interlock, updater or rollback contract is intentionally changed.
 
-Goal: make repository structure match the long-term product boundaries without changing the public MCP contract.
+## Next — post-v0.66 hardening
 
-### A. Architecture boundaries
-- establish the canonical architecture map: Platform / Sessions / Engineering Framework / Extensions / Orchestration / MCP / Control Center;
-- enforce one-way dependencies with CI architecture checks;
-- keep reasoning and strategic planning in the AI controller, not the workstation runtime.
+- continue incremental source-size reduction only where it improves ownership or testability;
+- organize remaining lifecycle/install/CI scripts by responsibility without changing packaging paths prematurely;
+- move additional Moonlight Devices/Updates/Settings/Notifications ownership only when the change remains contract-preserving;
+- keep new domain capabilities behind extension manifests;
+- optimize large static Moonlight image assets with measured visual/regression checks;
+- treat CHANGELOG.md as shipped history and keep this roadmap focused on future work.
 
-### B. Extension boundary
-- introduce a typed Extension Registry and stable extension identifiers;
-- Office and NotebookLM composition migrated first;
-- CAN and Modbus RTU MCP handlers migrated out of the engineering monolith into domain extensions;
-- ROS 2 MCP handlers migrated into a dedicated domain extension;
-- STM32 inspection and ESP32 preflight handlers migrated into dedicated domain extensions, with shared engineering MCP schemas promoted out of the monolith;
-- KiCad's 19 MCP handlers migrated into a dedicated domain extension while generic container/runtime primitives remain in the Engineering Framework;
-- generic network, serial and terminal MCP families split into dedicated Engineering Framework modules while preserving the same public contracts;
-- AppContext engineering and web construction delegated to bootstrap factories while preserving the existing public context shape;
-- next reduce firmware/debug/container registration concentration, continue bootstrap/orchestration decomposition and finish Control Center/release hygiene without renaming public MCP actions unnecessarily;
-- keep generic browser/process/Git/LSP/resource primitives in Platform.
-
-### C. Source modularization
-- split oversized MCP registration modules into thin contract handlers plus domain/framework services;
-- reduce `core-tools.ts`, `engineering-tools.ts` and `AppContext` responsibilities incrementally;
-- preserve existing security, Work Session ownership, concurrency and audit behavior through every move.
-
-### D. Control Center and runtime composition
-- Moonlight shared DOM primitives and capability-driven Work/Engineering/Office/Web pages split out of the oversized `views.js` while preserving DOM/API contracts;
-- System and Security/Access pages split into dedicated Moonlight modules, with shared Linux admin-approval predicates separated for reuse by Notifications;
-- Execution/AI routing page split into a dedicated Moonlight module without changing execution-policy payloads or routing behavior;
-- next finish remaining Devices/Updates/Settings/Notifications composition cleanup and release/script hygiene;
-- expose extension capability/status through generic metadata instead of hard-coded app/domain UI;
-- retain local-only security boundaries and platform-specific approval behavior.
-
-### E. Repository and release hygiene
-- keep a single canonical release history and close superseded release PRs;
-- Release Request now only validates/creates the release tag, then delegates to the reusable tag-aware `release.yml` publisher; build/test/SBOM/smoke/publish/asset verification have one implementation;
-- make publishing idempotent and serialized per release tag so reruns refresh/verify assets rather than creating competing releases;
-- separate future roadmap intent from release history over time;
-- organize scripts/CI by lifecycle responsibility while preserving tested installers/updaters.
-
-### v0.66 exit criteria
-- no public MCP tool/schema regression;
-- architecture boundary check passes on Linux and Windows CI;
-- full regression remains green;
-- build/plugin/supply-chain/package gates pass;
-- runtime upgrade/rollback remains compatible with v0.65.x;
-- at least Office and NotebookLM use the Extension Registry;
-- no new domain capability is added directly to the platform core.
-
-> Detailed target structure and dependency rules: [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md).
+> Detailed architecture and dependency rules: [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md).
 
 ## v0.64.0 - ESP32 / ESP-IDF Ubuntu Tooling Hardening
 

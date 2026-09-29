@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { CameraProfileStore } from '../src/extensions/camera/profile-store.js';
 import { parseSdp, probeRtsp } from '../src/extensions/camera/rtsp-client.js';
+import { OnvifPtzClient } from '../src/extensions/camera/onvif-ptz.js';
 
 test('camera profile store loads bounded anonymous RTSP profiles', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-camera-'));
@@ -27,7 +29,7 @@ test('camera profile store loads bounded anonymous RTSP profiles', async () => {
   assert.equal(profiles.length, 1);
   assert.equal(profiles[0]?.id, 'warehouse-1');
   assert.equal(profiles[0]?.path, '/Streaming/Channels/101');
-  assert.deepEqual(await store.status(), { configured: true, profileCount: 1 });
+  assert.deepEqual(await store.status(), { configured: true, profileCount: 1, ptzProfileCount: 0, ptzCredentialReadyCount: 0 });
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -144,6 +146,134 @@ test('RTSP probe reports authentication requirement without credential exchange'
     assert.equal(result.authRequired, true);
     assert.deepEqual(result.authSchemes, ['digest']);
     assert.deepEqual(result.tracks, []);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+
+test('camera PTZ profile redacts credential references from public output', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-camera-'));
+  const file = path.join(root, 'camera-profiles.json');
+  await fs.writeFile(file, JSON.stringify({
+    version: 1,
+    profiles: [{
+      id: 'ptz-1',
+      host: '127.0.0.1',
+      path: '/live',
+      ptz: {
+        scheme: 'http',
+        port: 80,
+        path: '/onvif/ptz_service',
+        profileToken: 'Profile_1',
+        username: 'operator',
+        passwordEnv: 'RWMCP_CAMERA_PTZ_TEST_PASSWORD'
+      }
+    }]
+  }));
+  const store = new CameraProfileStore(file, { RWMCP_CAMERA_PTZ_TEST_PASSWORD: 'fixture-password-value' });
+  const profile = await store.get('ptz-1');
+  const publicProfile = store.toPublicProfile(profile);
+  assert.equal(publicProfile.ptzConfigured, true);
+  assert.equal(publicProfile.ptzCredentialReady, true);
+  assert.doesNotMatch(JSON.stringify(publicProfile), /fixture-password-value|RWMCP_CAMERA_PTZ_TEST_PASSWORD|operator/);
+  const resolved = await store.resolvePtz('ptz-1');
+  assert.equal(resolved.ptz.password, 'fixture-password-value');
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('ONVIF PTZ bounded move uses password digest and always follows with Stop', async () => {
+  const actions: string[] = [];
+  const bodies: string[] = [];
+  const server = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const body = Buffer.concat(chunks).toString('utf8');
+    bodies.push(body);
+    const action = String(req.headers['content-type'] ?? '');
+    actions.push(action);
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/soap+xml; charset=utf-8');
+    res.end('<?xml version="1.0"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body/></s:Envelope>');
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  try {
+    const client = new OnvifPtzClient();
+    const result = await client.move({
+      id: 'ptz-1',
+      host: '127.0.0.1',
+      port: 554,
+      path: '/live',
+      transport: 'tcp',
+      auth: 'none',
+      ptz: {
+        scheme: 'http',
+        port: address.port,
+        path: '/onvif/ptz_service',
+        profileToken: 'Profile_1',
+        username: 'operator',
+        passwordEnv: 'UNUSED_IN_RESOLVED_FIXTURE',
+        password: 'fixture-password-value'
+      }
+    }, { pan: 0.5, tilt: -0.25, zoom: 0.1 }, 50, 2_000);
+
+    assert.equal(result.autoStopped, true);
+    assert.equal(actions.length, 2);
+    assert.match(actions[0] ?? '', /ContinuousMove/);
+    assert.match(actions[1] ?? '', /Stop/);
+    assert.match(bodies[0] ?? '', /PasswordDigest/);
+    assert.match(bodies[0] ?? '', /<wsse:Nonce/);
+    assert.match(bodies[0] ?? '', /<wsu:Created>/);
+    assert.match(bodies[0] ?? '', /<tt:PanTilt x="0\.5" y="-0\.25"\/>/);
+    assert.match(bodies[0] ?? '', /<tt:Zoom x="0\.1"\/>/);
+    assert.doesNotMatch(bodies[0] ?? '', /fixture-password-value/);
+    assert.match(bodies[1] ?? '', /<tptz:Stop>/);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test('ONVIF PTZ status parses bounded position and move-state evidence', async () => {
+  const server = http.createServer(async (_req, res) => {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/soap+xml; charset=utf-8');
+    res.end([
+      '<?xml version="1.0"?>',
+      '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">',
+      '<s:Body><tptz:GetStatusResponse><tptz:PTZStatus>',
+      '<tt:Position><tt:PanTilt x="0.2" y="-0.4"/><tt:Zoom x="0.7"/></tt:Position>',
+      '<tt:MoveStatus><tt:PanTilt>IDLE</tt:PanTilt><tt:Zoom>MOVING</tt:Zoom></tt:MoveStatus>',
+      '</tptz:PTZStatus></tptz:GetStatusResponse></s:Body></s:Envelope>'
+    ].join(''));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  try {
+    const client = new OnvifPtzClient();
+    const status = await client.status({
+      id: 'ptz-1',
+      host: '127.0.0.1',
+      port: 554,
+      path: '/live',
+      transport: 'tcp',
+      auth: 'none',
+      ptz: {
+        scheme: 'http',
+        port: address.port,
+        path: '/onvif/ptz_service',
+        profileToken: 'Profile_1',
+        username: 'operator',
+        passwordEnv: 'UNUSED_IN_RESOLVED_FIXTURE',
+        password: 'fixture-password-value'
+      }
+    }, 2_000);
+    assert.deepEqual(status.position, { pan: 0.2, tilt: -0.4, zoom: 0.7 });
+    assert.deepEqual(status.moveStatus, { panTilt: 'IDLE', zoom: 'MOVING' });
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
   }

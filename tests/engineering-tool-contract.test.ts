@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 45;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 46;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   const packageJson = JSON.parse(await read('package.json')) as { version: string };
   assert.ok(capabilities.includes(`export const SERVER_VERSION = '${packageJson.version}';`));
@@ -593,7 +593,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 45;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 46;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -849,16 +849,17 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 45/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 46/);
   assert.doesNotMatch(workflows, /workflow === 'espidf\.(erase|efuse|raw)'/);
   assert.doesNotMatch(firmware, /async\s+(?:eraseFlash|writeEfuse|runRawEsptool)\s*\(/);
 });
 
 
-test('Camera Diagnostics Phase 1 stays bounded and read-only toward camera state', async () => {
+test('Camera Diagnostics Phase 2 keeps PTZ credentials owner-local and movement bounded', async () => {
   const register = await read('src/extensions/camera/register.ts');
   const store = await read('src/extensions/camera/profile-store.ts');
   const rtsp = await read('src/extensions/camera/rtsp-client.ts');
+  const onvif = await read('src/extensions/camera/onvif-ptz.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
 
@@ -873,11 +874,22 @@ test('Camera Diagnostics Phase 1 stays bounded and read-only toward camera state
   assert.match(scopes, /camera_profile_inspect: 'workstation\.read'/);
   assert.match(scopes, /camera_rtsp_probe: 'workstation\.read'/);
   assert.match(scopes, /camera_stream_metadata: 'workstation\.execute'/);
+  assert.match(scopes, /camera_ptz_status: 'workstation\.read'/);
+  assert.match(scopes, /camera_ptz_move: 'workstation\.execute'/);
+  assert.match(scopes, /camera_ptz_stop: 'workstation\.execute'/);
 
   assert.match(capabilities, /engineering\.camera/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 45/);
-  assert.doesNotMatch(store, /password|username|tokenEnv|clientSecret/i);
-  assert.doesNotMatch(register, /registerTool\('camera_(ptz|talk|snapshot|write|config)/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 46/);
+  assert.match(register, /registerTool\('camera_ptz_status'/);
+  assert.match(register, /registerTool\('camera_ptz_move'/);
+  assert.match(register, /registerTool\('camera_ptz_stop'/);
+  assert.match(store, /passwordEnv/);
+  assert.match(store, /toPublicProfile/);
+  assert.doesNotMatch(register, /passwordEnv|username|password/);
+  assert.doesNotMatch(register, /registerTool\('camera_(talk|snapshot|write|config)/);
+  assert.match(onvif, /durationMs < 50 \|\| durationMs > 2_000/);
+  assert.match(onvif, /await this\.stop\(profile, timeoutMs\)/);
+  assert.match(onvif, /PasswordDigest/);
   assert.match(rtsp, /DESCRIBE/);
 });
 
@@ -904,7 +916,7 @@ test('Media/Video Phase 1 stays typed, project-scoped and bounded', async () => 
   assert.match(scopes, /media_comfyui_status: 'workstation\.read'/);
 
   assert.match(capabilities, /engineering\.media/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 45/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 46/);
   assert.match(adapter, /ffmpeg/);
   assert.match(adapter, /ffprobe/);
   assert.match(adapter, /fail-if-exists/);
@@ -938,7 +950,7 @@ test('Media/Video Phase 2 restricts ComfyUI submission to owner-local typed pres
   assert.match(jobs, /\/history\//);
   assert.match(workflowStore, /comfyui-presets\.json/);
   assert.match(workflowStore, /comfyui-workflows/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 45/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 46/);
   assert.doesNotMatch(register, /workflowJson|rawWorkflow|arbitraryWorkflow/);
 });
 
@@ -961,5 +973,5 @@ test('Media/Video Phase 3 imports only bounded durable ComfyUI artifacts', async
   assert.match(importer, /fs\.rename\(temp, destinationAbsolute\)/);
   assert.match(importer, /fs\.rm\(temp/);
   assert.doesNotMatch(register, /sourceFilename|sourceSubfolder/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 45/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 46/);
 });

@@ -24,6 +24,31 @@ function Refresh-Path {
   $env:Path = @($machine, $user) -join ';'
 }
 
+function Test-ReleaseSlotMatchesPackage([string]$Slot, [string]$PackageDir) {
+  if (-not (Test-Path -LiteralPath $Slot) -or -not (Test-Path -LiteralPath $PackageDir)) { return $false }
+  $packageRoot = [IO.Path]::GetFullPath($PackageDir).TrimEnd('\')
+  foreach ($sourceFile in Get-ChildItem -LiteralPath $PackageDir -File -Recurse -ErrorAction Stop) {
+    $relative = $sourceFile.FullName.Substring($packageRoot.Length).TrimStart('\','/')
+    $targetFile = Join-Path $Slot $relative
+    if (-not (Test-Path -LiteralPath $targetFile -PathType Leaf)) { return $false }
+    $targetInfo = Get-Item -LiteralPath $targetFile -ErrorAction Stop
+    if ($targetInfo.Length -ne $sourceFile.Length) { return $false }
+    $sourceHash = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+    $targetHash = (Get-FileHash -LiteralPath $targetFile -Algorithm SHA256).Hash
+    if (-not [string]::Equals($sourceHash, $targetHash, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+  }
+  return $true
+}
+
+function Test-SamePath([string]$Left, [string]$Right) {
+  if (-not $Left -or -not $Right) { return $false }
+  return [string]::Equals(
+    [IO.Path]::GetFullPath($Left).TrimEnd('\'),
+    [IO.Path]::GetFullPath($Right).TrimEnd('\'),
+    [StringComparison]::OrdinalIgnoreCase
+  )
+}
+
 function Resolve-CommandPath([string]$Command, [string]$WingetId, [string[]]$KnownPaths = @()) {
   $existing = Get-Command $Command -ErrorAction SilentlyContinue
   if ($existing) { return $existing.Source }
@@ -393,6 +418,21 @@ try {
   if ("v$($manifest.version)" -ne $tagName) { throw "Release manifest version $($manifest.version) does not match $tagName." }
 
   $Slot = Join-Path $VersionsDir $tagName
+  $currentRoot = if (Test-Path $CurrentFile) { (Get-Content -Path $CurrentFile -Raw).Trim() } else { '' }
+  $slotIsCurrent = $currentRoot -and (Test-SamePath $currentRoot $Slot)
+
+  if (Test-Path $Slot) {
+    if ($slotIsCurrent) {
+      if (-not (Test-ReleaseSlotMatchesPackage $Slot $packageDir)) {
+        throw "Current runtime slot $Slot does not match the verified $tagName release package. Refusing in-place repair of an active slot; roll back or switch away from this slot, then reinstall."
+      }
+      Write-Host "Runtime slot already active and verified against the release package: $Slot" -ForegroundColor Yellow
+    } else {
+      Write-Host "Refreshing existing non-current runtime slot from the verified release package: $Slot" -ForegroundColor Yellow
+      Remove-Item -LiteralPath $Slot -Recurse -Force -ErrorAction Stop
+    }
+  }
+
   if (-not (Test-Path $Slot)) {
     Write-Host "Installing runtime slot $Slot..." -ForegroundColor Cyan
     Move-Item -Path $packageDir -Destination $Slot
@@ -405,8 +445,6 @@ try {
         throw "Installed runtime version check failed: $reportedVersion"
       }
     } finally { Pop-Location }
-  } else {
-    Write-Host "Runtime slot already exists: $Slot" -ForegroundColor Yellow
   }
 
   # A release slot can already exist after an interrupted or partial install.

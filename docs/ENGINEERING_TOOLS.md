@@ -338,7 +338,18 @@ Available Phase 2 tools:
 - `media_comfyui_job_submit` — Work Session-owned POST to `/prompt` using only the owner-local preset and whitelisted scalar bindings.
 - `media_comfyui_job_status` — reads bounded `/history/<promptId>` status and artifact metadata without returning raw workflow/history payloads.
 
-Arbitrary workflow JSON, custom node configuration through MCP, model download, queue cancellation and raw output retrieval remain unavailable in this phase.
+Arbitrary workflow JSON, custom node configuration through MCP, model download and queue cancellation remain unavailable in this phase.
+
+### ComfyUI artifact handoff (Phase 3)
+
+Phase 3 can import a completed durable ComfyUI `output` artifact into an owned project without accepting source filenames or subfolders as MCP input.
+
+- `media_comfyui_artifact_plan` resolves one artifact strictly by `profileId + promptId + artifactIndex`, validates history metadata and destination containment, and performs no file mutation.
+- `media_comfyui_artifact_import` requires Work Session ownership, downloads the selected `output` artifact through ComfyUI `/view`, streams with a bounded byte limit, writes to a temporary sibling file, then atomically renames and returns SHA-256 evidence.
+- destination files are fail-if-exists and must keep the source media extension;
+- traversal, unsupported extensions, `temp`/non-durable artifacts, redirects and partial files fail closed.
+
+Raw provider paths, arbitrary `/view` query parameters and implicit overwrite remain unavailable.
 
 ## Safety model
 

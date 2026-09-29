@@ -180,6 +180,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   media_comfyui_job_plan: 'workstation.read',
   media_comfyui_job_submit: 'workstation.execute',
   media_comfyui_job_status: 'workstation.read',
+  media_comfyui_artifact_plan: 'workstation.read',
+  media_comfyui_artifact_import: 'workstation.execute',
   mqtt_provider_status: 'workstation.read',
   mqtt_subscribe_sample: 'workstation.read',
   mqtt_agv_lift_observe: 'workstation.read',

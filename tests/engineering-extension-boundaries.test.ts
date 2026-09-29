@@ -34,7 +34,9 @@ const MEDIA_TOOLS = [
   'media_comfyui_preset_list',
   'media_comfyui_job_plan',
   'media_comfyui_job_submit',
-  'media_comfyui_job_status'
+  'media_comfyui_job_status',
+  'media_comfyui_artifact_plan',
+  'media_comfyui_artifact_import'
 ] as const;
 
 const MQTT_TOOLS = [

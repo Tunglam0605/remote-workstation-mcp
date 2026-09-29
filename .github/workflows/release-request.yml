@@ -11,8 +11,10 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  create-tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,8 +22,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: package.json
       - name: Validate release request
         id: release
         shell: bash
@@ -32,7 +32,7 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           test "$TAG" = "v$VERSION" || { echo "Requested $TAG but package.json is v$VERSION"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-      - name: Ensure release tag exists
+      - name: Create canonical release tag
         env:
           TAG: ${{ steps.release.outputs.tag }}
         shell: bash
@@ -42,105 +42,21 @@ jobs:
           if git show-ref --verify --quiet "refs/tags/$TAG"; then
             TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
             test "$TAG_COMMIT" = "$GITHUB_SHA" || {
-              echo "Existing tag $TAG points to $TAG_COMMIT, not release request commit $GITHUB_SHA";
-              exit 1;
-            }
-            echo "Tag $TAG already exists and matches the release commit."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
-            git push origin "refs/tags/$TAG"
-          fi
-      - name: Checkout exact release tag
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git checkout --detach "$TAG"
-          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$TAG")"
-      - name: Check whether GitHub Release already exists
-        id: existing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Install dependencies
-        if: steps.existing.outputs.exists != 'true'
-        run: npm ci --no-audit --no-fund
-      - name: Typecheck
-        if: steps.existing.outputs.exists != 'true'
-        run: npm run typecheck
-      - name: Test
-        if: steps.existing.outputs.exists != 'true'
-        run: npm test
-      - name: Build
-        if: steps.existing.outputs.exists != 'true'
-        run: npm run build
-      - name: Build release assets
-        if: steps.existing.outputs.exists != 'true'
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          PACK="$(npm pack --pack-destination release --silent)"
-          mv "release/$PACK" "release/remote-workstation-mcp-${TAG}.tgz"
-          cp scripts/install-windows-release.ps1 release/install-windows.ps1
-          cp scripts/install-windows-bootstrap.cmd release/install-windows.cmd
-          cp scripts/install-linux.sh release/install-linux.sh
-          npm sbom --sbom-format cyclonedx > release/rwmcp-sbom.cdx.json
-          (
-            cd release
-            sha256sum \
-              "remote-workstation-mcp-${TAG}.tgz" \
-              install-windows.ps1 install-windows.cmd install-linux.sh \
-              rwmcp-sbom.cdx.json > SHA256SUMS.txt
-          )
-      - name: Smoke-test packed release
-        if: steps.existing.outputs.exists != 'true'
-        env:
-          TAG: ${{ steps.release.outputs.tag }}
-        run: bash scripts/smoke-package.sh "release/remote-workstation-mcp-${TAG}.tgz"
-      - name: Publish GitHub Release
-        if: steps.existing.outputs.exists != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: |
-          gh release create "$TAG" \
-            "release/remote-workstation-mcp-${TAG}.tgz" \
-            "release/install-windows.ps1" \
-            "release/install-windows.cmd" \
-            "release/install-linux.sh" \
-            "release/rwmcp-sbom.cdx.json" \
-            "release/SHA256SUMS.txt" \
-            --title "$TAG" \
-            --generate-notes
-      - name: Verify published release assets
-        if: steps.existing.outputs.exists != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          for REQUIRED in \
-            "remote-workstation-mcp-${TAG}.tgz" \
-            install-windows.ps1 install-windows.cmd install-linux.sh \
-            rwmcp-sbom.cdx.json SHA256SUMS.txt; do
-            printf '%s\n' "$ASSETS" | grep -Fx -- "$REQUIRED" >/dev/null || {
-              echo "Missing required release asset: $REQUIRED"
+              echo "Existing tag $TAG points to $TAG_COMMIT, not release request commit $GITHUB_SHA"
               exit 1
             }
-          done
+            echo "Tag $TAG already exists and matches this release request."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
+  publish:
+    needs: create-tag
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.create-tag.outputs.tag }}
+    secrets: inherit

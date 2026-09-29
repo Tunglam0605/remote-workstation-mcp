@@ -4,35 +4,64 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_call:
+    inputs:
+      tag:
+        description: Exact release tag to publish.
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: Validate dependency install-script policy
+        run: npm run supply-chain:validate
       - run: npm run typecheck
+      - name: Enforce architecture boundaries
+        run: npm run architecture:check
       - run: npm test
       - run: npm run build
       - run: npm run plugin:validate
-      - name: Verify tag matches package version
+      - name: Verify tag matches package version and checked-out commit
+        shell: bash
         run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid release tag: $RELEASE_TAG"; exit 1; }
           VERSION="$(node -p "require('./package.json').version")"
-          test "$GITHUB_REF_NAME" = "v$VERSION" || { echo "Tag $GITHUB_REF_NAME does not match package version v$VERSION"; exit 1; }
+          test "$RELEASE_TAG" = "v$VERSION" || { echo "Tag $RELEASE_TAG does not match package version v$VERSION"; exit 1; }
+          git fetch --tags --force
+          TAG_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+          test "$TAG_COMMIT" = "$(git rev-parse HEAD)" || {
+            echo "Checked-out commit does not match $RELEASE_TAG"
+            exit 1
+          }
       - name: Build release assets
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p release
           PACK="$(npm pack --pack-destination release --silent)"
-          mv "release/$PACK" "release/remote-workstation-mcp-${GITHUB_REF_NAME}.tgz"
+          mv "release/$PACK" "release/remote-workstation-mcp-${RELEASE_TAG}.tgz"
           cp scripts/install-windows-release.ps1 release/install-windows.ps1
           cp scripts/install-windows-bootstrap.cmd release/install-windows.cmd
           cp scripts/install-linux.sh release/install-linux.sh
@@ -40,25 +69,33 @@ jobs:
           (
             cd release
             sha256sum \
-              "remote-workstation-mcp-${GITHUB_REF_NAME}.tgz" \
+              "remote-workstation-mcp-${RELEASE_TAG}.tgz" \
               install-windows.ps1 install-windows.cmd install-linux.sh \
               rwmcp-sbom.cdx.json > SHA256SUMS.txt
           )
-      - name: Create GitHub Release
+      - name: Smoke-test packed release
+        run: bash scripts/smoke-package.sh "release/remote-workstation-mcp-${RELEASE_TAG}.tgz"
+      - name: Create GitHub Release if absent
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $RELEASE_TAG already exists; assets will be verified and refreshed."
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --generate-notes
+          fi
       - name: Upload GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$GITHUB_REF_NAME" \
-            "release/remote-workstation-mcp-${GITHUB_REF_NAME}.tgz" \
+          gh release upload "$RELEASE_TAG" \
+            "release/remote-workstation-mcp-${RELEASE_TAG}.tgz" \
             "release/install-windows.ps1" \
             "release/install-windows.cmd" \
             "release/install-linux.sh" \
@@ -68,11 +105,12 @@ jobs:
       - name: Verify published release assets
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          ASSETS="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')"
+          ASSETS="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
           for REQUIRED in \
-            "remote-workstation-mcp-${GITHUB_REF_NAME}.tgz" \
+            "remote-workstation-mcp-${RELEASE_TAG}.tgz" \
             install-windows.ps1 install-windows.cmd install-linux.sh \
             rwmcp-sbom.cdx.json SHA256SUMS.txt; do
             printf '%s\n' "$ASSETS" | grep -Fx -- "$REQUIRED" >/dev/null || {

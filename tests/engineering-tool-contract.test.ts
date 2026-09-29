@@ -56,9 +56,13 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   assert.match(taskGraph, /addTaskBatch/);
   const engineeringTools = await read('src/tools/engineering-tools.ts');
   const canTools = await read('src/extensions/can/register.ts');
+  const ros2Tools = await read('src/extensions/ros2/register.ts');
   const officeTools = await read('src/tools/office-tools.ts');
-  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
+  for (const tool of ['firmware_memory_report', 'debug_locals', 'debug_rtos_tasks', 'debug_cortexm_exception_frame', 'debug_disassemble', 'debug_watchpoint_add', 'kicad_provider_status', 'kicad_board_stats', 'kicad_drc', 'kicad_erc', 'kicad_validate', 'kicad_bom_report', 'stm32_svd_inspect']) {
     assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+  }
+  for (const tool of ['ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_set', 'ros2_action_info']) {
+    assert.match(ros2Tools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
   for (const tool of ['can_provider_status', 'can_interface_list', 'can_interface_status', 'can_capture']) {
     assert.match(canTools, new RegExp(`server\\.registerTool\\('${tool}'`));
@@ -163,20 +167,20 @@ test('v0.44 embedded diagnostics remain typed and do not expose arbitrary debugg
 });
 
 test('v0.44 ROS2 professional diagnostics stay bounded and defer unsafe action-goal dispatch', async () => {
-  const engineeringTools = await read('src/tools/engineering-tools.ts');
+  const ros2Tools = await read('src/extensions/ros2/register.ts');
   const ros2 = await read('src/adapters/engineering/ros2.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
   for (const tool of ['ros2_node_info', 'ros2_topic_hz', 'ros2_topic_bw', 'ros2_tf_lookup', 'ros2_lifecycle_get', 'ros2_lifecycle_list', 'ros2_lifecycle_set', 'ros2_action_info']) {
-    assert.match(engineeringTools, new RegExp(`server\\.registerTool\\('${tool}'`));
+    assert.match(ros2Tools, new RegExp(`server\\.registerTool\\('${tool}'`));
     assert.match(scopes, new RegExp(`${tool}: 'workstation\\.(?:read|execute)'`));
     assert.match(capabilities, new RegExp(tool));
   }
   assert.match(ros2, /\['topic', 'hz', name, '--window'/);
   assert.match(ros2, /\['topic', 'bw', name, '--window'/);
   assert.match(ros2, /\['run', 'tf2_ros', 'tf2_echo'/);
-  assert.match(engineeringTools, /z\.enum\(\['configure', 'cleanup', 'activate', 'deactivate', 'shutdown'\]\)/);
-  assert.doesNotMatch(engineeringTools, /ros2_action_send_goal|ros2_shell|ros2_command/);
+  assert.match(ros2Tools, /z\.enum\(\['configure', 'cleanup', 'activate', 'deactivate', 'shutdown'\]\)/);
+  assert.doesNotMatch(ros2Tools, /ros2_action_send_goal|ros2_shell|ros2_command/);
   assert.match(capabilities, /Action goal dispatch is intentionally deferred until RWMCP can guarantee goal-handle cancellation on timeout/);
 });
 

@@ -2,6 +2,7 @@ import { registerNotebookLmTools } from '../tools/notebooklm-tools.js';
 import { registerOfficeTools } from '../tools/office-tools.js';
 import { registerCanTools } from './can/register.js';
 import { registerModbusTools } from './modbus/register.js';
+import { registerRos2Tools } from './ros2/register.js';
 import { ExtensionRegistry } from './registry.js';
 
 export function createBuiltinExtensionRegistry(): ExtensionRegistry {
@@ -18,6 +19,12 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       register: registerModbusTools
+    })
+    .add({
+      id: 'domain.ros2',
+      version: 1,
+      kind: 'domain',
+      register: registerRos2Tools
     })
     .add({
       id: 'productivity.office',

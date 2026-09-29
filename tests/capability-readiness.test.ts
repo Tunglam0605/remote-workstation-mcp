@@ -94,3 +94,13 @@ test('planned capabilities remain unavailable without executing runtime probes',
   assert.equal(result?.readiness.source, 'static-contract');
   assert.equal(called, false);
 });
+
+
+test('CANopen readiness follows the underlying passive SocketCAN capture provider', async () => {
+  const [result] = await resolveCapabilityReadiness([capability('engineering.canopen')], deps({
+    canProviderStatus: async () => ({ supported: false, platform: 'win32', capture: false, socketcan: false })
+  }));
+  assert.equal(result?.status, 'available');
+  assert.equal(result?.readiness.state, 'unavailable');
+  assert.match(result?.readiness.blockers?.[0] ?? '', /CANopen passive diagnostics/);
+});

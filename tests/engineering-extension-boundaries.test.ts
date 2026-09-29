@@ -10,6 +10,12 @@ const CAN_TOOLS = [
   'can_capture'
 ] as const;
 
+const CANOPEN_TOOLS = [
+  'canopen_provider_status',
+  'canopen_capture_decode',
+  'canopen_node_observe'
+] as const;
+
 const MODBUS_TOOLS = [
   'modbus_rtu_provider_status',
   'modbus_rtu_endpoint_status',
@@ -76,9 +82,10 @@ function registeredTools(source: string): string[] {
 }
 
 test('migrated engineering MCP handlers live behind domain extension boundaries', async () => {
-  const [monolith, canSource, modbusSource, ros2Source, stm32Source, esp32Source, kicadSource, builtin] = await Promise.all([
+  const [monolith, canSource, canopenSource, modbusSource, ros2Source, stm32Source, esp32Source, kicadSource, builtin] = await Promise.all([
     fs.readFile(path.resolve('src/tools/engineering-tools.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/can/register.ts'), 'utf8'),
+    fs.readFile(path.resolve('src/extensions/canopen/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/modbus/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/ros2/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/stm32/register.ts'), 'utf8'),
@@ -88,11 +95,12 @@ test('migrated engineering MCP handlers live behind domain extension boundaries'
   ]);
 
   const monolithTools = new Set(registeredTools(monolith));
-  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS, ...STM32_TOOLS, ...ESP32_TOOLS, ...KICAD_TOOLS]) {
+  for (const tool of [...CAN_TOOLS, ...CANOPEN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS, ...STM32_TOOLS, ...ESP32_TOOLS, ...KICAD_TOOLS]) {
     assert.equal(monolithTools.has(tool), false, `${tool} must not drift back into engineering-tools.ts`);
   }
 
   assert.deepEqual(registeredTools(canSource), [...CAN_TOOLS]);
+  assert.deepEqual(registeredTools(canopenSource), [...CANOPEN_TOOLS]);
   assert.deepEqual(registeredTools(modbusSource), [...MODBUS_TOOLS]);
   assert.deepEqual(registeredTools(ros2Source), [...ROS2_TOOLS]);
   assert.deepEqual(registeredTools(stm32Source), [...STM32_TOOLS]);
@@ -102,6 +110,8 @@ test('migrated engineering MCP handlers live behind domain extension boundaries'
   assert.match(builtin, /id: 'domain\.can'/);
   assert.match(builtin, /platforms: \['linux'\]/);
   assert.match(builtin, /register: registerCanTools/);
+  assert.match(builtin, /id: 'domain\.canopen'/);
+  assert.match(builtin, /register: registerCanopenTools/);
   assert.match(builtin, /id: 'domain\.modbus-rtu'/);
   assert.match(builtin, /register: registerModbusTools/);
   assert.match(builtin, /id: 'domain\.ros2'/);

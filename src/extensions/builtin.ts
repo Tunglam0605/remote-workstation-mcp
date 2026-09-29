@@ -1,6 +1,7 @@
 import { registerNotebookLmTools } from '../tools/notebooklm-tools.js';
 import { registerOfficeTools } from '../tools/office-tools.js';
 import { registerCanTools } from './can/register.js';
+import { registerCanopenTools } from './canopen/register.js';
 import { registerModbusTools } from './modbus/register.js';
 import { registerRos2Tools } from './ros2/register.js';
 import { registerStm32Tools } from './stm32/register.js';
@@ -16,6 +17,13 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       kind: 'domain',
       platforms: ['linux'],
       register: registerCanTools
+    })
+    .add({
+      id: 'domain.canopen',
+      version: 1,
+      kind: 'domain',
+      platforms: ['linux'],
+      register: registerCanopenTools
     })
     .add({
       id: 'domain.modbus-rtu',

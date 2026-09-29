@@ -13,6 +13,15 @@ Architecture Consolidation is complete for the v0.66 release candidate:
 - Action Schema remains 36 and Engineering API remains 5;
 - no public MCP action/schema, Work Session authority, hardware interlock, updater or rollback contract is intentionally changed.
 
+## Post-v0.66 tool expansion — CANopen Phase 1
+
+- add `domain.canopen` on Linux as a read-only/passive extension over the existing SocketCAN capture provider;
+- add `canopen_provider_status`, `canopen_capture_decode` and `canopen_node_observe`;
+- decode standard 11-bit CiA 301 NMT, SYNC, EMCY, PDO, SDO and Heartbeat evidence from bounded captures;
+- allow explicit node observation or passive traffic discovery only; an empty node list never performs an active scan;
+- keep frame transmission, NMT commands, active SDO requests/writes, PDO transmission, LSS, node guarding requests and bus configuration unavailable;
+- advance Action Schema to 37; Engineering API remains 5.
+
 ## Next — post-v0.66 hardening
 
 - continue incremental source-size reduction only where it improves ownership or testability;

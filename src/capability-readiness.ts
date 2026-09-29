@@ -140,7 +140,7 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
       };
     }
 
-    if (id === 'engineering.can') {
+    if (id === 'engineering.can' || id === 'engineering.canopen') {
       const status = await boundedProbe(() => deps.canProviderStatus());
       if (!status.supported) {
         return {
@@ -151,7 +151,7 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
             supported: false,
             ...(status.platform ? { platform: status.platform } : {})
           },
-          blockers: ['SocketCAN diagnostics are not supported by the active node platform/provider.']
+          blockers: [id === 'engineering.canopen' ? 'CANopen passive diagnostics require a ready Linux SocketCAN capture provider.' : 'SocketCAN diagnostics are not supported by the active node platform/provider.']
         };
       }
       const ready = Boolean(status.capture && status.socketcan);

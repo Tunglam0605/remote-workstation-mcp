@@ -17,29 +17,56 @@ const MODBUS_TOOLS = [
   'modbus_rtu_probe'
 ] as const;
 
+const ROS2_TOOLS = [
+  'ros2_build',
+  'ros2_node_info',
+  'ros2_topic_info',
+  'ros2_node_list',
+  'ros2_topic_list',
+  'ros2_topic_echo',
+  'ros2_topic_hz',
+  'ros2_topic_bw',
+  'ros2_tf_lookup',
+  'ros2_lifecycle_get',
+  'ros2_lifecycle_list',
+  'ros2_lifecycle_set',
+  'ros2_service_list',
+  'ros2_service_call',
+  'ros2_action_list',
+  'ros2_action_info',
+  'ros2_param_list',
+  'ros2_param_get',
+  'ros2_param_set',
+  'ros2_bag_record'
+] as const;
+
 function registeredTools(source: string): string[] {
   return [...source.matchAll(/server\.registerTool\('([^']+)'/g)].map(match => match[1]);
 }
 
-test('CAN and Modbus MCP handlers live behind domain extension boundaries', async () => {
-  const [monolith, canSource, modbusSource, builtin] = await Promise.all([
+test('migrated engineering MCP handlers live behind domain extension boundaries', async () => {
+  const [monolith, canSource, modbusSource, ros2Source, builtin] = await Promise.all([
     fs.readFile(path.resolve('src/tools/engineering-tools.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/can/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/modbus/register.ts'), 'utf8'),
+    fs.readFile(path.resolve('src/extensions/ros2/register.ts'), 'utf8'),
     fs.readFile(path.resolve('src/extensions/builtin.ts'), 'utf8')
   ]);
 
   const monolithTools = new Set(registeredTools(monolith));
-  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS]) {
+  for (const tool of [...CAN_TOOLS, ...MODBUS_TOOLS, ...ROS2_TOOLS]) {
     assert.equal(monolithTools.has(tool), false, `${tool} must not drift back into engineering-tools.ts`);
   }
 
   assert.deepEqual(registeredTools(canSource), [...CAN_TOOLS]);
   assert.deepEqual(registeredTools(modbusSource), [...MODBUS_TOOLS]);
+  assert.deepEqual(registeredTools(ros2Source), [...ROS2_TOOLS]);
 
   assert.match(builtin, /id: 'domain\.can'/);
   assert.match(builtin, /platforms: \['linux'\]/);
   assert.match(builtin, /register: registerCanTools/);
   assert.match(builtin, /id: 'domain\.modbus-rtu'/);
   assert.match(builtin, /register: registerModbusTools/);
+  assert.match(builtin, /id: 'domain\.ros2'/);
+  assert.match(builtin, /register: registerRos2Tools/);
 });

@@ -42,6 +42,8 @@ Goal: make repository structure match the long-term product boundaries without c
 
 ### E. Repository and release hygiene
 - keep a single canonical release history and close superseded release PRs;
+- Release Request now only validates/creates the release tag, then delegates to the reusable tag-aware `release.yml` publisher; build/test/SBOM/smoke/publish/asset verification have one implementation;
+- make publishing idempotent and serialized per release tag so reruns refresh/verify assets rather than creating competing releases;
 - separate future roadmap intent from release history over time;
 - organize scripts/CI by lifecycle responsibility while preserving tested installers/updaters.
 

@@ -8,7 +8,10 @@ const CAMERA_TOOLS = [
   'camera_profile_list',
   'camera_profile_inspect',
   'camera_rtsp_probe',
-  'camera_stream_metadata'
+  'camera_stream_metadata',
+  'camera_ptz_status',
+  'camera_ptz_move',
+  'camera_ptz_stop'
 ] as const;
 
 const CAN_TOOLS = [

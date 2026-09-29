@@ -229,9 +229,9 @@ Available tools:
 
 Phase 1 does not expose PUBLISH, retained-message mutation, broker configuration or credential mutation.
 
-## Camera diagnostics Phase 1
+## Camera diagnostics Phase 2
 
-Camera diagnostics use owner-local, non-secret RTSP profiles stored outside the repository in `camera-profiles.json`.
+Camera diagnostics use owner-local RTSP profiles in `camera-profiles.json`. RTSP observation remains anonymous-only. Phase 2 optionally adds ONVIF PTZ metadata to a profile; the password value itself stays in an owner-controlled environment variable and is never accepted as an MCP argument.
 
 Example:
 
@@ -246,22 +246,33 @@ Example:
       "port": 554,
       "path": "/Streaming/Channels/101",
       "transport": "tcp",
-      "auth": "none"
+      "auth": "none",
+      "ptz": {
+        "scheme": "http",
+        "port": 80,
+        "path": "/onvif/ptz_service",
+        "profileToken": "Profile_1",
+        "username": "operator",
+        "passwordEnv": "RWMCP_CAMERA_WAREHOUSE_1_PASSWORD"
+      }
     }
   ]
 }
 ```
 
-Phase 1 deliberately accepts anonymous RTSP profiles only. Hosts cannot contain schemes or userinfo, and paths cannot contain query tokens, fragments or traversal.
+Public profile/list responses redact the PTZ username, password environment-variable name and password value. They expose only whether PTZ is configured and whether the referenced credential is available to the runtime.
 
 Available tools:
 
-- `camera_provider_status` — reports the built-in RTSP probe backend and optional ffprobe readiness.
-- `camera_profile_list` / `camera_profile_inspect` — inspect non-secret owner-local camera profiles.
+- `camera_provider_status` — reports RTSP/ffprobe readiness plus configured/credential-ready ONVIF PTZ counts.
+- `camera_profile_list` / `camera_profile_inspect` — inspect redacted owner-local camera metadata.
 - `camera_rtsp_probe` — sends one bounded RTSP DESCRIBE and reports reachability, auth requirement and SDP media tracks.
-- `camera_stream_metadata` — runs a fixed bounded ffprobe argv for anonymous profiles to return codec/resolution/FPS metadata.
+- `camera_stream_metadata` — runs a fixed bounded ffprobe argv for anonymous RTSP profiles.
+- `camera_ptz_status` — reads ONVIF PTZ position and move-state evidence.
+- `camera_ptz_move` — normalized pan/tilt/zoom in `[-1,1]`, duration 50–2000 ms, followed by an automatic PTZ Stop.
+- `camera_ptz_stop` — explicit bounded Stop for pan/tilt and zoom.
 
-PTZ, two-way audio, camera configuration, credentials and snapshot/output mutation remain unavailable in Phase 1.
+PTZ uses ONVIF WS-Security UsernameToken PasswordDigest; raw SOAP/XML and arbitrary endpoints are not accepted. Two-way audio, camera configuration and snapshot/output mutation remain unavailable in Phase 2. HTTPS uses normal certificate verification; no insecure TLS bypass is exposed.
 
 ## Media and video Phase 1
 

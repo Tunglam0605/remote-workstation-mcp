@@ -4,6 +4,7 @@ import type { EngineeringCommandRunner } from '../../adapters/engineering/comman
 import { resolveExecutable } from '../../adapters/engineering/executable-resolver.js';
 import { CameraProfileStore } from './profile-store.js';
 import { probeRtsp } from './rtsp-client.js';
+import { OnvifPtzClient, type PtzVector } from './onvif-ptz.js';
 
 function fraction(value: unknown): number | undefined {
   if (typeof value !== 'string' || !/^\d+\/\d+$/.test(value)) return undefined;
@@ -28,6 +29,8 @@ function endpoint(profile: Awaited<ReturnType<CameraProfileStore['get']>>): stri
 }
 
 export class CameraDiagnosticsAdapter {
+  private readonly ptz = new OnvifPtzClient();
+
   constructor(
     private readonly store: CameraProfileStore,
     private readonly runner: EngineeringCommandRunner
@@ -37,14 +40,22 @@ export class CameraDiagnosticsAdapter {
     let ffprobe: string | undefined;
     let diagnostic: string | undefined;
     try { ffprobe = await resolveFfprobe(); } catch (error) { diagnostic = error instanceof Error ? error.message : String(error); }
+    const profiles = await this.store.status();
     return {
       supported: true,
-      authority: 'read-only-observation',
+      authority: 'read-observe-plus-bounded-ptz',
       rtspProbeBackend: 'node-net',
       ffprobeAvailable: Boolean(ffprobe),
+      ptz: {
+        backend: 'onvif-wsse',
+        configuredProfiles: profiles.ptzProfileCount,
+        credentialReadyProfiles: profiles.ptzCredentialReadyCount,
+        moveDurationMaxMs: 2_000,
+        autoStop: true
+      },
       ...(ffprobe ? { ffprobeExecutable: ffprobe } : {}),
       ...(diagnostic ? { ffprobeDiagnostic: diagnostic.slice(0, 512) } : {}),
-      intentionallyUnavailable: ['camera configuration', 'PTZ control', 'two-way audio', 'credential handling', 'snapshot/write artifacts']
+      intentionallyUnavailable: ['camera configuration', 'two-way audio', 'snapshot/write artifacts', 'raw SOAP/XML', 'arbitrary PTZ endpoint', 'unbounded continuous movement']
     };
   }
 
@@ -52,13 +63,19 @@ export class CameraDiagnosticsAdapter {
     const profiles = await this.store.list();
     return {
       ...(await this.store.status()),
-      profiles: profiles.map(profile => ({ ...profile, endpoint: endpoint(profile) }))
+      profiles: profiles.map(profile => ({
+        ...this.store.toPublicProfile(profile),
+        endpoint: endpoint(profile)
+      }))
     };
   }
 
   async inspectProfile(id: string) {
     const profile = await this.store.get(id);
-    return { ...profile, endpoint: endpoint(profile) };
+    return {
+      ...this.store.toPublicProfile(profile),
+      endpoint: endpoint(profile)
+    };
   }
 
   async probe(id: string, timeoutMs = 3_000) {
@@ -70,7 +87,7 @@ export class CameraDiagnosticsAdapter {
       throw new Error('Camera metadata timeoutMs must be in range 500..15000.');
     }
     const profile = await this.store.get(id);
-    if (profile.auth !== 'none') throw new Error('Camera metadata Phase 1 supports anonymous RTSP profiles only.');
+    if (profile.auth !== 'none') throw new Error('Camera metadata supports anonymous RTSP profiles only.');
     const executable = await resolveFfprobe();
     if (!executable) throw new Error('ffprobe is unavailable. Install FFmpeg/ffprobe or configure owner-controlled RWMCP_FFPROBE_EXECUTABLE.');
     const url = endpoint(profile);
@@ -105,5 +122,17 @@ export class CameraDiagnosticsAdapter {
         nominalFps: fraction(stream?.r_frame_rate)
       }))
     };
+  }
+
+  async ptzStatus(id: string, timeoutMs = 3_000) {
+    return await this.ptz.status(await this.store.resolvePtz(id), timeoutMs);
+  }
+
+  async ptzMove(id: string, vector: PtzVector, durationMs = 250, timeoutMs = 3_000) {
+    return await this.ptz.move(await this.store.resolvePtz(id), vector, durationMs, timeoutMs);
+  }
+
+  async ptzStop(id: string, timeoutMs = 3_000) {
+    return await this.ptz.stop(await this.store.resolvePtz(id), timeoutMs);
   }
 }

@@ -123,3 +123,12 @@ test('built-in OPC UA provider is ready with anonymous read-only SDK mode', asyn
   assert.equal(result?.readiness.evidence?.authentication, 'anonymous-only');
   assert.equal(result?.readiness.evidence?.readOnly, true);
 });
+
+
+test('industrial endpoint profile layer is ready without granting mutation authority', async () => {
+  const [result] = await resolveCapabilityReadiness([capability('engineering.industrial_profiles')], deps());
+  assert.equal(result?.readiness.state, 'ready');
+  assert.equal(result?.readiness.source, 'static-contract');
+  assert.equal(result?.readiness.evidence?.storage, 'owner-local-non-secret');
+  assert.equal(result?.readiness.evidence?.readOnly, true);
+});

@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 40;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 41;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   const packageJson = JSON.parse(await read('package.json')) as { version: string };
   assert.ok(capabilities.includes(`export const SERVER_VERSION = '${packageJson.version}';`));
@@ -384,6 +384,9 @@ test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface'
   }
   assert.match(scopes, /modbus_rtu_provider_status: 'workstation\.read'/);
   assert.match(scopes, /modbus_rtu_endpoint_status: 'workstation\.read'/);
+  const modbusRtuAdapter = await read('src/adapters/engineering/modbus-rtu.ts');
+  const endpointStatusBody = modbusRtuAdapter.match(/async endpointStatus\(port: string\) \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+  assert.doesNotMatch(endpointStatusBody, /assertEngineeringExecute/, 'endpointStatus must remain read-only');
   assert.match(scopes, /modbus_rtu_read: 'workstation\.read'/);
   assert.match(scopes, /modbus_rtu_probe: 'workstation\.read'/);
   assert.match(modbus, /supportedFunctions: \[1, 2, 3, 4\]/);
@@ -590,7 +593,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 40;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 41;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -846,7 +849,7 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 40/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 41/);
   assert.doesNotMatch(workflows, /workflow === 'espidf\.(erase|efuse|raw)'/);
   assert.doesNotMatch(firmware, /async\s+(?:eraseFlash|writeEfuse|runRawEsptool)\s*\(/);
 });

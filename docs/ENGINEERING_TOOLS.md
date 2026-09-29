@@ -153,6 +153,24 @@ ros2:
       - robot_control
 ```
 
+## Industrial Endpoint Profiles Phase 1
+
+Industrial Endpoint Profiles provide reusable owner-local, non-secret descriptors that bind the low-level diagnostic tools to named industrial assets without exposing credentials or adding mutation authority.
+
+The file `industrial-endpoints.json` lives in the platform setup-config directory and supports:
+
+- `modbus-tcp` — explicit host, port, Unit ID and default read address/function metadata;
+- `opcua` — explicit `opc.tcp` endpoint and default browse root NodeId;
+- `mqtt-agv` — a reference to an existing owner-local MQTT credential profile plus vehicle identifier.
+
+Available tools:
+
+- `industrial_profile_list` — lists bounded non-secret profile metadata without network activity.
+- `industrial_profile_inspect` — returns one named profile.
+- `industrial_profile_preflight` — performs one bounded read-only readiness check using the existing Modbus TCP, OPC UA or MQTT/AGV provider.
+
+MQTT passwords remain outside this profile file and outside MCP arguments. Phase 1 provides no MCP create/update/delete action and no PLC/AGV write/control action.
+
 ## OPC UA diagnostics Phase 1
 
 OPC UA Phase 1 is cross-platform, anonymous and read-only over one explicit `opc.tcp://host:port/path` endpoint. It uses the official NodeOPCUA client stack and an in-memory certificate/key provider, so it does not create PKI files on the workstation.

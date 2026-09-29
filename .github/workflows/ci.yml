@@ -30,6 +30,8 @@ jobs:
           name: rwmcp-sbom
           path: rwmcp-sbom.cdx.json
       - run: npm run typecheck
+      - name: Enforce architecture boundaries
+        run: npm run architecture:check
       - run: npm test
       - name: PTY lifecycle soak
         run: npm run test:pty-soak
@@ -92,6 +94,8 @@ jobs:
       - name: Validate dependency install-script policy
         run: npm run supply-chain:validate
       - run: npm run typecheck
+      - name: Enforce architecture boundaries
+        run: npm run architecture:check
       - run: npm test
       - name: PTY/ConPTY lifecycle soak
         run: npm run test:pty-soak

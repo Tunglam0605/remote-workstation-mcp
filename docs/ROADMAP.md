@@ -1,5 +1,53 @@
 # Roadmap
 
+## Current baseline — v0.65.2
+
+- production baseline on Windows, Ubuntu Vision and Ubuntu Personal;
+- Action Schema 36; Engineering API 5;
+- Direct Node, Work Session, typed engineering workflows, safe update/rollback and Moonlight seasonal UX are established;
+- architecture consolidation now takes priority over adding large new domain surfaces.
+
+## Next — v0.66.0 Architecture Consolidation Foundation
+
+Goal: make repository structure match the long-term product boundaries without changing the public MCP contract.
+
+### A. Architecture boundaries
+- establish the canonical architecture map: Platform / Sessions / Engineering Framework / Extensions / Orchestration / MCP / Control Center;
+- enforce one-way dependencies with CI architecture checks;
+- keep reasoning and strategic planning in the AI controller, not the workstation runtime.
+
+### B. Extension boundary
+- introduce a typed Extension Registry and stable extension identifiers;
+- migrate Office and NotebookLM composition first;
+- then migrate STM32, ESP32, ROS 2, CAN, Modbus and KiCad behind extension manifests without renaming public MCP actions unnecessarily;
+- keep generic browser/process/Git/LSP/resource primitives in Platform.
+
+### C. Source modularization
+- split oversized MCP registration modules into thin contract handlers plus domain/framework services;
+- reduce `core-tools.ts`, `engineering-tools.ts` and `AppContext` responsibilities incrementally;
+- preserve existing security, Work Session ownership, concurrency and audit behavior through every move.
+
+### D. Control Center and runtime composition
+- separate Control Center pages/components/services from theme assets and view composition;
+- expose extension capability/status through generic metadata instead of hard-coded app/domain UI;
+- retain local-only security boundaries and platform-specific approval behavior.
+
+### E. Repository and release hygiene
+- keep a single canonical release history and close superseded release PRs;
+- separate future roadmap intent from release history over time;
+- organize scripts/CI by lifecycle responsibility while preserving tested installers/updaters.
+
+### v0.66 exit criteria
+- no public MCP tool/schema regression;
+- architecture boundary check passes on Linux and Windows CI;
+- full regression remains green;
+- build/plugin/supply-chain/package gates pass;
+- runtime upgrade/rollback remains compatible with v0.65.x;
+- at least Office and NotebookLM use the Extension Registry;
+- no new domain capability is added directly to the platform core.
+
+> Detailed target structure and dependency rules: [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md).
+
 ## v0.64.0 - ESP32 / ESP-IDF Ubuntu Tooling Hardening
 
 - add typed `esp32_preflight` for bounded SDK, target, build-metadata and serial-device readiness checks before flash;

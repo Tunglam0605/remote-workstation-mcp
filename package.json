@@ -57,7 +57,8 @@
     "openai:tunnel:install:linux": "bash scripts/install-openai-tunnel-linux.sh",
     "setup:direct-node:linux": "bash scripts/setup-direct-node-linux.sh",
     "status:direct-node:linux": "bash scripts/direct-node-status-linux.sh",
-    "tui": "node dist/tui-cli.js"
+    "tui": "node dist/tui-cli.js",
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

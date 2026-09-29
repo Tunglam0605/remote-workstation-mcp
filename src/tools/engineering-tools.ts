@@ -11,6 +11,9 @@ import {
 import { decodeCortexMFault } from '../adapters/engineering/fault-decode.js';
 import { audited } from '../security/audit.js';
 import { serialDeviceSelectorSchema, workspacePathSchema } from '../engineering/mcp-schemas.js';
+import { registerEngineeringNetworkTools } from '../engineering/mcp/network-tools.js';
+import { registerEngineeringSerialTools } from '../engineering/mcp/serial-tools.js';
+import { registerEngineeringTerminalTools } from '../engineering/mcp/terminal-tools.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -130,121 +133,9 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     ctx.runInWorkSession(workSessionId, () => ctx.engineering.resources.list())
   ) }));
 
-  const networkHost = z.string().min(1).max(253);
-
-  server.registerTool('network_provider_status', {
-    description: 'Inspect cross-platform typed network-diagnostics provider availability. Read-only only; network configuration, route/firewall mutation and packet injection are unavailable.',
-    inputSchema: z.object({}),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result(await audited(ctx.audit, 'network_provider_status', undefined, () => ctx.engineering.network.providerStatus())));
-
-  server.registerTool('network_interface_list', {
-    description: 'List bounded local network interface/address metadata using the host networking API. This is read-only and does not change interface state.',
-    inputSchema: z.object({}),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result(await audited(ctx.audit, 'network_interface_list', undefined, () => ctx.engineering.network.interfaceList())));
-
-  server.registerTool('network_route_list', {
-    description: 'List the host routing table through a fixed machine-readable platform command. No route mutation or arbitrary command input is exposed.',
-    inputSchema: z.object({}),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result(await audited(ctx.audit, 'network_route_list', undefined, () => ctx.engineering.network.routeList())));
-
-  server.registerTool('network_dns_lookup', {
-    description: 'Resolve one bounded hostname using the host DNS resolver and return IPv4/IPv6 addresses. URLs, raw resolver commands and DNS configuration changes are not accepted.',
-    inputSchema: z.object({ host: networkHost, family: z.union([z.literal(0), z.literal(4), z.literal(6)]).default(0) }),
-    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true }
-  }, async ({ host, family }) => result(await audited(ctx.audit, 'network_dns_lookup', undefined, () => ctx.engineering.network.dnsLookup(host, family))));
-
-  server.registerTool('network_ping', {
-    description: 'Run a bounded ICMP reachability probe to one validated hostname/IP. Count and timeout are bounded; no raw ping arguments are accepted.',
-    inputSchema: z.object({
-      host: networkHost,
-      count: z.number().int().min(1).max(20).default(4),
-      timeoutMs: z.number().int().min(100).max(30_000).default(2_000)
-    }),
-    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true }
-  }, async ({ host, count, timeoutMs }) => result(await audited(ctx.audit, 'network_ping', undefined, () => ctx.engineering.network.ping(host, { count, timeoutMs }))));
-
-  server.registerTool('network_tcp_reachability', {
-    description: 'Test a bounded TCP connect to one validated hostname/IP and explicit port. It opens no listener, sends no application payload, and returns only connection reachability evidence.',
-    inputSchema: z.object({
-      host: networkHost,
-      port: z.number().int().min(1).max(65535),
-      timeoutMs: z.number().int().min(50).max(30_000).default(2_000)
-    }),
-    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true }
-  }, async ({ host, port, timeoutMs }) => result(await audited(ctx.audit, 'network_tcp_reachability', undefined, () => ctx.engineering.network.tcpReachability(host, port, { timeoutMs }))));
-
-  server.registerTool('serial_open', {
-    description: 'Open a bounded caller-owned serial monitor session. Opening is non-destructive but unavailable in Read Only mode.',
-    inputSchema: z.object({ port: z.string().min(1), baudRate: z.number().int().min(300).max(12_000_000), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-  }, async ({ port, baudRate, workSessionId }) => result(await audited(ctx.audit, 'serial_open', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.open(port, baudRate)))));
-
-  server.registerTool('serial_read', {
-    description: 'Read incremental UTF-8 output from a caller-owned serial session using a byte cursor.',
-    inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, cursor, workSessionId }) => result(await audited(ctx.audit, 'serial_read', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.read(id, cursor)))));
-
-  server.registerTool('serial_wait_for_text', {
-    description: 'Wait for a bounded UTF-8 marker in a caller-owned serial session. Useful for boot/readiness acceptance without repeated polling from ChatGPT.',
-    inputSchema: z.object({
-      id: z.string().uuid(),
-      expectedText: z.string().min(1).max(512),
-      timeoutMs: z.number().int().min(100).max(120_000).default(10_000),
-      cursor: z.number().int().nonnegative().default(0),
-      workSessionId: z.string().uuid().optional()
-    }),
-    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, expectedText, timeoutMs, cursor, workSessionId }) => result(
-    await audited(ctx.audit, 'serial_wait_for_text', undefined, () =>
-      ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.waitForText(id, expectedText, timeoutMs, cursor))
-    )
-  ));
-
-  server.registerTool('serial_write', {
-    description: 'Write bounded data to a caller-owned serial session. Requires hardware-mutation permission unless the owner explicitly relaxes serial-write policy.',
-    inputSchema: z.object({ id: z.string().uuid(), data: z.string(), encoding: z.enum(['utf8', 'hex', 'base64']).default('utf8'), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, data, encoding, workSessionId }) => result(await audited(ctx.audit, 'serial_write', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.write(id, data, encoding)))));
-
-  server.registerTool('serial_close', {
-    description: 'Close a caller-owned serial session and release its hardware resource lease.',
-    inputSchema: z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'serial_close', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.serial.close(id)))));
-
-  server.registerTool('terminal_start', {
-    description: 'Start a true PTY/ConPTY terminal in an authorized workspace. The requested executable remains subject to process.allowExecutables.',
-    inputSchema: z.object({ workspace: z.string(), program: z.string().min(1), args: z.array(z.string()).max(500).default([]), cwd: z.string().default('.'), cols: z.number().int().min(20).max(500).default(120), rows: z.number().int().min(5).max(200).default(30), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, program, args, cwd, cols, rows, workSessionId }) => result(await audited(ctx.audit, 'terminal_start', workspace, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.start(workspace, program, args, cwd, cols, rows)))));
-
-  server.registerTool('terminal_read', {
-    description: 'Read incremental output from a caller-owned PTY/ConPTY session.',
-    inputSchema: z.object({ id: z.string().uuid(), cursor: z.number().int().nonnegative().default(0), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, cursor, workSessionId }) => result(await audited(ctx.audit, 'terminal_read', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.read(id, cursor)))));
-
-  server.registerTool('terminal_write', {
-    description: 'Write bounded interactive input to a caller-owned PTY/ConPTY session.',
-    inputSchema: z.object({ id: z.string().uuid(), data: z.string(), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ id, data, workSessionId }) => result(await audited(ctx.audit, 'terminal_write', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.write(id, data)))));
-
-  server.registerTool('terminal_resize', {
-    description: 'Resize a caller-owned PTY/ConPTY terminal.',
-    inputSchema: z.object({ id: z.string().uuid(), cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(200), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, cols, rows, workSessionId }) => result(await audited(ctx.audit, 'terminal_resize', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.resize(id, cols, rows)))));
-
-  server.registerTool('terminal_stop', {
-    description: 'Stop a caller-owned PTY/ConPTY terminal session.',
-    inputSchema: z.object({ id: z.string().uuid(), workSessionId: z.string().uuid().optional() }),
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ id, workSessionId }) => result(await audited(ctx.audit, 'terminal_stop', undefined, () => ctx.runInWorkSession(workSessionId, () => ctx.engineering.terminals.stop(id)))));
+  registerEngineeringNetworkTools(server, ctx);
+  registerEngineeringSerialTools(server, ctx);
+  registerEngineeringTerminalTools(server, ctx);
 
   server.registerTool('firmware_project_inspect', {
     description: 'Detect firmware/project family and build framework from project markers without executing project code.',

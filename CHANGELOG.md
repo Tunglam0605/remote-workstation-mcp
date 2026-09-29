@@ -2,6 +2,14 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+## Unreleased — v0.67.0 development
+
+- Development identity is `0.67.0-dev.0` on `channel=development`; the production/stable release remains v0.66.0.
+- Post-v0.66 extensions now include CANopen, MQTT/AGV observation, Modbus TCP, OPC UA, camera/RTSP/ONVIF PTZ, industrial endpoint profiles, and media/ComfyUI workflows.
+- Runtime capability-readiness reporting distinguishes implemented contracts from provider/node readiness without widening authority.
+- Action Schema is 46; Engineering API remains 5.
+- These changes are unreleased and must pass the v0.67 acceptance matrix before release promotion.
+
 ## 0.66.0 — Architecture Consolidation
 
 ### Architecture

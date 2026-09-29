@@ -34,7 +34,6 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       id: 'domain.canopen',
       version: 1,
       kind: 'domain',
-      platforms: ['linux'],
       register: registerCanopenTools
     })
     .add({

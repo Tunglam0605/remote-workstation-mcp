@@ -96,13 +96,15 @@ test('planned capabilities remain unavailable without executing runtime probes',
 });
 
 
-test('CANopen readiness follows the underlying passive SocketCAN capture provider', async () => {
+test('CANopen readiness keeps offline EDS/DCF inspection available when SocketCAN is absent', async () => {
   const [result] = await resolveCapabilityReadiness([capability('engineering.canopen')], deps({
     canProviderStatus: async () => ({ supported: false, platform: 'win32', capture: false, socketcan: false })
   }));
   assert.equal(result?.status, 'available');
-  assert.equal(result?.readiness.state, 'unavailable');
-  assert.match(result?.readiness.blockers?.[0] ?? '', /CANopen passive diagnostics/);
+  assert.equal(result?.readiness.state, 'degraded');
+  assert.equal(result?.readiness.evidence?.edsDcfInspection, true);
+  assert.equal(result?.readiness.evidence?.passiveCaptureReady, false);
+  assert.match(result?.readiness.blockers?.[0] ?? '', /EDS\/DCF inspection remains available/);
 });
 
 

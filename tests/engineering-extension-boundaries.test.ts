@@ -25,7 +25,10 @@ const CAN_TOOLS = [
 const CANOPEN_TOOLS = [
   'canopen_provider_status',
   'canopen_capture_decode',
-  'canopen_node_observe'
+  'canopen_node_observe',
+  'canopen_eds_inspect',
+  'canopen_object_lookup',
+  'canopen_capture_semantic_decode'
 ] as const;
 
 const MEDIA_TOOLS = [

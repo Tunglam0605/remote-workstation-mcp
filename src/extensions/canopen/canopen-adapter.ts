@@ -1,4 +1,5 @@
 import type { CanAdapter } from '../../adapters/engineering/can.js';
+import { enrichSemanticFrame, type ObjectDictionary } from './eds.js';
 
 type PdoKind = 'tpdo1' | 'rpdo1' | 'tpdo2' | 'rpdo2' | 'tpdo3' | 'rpdo3' | 'tpdo4' | 'rpdo4';
 
@@ -201,11 +202,12 @@ export class CanopenAdapter {
     const supported = Boolean(can.supported && can.capture);
     return {
       supported,
-      profile: 'CiA 301 passive diagnostics',
-      transport: 'SocketCAN',
+      offlineEdsDcfInspection: true,
+      profile: 'CiA 301 passive diagnostics + bounded EDS/DCF semantics',
+      transport: supported ? 'SocketCAN + project-local EDS/DCF' : 'project-local EDS/DCF',
       captureBackend: can.captureBackend,
       authority: 'read-only-passive',
-      availableObjects: ['NMT observation', 'SYNC observation', 'EMCY decode', 'PDO classification', 'SDO observation', 'Heartbeat/NMT-state observation'],
+      availableObjects: ['EDS/DCF object dictionary inspection', 'exact object lookup', 'NMT observation', 'SYNC observation', 'EMCY decode', 'PDO classification/semantic mapping', 'SDO observation/expedited semantic decode', 'Heartbeat/NMT-state observation'],
       intentionallyUnavailable: ['CAN frame transmission', 'NMT command transmission', 'SDO upload/download initiation', 'PDO transmission', 'LSS', 'node guarding requests', 'bus configuration'],
       baseCan: can
     };
@@ -238,6 +240,30 @@ export class CanopenAdapter {
       kinds: summarizeKinds(decoded),
       frames: decoded,
       warnings: capture.warnings
+    };
+  }
+
+  async captureSemanticDecode(interfaceName: string, dictionary: ObjectDictionary, options: { count?: number; inactivityTimeoutMs?: number; nodeIds?: number[] } = {}) {
+    const capture = await this.can.capture(interfaceName, {
+      count: options.count ?? 250,
+      inactivityTimeoutMs: options.inactivityTimeoutMs ?? 3_000,
+      includeErrorFrames: false
+    });
+    const requestedNodes = new Set(options.nodeIds ?? []);
+    const decoded = (capture.frames as CapturedCanFrame[])
+      .map(frame => {
+        const decoded = decodeCanopenFrame(frame);
+        return decoded ? enrichSemanticFrame(frame, decoded, dictionary) : undefined;
+      })
+      .filter((frame): frame is NonNullable<typeof frame> => Boolean(frame))
+      .filter(frame => !requestedNodes.size || !('nodeId' in frame) || requestedNodes.has(frame.nodeId));
+    return {
+      interface: capture.interface, backend: capture.backend,
+      requestedCount: capture.requestedCount, inactivityTimeoutMs: capture.inactivityTimeoutMs,
+      nodeIds: [...requestedNodes].sort((a, b) => a - b),
+      capturedFrameCount: capture.frames.length, decodedFrameCount: decoded.length,
+      ignoredFrameCount: capture.frames.length - decoded.length,
+      frames: decoded, warnings: capture.warnings
     };
   }
 

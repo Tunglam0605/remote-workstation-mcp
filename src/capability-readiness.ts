@@ -140,7 +140,7 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
       };
     }
 
-    if (id === 'engineering.can' || id === 'engineering.canopen') {
+    if (id === 'engineering.can') {
       const status = await boundedProbe(() => deps.canProviderStatus());
       if (!status.supported) {
         return {
@@ -151,7 +151,7 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
             supported: false,
             ...(status.platform ? { platform: status.platform } : {})
           },
-          blockers: [id === 'engineering.canopen' ? 'CANopen passive diagnostics require a ready Linux SocketCAN capture provider.' : 'SocketCAN diagnostics are not supported by the active node platform/provider.']
+          blockers: ['SocketCAN diagnostics are not supported by the active node platform/provider.']
         };
       }
       const ready = Boolean(status.capture && status.socketcan);
@@ -168,6 +168,28 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
           ...(status.captureBackend ? { captureBackend: status.captureBackend } : {})
         },
         ...(!ready ? { blockers: ['SocketCAN exists, but bounded CAN capture is not fully ready.'] } : {})
+      };
+    }
+
+    if (id === 'engineering.canopen') {
+      const status = await boundedProbe(() => deps.canProviderStatus());
+      const passiveCaptureReady = Boolean(status.supported && status.capture && status.socketcan);
+      return {
+        state: passiveCaptureReady ? 'ready' : 'degraded',
+        source: 'runtime-probe',
+        checkedAt: checked(),
+        evidence: {
+          edsDcfInspection: true,
+          passiveCaptureReady,
+          socketcanSupported: Boolean(status.supported),
+          capture: Boolean(status.capture),
+          socketcan: Boolean(status.socketcan),
+          ...(status.platform ? { platform: status.platform } : {}),
+          ...(status.captureBackend ? { captureBackend: status.captureBackend } : {})
+        },
+        ...(!passiveCaptureReady ? {
+          blockers: ['EDS/DCF inspection remains available, but live CANopen capture requires a ready Linux SocketCAN provider.']
+        } : {})
       };
     }
 

@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 41;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 42;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   const packageJson = JSON.parse(await read('package.json')) as { version: string };
   assert.ok(capabilities.includes(`export const SERVER_VERSION = '${packageJson.version}';`));
@@ -593,7 +593,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 41;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 42;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -849,7 +849,34 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 41/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 42/);
   assert.doesNotMatch(workflows, /workflow === 'espidf\.(erase|efuse|raw)'/);
   assert.doesNotMatch(firmware, /async\s+(?:eraseFlash|writeEfuse|runRawEsptool)\s*\(/);
+});
+
+
+test('Camera Diagnostics Phase 1 stays bounded and read-only toward camera state', async () => {
+  const register = await read('src/extensions/camera/register.ts');
+  const store = await read('src/extensions/camera/profile-store.ts');
+  const rtsp = await read('src/extensions/camera/rtsp-client.ts');
+  const scopes = await read('src/security/request-principal.ts');
+  const capabilities = await read('src/capabilities.ts');
+
+  assert.match(register, /registerTool\('camera_provider_status'/);
+  assert.match(register, /registerTool\('camera_profile_list'/);
+  assert.match(register, /registerTool\('camera_profile_inspect'/);
+  assert.match(register, /registerTool\('camera_rtsp_probe'/);
+  assert.match(register, /registerTool\('camera_stream_metadata'/);
+
+  assert.match(scopes, /camera_provider_status: 'workstation\.read'/);
+  assert.match(scopes, /camera_profile_list: 'workstation\.read'/);
+  assert.match(scopes, /camera_profile_inspect: 'workstation\.read'/);
+  assert.match(scopes, /camera_rtsp_probe: 'workstation\.read'/);
+  assert.match(scopes, /camera_stream_metadata: 'workstation\.execute'/);
+
+  assert.match(capabilities, /engineering\.camera/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 42/);
+  assert.doesNotMatch(store, /password|username|tokenEnv|clientSecret/i);
+  assert.doesNotMatch(register, /registerTool\('camera_(ptz|talk|snapshot|write|config)/);
+  assert.match(rtsp, /DESCRIBE/);
 });

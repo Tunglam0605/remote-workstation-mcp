@@ -229,6 +229,40 @@ Available tools:
 
 Phase 1 does not expose PUBLISH, retained-message mutation, broker configuration or credential mutation.
 
+## Camera diagnostics Phase 1
+
+Camera diagnostics use owner-local, non-secret RTSP profiles stored outside the repository in `camera-profiles.json`.
+
+Example:
+
+```json
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "warehouse-1",
+      "label": "Warehouse camera 1",
+      "host": "192.168.1.20",
+      "port": 554,
+      "path": "/Streaming/Channels/101",
+      "transport": "tcp",
+      "auth": "none"
+    }
+  ]
+}
+```
+
+Phase 1 deliberately accepts anonymous RTSP profiles only. Hosts cannot contain schemes or userinfo, and paths cannot contain query tokens, fragments or traversal.
+
+Available tools:
+
+- `camera_provider_status` — reports the built-in RTSP probe backend and optional ffprobe readiness.
+- `camera_profile_list` / `camera_profile_inspect` — inspect non-secret owner-local camera profiles.
+- `camera_rtsp_probe` — sends one bounded RTSP DESCRIBE and reports reachability, auth requirement and SDP media tracks.
+- `camera_stream_metadata` — runs a fixed bounded ffprobe argv for anonymous profiles to return codec/resolution/FPS metadata.
+
+PTZ, two-way audio, camera configuration, credentials and snapshot/output mutation remain unavailable in Phase 1.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

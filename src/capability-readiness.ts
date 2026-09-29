@@ -171,6 +171,18 @@ async function readinessFor(id: string, deps: CapabilityReadinessDependencies): 
       };
     }
 
+    if (id === 'engineering.modbus_tcp') {
+      return {
+        state: 'ready',
+        source: 'static-contract',
+        evidence: {
+          providerAvailable: true,
+          backend: 'node:net',
+          readOnly: true
+        }
+      };
+    }
+
     if (id === 'engineering.modbus_rtu') {
       const status = await boundedProbe(() => deps.modbusProviderStatus());
       if (!status.supported) {

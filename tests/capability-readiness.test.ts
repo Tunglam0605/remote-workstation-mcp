@@ -104,3 +104,12 @@ test('CANopen readiness follows the underlying passive SocketCAN capture provide
   assert.equal(result?.readiness.state, 'unavailable');
   assert.match(result?.readiness.blockers?.[0] ?? '', /CANopen passive diagnostics/);
 });
+
+
+test('built-in Modbus TCP provider is ready without an external executable', async () => {
+  const [result] = await resolveCapabilityReadiness([capability('engineering.modbus_tcp')], deps());
+  assert.equal(result?.readiness.state, 'ready');
+  assert.equal(result?.readiness.source, 'static-contract');
+  assert.equal(result?.readiness.evidence?.backend, 'node:net');
+  assert.equal(result?.readiness.evidence?.readOnly, true);
+});

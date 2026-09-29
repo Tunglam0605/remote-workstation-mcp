@@ -10,7 +10,7 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 47 / Engineering API 5;
+- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 48 / Engineering API 5;
 - stable v0.66.0 authority, Work Session, hardware-interlock, updater and rollback contracts remain unchanged; v0.67 development tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
@@ -30,6 +30,15 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - accept only manifest-whitelisted scalar props, keep temporary props outside the project tree, reject existing/non-MP4 output and return SHA-256 artifact evidence;
 - keep raw Remotion arguments, arbitrary entry points/composition IDs from MCP, arbitrary environment injection and implicit overwrite unavailable;
 - advance Action Schema to 47; Engineering API remains 5.
+
+## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
+
+- add `camera_fleet_probe` as a read-only fleet diagnostic over owner-local camera profiles;
+- probe at most 32 explicit/configured profiles with bounded concurrency 1..8 and bounded RTSP timeout 250..10000 ms;
+- isolate per-camera failures so one unavailable/auth-required stream does not fail the whole fleet observation;
+- return bounded per-camera reachability/auth/media evidence plus fleet healthy/failed/auth-required counts and p50/p95 RTSP latency;
+- keep PTZ movement, camera configuration, snapshots, two-way audio and arbitrary endpoint mutation outside this fleet diagnostic surface;
+- advance Action Schema to 48; Engineering API remains 5.
 
 ## Next — post-v0.66 hardening
 

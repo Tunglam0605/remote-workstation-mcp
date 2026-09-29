@@ -11,7 +11,8 @@ const CAMERA_TOOLS = [
   'camera_stream_metadata',
   'camera_ptz_status',
   'camera_ptz_move',
-  'camera_ptz_stop'
+  'camera_ptz_stop',
+  'camera_fleet_probe'
 ] as const;
 
 const CAN_TOOLS = [

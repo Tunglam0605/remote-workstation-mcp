@@ -29,6 +29,7 @@ For STM32 E1, the initial source set is ST UM1718 (STM32CubeMX project/.ioc beha
 - `firmware_*` / `target_reset`: inspect, build, plan, flash, independently verify and reset firmware through constrained providers.
 - `debug_*` / `fault_decode`: OpenOCD + GDB/MI debugging, Cortex-M register/memory/fault inspection.
 - `ros2_*`: typed colcon build plus bounded node/topic/QoS/service/action/parameter/bag operations.
+- `canopen_*`: Linux SocketCAN passive CiA 301 diagnostics. Phase 1 decodes observed NMT, SYNC, EMCY, PDO, SDO and Heartbeat traffic without transmitting frames or changing bus state.
 - `container_*` / `image_build`: typed Docker lifecycle, logs, exec and build operations with a dedicated container policy. Inspection classifies privileged/host namespaces, Docker socket, host-root/sensitive mounts, device passthrough, root user and daemon/context risk before mutation.
 
 ## High-level workflow catalog

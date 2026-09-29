@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../../context.js';
 import { audited } from '../../security/audit.js';
+import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
 import { ComfyUiPresetJobs } from './comfyui-jobs.js';
 import { MediaVideoAdapter, type MediaTranscodePreset } from './media-adapter.js';
 import { MediaProfileStore } from './profile-store.js';
@@ -31,6 +32,7 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
   const profiles = new MediaProfileStore();
   const adapter = new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles);
   const jobs = new ComfyUiPresetJobs(profiles, new ComfyUiPresetStore());
+  const artifacts = new ComfyUiArtifactImporter(ctx.paths, profiles, jobs);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',
@@ -132,5 +134,40 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true }
   }, async ({ profileId, promptId, timeoutMs }) =>
     result(await audited(ctx.audit, 'media_comfyui_job_status', undefined, () => jobs.status(profileId, promptId, timeoutMs))));
+
+
+  server.registerTool('media_comfyui_artifact_plan', {
+    description: 'Plan import of one completed ComfyUI artifact selected only by prompt ID plus artifact index. Source filename/subfolder come from bounded history metadata; destination must remain inside the selected project and must not already exist.',
+    inputSchema: project.extend({
+      profileId: comfyProfileId,
+      promptId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
+      artifactIndex: z.number().int().min(0).max(255),
+      destination: relativeFile,
+      timeoutMs: z.number().int().min(250).max(15_000).default(5_000)
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true }
+  }, async ({ workspace, projectPath, profileId, promptId, artifactIndex, destination, timeoutMs }) =>
+    result(await audited(ctx.audit, 'media_comfyui_artifact_plan', workspace, () =>
+      artifacts.plan(profileId, promptId, artifactIndex, workspace, projectPath, destination, timeoutMs)
+    )));
+
+  server.registerTool('media_comfyui_artifact_import', {
+    description: 'Import one durable ComfyUI output artifact selected by history artifact index into the selected project. Requires Work Session ownership, fail-if-exists destination, streaming size bounds, temporary-file cleanup, atomic rename and SHA-256 evidence.',
+    inputSchema: project.extend({
+      workSessionId: z.string().uuid(),
+      profileId: comfyProfileId,
+      promptId: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/),
+      artifactIndex: z.number().int().min(0).max(255),
+      destination: relativeFile,
+      timeoutMs: z.number().int().min(1_000).max(300_000).default(60_000),
+      maxBytes: z.number().int().min(1).max(1_073_741_824).default(536_870_912)
+    }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ workspace, projectPath, workSessionId, profileId, promptId, artifactIndex, destination, timeoutMs, maxBytes }) =>
+    result(await audited(ctx.audit, 'media_comfyui_artifact_import', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () =>
+        artifacts.importArtifact(profileId, promptId, artifactIndex, workspace, projectPath, destination, { timeoutMs, maxBytes })
+      )
+    )));
 
 }

@@ -135,4 +135,87 @@ export class CameraDiagnosticsAdapter {
   async ptzStop(id: string, timeoutMs = 3_000) {
     return await this.ptz.stop(await this.store.resolvePtz(id), timeoutMs);
   }
+
+  async fleetProbe(options: { profileIds?: string[]; concurrency?: number; timeoutMs?: number } = {}) {
+    const timeoutMs = options.timeoutMs ?? 3_000;
+    const concurrency = options.concurrency ?? 4;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 10_000) throw new Error('Camera fleet timeoutMs must be in range 250..10000.');
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error('Camera fleet concurrency must be in range 1..8.');
+
+    const allProfiles = await this.store.list();
+    const requested = options.profileIds ?? [];
+    if (requested.length > 32) throw new Error('Camera fleet probe accepts at most 32 profile IDs.');
+    const uniqueRequested = [...new Set(requested)];
+    if (uniqueRequested.length !== requested.length) throw new Error('Camera fleet profile IDs must be unique.');
+
+    const selected = uniqueRequested.length
+      ? uniqueRequested.map(id => {
+          const profile = allProfiles.find(item => item.id === id);
+          if (!profile) throw new Error(`Camera profile '${id}' is not configured.`);
+          return profile;
+        })
+      : allProfiles.slice(0, 32);
+
+    const startedAt = Date.now();
+    const results = new Array<any>(selected.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (true) {
+        const index = cursor++;
+        const profile = selected[index];
+        if (!profile) return;
+        try {
+          const probe = await probeRtsp(profile, timeoutMs);
+          const codecs = [...new Set(probe.tracks.flatMap(track => track.codecs))].slice(0, 16);
+          results[index] = {
+            profileId: profile.id,
+            label: profile.label,
+            ok: probe.statusCode === 200,
+            statusCode: probe.statusCode,
+            latencyMs: probe.latencyMs,
+            authRequired: probe.authRequired,
+            videoTracks: probe.tracks.filter(track => track.media === 'video').length,
+            audioTracks: probe.tracks.filter(track => track.media === 'audio').length,
+            codecs
+          };
+        } catch (error) {
+          results[index] = {
+            profileId: profile.id,
+            label: profile.label,
+            ok: false,
+            error: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 256)
+          };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, selected.length)) }, () => worker()));
+
+    const completed = results.filter(Boolean);
+    const successfulLatencies = completed
+      .filter(item => item.ok && Number.isFinite(item.latencyMs))
+      .map(item => Number(item.latencyMs))
+      .sort((a, b) => a - b);
+    const percentile = (p: number) => {
+      if (!successfulLatencies.length) return undefined;
+      const index = Math.min(successfulLatencies.length - 1, Math.max(0, Math.ceil(successfulLatencies.length * p) - 1));
+      return successfulLatencies[index];
+    };
+
+    return {
+      requestedProfileIds: uniqueRequested,
+      selectedCount: selected.length,
+      concurrency,
+      timeoutMs,
+      durationMs: Date.now() - startedAt,
+      summary: {
+        healthy: completed.filter(item => item.ok).length,
+        failed: completed.filter(item => !item.ok).length,
+        authRequired: completed.filter(item => item.authRequired).length,
+        p50LatencyMs: percentile(0.5),
+        p95LatencyMs: percentile(0.95)
+      },
+      cameras: completed
+    };
+  }
+
 }

@@ -229,7 +229,7 @@ Available tools:
 
 Phase 1 does not expose PUBLISH, retained-message mutation, broker configuration or credential mutation.
 
-## Camera diagnostics Phase 2
+## Camera diagnostics Phase 3
 
 Camera diagnostics use owner-local RTSP profiles in `camera-profiles.json`. RTSP observation remains anonymous-only. Phase 2 optionally adds ONVIF PTZ metadata to a profile; the password value itself stays in an owner-controlled environment variable and is never accepted as an MCP argument.
 
@@ -271,8 +271,9 @@ Available tools:
 - `camera_ptz_status` — reads ONVIF PTZ position and move-state evidence.
 - `camera_ptz_move` — normalized pan/tilt/zoom in `[-1,1]`, duration 50–2000 ms, followed by an automatic PTZ Stop.
 - `camera_ptz_stop` — explicit bounded Stop for pan/tilt and zoom.
+- `camera_fleet_probe` — concurrently probes up to 32 configured cameras with bounded concurrency (1–8), returning per-camera health/auth/media evidence plus fleet p50/p95 RTSP latency.
 
-PTZ uses ONVIF WS-Security UsernameToken PasswordDigest; raw SOAP/XML and arbitrary endpoints are not accepted. Two-way audio, camera configuration and snapshot/output mutation remain unavailable in Phase 2. HTTPS uses normal certificate verification; no insecure TLS bypass is exposed.
+PTZ uses ONVIF WS-Security UsernameToken PasswordDigest; raw SOAP/XML and arbitrary endpoints are not accepted. Phase 3 adds only read-only fleet diagnostics on top of Phase 2 PTZ. Two-way audio, camera configuration and snapshot/output mutation remain unavailable. HTTPS uses normal certificate verification; no insecure TLS bypass is exposed.
 
 ## Media and video Phase 1
 

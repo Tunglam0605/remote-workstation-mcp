@@ -89,4 +89,18 @@ export function registerCameraTools(server: McpServer, ctx: AppContext): void {
   }, async ({ profileId: selected, timeoutMs }) => result(
     await audited(ctx.audit, 'camera_ptz_stop', undefined, () => adapter.ptzStop(selected, timeoutMs))
   ));
+
+  server.registerTool('camera_fleet_probe', {
+    description: 'Probe up to 32 owner-local camera profiles concurrently using bounded RTSP DESCRIBE requests. Aggregates health, auth-required state, media-track evidence and p50/p95 latency without mutating cameras.',
+    inputSchema: z.object({
+      profileIds: z.array(profileId).max(32).default([]),
+      concurrency: z.number().int().min(1).max(8).default(4),
+      timeoutMs: z.number().int().min(250).max(10_000).default(3_000)
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true }
+  }, async ({ profileIds, concurrency, timeoutMs }) => result(
+    await audited(ctx.audit, 'camera_fleet_probe', undefined, () =>
+      adapter.fleetProbe({ profileIds, concurrency, timeoutMs })
+    )
+  ));
 }

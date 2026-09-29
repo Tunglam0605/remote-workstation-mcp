@@ -8,6 +8,7 @@ import test from 'node:test';
 import { CameraProfileStore } from '../src/extensions/camera/profile-store.js';
 import { parseSdp, probeRtsp } from '../src/extensions/camera/rtsp-client.js';
 import { OnvifPtzClient } from '../src/extensions/camera/onvif-ptz.js';
+import { CameraDiagnosticsAdapter } from '../src/extensions/camera/camera-adapter.js';
 
 test('camera profile store loads bounded anonymous RTSP profiles', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-camera-'));
@@ -275,6 +276,72 @@ test('ONVIF PTZ status parses bounded position and move-state evidence', async (
     assert.deepEqual(status.position, { pan: 0.2, tilt: -0.4, zoom: 0.7 });
     assert.deepEqual(status.moveStatus, { panTilt: 'IDLE', zoom: 'MOVING' });
   } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+
+test('camera fleet probe aggregates mixed camera health with bounded concurrency', async () => {
+  const server = net.createServer(socket => {
+    socket.once('data', chunk => {
+      const firstLine = chunk.toString('utf8').split(/\r?\n/, 1)[0] ?? '';
+      const pathMatch = /^DESCRIBE\s+rtsp:\/\/[^/]+(\/[^\s]*)\s+RTSP\/1\.0$/i.exec(firstLine);
+      const requestPath = pathMatch?.[1] ?? '/';
+      if (requestPath === '/auth') {
+        socket.end([
+          'RTSP/1.0 401 Unauthorized',
+          'CSeq: 1',
+          'WWW-Authenticate: Digest realm="camera", nonce="fixture"',
+          'Content-Length: 0',
+          '',
+          ''
+        ].join('\r\n'));
+        return;
+      }
+      const body = requestPath === '/audio'
+        ? 'v=0\r\nm=audio 0 RTP/AVP 97\r\na=rtpmap:97 PCMU/8000\r\n'
+        : 'v=0\r\nm=video 0 RTP/AVP 96\r\na=rtpmap:96 H264/90000\r\n';
+      const respond = () => socket.end([
+        'RTSP/1.0 200 OK',
+        'CSeq: 1',
+        'Content-Type: application/sdp',
+        'Content-Length: ' + Buffer.byteLength(body),
+        '',
+        body
+      ].join('\r\n'));
+      if (requestPath === '/audio') setTimeout(respond, 30);
+      else respond();
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-camera-fleet-'));
+  const file = path.join(root, 'camera-profiles.json');
+  await fs.writeFile(file, JSON.stringify({
+    version: 1,
+    profiles: [
+      { id: 'video', host: '127.0.0.1', port: address.port, path: '/video', transport: 'tcp', auth: 'none' },
+      { id: 'audio', host: '127.0.0.1', port: address.port, path: '/audio', transport: 'tcp', auth: 'none' },
+      { id: 'auth', host: '127.0.0.1', port: address.port, path: '/auth', transport: 'tcp', auth: 'none' }
+    ]
+  }));
+
+  try {
+    const adapter = new CameraDiagnosticsAdapter(new CameraProfileStore(file), {} as any);
+    const result = await adapter.fleetProbe({ concurrency: 2, timeoutMs: 1_000 });
+    assert.equal(result.selectedCount, 3);
+    assert.equal(result.summary.healthy, 2);
+    assert.equal(result.summary.failed, 1);
+    assert.equal(result.summary.authRequired, 1);
+    assert.equal(result.cameras[0]?.videoTracks, 1);
+    assert.equal(result.cameras[1]?.audioTracks, 1);
+    assert.equal(result.cameras[2]?.authRequired, true);
+    assert.ok((result.summary.p50LatencyMs ?? 0) >= 0);
+    assert.ok((result.summary.p95LatencyMs ?? 0) >= (result.summary.p50LatencyMs ?? 0));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });

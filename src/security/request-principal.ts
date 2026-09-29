@@ -166,6 +166,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   camera_ptz_status: 'workstation.read',
   camera_ptz_move: 'workstation.execute',
   camera_ptz_stop: 'workstation.execute',
+  camera_fleet_probe: 'workstation.read',
   can_provider_status: 'workstation.read',
   can_interface_list: 'workstation.read',
   can_interface_status: 'workstation.read',

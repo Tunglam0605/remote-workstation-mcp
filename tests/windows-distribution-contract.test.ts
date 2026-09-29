@@ -442,19 +442,28 @@ test('Windows recovery circuit breaker persists cooldowns and opens after repeat
   assert.match(recovery, /Reset-RwmcpRecoveryCircuit/);
 });
 
-test('Windows installer repairs the OpenAI tunnel client even when the runtime slot already exists', async () => {
+test('Windows installer refreshes stale non-current version slots from the verified package before activation', async () => {
   const installer = await read('scripts/install-windows-release.ps1');
 
-  const slotBranch = installer.indexOf("  if (-not (Test-Path $Slot)) {");
-  const existingSlotBranch = installer.indexOf('Runtime slot already exists: $Slot', slotBranch);
-  const tunnelInstaller = installer.indexOf("$tunnelInstaller = Join-Path $Slot 'scripts\\install-openai-tunnel-windows.ps1'", existingSlotBranch);
-  const activateSlot = installer.indexOf('  $oldCurrent =', existingSlotBranch);
+  const integrityHelper = installer.indexOf('function Test-ReleaseSlotMatchesPackage');
+  const slotBranch = installer.indexOf('  if (Test-Path $Slot) {');
+  const activeMismatch = installer.indexOf('Refusing in-place repair of an active slot', slotBranch);
+  const refreshBranch = installer.indexOf('Refreshing existing non-current runtime slot from the verified release package', slotBranch);
+  const removeSlot = installer.indexOf('Remove-Item -LiteralPath $Slot -Recurse -Force', refreshBranch);
+  const installSlot = installer.indexOf('  if (-not (Test-Path $Slot)) {', removeSlot);
+  const tunnelInstaller = installer.indexOf("$tunnelInstaller = Join-Path $Slot 'scripts\\install-openai-tunnel-windows.ps1'", installSlot);
+  const activateSlot = installer.indexOf('  $oldCurrent =', tunnelInstaller);
 
-  assert.ok(slotBranch >= 0, 'runtime-slot install branch must exist');
-  assert.ok(existingSlotBranch > slotBranch, 'existing-slot branch must remain explicit');
-  assert.ok(tunnelInstaller > existingSlotBranch, 'tunnel-client repair must run after the existing-slot branch');
+  assert.ok(integrityHelper >= 0, 'release-slot package integrity helper must exist');
+  assert.ok(slotBranch > integrityHelper, 'existing-slot handling must follow integrity helpers');
+  assert.ok(activeMismatch > slotBranch, 'active stale slots must fail closed instead of being overwritten in place');
+  assert.ok(refreshBranch > activeMismatch, 'non-current existing slots must be refreshed from the verified package');
+  assert.ok(removeSlot > refreshBranch, 'stale non-current slot must be removed before reinstall');
+  assert.ok(installSlot > removeSlot, 'verified package must be installed after stale slot removal');
+  assert.ok(tunnelInstaller > installSlot, 'tunnel-client repair must run after slot installation/verification');
   assert.ok(tunnelInstaller < activateSlot, 'tunnel-client repair must run before the slot is activated');
-  assert.match(installer, /Test-Path \$tunnelInstaller/);
+  assert.match(installer, /Get-FileHash -LiteralPath \$sourceFile\.FullName -Algorithm SHA256/);
+  assert.match(installer, /Get-FileHash -LiteralPath \$targetFile -Algorithm SHA256/);
   assert.match(installer, /OpenAI tunnel-client installation failed/);
 });
 

@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 38;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 39;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   const packageJson = JSON.parse(await read('package.json')) as { version: string };
   assert.ok(capabilities.includes(`export const SERVER_VERSION = '${packageJson.version}';`));
@@ -590,7 +590,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 38;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 39;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -846,7 +846,7 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 38/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 39/);
   assert.doesNotMatch(workflows, /workflow === 'espidf\.(erase|efuse|raw)'/);
   assert.doesNotMatch(firmware, /async\s+(?:eraseFlash|writeEfuse|runRawEsptool)\s*\(/);
 });

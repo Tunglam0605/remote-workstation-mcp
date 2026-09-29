@@ -3,6 +3,7 @@ import { registerOfficeTools } from '../tools/office-tools.js';
 import { registerCanTools } from './can/register.js';
 import { registerCanopenTools } from './canopen/register.js';
 import { registerModbusTools } from './modbus/register.js';
+import { registerModbusTcpTools } from './modbus-tcp/register.js';
 import { registerMqttTools } from './mqtt/register.js';
 import { registerRos2Tools } from './ros2/register.js';
 import { registerStm32Tools } from './stm32/register.js';
@@ -31,6 +32,12 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       register: registerMqttTools
+    })
+    .add({
+      id: 'domain.modbus-tcp',
+      version: 1,
+      kind: 'domain',
+      register: registerModbusTcpTools
     })
     .add({
       id: 'domain.modbus-rtu',

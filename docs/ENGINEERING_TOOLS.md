@@ -153,6 +153,19 @@ ros2:
       - robot_control
 ```
 
+## Modbus TCP diagnostics Phase 1
+
+Modbus TCP diagnostics are cross-platform and read-only. The caller must provide one explicit host, port and Unit ID; RWMCP does not discover hosts or scan a subnet.
+
+Available tools:
+
+- `modbus_tcp_provider_status` — reports the built-in `node:net` read-only provider and supported functions.
+- `modbus_tcp_endpoint_status` — checks bounded TCP reachability for one explicit endpoint without sending a Modbus request.
+- `modbus_tcp_read` — performs one FC01/02/03/04 request with MBAP transaction/protocol/length/unit validation and bounded quantities.
+- `modbus_tcp_probe` — probes only 1..32 explicit unique Unit IDs supplied by the caller with one bounded read per Unit ID.
+
+Phase 1 intentionally excludes FC05/06/0F/10 and all other write/mutation functions, raw PDU injection, implicit Unit-ID sweeps, subnet scanning and server configuration.
+
 ## MQTT diagnostics Phase 1
 
 MQTT diagnostics are subscribe-only and use owner-local profiles instead of accepting broker credentials through MCP arguments. Profiles are stored outside the repository at the platform setup-config directory in `mqtt-profiles.json`.

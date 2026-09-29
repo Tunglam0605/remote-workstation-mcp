@@ -7,6 +7,8 @@ import '../assets/moonlight/translations-views.js';
 import { createViews } from '../assets/moonlight/views.js';
 
 const viewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/views.js');
+const primitivesPath = path.resolve(import.meta.dirname, '../assets/moonlight/view-primitives.js');
+const capabilityViewsPath = path.resolve(import.meta.dirname, '../assets/moonlight/capability-views.js');
 
 test('Moonlight views retain documented owner-control routes', async () => {
   const source = await readFile(viewsPath, 'utf8');
@@ -20,16 +22,18 @@ test('Moonlight views retain documented owner-control routes', async () => {
 });
 
 test('Moonlight views use actual workstation scope names and transient secret inputs', async () => {
-  const source = await readFile(viewsPath, 'utf8');
+  const [source, primitives] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(primitivesPath, 'utf8')]);
   for (const scope of ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control', 'workstation.cross_node_transfer']) assert.match(source, new RegExp(scope.replace('.', '\\.')));
   assert.match(source, /type: 'password'/);
   assert.match(source, /finally \{ bootstrapKey\.value = ''; \}/);
   assert.match(source, /finally \{ recoveryKey\.value = ''; \}/);
   assert.match(source, /finally \{ bootstrapCode\.value = ''; \}/);
-  assert.match(source, /control\.disabled = true/);
+  assert.match(primitives, /control\.disabled = true/);
   assert.match(source, /timeoutMs = 180_000/);
   assert.doesNotMatch(source, /innerHTML/);
+  assert.doesNotMatch(primitives, /innerHTML/);
   assert.doesNotMatch(source, /sessionStorage/);
+  assert.doesNotMatch(primitives, /sessionStorage/);
   assert.match(source, /codexModel/);
   assert.match(source, /codexAgentsEnabled/);
   assert.match(source, /codexSkillsEnabled/);
@@ -39,10 +43,10 @@ test('Moonlight views use actual workstation scope names and transient secret in
 });
 
 test('opening a view reads store state without issuing an API request', async () => {
-  const source = await readFile(viewsPath, 'utf8');
+  const [source, capabilitySource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(capabilityViewsPath, 'utf8')]);
   assert.match(source, /function open\(page\)/);
   for (const mapping of ['Work: openWork', 'Agents: openExecution', 'Engineering: openEngineering', 'Office: openOffice', 'Web: openWeb', 'Devices: openDevices', 'Security: openAccess', 'System: openSystem']) assert.match(source, new RegExp(mapping.replace(/[.*+?^${}()|[\\]\\]/g, '\\  assert.match(source, /\(\{ Access: openAccess, Execution: openExecution, Devices: openDevices, Updates: openUpdates, Settings: openSettings \}\[page\] \|\| \(\(\) => \{\}\)\)\(\);/);')));
-  assert.match(source, /function capabilityDomain\(/);
+  assert.match(capabilitySource, /function capabilityDomain\(/);
   assert.match(source, /Advanced access scopes/);
   assert.match(source, /security-summary/);
   assert.match(source, /security-primary-grid/);
@@ -50,7 +54,7 @@ test('opening a view reads store state without issuing an API request', async ()
   assert.match(source, /Show command hash/);
   assert.match(source, /Pair a new device/);
   assert.match(source, /Advanced multi-node transfers/);
-  assert.match(source, /live\('capabilities'\)/);
+  assert.match(capabilitySource, /live\('capabilities'\)/);
   assert.match(source, /function live\(name\) \{ return resource\(store, name\)\.data; \}/);
   assert.match(source, /deriveNotifications\(store\.getState\(\)\)/);
   assert.match(source, /state\.updateAvailable === true \? 'Update available' : state\.updateAvailable === false \? 'Current' : 'Unavailable'/);

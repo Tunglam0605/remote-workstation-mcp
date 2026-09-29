@@ -113,13 +113,14 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const views = await read('assets/moonlight/views.js');
   const capabilityViews = await read('assets/moonlight/capability-views.js');
   const systemAccessViews = await read('assets/moonlight/system-access-views.js');
+  const executionView = await read('assets/moonlight/execution-view.js');
   assert.match(navigation, /group: 'Home'/);
   assert.match(navigation, /group: 'Tools'/);
   assert.doesNotMatch(app, /renderOverviewSummary/);
   assert.doesNotMatch(app, /overview-refresh/);
   assert.match(app, /themes\.tick\(now\)/);
-  assert.match(views, /How should AI work\?/);
-  assert.match(views, /More routing combinations/);
+  assert.match(executionView, /How should AI work\?/);
+  assert.match(executionView, /More routing combinations/);
   assert.match(capabilityViews, /What you can do/);
   assert.match(systemAccessViews, /Advanced access scopes/);
   assert.match(views, /Advanced multi-node transfers/);

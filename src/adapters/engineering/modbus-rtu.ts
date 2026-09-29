@@ -188,7 +188,6 @@ export class ModbusRtuAdapter {
   }
 
   async endpointStatus(port: string) {
-    this.policy.assertEngineeringExecute();
     const selected = validateSerialPortPath(port);
     const ports = await SerialPort.list();
     const found = ports.find(item => item.path.toLowerCase() === selected.toLowerCase());

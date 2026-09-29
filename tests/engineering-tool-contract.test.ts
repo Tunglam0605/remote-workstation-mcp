@@ -384,6 +384,9 @@ test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface'
   }
   assert.match(scopes, /modbus_rtu_provider_status: 'workstation\.read'/);
   assert.match(scopes, /modbus_rtu_endpoint_status: 'workstation\.read'/);
+  const modbusRtuAdapter = await read('src/adapters/engineering/modbus-rtu.ts');
+  const endpointStatusBody = modbusRtuAdapter.match(/async endpointStatus\(port: string\) \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+  assert.doesNotMatch(endpointStatusBody, /assertEngineeringExecute/, 'endpointStatus must remain read-only');
   assert.match(scopes, /modbus_rtu_read: 'workstation\.read'/);
   assert.match(scopes, /modbus_rtu_probe: 'workstation\.read'/);
   assert.match(modbus, /supportedFunctions: \[1, 2, 3, 4\]/);

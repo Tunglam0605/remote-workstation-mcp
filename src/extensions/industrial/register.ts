@@ -13,10 +13,10 @@ const result = (value: unknown) => ({
 const profileId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 
 export function registerIndustrialTools(server: McpServer, ctx: AppContext): void {
-  const adapter = new IndustrialProfileAdapter(new IndustrialProfileStore(), ctx.policy);
+  const adapter = new IndustrialProfileAdapter(new IndustrialProfileStore(), ctx.policy, ctx.engineering.modbusRtu);
 
   server.registerTool('industrial_profile_list', {
-    description: 'List bounded owner-local non-secret industrial endpoint profiles for Modbus TCP, OPC UA and MQTT/AGV without opening network connections.',
+    description: 'List bounded owner-local non-secret industrial endpoint profiles for Modbus RTU, Modbus TCP, OPC UA and MQTT/AGV without opening network connections.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'industrial_profile_list', undefined, () => adapter.list())));
@@ -30,7 +30,7 @@ export function registerIndustrialTools(server: McpServer, ctx: AppContext): voi
   ));
 
   server.registerTool('industrial_profile_preflight', {
-    description: 'Run one bounded read-only readiness preflight for an explicit industrial profile. Modbus checks TCP reachability, OPC UA checks endpoint metadata, and MQTT/AGV connects/subscribes without publishing or returning payload contents.',
+    description: 'Run one bounded read-only readiness preflight for an explicit industrial profile. Modbus RTU checks explicit serial endpoint discovery, Modbus TCP checks TCP reachability, OPC UA checks endpoint metadata, and MQTT/AGV connects/subscribes without publishing or returning payload contents.',
     inputSchema: z.object({
       profileId,
       timeoutMs: z.number().int().min(250).max(10_000).default(2_000)

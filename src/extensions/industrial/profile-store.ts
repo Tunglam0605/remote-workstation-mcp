@@ -6,6 +6,20 @@ import { setupConfigDir } from '../../setup/settings.js';
 const profileId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const label = z.string().min(1).max(128).optional();
 
+const modbusRtuProfile = z.object({
+  id: profileId,
+  label,
+  kind: z.literal('modbus-rtu'),
+  port: z.string().min(1).max(260),
+  unitId: z.number().int().min(1).max(247),
+  baudRate: z.number().int().min(300).max(12_000_000).default(9600),
+  dataBits: z.union([z.literal(7), z.literal(8)]).default(8),
+  parity: z.union([z.literal('none'), z.literal('even'), z.literal('odd')]).default('even'),
+  stopBits: z.union([z.literal(1), z.literal(2)]).default(1),
+  function: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(3),
+  address: z.number().int().min(0).max(65_535).default(0)
+}).strict();
+
 const modbusTcpProfile = z.object({
   id: profileId,
   label,
@@ -34,6 +48,7 @@ const mqttAgvProfile = z.object({
 }).strict();
 
 const industrialProfile = z.discriminatedUnion('kind', [
+  modbusRtuProfile,
   modbusTcpProfile,
   opcuaProfile,
   mqttAgvProfile

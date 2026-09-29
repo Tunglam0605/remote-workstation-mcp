@@ -1,4 +1,5 @@
 import type { PolicyEngine } from '../../policy.js';
+import type { ModbusRtuAdapter } from '../../adapters/engineering/modbus-rtu.js';
 import { ModbusTcpAdapter } from '../modbus-tcp/modbus-tcp-adapter.js';
 import { MqttDiagnosticClient } from '../mqtt/mqtt-client.js';
 import { MqttProfileStore } from '../mqtt/profile-store.js';
@@ -13,7 +14,8 @@ export class IndustrialProfileAdapter {
 
   constructor(
     private readonly store: IndustrialProfileStore,
-    policy: PolicyEngine
+    policy: PolicyEngine,
+    private readonly modbusRtu: ModbusRtuAdapter
   ) {
     this.modbus = new ModbusTcpAdapter(policy);
     this.opcua = new OpcUaAdapter(policy);
@@ -37,6 +39,17 @@ export class IndustrialProfileAdapter {
     }
     const profile = await this.store.get(id);
     const startedAt = Date.now();
+
+    if (profile.kind === 'modbus-rtu') {
+      const endpoint = await this.modbusRtu.endpointStatus(profile.port);
+      return {
+        profile: this.publicProfile(profile),
+        provider: 'modbus-rtu',
+        ready: endpoint.discovered,
+        durationMs: Date.now() - startedAt,
+        evidence: endpoint
+      };
+    }
 
     if (profile.kind === 'modbus-tcp') {
       const endpoint = await this.modbus.endpointStatus(profile.host, {
@@ -108,6 +121,21 @@ export class IndustrialProfileAdapter {
   }
 
   private publicProfile(profile: IndustrialProfile) {
+    if (profile.kind === 'modbus-rtu') {
+      return {
+        id: profile.id,
+        label: profile.label,
+        kind: profile.kind,
+        port: profile.port,
+        unitId: profile.unitId,
+        baudRate: profile.baudRate,
+        dataBits: profile.dataBits,
+        parity: profile.parity,
+        stopBits: profile.stopBits,
+        function: profile.function,
+        address: profile.address
+      };
+    }
     if (profile.kind === 'modbus-tcp') {
       return {
         id: profile.id,

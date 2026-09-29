@@ -111,6 +111,7 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   const navigation = await read('assets/moonlight/navigation.js');
   const app = await read('assets/moonlight/app.js');
   const views = await read('assets/moonlight/views.js');
+  const capabilityViews = await read('assets/moonlight/capability-views.js');
   assert.match(navigation, /group: 'Home'/);
   assert.match(navigation, /group: 'Tools'/);
   assert.doesNotMatch(app, /renderOverviewSummary/);
@@ -118,14 +119,14 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   assert.match(app, /themes\.tick\(now\)/);
   assert.match(views, /How should AI work\?/);
   assert.match(views, /More routing combinations/);
-  assert.match(views, /What you can do/);
+  assert.match(capabilityViews, /What you can do/);
   assert.match(views, /Advanced access scopes/);
   assert.match(views, /Advanced multi-node transfers/);
   assert.match(views, /security-primary-grid/);
   assert.match(views, /security-admin-section/);
   assert.match(views, /Show command hash/);
-  assert.match(views, /Multi-agent objective flow/);
-  assert.match(views, /work_objective_execute_wave/);
+  assert.match(capabilityViews, /Multi-agent objective flow/);
+  assert.match(capabilityViews, /work_objective_execute_wave/);
 });
 
 test('v0.54 SocketCAN surface stays bounded and read-only', async () => {

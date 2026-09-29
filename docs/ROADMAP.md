@@ -34,7 +34,8 @@ Goal: make repository structure match the long-term product boundaries without c
 - preserve existing security, Work Session ownership, concurrency and audit behavior through every move.
 
 ### D. Control Center and runtime composition
-- separate Control Center pages/components/services from theme assets and view composition;
+- Moonlight shared DOM primitives and capability-driven Work/Engineering/Office/Web pages split out of the oversized `views.js` while preserving DOM/API contracts;
+- continue separating Access/Execution/System page ownership from shared view composition;
 - expose extension capability/status through generic metadata instead of hard-coded app/domain UI;
 - retain local-only security boundaries and platform-specific approval behavior.
 

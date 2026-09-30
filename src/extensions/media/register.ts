@@ -9,6 +9,7 @@ import { MediaProfileStore } from './profile-store.js';
 import { RemotionRenderAdapter } from './remotion-render.js';
 import { RemotionPresetStore } from './remotion-store.js';
 import { ComfyUiPresetStore } from './workflow-store.js';
+import { mediaWorkflowContributions } from './workflows.js';
 
 const result = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -43,6 +44,9 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
   const remotion = new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore());
   const jobs = new ComfyUiPresetJobs(profiles, new ComfyUiPresetStore());
   const artifacts = new ComfyUiArtifactImporter(ctx.paths, profiles, jobs);
+  for (const contribution of mediaWorkflowContributions({ adapter, remotion, jobs, artifacts })) {
+    ctx.engineering.workflows.registerContribution(contribution);
+  }
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',

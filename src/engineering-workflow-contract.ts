@@ -88,6 +88,19 @@ export const workflowRuntimeParametersSchema = z.object({
   sourcePath: z.string().min(1).max(1024).optional(),
   destinationBasePath: z.string().min(1).max(1024).optional(),
   destinationFileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
+  mediaPresetId: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/).optional(),
+  mediaParameters: z.record(
+    z.string().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/),
+    z.union([z.string().max(16_384), z.number().finite(), z.boolean()])
+  ).superRefine((value, ctx) => {
+    if (Object.keys(value).length > 64) ctx.addIssue({ code: 'custom', message: 'Media parameters are limited to 64 bindings.' });
+  }).optional(),
+  mediaOutput: z.string().min(1).max(1024).optional(),
+  mediaArtifactIndex: z.number().int().min(0).max(255).optional(),
+  mediaPollIntervalMs: z.number().int().min(500).max(5_000).optional(),
+  mediaCompletionTimeoutMs: z.number().int().min(1_000).max(300_000).optional(),
+  mediaOperationTimeoutMs: z.number().int().min(5_000).max(3_600_000).optional(),
+  mediaMaxBytes: z.number().int().min(1).max(1_073_741_824).optional(),
   workSessionId: z.string().uuid().optional()
 }).strict().default({});
 

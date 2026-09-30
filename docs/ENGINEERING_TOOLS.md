@@ -394,6 +394,19 @@ Example owner-local preset manifest:
 }
 ```
 
+### Media end-to-end engineering workflows (Phase 5)
+
+Phase 5 connects the existing Media extension to the generic Engineering Workflow envelope instead of adding more top-level MCP actions. Extension-owned workflow contributions are registered behind the same `engineering_workflow_list`, `engineering_workflow_plan` and `engineering_workflow_run` contract used by core engineering domains.
+
+- `media.remotion.render_accept` validates an owner-local Remotion preset, renders one fail-if-exists MP4, then requires FFprobe acceptance evidence before success.
+- `media.comfyui.generate_import_accept` validates an owner-local ComfyUI preset, submits it, bounded-polls completion, atomically imports one durable output artifact, then requires FFprobe acceptance evidence.
+- mutating extension workflows require an explicit Work Session even when invoked through the generic workflow envelope.
+- contribution IDs cannot shadow built-in workflow IDs; duplicate and malformed registrations fail closed.
+- ComfyUI waiting is finite and never implies remote queue cancellation. A completion timeout returns the durable prompt ID as recovery evidence.
+- acceptance failure preserves the already-created artifact evidence for diagnosis rather than silently deleting a completed render/import.
+
+The contribution seam is domain-neutral so later Camera, CANopen, OPC UA or other extensions can add compound workflows without growing `EngineeringWorkflowEngine` into another domain monolith.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

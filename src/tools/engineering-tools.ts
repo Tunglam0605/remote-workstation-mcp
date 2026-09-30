@@ -95,7 +95,7 @@ export function registerEngineeringTools(server: McpServer, ctx: AppContext): vo
     const parsed = workflowRuntimeParameters.parse({ ...(overrides ?? {}), ...parameters });
     const { workSessionId, ...runtimeParameters } = parsed;
     return result(await audited(ctx.audit, 'engineering_workflow_plan', workspace, () =>
-      ctx.runInWorkSession(workSessionId, () => ctx.engineering.workflows.plan(workspace, projectPath, workflow as never, runtimeParameters))
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.workflows.plan(workspace, projectPath, workflow, runtimeParameters))
     ));
   });
 

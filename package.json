@@ -8,7 +8,7 @@
     "rwmcp-tui": "dist/tui-cli.js"
   },
   "files": [
-    "dist/",
+    "dist/**/*.js",
     "assets/",
     "config/policy.example.yaml",
     "config/hosts.example.yaml",

@@ -1,4 +1,5 @@
 import type { CanAdapter } from '../../adapters/engineering/can.js';
+import { analyzeCanopenFrames, type CanopenAnalysisFrame } from './analysis.js';
 import { enrichSemanticFrame, type ObjectDictionary } from './eds.js';
 import { decodeSyncPayload, decodeTimePayload, describeEmergency, describeSdoAbort, describeSdoCommand, protocolIssues } from './protocol.js';
 
@@ -268,6 +269,7 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
   if (frame.id >= 0x601 && frame.id <= 0x67f) {
     const commandSpecifier = byte(frame.data[0]);
     const address = objectAddress(frame.data);
+    const abortCode = commandSpecifier === 0x80 ? le32(frame.data, 4) : undefined;
     return {
       ...common,
       kind: 'sdo-request' as const,
@@ -275,6 +277,11 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
       commandSpecifier,
       ...(describeSdoCommand('sdo-request', commandSpecifier) ?? {}),
       ...(address ? { object: address } : {}),
+      ...(abortCode !== undefined ? {
+        abortCode,
+        abortCodeHex: `0x${abortCode.toString(16).toUpperCase().padStart(8, '0')}`,
+        abort: describeSdoAbort(abortCode)
+      } : {}),
       protocol: protocol('sdo-request')
     };
   }
@@ -317,11 +324,11 @@ export class CanopenAdapter {
     return {
       supported,
       offlineEdsDcfInspection: true,
-      profile: 'CiA 301 passive diagnostics + bounded EDS/DCF semantics',
+      profile: 'CiA 301 passive diagnostics + bounded EDS/DCF semantics + reusable passive analysis',
       transport: supported ? 'SocketCAN + project-local EDS/DCF' : 'project-local EDS/DCF',
       captureBackend: can.captureBackend,
       authority: 'read-only-passive',
-      availableObjects: ['EDS/DCF object dictionary inspection', 'exact object lookup', 'NMT observation', 'SYNC observation', 'EMCY decode', 'PDO classification/semantic mapping', 'SDO observation/expedited semantic decode', 'Heartbeat/NMT-state observation'],
+      availableObjects: ['EDS/DCF object dictionary inspection', 'exact object lookup', 'NMT observation', 'SYNC observation', 'EMCY decode', 'PDO classification/semantic mapping', 'SDO observation/expedited semantic decode', 'Heartbeat/NMT-state observation', 'generic node inventory/state analysis', 'SDO initiate exchange correlation', 'PDO/SYNC/Heartbeat cadence and jitter evidence'],
       intentionallyUnavailable: ['CAN frame transmission', 'NMT command transmission', 'SDO upload/download initiation', 'PDO transmission', 'LSS', 'node guarding requests', 'bus configuration'],
       baseCan: can
     };
@@ -382,6 +389,38 @@ export class CanopenAdapter {
       capturedFrameCount: capture.frames.length, decodedFrameCount: decoded.length,
       ignoredFrameCount: capture.frames.length - decoded.length,
       frames: decoded, warnings: capture.warnings
+    };
+  }
+
+  async captureAnalyze(
+    interfaceName: string,
+    dictionary: ObjectDictionary | undefined,
+    options: { count?: number; inactivityTimeoutMs?: number; nodeIds?: number[]; gapFactor?: number } = {}
+  ) {
+    const sample = dictionary
+      ? await this.captureSemanticDecode(interfaceName, dictionary, options)
+      : await this.captureDecode(interfaceName, options);
+    const analysis = analyzeCanopenFrames(sample.frames as CanopenAnalysisFrame[], { gapFactor: options.gapFactor });
+    return {
+      interface: sample.interface,
+      backend: sample.backend,
+      semanticDictionaryApplied: Boolean(dictionary),
+      requestedNodeIds: [...(options.nodeIds ?? [])].sort((a, b) => a - b),
+      capture: {
+        requestedCount: sample.requestedCount,
+        capturedFrameCount: sample.capturedFrameCount,
+        decodedFrameCount: sample.decodedFrameCount,
+        ignoredFrameCount: sample.ignoredFrameCount,
+        inactivityTimeoutMs: sample.inactivityTimeoutMs,
+        warnings: sample.warnings
+      },
+      ...(dictionary ? {
+        dictionary: {
+          metadata: dictionary.metadataSummary(),
+          communicationProfile: dictionary.communicationProfile(options.nodeIds?.length === 1 ? options.nodeIds[0] : undefined)
+        }
+      } : {}),
+      analysis
     };
   }
 

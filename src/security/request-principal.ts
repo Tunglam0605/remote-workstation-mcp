@@ -173,6 +173,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   can_capture: 'workstation.read',
   canopen_provider_status: 'workstation.read',
   canopen_capture_decode: 'workstation.read',
+  canopen_capture_analyze: 'workstation.read',
   canopen_node_observe: 'workstation.read',
   canopen_eds_inspect: 'workstation.read',
   canopen_eds_profile: 'workstation.read',

@@ -10,7 +10,7 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 49 / Engineering API 5;
+- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 50 / Engineering API 5;
 - stable v0.66.0 authority, Work Session, hardware-interlock, updater and rollback contracts remain unchanged; v0.67 development tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
@@ -32,6 +32,17 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - summarize CiA 301 communication objects 0x1005/0x1012/0x1014/0x1017/0x1019/0x1200 and PDO communication/mapping ranges; retain bounded raw evidence for segmented SDO, unsupported data types, unresolved expressions and non-byte-aligned mappings instead of guessing values;
 - keep frame transmission, active SDO requests/writes, NMT command transmission, PDO transmission, LSS and bus configuration unavailable;
 - advance Action Schema to 49; Engineering API remains 5.
+
+## Post-v0.66 tool expansion — CANopen Phase 3
+
+- add one deep reusable `canopen_capture_analyze` tool instead of project-specific or narrowly named diagnostics;
+- keep analysis logic in a transport-agnostic pure module so the same engine can later consume live SocketCAN, imported candump logs, USB-CAN captures or test fixtures;
+- derive bounded node inventory, Heartbeat/NMT state transitions, EMCY/SDO/PDO counts and protocol issue evidence;
+- correlate SDO initiate request/response exchanges, distinguish expedited completion from segmented/block transfer initiation, preserve abort evidence and never claim full segmented completion without observing it;
+- summarize PDO, Heartbeat and SYNC cadence with median/p95/max interval, absolute jitter and relative gap evidence;
+- never infer a protocol timeout solely from an observed gap; configured timeout semantics must come from explicit profile/EDS/DCF data before a timeout conclusion is allowed;
+- keep all CAN/CANopen analysis read-only and free of device-, vendor- or project-specific logic;
+- advance Action Schema to 50; Engineering API remains 5.
 
 ## Post-v0.66 tool expansion — Media/Video Phase 4
 

@@ -37,6 +37,33 @@ export function registerCanopenTools(server: McpServer, ctx: AppContext): void {
     await audited(ctx.audit, 'canopen_capture_decode', undefined, () => adapter.captureDecode(selected, { count, inactivityTimeoutMs, nodeIds }))
   ));
 
+  server.registerTool('canopen_capture_analyze', {
+    description: 'Analyze one bounded passive CANopen capture into reusable node inventory, Heartbeat/NMT transitions, SDO initiate request/response correlation, PDO/SYNC/Heartbeat cadence and protocol-conformance evidence. Optional project-scoped EDS/DCF adds configured COB-ID and value semantics. Gap statistics are evidence only and are not labeled timeouts without an explicit configured timeout. No CAN frame is transmitted.',
+    inputSchema: z.object({
+      interface: interfaceName,
+      count: z.number().int().min(1).max(1000).default(500),
+      inactivityTimeoutMs: z.number().int().min(100).max(30_000).default(5_000),
+      nodeIds: z.array(nodeId).max(32).default([]),
+      gapFactor: z.number().min(1.1).max(10).default(2),
+      workspace: z.string().min(1).max(128).optional(),
+      projectPath: z.string().min(1).max(1024).optional(),
+      edsPath: z.string().min(1).max(1024).optional()
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ interface: selected, count, inactivityTimeoutMs, nodeIds, gapFactor, workspace, projectPath, edsPath }) => {
+    const dictionaryRequested = workspace !== undefined || projectPath !== undefined || edsPath !== undefined;
+    if (dictionaryRequested && (!workspace || !edsPath)) {
+      throw new Error('CANopen capture analysis requires workspace and edsPath together when EDS/DCF semantics are requested.');
+    }
+    return result(await audited(ctx.audit, 'canopen_capture_analyze', workspace, async () =>
+      adapter.captureAnalyze(
+        selected,
+        dictionaryRequested ? await eds.load(workspace!, projectPath ?? '.', edsPath!) : undefined,
+        { count, inactivityTimeoutMs, nodeIds, gapFactor }
+      )
+    ));
+  });
+
   server.registerTool('canopen_node_observe', {
     description: 'Passively observe explicit or traffic-discovered CANopen node IDs and summarize Heartbeat/NMT state, boot-up, EMCY, SDO and PDO evidence from one bounded capture. An empty nodeIds list discovers only nodes already visible in captured traffic and never scans or transmits on the bus.',
     inputSchema: z.object({

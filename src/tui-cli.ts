@@ -9,9 +9,7 @@ import {
   restartManagedRuntime,
   setAccessMode,
   setDeviceName,
-  setMcpPort,
-  setRuntimeApiKey,
-  setTunnelId
+  setMcpPort
 } from './tui/config.js';
 import {
   approveLinuxHostRebootRequest,

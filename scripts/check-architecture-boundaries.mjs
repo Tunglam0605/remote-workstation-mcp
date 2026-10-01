@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const ROOT = path.resolve('src');
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs']);
+const PUBLIC_TEMPLATE_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml']);
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{2,127}$/;
 const PROJECT_SPECIFIC_CORE_TOKENS = [
   ['AUBOT', /\bAUBOT\b/i],
@@ -23,12 +24,38 @@ const EXTENSION_FORBIDDEN_TOP_LEVEL_IMPORTS = new Set([
 const violations = [];
 const registeredTools = new Map();
 let inspectedFiles = 0;
+let inspectedPublicTemplates = 0;
 
 function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full);
     else if (SOURCE_EXTENSIONS.has(path.extname(entry.name))) inspect(full);
+  }
+}
+
+function checkProjectAgnosticText(relative, text) {
+  for (const [label, pattern] of PROJECT_SPECIFIC_CORE_TOKENS) {
+    if (pattern.test(text)) {
+      violations.push(
+        `${relative}: project-specific token '${label}' must live in project/profile/manifest data or historical audit evidence, not a public runtime/template surface`
+      );
+    }
+  }
+}
+
+function inspectPublicTemplate(file) {
+  inspectedPublicTemplates += 1;
+  const relative = path.relative(path.resolve('.'), file).replaceAll('\\', '/');
+  checkProjectAgnosticText(relative, fs.readFileSync(file, 'utf8'));
+}
+
+function walkPublicTemplates(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkPublicTemplates(full);
+    else if (PUBLIC_TEMPLATE_EXTENSIONS.has(path.extname(entry.name))) inspectPublicTemplate(full);
   }
 }
 
@@ -87,16 +114,13 @@ function inspect(file) {
     recordTool(match[1], relative);
   }
 
-  for (const [label, pattern] of PROJECT_SPECIFIC_CORE_TOKENS) {
-    if (pattern.test(text)) {
-      violations.push(
-        `${relative}: project-specific token '${label}' must live in project/profile/manifest data, not shipping source`
-      );
-    }
-  }
+  checkProjectAgnosticText(relative, text);
 }
 
 walk(ROOT);
+inspectPublicTemplate(path.resolve('README.md'));
+walkPublicTemplates(path.resolve('config'));
+walkPublicTemplates(path.resolve('plugins'));
 
 for (const [tool, locations] of registeredTools) {
   if (locations.length > 1) {
@@ -111,5 +135,5 @@ if (violations.length) {
 }
 
 console.log(
-  `Architecture boundaries: OK (${inspectedFiles} source files, ${registeredTools.size} unique public MCP tools)`
+  `Architecture boundaries: OK (${inspectedFiles} source files, ${registeredTools.size} unique public MCP tools, ${inspectedPublicTemplates} public templates)`
 );

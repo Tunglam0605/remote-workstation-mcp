@@ -329,22 +329,6 @@ async function windowsRuntimeControl(repoRoot: string, action: RuntimeAction | '
   return parseJsonOutput(result.output);
 }
 
-async function safeWindowsRuntimeStatus(repoRoot: string): Promise<Record<string, unknown>> {
-  try {
-    return await windowsRuntimeControl(repoRoot, 'Status') as Record<string, unknown>;
-  } catch (error) {
-    return {
-      supported: process.platform === 'win32',
-      running: false,
-      mcpHealthy: false,
-      tunnelReady: false,
-      connectionState: 'OFFLINE',
-      connectionReason: 'runtime-control-unavailable',
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-}
-
 async function readWindowsRuntimeKey(repoRoot: string): Promise<string | null> {
   if (process.platform !== 'win32') return null;
   const script = path.join(repoRoot, 'scripts', 'windows-secret.ps1');
@@ -380,7 +364,7 @@ function tunnelClientPath(repoRoot: string): string {
     : path.join(linuxDataHome(), 'runtime', 'openai-tunnel', 'tunnel-client');
 }
 
-async function runtimeKeyStored(repoRoot: string): Promise<boolean> {
+async function runtimeKeyStored(): Promise<boolean> {
   if (process.platform === 'win32') return await pathExists(setupSecretPath());
   const envFile = await readEnvFile(linuxOpenAiEnvPath());
   return Boolean(envFile.get('CONTROL_PLANE_API_KEY'));
@@ -1151,8 +1135,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           settings,
           settingsPersisted: settingsFileExists,
           settingsPath: setupSettingsPath(),
-          runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
-          onboardingRequired: !settings.tunnelId || !(await runtimeKeyStored(repoRoot)),
+          runtimeApiKeyStored: await runtimeKeyStored(),
+          onboardingRequired: !settings.tunnelId || !(await runtimeKeyStored()),
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable,
@@ -1174,8 +1158,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           recommendedAppName: recommendedChatGptAppName(identity),
           settings,
           settingsPersisted: await pathExists(setupSettingsPath()),
-          runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
-          onboardingRequired: !settings.tunnelId || !(await runtimeKeyStored(repoRoot)),
+          runtimeApiKeyStored: await runtimeKeyStored(),
+          onboardingRequired: !settings.tunnelId || !(await runtimeKeyStored()),
           tunnelClientInstalled: await pathExists(tunnelClient),
           workspaceExists: await directoryExists(settings.workspaceRoot),
           configuredPortAvailable: true,
@@ -1223,7 +1207,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         json(res, 200, {
           ok: true,
           settings,
-          runtimeApiKeyStored: await runtimeKeyStored(repoRoot),
+          runtimeApiKeyStored: await runtimeKeyStored(),
           reconnectAccepted: reconnect && restart !== null,
           restart
         });
@@ -1849,7 +1833,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         json(res, 200, {
           ok: true,
           message: `${settingsPath}; ${policy.created ? 'created default policy' : 'existing policy preserved'} at ${policy.path}; ${hosts.created ? 'created hosts config' : 'existing hosts config preserved'} at ${hosts.path}.`,
-          runtimeApiKeyStored: await runtimeKeyStored(repoRoot)
+          runtimeApiKeyStored: await runtimeKeyStored()
         });
         return;
       }

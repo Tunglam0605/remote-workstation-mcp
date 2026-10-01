@@ -108,15 +108,6 @@ export class DeviceRegistryAdapter {
     return [local, ...pairedDescriptors, ...remote];
   }
 
-  private remoteHostId(id: string): string {
-    const host = this.ssh.listHosts().find(item => item.id === id);
-    if (host) return host.id;
-    if (id === localDeviceId(this.identity)) {
-      throw new Error(`Device '${id}' is local. Use the normal workspace/process tools for local execution.`);
-    }
-    throw new Error(`Device '${id}' is not registered by the local owner.`);
-  }
-
   private async routeRemote(id: string): Promise<{ hostId: string; transport: 'ssh' | 'paired_ssh' }> {
     const direct = this.ssh.listHosts().find(item => item.id === id);
     if (direct) return { hostId: direct.id, transport: 'ssh' };

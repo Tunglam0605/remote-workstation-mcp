@@ -3,7 +3,7 @@ import type { EngineeringResourceManager } from './adapters/engineering/resource
 import type { NodeInterlockRecord, NodeInterlockStore } from './node-interlock.js';
 import type { TaskAttemptRecord, TaskAttemptStore } from './task-attempt-store.js';
 import type { DeterministicTaskScheduler, ScheduledTask, TaskGraphStore } from './task-graph.js';
-import type { WorkSession, WorkSessionStore } from './work-session.js';
+import type { WorkSession } from './work-session.js';
 import type { WorkerProviderStatus } from './worker-provider.js';
 
 export type SchedulerAvailability =

@@ -282,7 +282,7 @@ v0.12.0 makes the Engineering Workflow Engine practical for real multi-target Ke
 - add project-profile firmware variants so one repository can safely represent F407/H743/hardware-test targets without guessing the active board;
 - keep `engineering_workflow_plan/run` action schemas stable through a string workflow ID plus server-validated `parameters`, and allow a versioned generic `profile` payload for profile initialization;
 - expose `actionSchemaVersion=2` and `engineeringApiVersion=2` so operators can distinguish an app-catalog refresh from normal provider/workflow growth;
-- validate the Keil provider on the real B300 F407 target with ÂµVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
+- validate the Keil provider on a real STM32F407 target with ÂµVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
 
 v0.11.0 deepens the Engineering Workflow Engine so repeated embedded/ROS work can collapse into one typed MCP call:
 
@@ -345,7 +345,7 @@ v0.9.4 hardens the Windows Control Center as the always-on local recovery plane:
 v0.9.3 hardens the STM32/OpenOCD provider contract without opening new dangerous debug surfaces:
 
 - add `firmware_provider_status` for OpenOCD availability/version/capability preflight;
-- allow an owner-controlled absolute `RWMCP_OPENOCD_EXECUTABLE` override so RWMCP can reuse pinned xPack/ST OpenOCD backends such as those used by B300 tooling without accepting executable paths from AI tool calls;
+- allow an owner-controlled absolute `RWMCP_OPENOCD_EXECUTABLE` override so RWMCP can reuse pinned xPack/ST OpenOCD backends such as those used by pinned corporate STM32 tooling without accepting executable paths from AI tool calls;
 - add bounded `adapterSpeedKhz` (50..24000 kHz) to STM32 flash/verify/reset and debug-session startup;
 - classify common OpenOCD failures into actionable codes such as probe missing/permission denied, target power/connect failure, verify failure, timeout and config missing;
 - keep arbitrary TCL, mass erase, Option Bytes, readout-protection changes, memory write and GDB flash unavailable;
@@ -402,7 +402,7 @@ Example Keil multi-target STM32 profile:
 
 ```yaml
 version: 1
-id: b300-main-custom
+id: stm32-multitarget-demo
 kind: stm32
 firmware:
   buildProvider: keil
@@ -429,19 +429,19 @@ Example ESP-IDF profile:
 
 ```yaml
 version: 1
-id: callbox
+id: esp32-device
 kind: esp-idf
 firmware:
   buildProvider: esp-idf
   buildDir: build
   flashProvider: esp-idf
   portSelector:
-    serialNumber: CALLBOX-01
+    serialNumber: ESP32-DEVICE-01
     vendorId: 303A
     productId: 1001
   monitor:
     selector:
-      serialNumber: CALLBOX-01
+      serialNumber: ESP32-DEVICE-01
       vendorId: 303A
       productId: 1001
     baudRate: 115200

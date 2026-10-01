@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod/v4';
 import { setupConfigDir } from '../../setup/settings.js';
+import { validateTopicFilter } from '../mqtt/mqtt-client.js';
 
 const profileId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const label = z.string().min(1).max(128).optional();
@@ -39,19 +40,19 @@ const opcuaProfile = z.object({
   rootNodeId: z.string().min(1).max(512).default('RootFolder')
 }).strict();
 
-const mqttAgvProfile = z.object({
+const mqttTopicProfile = z.object({
   id: profileId,
   label,
-  kind: z.literal('mqtt-agv'),
+  kind: z.literal('mqtt-topic'),
   mqttProfileId: profileId,
-  vehicle: z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/)
+  topicFilter: z.string().min(1).max(512)
 }).strict();
 
 const industrialProfile = z.discriminatedUnion('kind', [
   modbusRtuProfile,
   modbusTcpProfile,
   opcuaProfile,
-  mqttAgvProfile
+  mqttTopicProfile
 ]);
 
 const configSchema = z.object({
@@ -82,6 +83,9 @@ export class IndustrialProfileStore {
     return parsed.profiles.map(profile => {
       if (seen.has(profile.id)) throw new Error(`Duplicate industrial profile id '${profile.id}'.`);
       seen.add(profile.id);
+      if (profile.kind === 'mqtt-topic') {
+        return { ...profile, topicFilter: validateTopicFilter(profile.topicFilter) };
+      }
       return profile;
     });
   }

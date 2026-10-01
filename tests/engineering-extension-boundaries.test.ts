@@ -54,7 +54,7 @@ const MEDIA_TOOLS = [
 const MQTT_TOOLS = [
   'mqtt_provider_status',
   'mqtt_subscribe_sample',
-  'mqtt_agv_lift_observe'
+  'mqtt_json_observe'
 ] as const;
 
 const INDUSTRIAL_TOOLS = [

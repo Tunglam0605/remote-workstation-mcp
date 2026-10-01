@@ -196,7 +196,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   media_comfyui_artifact_import: 'workstation.execute',
   mqtt_provider_status: 'workstation.read',
   mqtt_subscribe_sample: 'workstation.read',
-  mqtt_agv_lift_observe: 'workstation.read',
+  mqtt_json_observe: 'workstation.read',
   industrial_profile_list: 'workstation.read',
   industrial_profile_inspect: 'workstation.read',
   industrial_profile_preflight: 'workstation.read',

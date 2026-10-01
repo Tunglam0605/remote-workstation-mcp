@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../../context.js';
 import { audited } from '../../security/audit.js';
-import { findLiftSensorStatus } from './agv.js';
+import { findJsonObservations, type JsonScalar } from './json-observer.js';
 import { MqttDiagnosticClient } from './mqtt-client.js';
 import { MqttProfileStore } from './profile-store.js';
 
@@ -13,7 +13,6 @@ const result = (value: unknown) => ({
 
 const profileId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const topicFilter = z.string().min(1).max(512);
-const vehicle = z.string().min(1).max(128).regex(/^[A-Za-z0-9._-]+$/);
 
 export function registerMqttTools(server: McpServer, ctx: AppContext): void {
   const profiles = new MqttProfileStore();
@@ -47,37 +46,54 @@ export function registerMqttTools(server: McpServer, ctx: AppContext): void {
     )
   ));
 
-  server.registerTool('mqtt_agv_lift_observe', {
-    description: 'Observe bounded AGV lift-sensor state from aubotagv/2.0.0/AUBOT/<vehicle>/state using an owner-local MQTT profile. Finds liftSensorStatus JSON evidence and derives up/down/between/conflict conservatively. No command is published.',
+  server.registerTool('mqtt_json_observe', {
+    description: 'Subscribe through one owner-local MQTT profile, find bounded JSON objects containing a requested property, optionally require an exact scalar value, and return only selected scalar fields plus JSON paths. This is protocol-generic, read-only and never publishes.',
     inputSchema: z.object({
       profileId,
-      vehicle,
+      topicFilter,
+      matchField: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/),
+      matchEquals: z.union([z.string().max(512), z.number().finite(), z.boolean(), z.null()]).optional(),
+      selectFields: z.array(z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/)).max(32).default([]),
       maxMessages: z.number().int().min(1).max(100).default(20),
-      timeoutMs: z.number().int().min(250).max(30_000).default(5_000)
+      timeoutMs: z.number().int().min(250).max(30_000).default(5_000),
+      maxDepth: z.number().int().min(0).max(8).default(5),
+      maxVisited: z.number().int().min(1).max(1024).default(256),
+      maxMatches: z.number().int().min(1).max(128).default(32)
     }).strict(),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true }
-  }, async ({ profileId: selected, vehicle: vehicleId, maxMessages, timeoutMs }) => result(
-    await audited(ctx.audit, 'mqtt_agv_lift_observe', undefined, async () => {
-      const topic = `aubotagv/2.0.0/AUBOT/${vehicleId}/state`;
+  }, async ({ profileId: selected, topicFilter: topic, matchField, matchEquals, selectFields, maxMessages, timeoutMs, maxDepth, maxVisited, maxMatches }) => result(
+    await audited(ctx.audit, 'mqtt_json_observe', undefined, async () => {
       const sample = await client.sample(await profiles.resolve(selected), topic, {
         maxMessages,
         timeoutMs,
         maxPayloadBytes: 65_536
       });
-      const matches = sample.messages.flatMap((message, index) => {
-        const status = message.json === undefined ? undefined : findLiftSensorStatus(message.json);
-        return status ? [{ index, topic: message.topic, ...status }] : [];
-      });
+      const observations = sample.messages.flatMap((message, messageIndex) => {
+        if (message.json === undefined) return [];
+        return findJsonObservations(message.json, {
+          matchField,
+          ...(matchEquals !== undefined ? { matchEquals: matchEquals as JsonScalar } : {}),
+          selectFields,
+          maxDepth,
+          maxVisited,
+          maxMatches
+        }).map(observation => ({
+          messageIndex,
+          topic: message.topic,
+          ...observation
+        }));
+      }).slice(0, maxMatches);
       return {
         profileId: selected,
-        vehicle: vehicleId,
-        topic,
+        topicFilter: topic,
         messageCount: sample.messageCount,
-        liftStatusCount: matches.length,
-        latest: matches.at(-1) ?? null,
-        observations: matches.slice(-32),
+        jsonMessageCount: sample.messages.filter(message => message.json !== undefined).length,
+        observationCount: observations.length,
+        latest: observations.at(-1) ?? null,
+        observations,
         timedOut: sample.timedOut
       };
     })
   ));
+
 }

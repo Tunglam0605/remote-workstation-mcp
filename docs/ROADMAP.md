@@ -10,7 +10,7 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 50 / Engineering API 5;
+- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 51 / Engineering API 5;
 - stable v0.66.0 authority, Work Session, hardware-interlock, updater and rollback contracts remain unchanged; v0.67 development tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
@@ -43,6 +43,15 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - never infer a protocol timeout solely from an observed gap; configured timeout semantics must come from explicit profile/EDS/DCF data before a timeout conclusion is allowed;
 - keep all CAN/CANopen analysis read-only and free of device-, vendor- or project-specific logic;
 - advance Action Schema to 50; Engineering API remains 5.
+
+## Post-v0.66 engineering-workbench reuse hardening
+
+- make cross-project reuse an explicit engineering-surface gate: public tools describe reusable protocols/toolchains/workflows, not a product, vehicle, customer or one project;
+- move project-specific IDs, MQTT topics, semantic conventions, object mappings and paths into profiles/manifests/EDS-DCF/presets or higher-level workflows;
+- replace the unreleased MQTT/AGV-specific helper with generic `mqtt_json_observe`, which searches bounded JSON messages by caller-selected property/value and returns selected scalar evidence;
+- replace `mqtt-agv` Industrial Endpoint Profiles with generic `mqtt-topic` profiles containing only MQTT credential-profile reference plus validated topic filter;
+- retain subscribe-only/read-only authority and keep PUBLISH, broker mutation and industrial control unavailable;
+- advance Action Schema to 51; Engineering API remains 5.
 
 ## Post-v0.66 tool expansion — Media/Video Phase 4
 
@@ -78,7 +87,7 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - move additional Moonlight Devices/Updates/Settings/Notifications ownership only when the change remains contract-preserving;
 - add runtime capability readiness reporting so implemented contracts distinguish node-ready, degraded and unavailable providers without changing legacy capability status;
 - keep new domain capabilities behind extension manifests;
-- extend industrial diagnostics incrementally: passive CANopen and subscribe-only MQTT/AGV observation first, then PLC/OPC UA behind separate domain extensions;
+- extend industrial diagnostics incrementally: passive CANopen and subscribe-only generic MQTT observation first, then PLC/OPC UA behind separate domain extensions;
 - optimize large static Moonlight image assets with measured visual/regression checks;
 - treat CHANGELOG.md as shipped history and keep this roadmap focused on future work.
 

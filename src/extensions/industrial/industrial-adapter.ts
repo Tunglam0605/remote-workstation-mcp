@@ -91,7 +91,7 @@ export class IndustrialProfileAdapter {
 
     try {
       const mqttProfile = await this.mqttProfiles.resolve(profile.mqttProfileId);
-      const topic = `aubotagv/2.0.0/AUBOT/${profile.vehicle}/state`;
+      const topic = profile.topicFilter;
       const sample = await this.mqttClient.sample(mqttProfile, topic, {
         maxMessages: 1,
         timeoutMs,
@@ -99,7 +99,7 @@ export class IndustrialProfileAdapter {
       });
       return {
         profile: this.publicProfile(profile),
-        provider: 'mqtt-agv',
+        provider: 'mqtt-topic',
         ready: true,
         durationMs: Date.now() - startedAt,
         evidence: {
@@ -112,7 +112,7 @@ export class IndustrialProfileAdapter {
     } catch (error) {
       return {
         profile: this.publicProfile(profile),
-        provider: 'mqtt-agv',
+        provider: 'mqtt-topic',
         ready: false,
         durationMs: Date.now() - startedAt,
         error: (error instanceof Error ? error.message : String(error)).slice(0, 512)
@@ -162,8 +162,7 @@ export class IndustrialProfileAdapter {
       label: profile.label,
       kind: profile.kind,
       mqttProfileId: profile.mqttProfileId,
-      vehicle: profile.vehicle,
-      topic: `aubotagv/2.0.0/AUBOT/${profile.vehicle}/state`
+      topicFilter: profile.topicFilter
     };
   }
 }

@@ -1,8 +1,8 @@
 # Roadmap
 
-## Stable baseline — v0.66.0 / Development head — v0.67.0-dev.0
+## Stable baseline — v0.67.0
 
-Architecture Consolidation is complete in stable v0.66.0. Current development continues toward v0.67.0 with the stable release kept immutable:
+v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architecture-consolidation contracts remain the foundation, while v0.67 adds reusable domain diagnostics/workflows and project-wide hardening:
 
 - Platform / Sessions / Engineering Framework / Extensions / Orchestration / MCP / Control Center boundaries are explicit and CI-enforced;
 - domain-specific CAN, Modbus RTU, ROS 2, STM32, ESP32 and KiCad MCP handlers register through the Extension Registry;
@@ -10,8 +10,8 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 51 / Engineering API 5;
-- stable v0.66.0 authority, Work Session, hardware-interlock, updater and rollback contracts remain unchanged; v0.67 development tool additions are explicitly versioned through the Action Schema.
+- stable v0.67.0 is Action Schema 51 / Engineering API 5;
+- Direct Node authority, Work Session ownership, hardware interlocks, updater and rollback contracts remain fail-closed; v0.67 tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
 
@@ -80,7 +80,7 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - keep PTZ movement, camera configuration, snapshots, two-way audio and arbitrary endpoint mutation outside this fleet diagnostic surface;
 - advance Action Schema to 48; Engineering API remains 5.
 
-## Next — post-v0.66 hardening
+## Next — post-v0.67 hardening
 
 - continue incremental source-size reduction only where it improves ownership or testability;
 - organize remaining lifecycle/install/CI scripts by responsibility without changing packaging paths prematurely;

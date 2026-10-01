@@ -59,7 +59,8 @@
     "setup:direct-node:linux": "bash scripts/setup-direct-node-linux.sh",
     "status:direct-node:linux": "bash scripts/direct-node-status-linux.sh",
     "tui": "node dist/tui-cli.js",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs"
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs",
+    "verify": "npm run supply-chain:validate && npm run typecheck && npm run architecture:check && npm test && npm run build && npm run plugin:validate"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ControlPlaneRelayAdapter } from '../control-plane-relay.js';
 import { DataPlaneAdapter } from '../data-plane.js';
-import type { FirmwareProjectInfo, SerialDeviceResolution, SerialDeviceSelector, Stm32SvdRegisterSelector, Stm32SvdResolvedRegister } from '../../engineering/types.js';
+import type { FirmwareProjectInfo, SerialDeviceResolution, SerialDeviceSelector, Stm32SvdResolvedRegister } from '../../engineering/types.js';
 import { PolicyEngine } from '../../policy.js';
 import { MultiNodeAuthorization, type CrossNodeTransferIntent } from '../../security/multi-node-authorization.js';
 import { ArtifactIntegrityAdapter } from './artifact-integrity.js';
@@ -17,10 +17,8 @@ import { PlatformioAdapter } from './platformio.js';
 import {
   EngineeringProjectProfileStore,
   type EngineeringFirmwareProfile,
-  type EngineeringPlatformioProfile,
   type EngineeringProjectKind,
-  type EngineeringProjectProfile,
-  type EngineeringRos2Profile
+  type EngineeringProjectProfile
 } from './project-profile.js';
 import { Ros2Adapter, type Ros2RuntimeContext } from './ros2.js';
 import { SerialSessionManager } from './serial-session.js';
@@ -32,130 +30,21 @@ import {
   type EngineeringWorkflowStepResult
 } from './workflow-contribution.js';
 
-export const BUILTIN_ENGINEERING_WORKFLOW_IDS = [
-  'platform.transfer_prepare',
-  'platform.transfer_receive_offer',
-  'platform.transfer_push',
-  'platform.relay_read_chunk',
-  'platform.relay_begin',
-  'platform.relay_status',
-  'platform.relay_write_chunk',
-  'platform.relay_finalize',
-  'platform.relay_abort',
-  'firmware.build',
-  'firmware.build_flash',
-  'firmware.build_flash_verify',
-  'firmware.build_flash_monitor',
-  'firmware.build_flash_monitor_expect',
-  'firmware.artifact_prepare',
-  'firmware.artifact_accept',
-  'firmware.artifact_receive_offer',
-  'firmware.artifact_push',
-  'espidf.preflight',
-  'espidf.diagnostics',
-  'espidf.size_analysis',
-  'espidf.fullclean',
-  'espidf.reconfigure',
-  'platformio.diagnostics',
-  'platformio.build',
-  'platformio.upload',
-  'stm32.debug_fault_snapshot',
-  'stm32.deep_diagnostics',
-  'stm32.peripheral_snapshot',
-  'stm32.deploy_accept',
-  'stm32.deploy_accept_diagnose',
-  'ros2.build',
-  'ros2.health',
-  'ros2.diagnostics',
-  'ros2.doctor',
-  'ros2.test',
-  'ros2.bag_info',
-  'ros2.build_health',
-  'docker.diagnostics',
-  'docker.stats_snapshot',
-  'docker.container_inspect',
-  'docker.container_logs',
-  'kicad.diagnostics',
-  'kicad.validate',
-  'kicad.fabrication_export',
-  'systemd.service_diagnostics',
-  'systemd.service_restart',] as const;
+import {
+  BUILTIN_ENGINEERING_WORKFLOW_IDS,
+  type EngineeringProfileInitOptions,
+  type EngineeringWorkflowId,
+  type EngineeringWorkflowOverrides
+} from './workflow-contract.js';
 
-export type EngineeringWorkflowId = typeof BUILTIN_ENGINEERING_WORKFLOW_IDS[number];
+export { BUILTIN_ENGINEERING_WORKFLOW_IDS } from './workflow-contract.js';
+export type {
+  EngineeringProfileInitOptions,
+  EngineeringWorkflowId,
+  EngineeringWorkflowOverrides
+} from './workflow-contract.js';
+
 const BUILTIN_ENGINEERING_WORKFLOW_ID_SET = new Set<string>(BUILTIN_ENGINEERING_WORKFLOW_IDS);
-
-export interface EngineeringProfileInitOptions {
-  id?: string;
-  name?: string;
-  kind?: EngineeringProjectKind;
-  firmware?: Partial<EngineeringFirmwareProfile>;
-  platformio?: Partial<EngineeringPlatformioProfile>;
-  ros2?: Partial<EngineeringRos2Profile>;
-  profile?: unknown;
-  overwrite?: boolean;
-}
-
-export interface EngineeringWorkflowOverrides {
-  file?: string;
-  fileName?: string;
-  artifact?: string;
-  port?: string;
-  probeSerial?: string;
-  targetConfig?: string;
-  adapterSpeedKhz?: number;
-  monitorPort?: string;
-  monitorBaudRate?: number;
-  expectText?: string;
-  expectTimeoutMs?: number;
-  platformioEnvironment?: string;
-  platformioUploadPort?: string;
-  rosPackagesSelect?: string[];
-  rosSymlinkInstall?: boolean;
-  rosMergeInstall?: boolean;
-  rosBagPath?: string;
-  dockerContainer?: string;
-  dockerLogTail?: number;
-  kicadOutputDir?: string;
-  systemdUnit?: string;
-  systemdUser?: boolean;
-  journalLines?: number;
-  debugMaxFrames?: number;
-  svdFile?: string;
-  svdRegisters?: Stm32SvdRegisterSelector[];
-  variant?: string;
-  keilProject?: string;
-  keilTarget?: string;
-  keepMonitorOpen?: boolean;
-  expectedSha256?: string;
-  expectedSize?: number;
-  artifactName?: string;
-  transferEndpoint?: string;
-  transferEndpoints?: string[];
-  transferTicket?: string;
-  transferTimeoutMs?: number;
-  relaySessionId?: string;
-  relayOffset?: number;
-  relayChunkBytes?: number;
-  relayDataBase64?: string;
-  relayChunkSha256?: string;
-  relayTtlMs?: number;
-  transferGrantId?: string;
-  sourceNodeId?: string;
-  destinationNodeId?: string;
-  sourceWorkspace?: string;
-  destinationWorkspace?: string;
-  sourcePath?: string;
-  destinationBasePath?: string;
-  destinationFileName?: string;
-  mediaPresetId?: string;
-  mediaParameters?: Record<string, string | number | boolean>;
-  mediaOutput?: string;
-  mediaArtifactIndex?: number;
-  mediaPollIntervalMs?: number;
-  mediaCompletionTimeoutMs?: number;
-  mediaOperationTimeoutMs?: number;
-  mediaMaxBytes?: number;
-}
 
 interface ProjectState {
   project: FirmwareProjectInfo;

@@ -1,7 +1,5 @@
-import {
-  EngineeringWorkflowEngine,
-  type EngineeringWorkflowOverrides
-} from './adapters/engineering/workflow-engine.js';
+import { EngineeringWorkflowEngine } from './adapters/engineering/workflow-engine.js';
+import type { EngineeringWorkflowOverrides } from './adapters/engineering/workflow-contract.js';
 import { deriveQualityCompatibilityInput, type QualityObservationStore } from './quality-learning.js';
 import type { NodeInterlockStore } from './node-interlock.js';
 import type { WorkflowRunStore } from './workflow-run-store.js';

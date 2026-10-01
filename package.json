@@ -8,7 +8,7 @@
     "rwmcp-tui": "dist/tui-cli.js"
   },
   "files": [
-    "dist/",
+    "dist/**/*.js",
     "assets/",
     "config/policy.example.yaml",
     "config/hosts.example.yaml",
@@ -47,7 +47,7 @@
     "test:pty-soak": "node --expose-gc --import tsx tests/fixtures/pty-soak.ts",
     "plugin:validate": "node scripts/validate-plugin.mjs",
     "supply-chain:validate": "node scripts/validate-install-scripts.mjs",
-    "prepack": "npm run supply-chain:validate && npm run build && npm run plugin:validate",
+    "prepack": "npm run security:scan && npm run supply-chain:validate && npm run build && npm run plugin:validate",
     "install:user": "bash scripts/install-user.sh",
     "doctor": "node scripts/doctor-user.mjs",
     "uninstall:user": "bash scripts/uninstall-user.sh",
@@ -59,7 +59,9 @@
     "setup:direct-node:linux": "bash scripts/setup-direct-node-linux.sh",
     "status:direct-node:linux": "bash scripts/direct-node-status-linux.sh",
     "tui": "node dist/tui-cli.js",
-    "architecture:check": "node scripts/check-architecture-boundaries.mjs"
+    "architecture:check": "node scripts/check-architecture-boundaries.mjs",
+    "verify": "npm run security:scan && npm run supply-chain:validate && npm run typecheck && npm run architecture:check && npm test && npm run build && npm run plugin:validate",
+    "security:scan": "node scripts/check-secret-leaks.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

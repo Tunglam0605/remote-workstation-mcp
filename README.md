@@ -31,7 +31,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 **Stable release: v0.66.0 - channel=stable - Action Schema 36 - Engineering API 5** - consolidates RWMCP for long-term maintenance without changing its public MCP contracts. The runtime now has an explicit Extension Registry and CI-enforced one-way architecture boundaries; CAN, Modbus RTU, ROS 2, STM32, ESP32 and KiCad live behind domain extensions; generic engineering network, serial and terminal families are modularized; AppContext construction is split into bootstrap services; Moonlight view ownership is decomposed; and release publication follows one canonical workflow. Existing Direct Node, Work Session, permission, hardware-interlock, update and rollback authority remains unchanged.
 
-**Development head: v0.67.0-dev.0 - channel=development - Action Schema 48 - Engineering API 5.** Post-v0.66 changes are unreleased and include new domain extensions, capability-readiness work, typed Remotion preset rendering, and bounded multi-camera fleet diagnostics; production nodes remain on v0.66.0 until the v0.67 acceptance gates pass.
+**Development head: v0.67.0-dev.0 - channel=development - Action Schema 51 - Engineering API 5.** Post-v0.66 changes are unreleased and include new domain extensions, capability-readiness work, typed Remotion preset rendering, bounded multi-camera fleet diagnostics, CANopen Phase 3 reusable passive analysis over cross-platform EDS/DCF semantics plus Linux SocketCAN capture, and project-agnostic MQTT JSON observation/industrial topic profiles; production nodes remain on v0.66.0 until the v0.67 acceptance gates pass.
 
 **Previous stable release: v0.65.2 - channel=stable - Action Schema 36 - Engineering API 5** - refines Moonlight Control Center with a calendar-driven seasonal/event theme cycle. Outside bounded event windows the UI follows the current season; supported Vietnamese event themes take priority only around their dates (typically 3–5 days before), with countdowns shown only before/on the event. Manual theme choices are session-only and a new browser session returns to automatic mode. The release also removes the redundant fixed-blue Overview quick-summary block and prevents the old Mid-Autumn hero from flashing before the scheduler resolves the active theme. The ESP32/ESP-IDF provenance and safety hardening from v0.65.1 remains included, including effective `~/.espressif` tools-root resolution, compiler trust containment, typed preflight/fullclean/reconfigure, flash-manifest hashing and fail-closed environment checks.\nv0.21 expands the typed engineering execution layer without changing the top-level MCP action contract: ESP-IDF structured build metadata/target discovery, ROS 2 doctor reports, Docker one-shot stats, structured systemd journal/resource diagnostics, and KiCad project diagnostics plus ERC/DRC validation. Development after v0.21 also prototypes an optional local Codex CLI worker as an implementation-only hand for ChatGPT Web: registration is runtime opt-in, requires an isolated Work Session worktree, keeps approval escalation disabled, and remains absent by default.
 
@@ -282,7 +282,7 @@ v0.12.0 makes the Engineering Workflow Engine practical for real multi-target Ke
 - add project-profile firmware variants so one repository can safely represent F407/H743/hardware-test targets without guessing the active board;
 - keep `engineering_workflow_plan/run` action schemas stable through a string workflow ID plus server-validated `parameters`, and allow a versioned generic `profile` payload for profile initialization;
 - expose `actionSchemaVersion=2` and `engineeringApiVersion=2` so operators can distinguish an app-catalog refresh from normal provider/workflow growth;
-- validate the Keil provider on the real B300 F407 target with ÂµVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
+- validate the Keil provider on a real STM32F407 target with ÂµVision 5.31: typed adapter build, exit 0, zero errors/warnings. H743 provider execution also reached the real compiler and surfaced the project-level missing `Task_IPC.h` dependency rather than masking it.
 
 v0.11.0 deepens the Engineering Workflow Engine so repeated embedded/ROS work can collapse into one typed MCP call:
 
@@ -345,7 +345,7 @@ v0.9.4 hardens the Windows Control Center as the always-on local recovery plane:
 v0.9.3 hardens the STM32/OpenOCD provider contract without opening new dangerous debug surfaces:
 
 - add `firmware_provider_status` for OpenOCD availability/version/capability preflight;
-- allow an owner-controlled absolute `RWMCP_OPENOCD_EXECUTABLE` override so RWMCP can reuse pinned xPack/ST OpenOCD backends such as those used by B300 tooling without accepting executable paths from AI tool calls;
+- allow an owner-controlled absolute `RWMCP_OPENOCD_EXECUTABLE` override so RWMCP can reuse pinned xPack/ST OpenOCD backends such as those used by pinned corporate STM32 tooling without accepting executable paths from AI tool calls;
 - add bounded `adapterSpeedKhz` (50..24000 kHz) to STM32 flash/verify/reset and debug-session startup;
 - classify common OpenOCD failures into actionable codes such as probe missing/permission denied, target power/connect failure, verify failure, timeout and config missing;
 - keep arbitrary TCL, mass erase, Option Bytes, readout-protection changes, memory write and GDB flash unavailable;
@@ -402,7 +402,7 @@ Example Keil multi-target STM32 profile:
 
 ```yaml
 version: 1
-id: b300-main-custom
+id: stm32-multitarget-demo
 kind: stm32
 firmware:
   buildProvider: keil
@@ -429,19 +429,19 @@ Example ESP-IDF profile:
 
 ```yaml
 version: 1
-id: callbox
+id: esp32-device
 kind: esp-idf
 firmware:
   buildProvider: esp-idf
   buildDir: build
   flashProvider: esp-idf
   portSelector:
-    serialNumber: CALLBOX-01
+    serialNumber: ESP32-DEVICE-01
     vendorId: 303A
     productId: 1001
   monitor:
     selector:
-      serialNumber: CALLBOX-01
+      serialNumber: ESP32-DEVICE-01
       vendorId: 303A
       productId: 1001
     baudRate: 115200

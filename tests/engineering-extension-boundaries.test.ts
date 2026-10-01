@@ -25,7 +25,12 @@ const CAN_TOOLS = [
 const CANOPEN_TOOLS = [
   'canopen_provider_status',
   'canopen_capture_decode',
-  'canopen_node_observe'
+  'canopen_capture_analyze',
+  'canopen_node_observe',
+  'canopen_eds_inspect',
+  'canopen_eds_profile',
+  'canopen_object_lookup',
+  'canopen_capture_semantic_decode'
 ] as const;
 
 const MEDIA_TOOLS = [
@@ -49,7 +54,7 @@ const MEDIA_TOOLS = [
 const MQTT_TOOLS = [
   'mqtt_provider_status',
   'mqtt_subscribe_sample',
-  'mqtt_agv_lift_observe'
+  'mqtt_json_observe'
 ] as const;
 
 const INDUSTRIAL_TOOLS = [

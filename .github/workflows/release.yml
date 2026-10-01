@@ -36,6 +36,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Validate dependency install-script policy
         run: npm run supply-chain:validate
+      - name: Scan tracked files for high-confidence secrets
+        run: npm run security:scan
       - run: npm run typecheck
       - name: Enforce architecture boundaries
         run: npm run architecture:check

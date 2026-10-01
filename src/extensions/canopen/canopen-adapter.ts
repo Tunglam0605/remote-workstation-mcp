@@ -1,4 +1,7 @@
 import type { CanAdapter } from '../../adapters/engineering/can.js';
+import { analyzeCanopenFrames, type CanopenAnalysisFrame } from './analysis.js';
+import { enrichSemanticFrame, type ObjectDictionary } from './eds.js';
+import { decodeSyncPayload, decodeTimePayload, describeEmergency, describeSdoAbort, describeSdoCommand, protocolIssues } from './protocol.js';
 
 type PdoKind = 'tpdo1' | 'rpdo1' | 'tpdo2' | 'rpdo2' | 'tpdo3' | 'rpdo3' | 'tpdo4' | 'rpdo4';
 
@@ -93,6 +96,106 @@ function pdoRange(id: number): { kind: PdoKind; nodeId: number } | undefined {
   return undefined;
 }
 
+
+export function decodeConfiguredCanopenFrame(frame: CapturedCanFrame, dictionary: ObjectDictionary, nodeIds: number[]) {
+  if (frame.extended || frame.fd || frame.rtr || frame.error || frame.id < 0 || frame.id > 0x7ff) return undefined;
+  const common = {
+    timestamp: frame.timestamp,
+    interface: frame.interface,
+    cobId: frame.id,
+    cobIdHex: `0x${frame.id.toString(16).toUpperCase().padStart(3, '0')}`,
+    dlc: frame.dlc,
+    dataHex: frame.dataHex,
+    configuredCobId: true
+  };
+  const protocol = (kind: CanopenFrameKind) => {
+    const issues = protocolIssues(kind, frame.dlc, frame.data);
+    return { valid: issues.length === 0, issues };
+  };
+
+  const global = dictionary.communicationProfile();
+  const sync = global.syncCobId;
+  if (sync?.canId === frame.id && sync.reservedBitsClear !== false) {
+    return { ...common, kind: 'sync' as const, ...decodeSyncPayload(frame.data), protocol: protocol('sync') };
+  }
+  const time = global.timeCobId;
+  if (time?.canId === frame.id && time.reservedBitsClear !== false) {
+    return { ...common, kind: 'time' as const, ...decodeTimePayload(frame.data), protocol: protocol('time') };
+  }
+
+  for (const nodeId of nodeIds) {
+    const profile = dictionary.communicationProfile(nodeId);
+    const emcy = profile.emcyCobId;
+    if (emcy?.enabled === true && emcy.canId === frame.id && emcy.reservedBitsClear !== false) {
+      const errorCode = le16(frame.data, 0);
+      const errorRegister = byte(frame.data[2]);
+      return {
+        ...common,
+        kind: 'emcy' as const,
+        nodeId,
+        errorCode,
+        ...(errorCode !== undefined ? { errorCodeHex: `0x${errorCode.toString(16).toUpperCase().padStart(4, '0')}` } : {}),
+        errorRegister,
+        ...describeEmergency(errorCode, errorRegister),
+        manufacturerDataHex: frame.data.slice(3, 8).join(''),
+        protocol: protocol('emcy')
+      };
+    }
+
+    const sdoRx = profile.sdoServer?.clientToServerCobId;
+    if (sdoRx?.enabled === true && sdoRx.canId === frame.id && sdoRx.reservedBitsClear !== false) {
+      const commandSpecifier = byte(frame.data[0]);
+      const address = objectAddress(frame.data);
+      const abortCode = commandSpecifier === 0x80 ? le32(frame.data, 4) : undefined;
+      return {
+        ...common,
+        kind: 'sdo-request' as const,
+        nodeId,
+        commandSpecifier,
+        ...(describeSdoCommand('sdo-request', commandSpecifier) ?? {}),
+        ...(address ? { object: address } : {}),
+        ...(abortCode !== undefined ? {
+          abortCode,
+          abortCodeHex: `0x${abortCode.toString(16).toUpperCase().padStart(8, '0')}`,
+          abort: describeSdoAbort(abortCode)
+        } : {}),
+        protocol: protocol('sdo-request')
+      };
+    }
+
+    const sdoTx = profile.sdoServer?.serverToClientCobId;
+    if (sdoTx?.enabled === true && sdoTx.canId === frame.id && sdoTx.reservedBitsClear !== false) {
+      const commandSpecifier = byte(frame.data[0]);
+      const address = objectAddress(frame.data);
+      const abortCode = commandSpecifier === 0x80 ? le32(frame.data, 4) : undefined;
+      return {
+        ...common,
+        kind: 'sdo-response' as const,
+        nodeId,
+        commandSpecifier,
+        ...(describeSdoCommand('sdo-response', commandSpecifier) ?? {}),
+        ...(address ? { object: address } : {}),
+        ...(abortCode !== undefined ? {
+          abortCode,
+          abortCodeHex: `0x${abortCode.toString(16).toUpperCase().padStart(8, '0')}`,
+          abort: describeSdoAbort(abortCode)
+        } : {}),
+        protocol: protocol('sdo-response')
+      };
+    }
+
+    for (const [direction, pdos] of [['rpdo', profile.rpdo], ['tpdo', profile.tpdo]] as const) {
+      for (const pdo of pdos) {
+        if (!pdo || !pdo.cobId?.enabled || pdo.cobId.reservedBitsClear === false || pdo.cobId.canId !== frame.id) continue;
+        const kind = `${direction}${pdo.slot}` as PdoKind;
+        return { ...common, kind, nodeId, protocol: protocol(kind) };
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export function decodeCanopenFrame(frame: CapturedCanFrame) {
   if (frame.extended || frame.fd || frame.rtr || frame.error || frame.id < 0 || frame.id > 0x7ff) return undefined;
   const common = {
@@ -103,6 +206,10 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
     dlc: frame.dlc,
     dataHex: frame.dataHex
   };
+  const protocol = (kind: CanopenFrameKind) => {
+    const issues = protocolIssues(kind, frame.dlc, frame.data);
+    return { valid: issues.length === 0, issues };
+  };
 
   if (frame.id === 0x000) {
     const command = byte(frame.data[0]);
@@ -112,12 +219,13 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
       kind: 'nmt' as const,
       command,
       commandName: command === undefined ? 'unknown' : NMT_COMMANDS[command] ?? 'unknown',
-      targetNodeId
+      targetNodeId,
+      protocol: protocol('nmt')
     };
   }
 
-  if (frame.id === 0x080) return { ...common, kind: 'sync' as const };
-  if (frame.id === 0x100) return { ...common, kind: 'time' as const };
+  if (frame.id === 0x080) return { ...common, kind: 'sync' as const, ...decodeSyncPayload(frame.data), protocol: protocol('sync') };
+  if (frame.id === 0x100) return { ...common, kind: 'time' as const, ...decodeTimePayload(frame.data), protocol: protocol('time') };
 
   if (frame.id >= 0x081 && frame.id <= 0x0ff) {
     const errorCode = le16(frame.data, 0);
@@ -129,12 +237,14 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
       errorCode,
       ...(errorCode !== undefined ? { errorCodeHex: `0x${errorCode.toString(16).toUpperCase().padStart(4, '0')}` } : {}),
       errorRegister,
-      manufacturerDataHex: frame.data.slice(3, 8).join('')
+      ...describeEmergency(errorCode, errorRegister),
+      manufacturerDataHex: frame.data.slice(3, 8).join(''),
+      protocol: protocol('emcy')
     };
   }
 
   const pdo = pdoRange(frame.id);
-  if (pdo) return { ...common, ...pdo };
+  if (pdo) return { ...common, ...pdo, protocol: protocol(pdo.kind) };
 
   if (frame.id >= 0x581 && frame.id <= 0x5ff) {
     const commandSpecifier = byte(frame.data[0]);
@@ -145,23 +255,34 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
       kind: 'sdo-response' as const,
       nodeId: frame.id - 0x580,
       commandSpecifier,
+      ...(describeSdoCommand('sdo-response', commandSpecifier) ?? {}),
       ...(address ? { object: address } : {}),
       ...(abortCode !== undefined ? {
         abortCode,
-        abortCodeHex: `0x${abortCode.toString(16).toUpperCase().padStart(8, '0')}`
-      } : {})
+        abortCodeHex: `0x${abortCode.toString(16).toUpperCase().padStart(8, '0')}`,
+        abort: describeSdoAbort(abortCode)
+      } : {}),
+      protocol: protocol('sdo-response')
     };
   }
 
   if (frame.id >= 0x601 && frame.id <= 0x67f) {
     const commandSpecifier = byte(frame.data[0]);
     const address = objectAddress(frame.data);
+    const abortCode = commandSpecifier === 0x80 ? le32(frame.data, 4) : undefined;
     return {
       ...common,
       kind: 'sdo-request' as const,
       nodeId: frame.id - 0x600,
       commandSpecifier,
-      ...(address ? { object: address } : {})
+      ...(describeSdoCommand('sdo-request', commandSpecifier) ?? {}),
+      ...(address ? { object: address } : {}),
+      ...(abortCode !== undefined ? {
+        abortCode,
+        abortCodeHex: `0x${abortCode.toString(16).toUpperCase().padStart(8, '0')}`,
+        abort: describeSdoAbort(abortCode)
+      } : {}),
+      protocol: protocol('sdo-request')
     };
   }
 
@@ -172,7 +293,8 @@ export function decodeCanopenFrame(frame: CapturedCanFrame) {
       kind: 'heartbeat' as const,
       nodeId: frame.id - 0x700,
       state,
-      stateName: state === undefined ? 'unknown' : NMT_STATES[state] ?? 'unknown'
+      stateName: state === undefined ? 'unknown' : NMT_STATES[state] ?? 'unknown',
+      protocol: protocol('heartbeat')
     };
   }
 
@@ -201,11 +323,12 @@ export class CanopenAdapter {
     const supported = Boolean(can.supported && can.capture);
     return {
       supported,
-      profile: 'CiA 301 passive diagnostics',
-      transport: 'SocketCAN',
+      offlineEdsDcfInspection: true,
+      profile: 'CiA 301 passive diagnostics + bounded EDS/DCF semantics + reusable passive analysis',
+      transport: supported ? 'SocketCAN + project-local EDS/DCF' : 'project-local EDS/DCF',
       captureBackend: can.captureBackend,
       authority: 'read-only-passive',
-      availableObjects: ['NMT observation', 'SYNC observation', 'EMCY decode', 'PDO classification', 'SDO observation', 'Heartbeat/NMT-state observation'],
+      availableObjects: ['EDS/DCF object dictionary inspection', 'exact object lookup', 'NMT observation', 'SYNC observation', 'EMCY decode', 'PDO classification/semantic mapping', 'SDO observation/expedited semantic decode', 'Heartbeat/NMT-state observation', 'generic node inventory/state analysis', 'SDO initiate exchange correlation', 'PDO/SYNC/Heartbeat cadence and jitter evidence'],
       intentionallyUnavailable: ['CAN frame transmission', 'NMT command transmission', 'SDO upload/download initiation', 'PDO transmission', 'LSS', 'node guarding requests', 'bus configuration'],
       baseCan: can
     };
@@ -238,6 +361,66 @@ export class CanopenAdapter {
       kinds: summarizeKinds(decoded),
       frames: decoded,
       warnings: capture.warnings
+    };
+  }
+
+  async captureSemanticDecode(interfaceName: string, dictionary: ObjectDictionary, options: { count?: number; inactivityTimeoutMs?: number; nodeIds?: number[] } = {}) {
+    const capture = await this.can.capture(interfaceName, {
+      count: options.count ?? 250,
+      inactivityTimeoutMs: options.inactivityTimeoutMs ?? 3_000,
+      includeErrorFrames: false
+    });
+    const requestedNodes = new Set(options.nodeIds ?? []);
+    const commissionedNodeId = dictionary.commissioningNodeId();
+    const configuredNodeIds = requestedNodes.size
+      ? [...requestedNodes].sort((a, b) => a - b)
+      : commissionedNodeId !== undefined ? [commissionedNodeId] : [];
+    const decoded = (capture.frames as CapturedCanFrame[])
+      .map(frame => {
+        const decoded = decodeConfiguredCanopenFrame(frame, dictionary, configuredNodeIds) ?? decodeCanopenFrame(frame);
+        return decoded ? enrichSemanticFrame(frame, decoded, dictionary) : undefined;
+      })
+      .filter((frame): frame is NonNullable<typeof frame> => Boolean(frame))
+      .filter(frame => !requestedNodes.size || !('nodeId' in frame) || requestedNodes.has(frame.nodeId));
+    return {
+      interface: capture.interface, backend: capture.backend,
+      requestedCount: capture.requestedCount, inactivityTimeoutMs: capture.inactivityTimeoutMs,
+      nodeIds: [...requestedNodes].sort((a, b) => a - b),
+      capturedFrameCount: capture.frames.length, decodedFrameCount: decoded.length,
+      ignoredFrameCount: capture.frames.length - decoded.length,
+      frames: decoded, warnings: capture.warnings
+    };
+  }
+
+  async captureAnalyze(
+    interfaceName: string,
+    dictionary: ObjectDictionary | undefined,
+    options: { count?: number; inactivityTimeoutMs?: number; nodeIds?: number[]; gapFactor?: number } = {}
+  ) {
+    const sample = dictionary
+      ? await this.captureSemanticDecode(interfaceName, dictionary, options)
+      : await this.captureDecode(interfaceName, options);
+    const analysis = analyzeCanopenFrames(sample.frames as CanopenAnalysisFrame[], { gapFactor: options.gapFactor });
+    return {
+      interface: sample.interface,
+      backend: sample.backend,
+      semanticDictionaryApplied: Boolean(dictionary),
+      requestedNodeIds: [...(options.nodeIds ?? [])].sort((a, b) => a - b),
+      capture: {
+        requestedCount: sample.requestedCount,
+        capturedFrameCount: sample.capturedFrameCount,
+        decodedFrameCount: sample.decodedFrameCount,
+        ignoredFrameCount: sample.ignoredFrameCount,
+        inactivityTimeoutMs: sample.inactivityTimeoutMs,
+        warnings: sample.warnings
+      },
+      ...(dictionary ? {
+        dictionary: {
+          metadata: dictionary.metadataSummary(),
+          communicationProfile: dictionary.communicationProfile(options.nodeIds?.length === 1 ? options.nodeIds[0] : undefined)
+        }
+      } : {}),
+      analysis
     };
   }
 

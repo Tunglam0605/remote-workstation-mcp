@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { findLiftSensorStatus, inferLiftPosition } from '../src/extensions/mqtt/agv.js';
+import { findJsonObservations } from '../src/extensions/mqtt/json-observer.js';
 import {
   encodeConnectPacket,
   encodeSubscribePacket,
@@ -23,7 +23,7 @@ test('MQTT CONNECT packet uses protocol level 4 and enforces username with crede
 });
 
 test('MQTT topic filter validation enforces wildcard placement', () => {
-  assert.equal(validateTopicFilter('aubotagv/2.0.0/AUBOT/+/state'), 'aubotagv/2.0.0/AUBOT/+/state');
+  assert.equal(validateTopicFilter('plant/line1/+/state'), 'plant/line1/+/state');
   assert.equal(validateTopicFilter('plant/#'), 'plant/#');
   assert.throws(() => validateTopicFilter('plant/a#'), /wildcard/i);
   assert.throws(() => validateTopicFilter('plant/#/state'), /wildcard/i);
@@ -38,33 +38,44 @@ test('MQTT SUBSCRIBE packet is QoS0 and uses required 0x82 fixed header', () => 
 });
 
 test('MQTT PUBLISH parser returns bounded JSON evidence', () => {
-  const topic = Buffer.from('aubotagv/2.0.0/AUBOT/B300_3_20/state');
-  const payload = Buffer.from(JSON.stringify({ infoType: 'liftSensorStatus', up: true, down: false, state: 'Up' }));
+  const topic = Buffer.from('plant/line1/sensor-7/state');
+  const payload = Buffer.from(JSON.stringify({ type: 'telemetry', temperature: 24.5, healthy: true }));
   const body = Buffer.concat([Buffer.from([topic.length >> 8, topic.length & 0xff]), topic, payload]);
   const packet: ParsedPacket = { type: 3, flags: 0, payload: body };
   const parsed = parsePublishPacket(packet, 65_536);
-  assert.equal(parsed?.topic, 'aubotagv/2.0.0/AUBOT/B300_3_20/state');
+  assert.equal(parsed?.topic, 'plant/line1/sensor-7/state');
   assert.equal(parsed?.qos, 0);
-  assert.deepEqual(parsed?.json, { infoType: 'liftSensorStatus', up: true, down: false, state: 'Up' });
+  assert.deepEqual(parsed?.json, { type: 'telemetry', temperature: 24.5, healthy: true });
 });
 
-test('AGV lift parser finds nested liftSensorStatus and infers conservative position', () => {
-  const found = findLiftSensorStatus({
+test('generic JSON observer finds nested objects by property/value and returns selected scalar fields', () => {
+  const found = findJsonObservations({
     header: { id: 1 },
-    data: [{ infoType: 'other' }, { payload: { infoType: 'liftSensorStatus', head: false, tail: true, up: false, down: true, state: 'Down' } }]
+    data: [
+      { type: 'other' },
+      { payload: { type: 'telemetry', temperature: 24.5, healthy: true, nested: { ignored: true } } }
+    ]
+  }, {
+    matchField: 'type',
+    matchEquals: 'telemetry',
+    selectFields: ['temperature', 'healthy', 'nested']
   });
-  assert.deepEqual(found, {
-    head: false,
-    tail: true,
-    up: false,
-    down: true,
-    state: 'Down',
-    position: 'down',
-    path: '$.data[1].payload'
+  assert.deepEqual(found, [{
+    path: '$.data[1].payload',
+    matchedField: 'type',
+    matchedValue: 'telemetry',
+    selected: { temperature: 24.5, healthy: true }
+  }]);
+});
+
+test('generic JSON observer is bounded and does not return non-scalar selected values', () => {
+  assert.throws(() => findJsonObservations({}, { matchField: 'bad key' }), /matchField/i);
+  assert.throws(() => findJsonObservations({}, { matchField: 'type', maxDepth: 9 }), /maxDepth/i);
+  const matches = findJsonObservations({ type: 'state', object: { secret: 'not-returned-as-object' }, value: null }, {
+    matchField: 'type',
+    selectFields: ['object', 'value']
   });
-  assert.equal(inferLiftPosition(true, true), 'conflict');
-  assert.equal(inferLiftPosition(false, false), 'between');
-  assert.equal(inferLiftPosition(undefined, undefined), 'unknown');
+  assert.deepEqual(matches[0]?.selected, { value: null });
 });
 
 test('MQTT profile status reports credential readiness without returning credential material', async () => {
@@ -73,7 +84,7 @@ test('MQTT profile status reports credential readiness without returning credent
   await fs.writeFile(file, JSON.stringify({
     version: 1,
     profiles: [{
-      id: 'agv',
+      id: 'plant',
       host: '127.0.0.1',
       port: 1883,
       tls: false,
@@ -87,7 +98,7 @@ test('MQTT profile status reports credential readiness without returning credent
   assert.equal(status.profiles[0]?.passwordConfigured, true);
   assert.doesNotMatch(JSON.stringify(status), /credential-fixture-value/);
   assert.doesNotMatch(JSON.stringify(status), /TEST_MQTT_PASSWORD/);
-  const resolved = await store.resolve('agv');
+  const resolved = await store.resolve('plant');
   assert.equal(resolved.password, 'credential-fixture-value');
   await fs.rm(root, { recursive: true, force: true });
 });

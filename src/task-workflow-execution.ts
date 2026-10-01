@@ -51,10 +51,6 @@ function aiWorkerProvider(value: string): value is AiWorkerProviderId {
   return value === 'codex-local' || value === 'antigravity-local';
 }
 
-function alternateAiWorker(value: AiWorkerProviderId): AiWorkerProviderId {
-  return value === 'codex-local' ? 'antigravity-local' : 'codex-local';
-}
-
 function compactProviderTrace(attempts: TaskProviderAttemptRecord[]): string {
   return attempts
     .map(item => `${item.providerId}=${item.status}${item.summary ? `:${item.summary}` : ''}`)

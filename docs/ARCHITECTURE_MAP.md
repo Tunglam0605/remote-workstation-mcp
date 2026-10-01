@@ -64,8 +64,10 @@ MCP handlers validate public contracts and delegate to services. They are not th
 3. Every migrated extension declares a stable id, extension API version, kind and platform support.
 4. New domain-specific work must enter through an extension boundary.
 5. New generic primitives must prove reuse outside the motivating extension before entering Platform.
-6. Architecture checks run in CI and block reverse dependencies.
-7. Runtime, security and update behavior take precedence over directory aesthetics; migrations remain incremental and regression-tested.
+6. Public engineering tools and extension-core logic must describe reusable protocol, toolchain, artifact or workflow capabilities rather than a customer, product, robot, board or one project. Project-specific topics, object mappings, IDs, paths and semantic conventions belong in project profiles, manifests, EDS/DCF files, presets or higher-level workflows.
+7. A new engineering tool should normally be useful in at least two materially different project contexts. If only configuration differs, extend a profile/schema instead of adding another public tool.
+8. Architecture checks run in CI and block reverse dependencies.
+9. Runtime, security and update behavior take precedence over directory aesthetics; migrations remain incremental and regression-tested.
 
 ## Target source map
 

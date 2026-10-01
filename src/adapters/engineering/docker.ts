@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { PolicyEngine } from '../../policy.js';
 import { PathGuard } from '../../security/path-guard.js';
 import { EngineeringCommandRunner } from './command-runner.js';

@@ -74,3 +74,43 @@ test('extended, CAN FD, RTR and error frames are excluded from classic CANopen d
   assert.equal(decodeCanopenFrame({ ...frame(0x705, ['05']), rtr: true }), undefined);
   assert.equal(decodeCanopenFrame({ ...frame(0x705, ['05']), error: true }), undefined);
 });
+
+
+test('CANopen SYNC counter and TIME payload expose protocol semantics', () => {
+  const sync = decodeCanopenFrame(frame(0x080, ['07']));
+  assert.equal(sync?.kind, 'sync');
+  assert.equal(sync && 'counter' in sync ? sync.counter : undefined, 7);
+  assert.equal(sync && 'protocol' in sync ? sync.protocol.valid : undefined, true);
+
+  const time = decodeCanopenFrame(frame(0x100, ['E8', '03', '00', '00', '01', '00']));
+  assert.equal(time?.kind, 'time');
+  assert.equal(time && 'millisecondsAfterMidnight' in time ? time.millisecondsAfterMidnight : undefined, 1000);
+  assert.equal(time && 'daysSince1984' in time ? time.daysSince1984 : undefined, 1);
+  assert.equal(time && 'utcIso' in time ? time.utcIso : undefined, '1984-01-02T00:00:01.000Z');
+});
+
+test('CANopen protocol diagnostics flag malformed DLC without discarding evidence', () => {
+  const malformedSync = decodeCanopenFrame(frame(0x080, ['00']));
+  assert.equal(malformedSync?.kind, 'sync');
+  assert.equal(malformedSync && 'protocol' in malformedSync ? malformedSync.protocol.valid : undefined, false);
+
+  const malformedSdo = decodeCanopenFrame(frame(0x601, ['40', '00', '20', '00', '00', '00', '00']));
+  assert.equal(malformedSdo?.kind, 'sdo-request');
+  assert.equal(malformedSdo && 'protocol' in malformedSdo ? malformedSdo.protocol.valid : undefined, false);
+});
+
+test('CANopen SDO commands and abort codes are named from CiA 301 semantics', () => {
+  const upload = decodeCanopenFrame(frame(0x603, ['40', '00', '20', '01', '00', '00', '00', '00']));
+  assert.equal(upload && 'commandName' in upload ? upload.commandName : undefined, 'upload-initiate-request');
+
+  const abort = decodeCanopenFrame(frame(0x583, ['80', '00', '20', '01', '00', '00', '02', '06']));
+  assert.equal(abort && 'abort' in abort ? abort.abort?.name : undefined, 'object-not-present');
+});
+
+test('CANopen EMCY exposes standard error-register flags and error class', () => {
+  const decoded = decodeCanopenFrame(frame(0x083, ['10', '23', '15', 'AA', 'BB', 'CC', 'DD', 'EE']));
+  assert.equal(decoded && 'codeClass' in decoded ? decoded.codeClass : undefined, 'current');
+  assert.deepEqual(decoded && 'errorRegisterFlags' in decoded ? decoded.errorRegisterFlags : undefined, [
+    'generic', 'voltage', 'communication'
+  ]);
+});

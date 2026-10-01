@@ -21,6 +21,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Validate dependency install-script policy
         run: npm run supply-chain:validate
+      - name: Scan tracked files for high-confidence secrets
+        run: npm run security:scan
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Generate CycloneDX SBOM
@@ -93,6 +95,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Validate dependency install-script policy
         run: npm run supply-chain:validate
+      - name: Scan tracked files for high-confidence secrets
+        run: npm run security:scan
       - run: npm run typecheck
       - name: Enforce architecture boundaries
         run: npm run architecture:check
@@ -270,7 +274,7 @@ jobs:
           if (-not ($scopeSet -contains 'workstation.admin_request')) { throw 'Legacy execute scopes were not migrated to request-only Administrator scope.' }
 
           $secretPath = Get-RwmcpSecretPath
-          $testSecret = 'sk-test-rwmcp-dpapi-0123456789abcdef'
+          $testSecret = 'ci-dpapi-roundtrip-secret-value-0123456789abcdef'
           $testSecret | & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-secret.ps1 -Action Set -Path $secretPath
           if ($LASTEXITCODE -ne 0) { throw 'DPAPI secret write failed.' }
           $roundTrip = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-secret.ps1 -Action Get -Path $secretPath

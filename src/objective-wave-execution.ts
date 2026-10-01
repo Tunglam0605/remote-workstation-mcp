@@ -1,6 +1,5 @@
 import type { SchedulerAwareTask, SchedulerAwarenessService } from './scheduler-awareness.js';
-import type { TaskGraphStore, WorkObjective, WorkTask } from './task-graph.js';
-import type { TaskWorkflowExecutionService } from './task-workflow-execution.js';
+import type { WorkObjective, WorkTask } from './task-graph.js';
 
 export interface ObjectiveWaveExecutionInput {
   limit?: number;

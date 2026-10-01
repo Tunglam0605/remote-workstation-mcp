@@ -127,9 +127,9 @@ multiNode:
   #     sourceWorkspace: stm32
   #     destinationWorkspace: projects
   #     sourcePathPrefixes:
-  #       - B300-Main-Custom/exports
+  #       - firmware-controller/exports
   #     destinationBasePaths:
-  #       - incoming/b300
+  #       - incoming/firmware-controller
   #     allowedExtensions:
   #       - .hex
   #       - .bin

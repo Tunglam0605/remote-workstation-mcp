@@ -10,17 +10,48 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 48 / Engineering API 5;
+- stable v0.66.0 remains Action Schema 36 / Engineering API 5; current development head is Action Schema 51 / Engineering API 5;
 - stable v0.66.0 authority, Work Session, hardware-interlock, updater and rollback contracts remain unchanged; v0.67 development tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
 
 - add `domain.canopen` on Linux as a read-only/passive extension over the existing SocketCAN capture provider;
 - add `canopen_provider_status`, `canopen_capture_decode` and `canopen_node_observe`;
+
 - decode standard 11-bit CiA 301 NMT, SYNC, EMCY, PDO, SDO and Heartbeat evidence from bounded captures;
 - allow explicit node observation or passive traffic discovery only; an empty node list never performs an active scan;
 - keep frame transmission, NMT commands, active SDO requests/writes, PDO transmission, LSS, node guarding requests and bus configuration unavailable;
 - advance Action Schema to 37; Engineering API remains 5.
+
+## Post-v0.66 tool expansion — CANopen Phase 2
+
+- add cross-platform `canopen_eds_inspect`, `canopen_eds_profile` and `canopen_object_lookup` for bounded project-local EDS/DCF Object Dictionary and communication-profile inspection;
+- preserve base record/array metadata separately from explicit `sub0..sub255` entries so standard EDS record layouts remain representable;
+- add `canopen_capture_semantic_decode` on top of passive Linux SocketCAN capture to decode expedited SDO values, configured/default PDO mappings, EDS-configured SDO/PDO COB-IDs for explicit nodes, SDO command/abort semantics, EMCY error-register flags, SYNC counters, TIME payloads and protocol DLC evidence;
+- resolve only `$NODEID`, `$NODEID+literal` or `$NODEID-literal` after an explicit valid node ID or bounded DCF `[DeviceComissioning]` NodeID is available; parse bounded FileInfo/DeviceInfo/commissioning metadata and never evaluate arbitrary expressions; reject project-path escape and oversized/non-EDS sources and bound sections/entries/lines/warnings;
+- summarize CiA 301 communication objects 0x1005/0x1012/0x1014/0x1017/0x1019/0x1200 and PDO communication/mapping ranges; retain bounded raw evidence for segmented SDO, unsupported data types, unresolved expressions and non-byte-aligned mappings instead of guessing values;
+- keep frame transmission, active SDO requests/writes, NMT command transmission, PDO transmission, LSS and bus configuration unavailable;
+- advance Action Schema to 49; Engineering API remains 5.
+
+## Post-v0.66 tool expansion — CANopen Phase 3
+
+- add one deep reusable `canopen_capture_analyze` tool instead of project-specific or narrowly named diagnostics;
+- keep analysis logic in a transport-agnostic pure module so the same engine can later consume live SocketCAN, imported candump logs, USB-CAN captures or test fixtures;
+- derive bounded node inventory, Heartbeat/NMT state transitions, EMCY/SDO/PDO counts and protocol issue evidence;
+- correlate SDO initiate request/response exchanges, distinguish expedited completion from segmented/block transfer initiation, preserve abort evidence and never claim full segmented completion without observing it;
+- summarize PDO, Heartbeat and SYNC cadence with median/p95/max interval, absolute jitter and relative gap evidence;
+- never infer a protocol timeout solely from an observed gap; configured timeout semantics must come from explicit profile/EDS/DCF data before a timeout conclusion is allowed;
+- keep all CAN/CANopen analysis read-only and free of device-, vendor- or project-specific logic;
+- advance Action Schema to 50; Engineering API remains 5.
+
+## Post-v0.66 engineering-workbench reuse hardening
+
+- make cross-project reuse an explicit engineering-surface gate: public tools describe reusable protocols/toolchains/workflows, not a product, vehicle, customer or one project;
+- move project-specific IDs, MQTT topics, semantic conventions, object mappings and paths into profiles/manifests/EDS-DCF/presets or higher-level workflows;
+- replace the unreleased MQTT/AGV-specific helper with generic `mqtt_json_observe`, which searches bounded JSON messages by caller-selected property/value and returns selected scalar evidence;
+- replace `mqtt-agv` Industrial Endpoint Profiles with generic `mqtt-topic` profiles containing only MQTT credential-profile reference plus validated topic filter;
+- retain subscribe-only/read-only authority and keep PUBLISH, broker mutation and industrial control unavailable;
+- advance Action Schema to 51; Engineering API remains 5.
 
 ## Post-v0.66 tool expansion — Media/Video Phase 4
 
@@ -56,7 +87,7 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - move additional Moonlight Devices/Updates/Settings/Notifications ownership only when the change remains contract-preserving;
 - add runtime capability readiness reporting so implemented contracts distinguish node-ready, degraded and unavailable providers without changing legacy capability status;
 - keep new domain capabilities behind extension manifests;
-- extend industrial diagnostics incrementally: passive CANopen and subscribe-only MQTT/AGV observation first, then PLC/OPC UA behind separate domain extensions;
+- extend industrial diagnostics incrementally: passive CANopen and subscribe-only generic MQTT observation first, then PLC/OPC UA behind separate domain extensions;
 - optimize large static Moonlight image assets with measured visual/regression checks;
 - treat CHANGELOG.md as shipped history and keep this roadmap focused on future work.
 

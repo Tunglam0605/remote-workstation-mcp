@@ -29,7 +29,7 @@ For STM32 E1, the initial source set is ST UM1718 (STM32CubeMX project/.ioc beha
 - `firmware_*` / `target_reset`: inspect, build, plan, flash, independently verify and reset firmware through constrained providers.
 - `debug_*` / `fault_decode`: OpenOCD + GDB/MI debugging, Cortex-M register/memory/fault inspection.
 - `ros2_*`: typed colcon build plus bounded node/topic/QoS/service/action/parameter/bag operations.
-- `canopen_*`: Linux SocketCAN passive CiA 301 diagnostics. Phase 1 decodes observed NMT, SYNC, EMCY, PDO, SDO and Heartbeat traffic without transmitting frames or changing bus state.
+- `canopen_*`: Phase 3 keeps project-scoped `.eds`/`.dcf` Object Dictionary inspection, configured COB-ID semantics and passive protocol decoding, then adds one reusable capture-analysis surface for node inventory/NMT transitions, initiate-level SDO correlation, EMCY evidence and PDO/SYNC/Heartbeat cadence/jitter/gap statistics. The analysis engine is transport-agnostic and contains no vendor/project-specific device logic. With an explicit node ID or bounded DCF commissioning NodeID, strict `$NODEID`, `$NODEID+literal` and `$NODEID-literal` forms may be resolved; arbitrary expressions remain raw. Observed gaps are evidence only and are not labeled timeouts without explicit configured timeout data. No frames are transmitted or bus state changed.
 - `container_*` / `image_build`: typed Docker lifecycle, logs, exec and build operations with a dedicated container policy. Inspection classifies privileged/host namespaces, Docker socket, host-root/sensitive mounts, device passthrough, root user and daemon/context risk before mutation.
 
 ## High-level workflow catalog
@@ -153,7 +153,7 @@ ros2:
       - robot_control
 ```
 
-## Industrial Endpoint Profiles Phase 1
+## Industrial Endpoint Profiles Phase 2
 
 Industrial Endpoint Profiles provide reusable owner-local, non-secret descriptors that bind the low-level diagnostic tools to named industrial assets without exposing credentials or adding mutation authority.
 
@@ -161,15 +161,15 @@ The file `industrial-endpoints.json` lives in the platform setup-config director
 
 - `modbus-tcp` — explicit host, port, Unit ID and default read address/function metadata;
 - `opcua` — explicit `opc.tcp` endpoint and default browse root NodeId;
-- `mqtt-agv` — a reference to an existing owner-local MQTT credential profile plus vehicle identifier.
+- `mqtt-topic` — a reference to an existing owner-local MQTT credential profile plus a validated topic filter. Device/product topic conventions stay in profile data, not RWMCP source.
 
 Available tools:
 
 - `industrial_profile_list` — lists bounded non-secret profile metadata without network activity.
 - `industrial_profile_inspect` — returns one named profile.
-- `industrial_profile_preflight` — performs one bounded read-only readiness check using the existing Modbus TCP, OPC UA or MQTT/AGV provider.
+- `industrial_profile_preflight` — performs one bounded read-only readiness check using the existing Modbus RTU/TCP, OPC UA or generic MQTT topic provider.
 
-MQTT passwords remain outside this profile file and outside MCP arguments. Phase 1 provides no MCP create/update/delete action and no PLC/AGV write/control action.
+MQTT passwords remain outside this profile file and outside MCP arguments. Profiles carry endpoint/topic data only; project-specific message meanings remain in project configuration or higher-level workflows. No MQTT publish or industrial write/control action is introduced.
 
 ## OPC UA diagnostics Phase 1
 
@@ -197,7 +197,7 @@ Available tools:
 
 Phase 1 intentionally excludes FC05/06/0F/10 and all other write/mutation functions, raw PDU injection, implicit Unit-ID sweeps, subnet scanning and server configuration.
 
-## MQTT diagnostics Phase 1
+## MQTT diagnostics Phase 2
 
 MQTT diagnostics are subscribe-only and use owner-local profiles instead of accepting broker credentials through MCP arguments. Profiles are stored outside the repository at the platform setup-config directory in `mqtt-profiles.json`.
 
@@ -208,26 +208,26 @@ Example profile file:
   "version": 1,
   "profiles": [
     {
-      "id": "agv",
+      "id": "plant",
       "host": "broker.example.internal",
       "port": 1883,
       "tls": false,
       "username": "operator",
-      "passwordEnv": "RWMCP_MQTT_AGV_PASSWORD"
+      "passwordEnv": "RWMCP_MQTT_PLANT_PASSWORD"
     }
   ]
 }
 ```
 
-The password value itself is never stored in this file; only the environment-variable name is persisted. TLS profiles always verify the broker certificate in Phase 1.
+The password value itself is never stored in this file; only the environment-variable name is persisted. TLS profiles always verify the broker certificate.
 
 Available tools:
 
 - `mqtt_provider_status` — reports non-secret profile readiness and the subscribe-only authority boundary.
 - `mqtt_subscribe_sample` — collects a bounded MQTT 3.1.1 topic sample and parses bounded UTF-8/JSON evidence.
-- `mqtt_agv_lift_observe` — observes `aubotagv/2.0.0/AUBOT/<vehicle>/state` and extracts nested `liftSensorStatus` evidence, deriving `up`, `down`, `between`, `conflict` or `unknown` conservatively.
+- `mqtt_json_observe` — subscribes to an explicit topic filter, searches bounded nested JSON objects for a caller-selected property/value, and returns only selected scalar fields plus JSON paths. This replaces unreleased project-specific MQTT helpers.
 
-Phase 1 does not expose PUBLISH, retained-message mutation, broker configuration or credential mutation.
+Phase 2 does not expose PUBLISH, retained-message mutation, broker configuration or credential mutation.
 
 ## Camera diagnostics Phase 3
 

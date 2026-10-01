@@ -1,6 +1,5 @@
 import {
   EngineeringWorkflowEngine,
-  type EngineeringWorkflowId,
   type EngineeringWorkflowOverrides
 } from './adapters/engineering/workflow-engine.js';
 import { deriveQualityCompatibilityInput, type QualityObservationStore } from './quality-learning.js';
@@ -28,7 +27,7 @@ export class EngineeringWorkflowExecutionService {
       const output = await this.engine.run(
         workspace,
         projectPath,
-        workflow as EngineeringWorkflowId,
+        workflow,
         runtimeParameters
       );
       const outputStatus = typeof output === 'object' && output && 'status' in output

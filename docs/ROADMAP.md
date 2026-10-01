@@ -42,6 +42,15 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 - keep raw Remotion arguments, arbitrary entry points/composition IDs from MCP, arbitrary environment injection and implicit overwrite unavailable;
 - advance Action Schema to 47; Engineering API remains 5.
 
+## Post-v0.66 workflow expansion — Media/Video Phase 5
+
+- add an extension workflow-contribution seam so domain extensions can compose existing typed adapters behind the stable `engineering_workflow_*` envelope without adding new top-level MCP actions;
+- add `media.remotion.render_accept` for typed Remotion render plus FFprobe acceptance evidence;
+- add `media.comfyui.generate_import_accept` for bounded preset submit, finite completion polling, durable artifact import and FFprobe acceptance;
+- require explicit Work Session ownership for mutating contributed workflows and fail closed on duplicate, malformed or built-in-colliding workflow IDs;
+- preserve completed artifact evidence on acceptance failure for diagnosis; never claim implicit ComfyUI queue cancellation on timeout;
+- keep Action Schema at 48 and Engineering API at 5 because the generic workflow action envelope is reused.
+
 ## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
 
 - add `camera_fleet_probe` as a read-only fleet diagnostic over owner-local camera profiles;

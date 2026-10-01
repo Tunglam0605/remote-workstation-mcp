@@ -26,55 +26,63 @@ import { Ros2Adapter, type Ros2RuntimeContext } from './ros2.js';
 import { SerialSessionManager } from './serial-session.js';
 import { SystemdAdapter } from './systemd.js';
 import { Stm32SvdAdapter, decodeStm32SvdRegisterHex } from './stm32-svd.js';
+import {
+  EngineeringWorkflowContributionRegistry,
+  type EngineeringWorkflowContribution,
+  type EngineeringWorkflowStepResult
+} from './workflow-contribution.js';
 
-export type EngineeringWorkflowId =
-  | 'platform.transfer_prepare'
-  | 'platform.transfer_receive_offer'
-  | 'platform.transfer_push'
-  | 'platform.relay_read_chunk'
-  | 'platform.relay_begin'
-  | 'platform.relay_status'
-  | 'platform.relay_write_chunk'
-  | 'platform.relay_finalize'
-  | 'platform.relay_abort'
-  | 'firmware.build'
-  | 'firmware.build_flash'
-  | 'firmware.build_flash_verify'
-  | 'firmware.build_flash_monitor'
-  | 'firmware.build_flash_monitor_expect'
-  | 'firmware.artifact_prepare'
-  | 'firmware.artifact_accept'
-  | 'firmware.artifact_receive_offer'
-  | 'firmware.artifact_push'
-  | 'espidf.preflight'
-  | 'espidf.diagnostics'
-  | 'espidf.size_analysis'
-  | 'espidf.fullclean'
-  | 'espidf.reconfigure'
-  | 'platformio.diagnostics'
-  | 'platformio.build'
-  | 'platformio.upload'
-  | 'stm32.debug_fault_snapshot'
-  | 'stm32.deep_diagnostics'
-  | 'stm32.peripheral_snapshot'
-  | 'stm32.deploy_accept'
-  | 'stm32.deploy_accept_diagnose'
-  | 'ros2.build'
-  | 'ros2.health'
-  | 'ros2.diagnostics'
-  | 'ros2.doctor'
-  | 'ros2.test'
-  | 'ros2.bag_info'
-  | 'ros2.build_health'
-  | 'docker.diagnostics'
-  | 'docker.stats_snapshot'
-  | 'docker.container_inspect'
-  | 'docker.container_logs'
-  | 'kicad.diagnostics'
-  | 'kicad.validate'
-  | 'kicad.fabrication_export'
-  | 'systemd.service_diagnostics'
-  | 'systemd.service_restart';
+export const BUILTIN_ENGINEERING_WORKFLOW_IDS = [
+  'platform.transfer_prepare',
+  'platform.transfer_receive_offer',
+  'platform.transfer_push',
+  'platform.relay_read_chunk',
+  'platform.relay_begin',
+  'platform.relay_status',
+  'platform.relay_write_chunk',
+  'platform.relay_finalize',
+  'platform.relay_abort',
+  'firmware.build',
+  'firmware.build_flash',
+  'firmware.build_flash_verify',
+  'firmware.build_flash_monitor',
+  'firmware.build_flash_monitor_expect',
+  'firmware.artifact_prepare',
+  'firmware.artifact_accept',
+  'firmware.artifact_receive_offer',
+  'firmware.artifact_push',
+  'espidf.preflight',
+  'espidf.diagnostics',
+  'espidf.size_analysis',
+  'espidf.fullclean',
+  'espidf.reconfigure',
+  'platformio.diagnostics',
+  'platformio.build',
+  'platformio.upload',
+  'stm32.debug_fault_snapshot',
+  'stm32.deep_diagnostics',
+  'stm32.peripheral_snapshot',
+  'stm32.deploy_accept',
+  'stm32.deploy_accept_diagnose',
+  'ros2.build',
+  'ros2.health',
+  'ros2.diagnostics',
+  'ros2.doctor',
+  'ros2.test',
+  'ros2.bag_info',
+  'ros2.build_health',
+  'docker.diagnostics',
+  'docker.stats_snapshot',
+  'docker.container_inspect',
+  'docker.container_logs',
+  'kicad.diagnostics',
+  'kicad.validate',
+  'kicad.fabrication_export',
+  'systemd.service_diagnostics',
+  'systemd.service_restart',] as const;
+
+export type EngineeringWorkflowId = typeof BUILTIN_ENGINEERING_WORKFLOW_IDS[number];
+const BUILTIN_ENGINEERING_WORKFLOW_ID_SET = new Set<string>(BUILTIN_ENGINEERING_WORKFLOW_IDS);
 
 export interface EngineeringProfileInitOptions {
   id?: string;
@@ -139,6 +147,14 @@ export interface EngineeringWorkflowOverrides {
   sourcePath?: string;
   destinationBasePath?: string;
   destinationFileName?: string;
+  mediaPresetId?: string;
+  mediaParameters?: Record<string, string | number | boolean>;
+  mediaOutput?: string;
+  mediaArtifactIndex?: number;
+  mediaPollIntervalMs?: number;
+  mediaCompletionTimeoutMs?: number;
+  mediaOperationTimeoutMs?: number;
+  mediaMaxBytes?: number;
 }
 
 interface ProjectState {
@@ -148,13 +164,7 @@ interface ProjectState {
   profile: EngineeringProjectProfile;
 }
 
-interface StepResult {
-  id: string;
-  status: 'succeeded' | 'failed' | 'blocked';
-  durationMs: number;
-  result?: unknown;
-  error?: string;
-}
+type StepResult = EngineeringWorkflowStepResult;
 
 function safeId(value: string): string {
   const normalized = value.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
@@ -202,6 +212,12 @@ function successfulBuild(provider: string, result: { exitCode: number | null; ti
 }
 
 export class EngineeringWorkflowEngine {
+  private readonly contributions = new EngineeringWorkflowContributionRegistry(BUILTIN_ENGINEERING_WORKFLOW_ID_SET);
+
+  registerContribution(contribution: EngineeringWorkflowContribution): void {
+    this.contributions.add(contribution);
+  }
+
   constructor(
     private readonly policy: PolicyEngine,
     private readonly profiles: EngineeringProjectProfileStore,
@@ -575,7 +591,8 @@ export class EngineeringWorkflowEngine {
       manifestPath: state.manifestPath,
       project: state.project,
       profile: state.profile,
-      workflows: this.workflowIds(state).map(id => ({
+      workflows: [
+        ...this.workflowIds(state).map(id => ({
         id,
         destructive: id === 'platform.transfer_receive_offer' ||
           id === 'platform.transfer_push' ||
@@ -642,16 +659,40 @@ export class EngineeringWorkflowEngine {
           'systemd.service_diagnostics': 'Read one explicit systemd unit state and bounded journal tail on Linux.',
           'systemd.service_restart': 'Restart one exact owner-allowlisted systemd unit, then collect post-restart diagnostics.'
         }[id]
-      }))
+      })),
+        ...this.contributions.list().map(item => ({
+          id: item.id,
+          destructive: item.destructive,
+          description: item.description,
+          source: 'extension' as const
+        }))
+      ]
     };
   }
 
   async plan(
     workspace: string,
     projectPath: string,
-    workflow: EngineeringWorkflowId,
+    workflow: string,
     overrides: EngineeringWorkflowOverrides = {}
   ) {
+    const contribution = this.contributions.get(workflow);
+    if (contribution) {
+      const contributionPlan = await contribution.plan({
+        workspace,
+        projectPath,
+        parameters: overrides as Readonly<Record<string, unknown>>
+      });
+      return {
+        ...contributionPlan,
+        workflow,
+        source: 'extension' as const
+      };
+    }
+    if (!BUILTIN_ENGINEERING_WORKFLOW_ID_SET.has(workflow)) {
+      throw new Error(`Unknown engineering workflow: ${workflow}`);
+    }
+
     const platformWorkflow = workflow === 'platform.transfer_prepare' ||
       workflow === 'platform.transfer_receive_offer' ||
       workflow === 'platform.transfer_push' ||
@@ -946,7 +987,7 @@ export class EngineeringWorkflowEngine {
     }
 
     const state = await this.state(workspace, projectPath);
-    if (!this.workflowIds(state).includes(workflow)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
+    if (!this.workflowIds(state).includes(workflow as EngineeringWorkflowId)) throw new Error(`Workflow '${workflow}' is not available for this project.`);
 
     if (workflow.startsWith('espidf.')) {
       const effective = this.effectiveFirmware(state.profile.firmware, overrides);
@@ -1431,9 +1472,30 @@ export class EngineeringWorkflowEngine {
   async run(
     workspace: string,
     projectPath: string,
-    workflow: EngineeringWorkflowId,
+    workflow: string,
     overrides: EngineeringWorkflowOverrides = {}
   ): Promise<EngineeringWorkflowRunResult> {
+    const contribution = this.contributions.get(workflow);
+    if (contribution) {
+      const plan = await this.plan(workspace, projectPath, workflow, overrides);
+      const execution = await contribution.run({
+        workspace,
+        projectPath,
+        parameters: overrides as Readonly<Record<string, unknown>>,
+        plan: plan as Record<string, unknown>
+      });
+      return {
+        workflow,
+        status: execution.status,
+        plan,
+        steps: execution.steps,
+        ...(execution.outputs ? { outputs: execution.outputs } : {})
+      };
+    }
+    if (!BUILTIN_ENGINEERING_WORKFLOW_ID_SET.has(workflow)) {
+      throw new Error(`Unknown engineering workflow: ${workflow}`);
+    }
+
     const steps: StepResult[] = [];
 
     const capture = async <T>(
@@ -2581,7 +2643,7 @@ export class EngineeringWorkflowEngine {
 }
 
 export interface EngineeringWorkflowRunResult {
-  workflow: EngineeringWorkflowId;
+  workflow: string;
   status: 'succeeded' | 'failed' | 'blocked';
   plan: Awaited<ReturnType<EngineeringWorkflowEngine['plan']>>;
   steps: StepResult[];

@@ -8,6 +8,7 @@ This file records shipped RWMCP release milestones. Future work belongs in `docs
 - Post-v0.66 extensions now include CANopen, MQTT/AGV observation, Modbus TCP, OPC UA, camera/RTSP/ONVIF PTZ, industrial endpoint profiles, and media/ComfyUI workflows.
 - Runtime capability-readiness reporting distinguishes implemented contracts from provider/node readiness without widening authority.
 - Media/Video Phase 4 promotes owner-local typed Remotion presets into plan/render tools with project-local CLI execution, local browser reuse, fail-if-exists MP4 output, temporary-props cleanup and SHA-256 artifact evidence.
+- Media/Video Phase 5 adds extension-owned Engineering Workflow contributions plus `media.remotion.render_accept` and `media.comfyui.generate_import_accept`, preserving the generic workflow envelope, explicit Work Session mutation ownership, bounded polling and FFprobe acceptance evidence without adding top-level MCP authority.
 - Camera Diagnostics Phase 3 adds bounded concurrent fleet health probing for up to 32 owner-local camera profiles with per-camera RTSP/media evidence and p50/p95 latency aggregation, without camera mutation.
 - CANopen Phase 2 adds cross-platform project-scoped bounded EDS/DCF object-dictionary inspection and exact lookup; where Linux SocketCAN is ready, passive captures can annotate expedited SDO values and statically resolvable default PDO mappings. Dynamic/unsupported mappings retain raw evidence. All three new tools use `workstation.read` and never transmit CAN frames.
 - Action Schema is 49; Engineering API remains 5.

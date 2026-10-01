@@ -27,6 +27,7 @@ const CANOPEN_TOOLS = [
   'canopen_capture_decode',
   'canopen_node_observe',
   'canopen_eds_inspect',
+  'canopen_eds_profile',
   'canopen_object_lookup',
   'canopen_capture_semantic_decode'
 ] as const;

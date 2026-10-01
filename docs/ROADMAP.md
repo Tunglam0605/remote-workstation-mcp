@@ -25,11 +25,11 @@ Architecture Consolidation is complete in stable v0.66.0. Current development co
 
 ## Post-v0.66 tool expansion — CANopen Phase 2
 
-- add cross-platform `canopen_eds_inspect` and `canopen_object_lookup` for bounded project-local EDS/DCF Object Dictionary inspection;
+- add cross-platform `canopen_eds_inspect`, `canopen_eds_profile` and `canopen_object_lookup` for bounded project-local EDS/DCF Object Dictionary and communication-profile inspection;
 - preserve base record/array metadata separately from explicit `sub0..sub255` entries so standard EDS record layouts remain representable;
-- add `canopen_capture_semantic_decode` on top of the existing passive Linux SocketCAN capture path to annotate expedited SDO values and statically resolvable default TPDO/RPDO mappings;
-- reject project-path escape and oversized/non-EDS sources, bound sections/entries/lines/warnings, and never evaluate dynamic EDS expressions such as `$NODEID+...`;
-- retain bounded raw evidence for segmented SDO, unsupported data types, dynamic PDO mappings and non-byte-aligned mappings instead of guessing values;
+- add `canopen_capture_semantic_decode` on top of passive Linux SocketCAN capture to decode expedited SDO values, configured/default PDO mappings, EDS-configured SDO/PDO COB-IDs for explicit nodes, SDO command/abort semantics, EMCY error-register flags, SYNC counters, TIME payloads and protocol DLC evidence;
+- resolve only `$NODEID`, `$NODEID+literal` or `$NODEID-literal` after an explicit valid node ID or bounded DCF `[DeviceComissioning]` NodeID is available; parse bounded FileInfo/DeviceInfo/commissioning metadata and never evaluate arbitrary expressions; reject project-path escape and oversized/non-EDS sources and bound sections/entries/lines/warnings;
+- summarize CiA 301 communication objects 0x1005/0x1012/0x1014/0x1017/0x1019/0x1200 and PDO communication/mapping ranges; retain bounded raw evidence for segmented SDO, unsupported data types, unresolved expressions and non-byte-aligned mappings instead of guessing values;
 - keep frame transmission, active SDO requests/writes, NMT command transmission, PDO transmission, LSS and bus configuration unavailable;
 - advance Action Schema to 49; Engineering API remains 5.
 

@@ -129,7 +129,7 @@ test('SocketCAN bounded capture compiles typed filters and summarizes classic pl
       ],
       includeErrorFrames: true
     });
-    assert.deepEqual(calls.at(-1), ['-L', '-n', '3', '-T', '1500', 'can0,123:7FF,001ABCDE:1FFFFFFF,#1FFFFFFF']);
+    assert.deepEqual(calls.at(-1), ['-L', '-n', '3', '-T', '1500', 'can0,123:800007FF,001ABCDE:9FFFFFFF,#1FFFFFFF']);
     assert.equal(capture.frames.length, 3);
     assert.equal(capture.frames[0]?.idHex, '123');
     assert.equal(capture.frames[1]?.fd, true);

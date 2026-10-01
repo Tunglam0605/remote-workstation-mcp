@@ -122,7 +122,9 @@ function summarizeLink(link: IpLink) {
   };
 }
 
-function normalizeFilter(filter: CanFilter): string {
+const CAN_EFF_FLAG = 0x80000000;
+
+function validateFilter(filter: CanFilter): void {
   if (!Number.isSafeInteger(filter.id) || !Number.isSafeInteger(filter.mask) || filter.id < 0 || filter.mask < 0) {
     throw new Error('CAN filter id and mask must be non-negative integers.');
   }
@@ -132,8 +134,16 @@ function normalizeFilter(filter: CanFilter): string {
       ? 'Extended CAN filter id/mask must be <= 0x1FFFFFFF.'
       : 'Standard CAN filter id/mask must be <= 0x7FF.');
   }
-  const width = filter.extended ? 8 : 3;
-  return `${filter.id.toString(16).toUpperCase().padStart(width, '0')}:${filter.mask.toString(16).toUpperCase().padStart(width, '0')}`;
+}
+
+function normalizeFilter(filter: CanFilter): string {
+  validateFilter(filter);
+  const idWidth = filter.extended ? 8 : 3;
+  const idHex = filter.id.toString(16).toUpperCase().padStart(idWidth, '0');
+  // candump sets CAN_EFF_FLAG from an 8-digit ID. Include that flag in the
+  // mask as well so typed standard/extended filters do not cross-match formats.
+  const formatExactMask = (filter.mask | CAN_EFF_FLAG) >>> 0;
+  return `${idHex}:${formatExactMask.toString(16).toUpperCase().padStart(8, '0')}`;
 }
 
 function parseCandumpLine(line: string) {
@@ -201,8 +211,10 @@ function captureSummary(frames: ReturnType<typeof parseCandumpLine>[]) {
 const PYTHON_CAPTURE_HELPER = fileURLToPath(new URL('../../../scripts/socketcan_capture.py', import.meta.url));
 
 function pythonFilter(filter: CanFilter): string {
-  const normalized = normalizeFilter(filter);
-  const [id, mask] = normalized.split(':');
+  validateFilter(filter);
+  const width = filter.extended ? 8 : 3;
+  const id = filter.id.toString(16).toUpperCase().padStart(width, '0');
+  const mask = filter.mask.toString(16).toUpperCase().padStart(width, '0');
   return `${id}:${mask}:${filter.extended ? '1' : '0'}`;
 }
 

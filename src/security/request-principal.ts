@@ -175,6 +175,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   canopen_capture_decode: 'workstation.read',
   canopen_node_observe: 'workstation.read',
   canopen_eds_inspect: 'workstation.read',
+  canopen_eds_profile: 'workstation.read',
   canopen_object_lookup: 'workstation.read',
   canopen_capture_semantic_decode: 'workstation.read',
   media_provider_status: 'workstation.read',

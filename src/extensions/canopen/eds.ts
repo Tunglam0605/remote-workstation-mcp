@@ -9,6 +9,7 @@ const MAX_SECTIONS = 4_096;
 const MAX_ENTRIES = 4_096;
 const MAX_WARNINGS = 64;
 const MAX_VALUE_CHARS = 256;
+const MAX_METADATA_FIELDS = 128;
 
 const FIELD_MAP = new Map<string, string>([
   ['parametername', 'parameterName'],
@@ -57,6 +58,12 @@ type RawSection = {
   values: Record<string, string>;
 };
 
+export type EdsMetadata = {
+  fileInfo: Record<string, string>;
+  deviceInfo: Record<string, string>;
+  deviceComissioning: Record<string, string>;
+};
+
 export type RawCanopenFrame = {
   timestamp: number;
   interface: string;
@@ -88,6 +95,23 @@ function staticUnsigned(raw: string | undefined): number | undefined {
   else if (/^[0-9]+$/.test(value)) parsed = Number.parseInt(value, 10);
   else return undefined;
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+export function resolveEdsUnsigned(raw: string | undefined, nodeId?: number): number | undefined {
+  const direct = staticUnsigned(raw);
+  if (direct !== undefined) return direct;
+  if (raw === undefined || nodeId === undefined || !Number.isInteger(nodeId) || nodeId < 1 || nodeId > 127) return undefined;
+
+  const match = /^\$NODEID(?:\s*([+-])\s*(0x[0-9a-f]+|[0-9a-f]+h|[0-9]+))?$/i.exec(raw.trim());
+  if (!match) return undefined;
+  const offset = match[2] === undefined ? 0 : staticUnsigned(match[2]);
+  if (offset === undefined) return undefined;
+  const value = match[1] === '-' ? nodeId - offset : nodeId + offset;
+  return Number.isSafeInteger(value) && value >= 0 && value <= 0xffffffff ? value : undefined;
+}
+
+function entryRawValue(entry: OdEntry | undefined): string | undefined {
+  return entry?.parameterValue ?? entry?.defaultValue;
 }
 
 function boundedValue(raw: string): string {
@@ -136,7 +160,8 @@ export class ObjectDictionary {
   constructor(
     readonly entries: OdEntry[],
     readonly containers: OdContainer[] = [],
-    readonly warnings: string[] = []
+    readonly warnings: string[] = [],
+    readonly metadata: EdsMetadata = { fileInfo: {}, deviceInfo: {}, deviceComissioning: {} }
   ) {
     for (const entry of entries) this.entryMap.set(`${entry.index}:${entry.subIndex}`, entry);
     for (const container of containers) this.containerMap.set(container.index, container);
@@ -150,7 +175,143 @@ export class ObjectDictionary {
     return this.containerMap.get(index);
   }
 
-  inspect(startIndex = 0, limit = 64) {
+  commissioningNodeId(): number | undefined {
+    const nodeId = staticUnsigned(this.metadata.deviceComissioning.nodeid);
+    return nodeId !== undefined && nodeId >= 1 && nodeId <= 127 ? nodeId : undefined;
+  }
+
+  metadataSummary() {
+    const info = this.metadata.deviceInfo;
+    const commissioning = this.metadata.deviceComissioning;
+    const allowedBaudRatesKbps = [10, 20, 50, 125, 250, 500, 800, 1000]
+      .filter(rate => {
+        const supported = staticUnsigned(info[`baudrate_${rate}`]);
+        return supported !== undefined && supported !== 0;
+      });
+    const nodeId = this.commissioningNodeId();
+    const bitrateKbps = staticUnsigned(commissioning.baudrate);
+    return {
+      file: {
+        ...(this.metadata.fileInfo.filename ? { fileName: this.metadata.fileInfo.filename } : {}),
+        ...(this.metadata.fileInfo.fileversion ? { fileVersion: this.metadata.fileInfo.fileversion } : {}),
+        ...(this.metadata.fileInfo.filerevision ? { fileRevision: this.metadata.fileInfo.filerevision } : {}),
+        ...(this.metadata.fileInfo.edsversion ? { edsVersion: this.metadata.fileInfo.edsversion } : {}),
+        ...(this.metadata.fileInfo.description ? { description: this.metadata.fileInfo.description } : {})
+      },
+      device: {
+        ...(info.vendorname ? { vendorName: info.vendorname } : {}),
+        ...(staticUnsigned(info.vendornumber) !== undefined ? { vendorNumber: staticUnsigned(info.vendornumber) } : {}),
+        ...(info.productname ? { productName: info.productname } : {}),
+        ...(staticUnsigned(info.productnumber) !== undefined ? { productNumber: staticUnsigned(info.productnumber) } : {}),
+        ...(staticUnsigned(info.revisionnumber) !== undefined ? { revisionNumber: staticUnsigned(info.revisionnumber) } : {}),
+        ...(allowedBaudRatesKbps.length ? { allowedBaudRatesKbps } : {}),
+        ...(staticUnsigned(info.nrofrxpdo) !== undefined ? { nrOfRxPdo: staticUnsigned(info.nrofrxpdo) } : {}),
+        ...(staticUnsigned(info.nroftxpdo) !== undefined ? { nrOfTxPdo: staticUnsigned(info.nroftxpdo) } : {}),
+        ...(staticUnsigned(info.lss_supported) !== undefined ? { lssSupported: staticUnsigned(info.lss_supported) !== 0 } : {})
+      },
+      commissioning: {
+        ...(nodeId !== undefined ? { nodeId } : {}),
+        ...(bitrateKbps !== undefined ? { bitrateKbps } : {}),
+        ...(commissioning.nodename ? { nodeName: commissioning.nodename } : {}),
+        ...(staticUnsigned(commissioning.netnumber) !== undefined ? { netNumber: staticUnsigned(commissioning.netnumber) } : {}),
+        ...(commissioning.networkname ? { networkName: commissioning.networkname } : {})
+      }
+    };
+  }
+
+  communicationProfile(nodeId?: number) {
+    if (nodeId !== undefined && (!Number.isInteger(nodeId) || nodeId < 1 || nodeId > 127)) {
+      throw new Error('CANopen nodeId must be between 1 and 127.');
+    }
+    const commissionedNodeId = this.commissioningNodeId();
+    const effectiveNodeId = nodeId ?? commissionedNodeId;
+
+    const resolved = (index: number, subIndex: number) => {
+      const entry = this.lookup(index, subIndex);
+      const raw = entryRawValue(entry);
+      const value = resolveEdsUnsigned(raw, effectiveNodeId);
+      return raw === undefined ? undefined : {
+        raw,
+        ...(value !== undefined ? { value } : {}),
+        ...(entry?.parameterName ? { parameterName: entry.parameterName } : {})
+      };
+    };
+
+    const cob11 = (
+      entry: ReturnType<typeof resolved>,
+      options: { invalidBit31?: boolean; producerBit30?: boolean; consumerBit31?: boolean; noRtrBit30?: boolean } = {}
+    ) => {
+      if (!entry) return undefined;
+      const value = entry.value;
+      const producer = value !== undefined && options.producerBit30 ? (value & 0x40000000) !== 0 : undefined;
+      const consumer = value !== undefined && options.consumerBit31 ? (value & 0x80000000) !== 0 : undefined;
+      const enabled = value !== undefined && options.invalidBit31 ? (value & 0x80000000) === 0 : undefined;
+      const noRtr = value !== undefined && options.noRtrBit30 ? (value & 0x40000000) !== 0 : undefined;
+      const allowedControlMask =
+        (options.invalidBit31 || options.consumerBit31 ? 0x80000000 : 0) |
+        (options.producerBit30 || options.noRtrBit30 ? 0x40000000 : 0) |
+        0x000007ff;
+      const reservedBits = value === undefined ? undefined : (value & (~allowedControlMask >>> 0)) >>> 0;
+      return {
+        ...entry,
+        canId: value === undefined ? undefined : value & 0x7ff,
+        canIdHex: value === undefined ? undefined : `0x${(value & 0x7ff).toString(16).toUpperCase().padStart(3, '0')}`,
+        reservedBitsClear: reservedBits === undefined ? undefined : reservedBits === 0,
+        enabled,
+        producer,
+        consumer,
+        noRtr
+      };
+    };
+
+    const pdo = (direction: 'rpdo' | 'tpdo', slot: number) => {
+      const commIndex = (direction === 'rpdo' ? 0x1400 : 0x1800) + slot;
+      const mapIndex = (direction === 'rpdo' ? 0x1600 : 0x1a00) + slot;
+      const cob = resolved(commIndex, 1);
+      const transmissionType = resolved(commIndex, 2);
+      const mappedObjectCount = resolved(mapIndex, 0);
+      if (!cob && !transmissionType && !mappedObjectCount && !this.object(commIndex) && !this.object(mapIndex)) return undefined;
+      const cobId = cob11(cob, { invalidBit31: true, noRtrBit30: direction === 'tpdo' });
+      return {
+        slot: slot + 1,
+        communicationIndex: commIndex,
+        communicationIndexHex: `0x${commIndex.toString(16).toUpperCase().padStart(4, '0')}`,
+        mappingIndex: mapIndex,
+        mappingIndexHex: `0x${mapIndex.toString(16).toUpperCase().padStart(4, '0')}`,
+        ...(cobId ? { cobId } : {}),
+        ...(transmissionType ? { transmissionType } : {}),
+        ...(mappedObjectCount ? { mappedObjectCount } : {})
+      };
+    };
+
+    const syncCobId = cob11(resolved(0x1005, 0), { producerBit30: true });
+    const timeCobId = cob11(resolved(0x1012, 0), { producerBit30: true, consumerBit31: true });
+    const emcyCobId = cob11(resolved(0x1014, 0), { invalidBit31: true });
+    const sdoRx = cob11(resolved(0x1200, 1), { invalidBit31: true });
+    const sdoTx = cob11(resolved(0x1200, 2), { invalidBit31: true });
+    const heartbeat = resolved(0x1017, 0);
+    const syncOverflow = resolved(0x1019, 0);
+
+    return {
+      ...(effectiveNodeId !== undefined ? {
+        nodeId: effectiveNodeId,
+        nodeIdSource: nodeId !== undefined ? 'explicit' : 'dcf'
+      } : {}),
+      syncCobId,
+      timeCobId,
+      emcyCobId,
+      producerHeartbeat: heartbeat,
+      syncCounterOverflow: syncOverflow,
+      sdoServer: (sdoRx || sdoTx) ? {
+        clientToServerCobId: sdoRx,
+        serverToClientCobId: sdoTx
+      } : undefined,
+      rpdo: Array.from({ length: 4 }, (_, slot) => pdo('rpdo', slot)).filter(Boolean),
+      tpdo: Array.from({ length: 4 }, (_, slot) => pdo('tpdo', slot)).filter(Boolean)
+    };
+  }
+
+  inspect(startIndex = 0, limit = 64, nodeId?: number) {
     if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex > 0xffff ||
         !Number.isInteger(limit) || limit < 1 || limit > 128) {
       throw new Error('Invalid OD inspection bounds.');
@@ -167,6 +328,8 @@ export class ObjectDictionary {
       startIndex,
       limit,
       entries,
+      metadata: this.metadataSummary(),
+      communicationProfile: this.communicationProfile(nodeId),
       hasMore: eligible.length > entries.length,
       warnings: this.warnings.slice(0, MAX_WARNINGS)
     };
@@ -181,8 +344,11 @@ export function parseEds(text: string): ObjectDictionary {
   const sections: RawSection[] = [];
   const sectionKeys = new Set<string>();
   const warnings: string[] = [];
+  const metadata: EdsMetadata = { fileInfo: {}, deviceInfo: {}, deviceComissioning: {} };
+  let metadataFieldCount = 0;
   let sectionCount = 0;
   let current: RawSection | undefined;
+  let metadataCurrent: keyof EdsMetadata | undefined;
 
   for (const raw of lines) {
     if (raw.length > 2048) throw new Error('EDS line length limit exceeded.');
@@ -193,7 +359,25 @@ export function parseEds(text: string): ObjectDictionary {
       sectionCount += 1;
       if (sectionCount > MAX_SECTIONS) throw new Error('EDS section limit exceeded.');
       current = undefined;
-      const match = /^\[([0-9a-fA-F]{4})(?:sub([0-9a-fA-F]{1,2}))?\]$/i.exec(line);
+      metadataCurrent = undefined;
+
+      const header = /^\[([^\]]{1,64})\]$/.exec(line)?.[1]?.trim();
+      if (!header) continue;
+      const headerKey = header.toLowerCase();
+      if (headerKey === 'fileinfo') {
+        metadataCurrent = 'fileInfo';
+        continue;
+      }
+      if (headerKey === 'deviceinfo') {
+        metadataCurrent = 'deviceInfo';
+        continue;
+      }
+      if (headerKey === 'devicecomissioning' || headerKey === 'devicecommissioning') {
+        metadataCurrent = 'deviceComissioning';
+        continue;
+      }
+
+      const match = /^([0-9a-fA-F]{4})(?:sub([0-9a-fA-F]{1,2}))?$/i.exec(header);
       if (!match) continue;
 
       const index = Number.parseInt(match[1]!, 16);
@@ -214,10 +398,23 @@ export function parseEds(text: string): ObjectDictionary {
       continue;
     }
 
-    if (!current) continue;
     const equals = line.indexOf('=');
     if (equals < 1) continue;
     const rawKey = line.slice(0, equals).trim();
+
+    if (!current) {
+      if (!metadataCurrent) continue;
+      if (metadataFieldCount >= MAX_METADATA_FIELDS) throw new Error('EDS metadata field limit exceeded.');
+      const key = rawKey.toLowerCase();
+      if (!/^[a-z0-9_]{1,64}$/.test(key)) {
+        if (warnings.length < MAX_WARNINGS) warnings.push(`Ignored invalid metadata key ${rawKey.slice(0, 64)}.`);
+        continue;
+      }
+      metadata[metadataCurrent][key] = boundedValue(line.slice(equals + 1));
+      metadataFieldCount += 1;
+      continue;
+    }
+
     const property = FIELD_MAP.get(rawKey.toLowerCase());
     if (!property) {
       if (warnings.length < MAX_WARNINGS) warnings.push(`Ignored unsupported field ${rawKey.slice(0, 64)} in [${current.name}].`);
@@ -266,7 +463,8 @@ export function parseEds(text: string): ObjectDictionary {
   return new ObjectDictionary(
     entries.sort((a, b) => a.index - b.index || a.subIndex - b.subIndex),
     containers.sort((a, b) => a.index - b.index),
-    warnings
+    warnings,
+    metadata
   );
 }
 

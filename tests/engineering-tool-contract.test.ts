@@ -1007,7 +1007,7 @@ test('CANopen Phase 2 exposes only project-scoped read-only semantic diagnostics
   const builtin = await read('src/extensions/builtin.ts');
   const scopes = await read('src/security/request-principal.ts');
   const capabilities = await read('src/capabilities.ts');
-  for (const name of ['canopen_eds_inspect', 'canopen_object_lookup', 'canopen_capture_semantic_decode']) {
+  for (const name of ['canopen_eds_inspect', 'canopen_eds_profile', 'canopen_object_lookup', 'canopen_capture_semantic_decode']) {
     assert.match(register, new RegExp(`registerTool\\('${name}'`));
     assert.ok(scopes.includes(`${name}: 'workstation.read'`));
     assert.ok(capabilities.includes(`'${name}'`));

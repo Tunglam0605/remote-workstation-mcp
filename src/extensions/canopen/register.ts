@@ -51,11 +51,19 @@ export function registerCanopenTools(server: McpServer, ctx: AppContext): void {
   ));
 
   server.registerTool('canopen_eds_inspect', {
-    description: 'Inspect bounded object dictionary entries from a project-scoped EDS/DCF file. Read-only; no CAN access.',
-    inputSchema: z.object({ ...source, startIndex: z.number().int().min(0).max(0xffff).default(0), limit: z.number().int().min(1).max(128).default(64) }),
+    description: 'Inspect bounded object dictionary entries from a project-scoped EDS/DCF file and summarize communication parameters. Optional nodeId resolves $NODEID expressions; when omitted, bounded DCF commissioning NodeID metadata may be used. No CAN access.',
+    inputSchema: z.object({ ...source, startIndex: z.number().int().min(0).max(0xffff).default(0), limit: z.number().int().min(1).max(128).default(64), nodeId: nodeId.optional() }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async ({ workspace, projectPath, edsPath, startIndex, limit }) => result(
-    await audited(ctx.audit, 'canopen_eds_inspect', workspace, async () => (await eds.load(workspace, projectPath, edsPath)).inspect(startIndex, limit))
+  }, async ({ workspace, projectPath, edsPath, startIndex, limit, nodeId: selectedNodeId }) => result(
+    await audited(ctx.audit, 'canopen_eds_inspect', workspace, async () => (await eds.load(workspace, projectPath, edsPath)).inspect(startIndex, limit, selectedNodeId))
+  ));
+
+  server.registerTool('canopen_eds_profile', {
+    description: 'Summarize CANopen CiA 301 communication profile parameters from a project-scoped EDS/DCF: heartbeat, SYNC counter, default SDO server COB-IDs and PDO communication/mapping slots. Optional nodeId resolves $NODEID expressions; when omitted, bounded DCF commissioning NodeID metadata may be used. Read-only; no CAN access.',
+    inputSchema: z.object({ ...source, nodeId: nodeId.optional() }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, edsPath, nodeId: selectedNodeId }) => result(
+    await audited(ctx.audit, 'canopen_eds_profile', workspace, async () => (await eds.load(workspace, projectPath, edsPath)).communicationProfile(selectedNodeId))
   ));
 
   server.registerTool('canopen_object_lookup', {

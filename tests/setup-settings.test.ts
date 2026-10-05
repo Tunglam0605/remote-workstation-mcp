@@ -25,6 +25,7 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.equal(settings.mcpPort, 8683);
   assert.equal(settings.controlPort, 8684);
   assert.deepEqual(settings.httpScopes, ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request']);
+  assert.deepEqual(settings.openaiToolPacks, []);
   assert.equal(settings.tunnelId, 'tunnel_0123456789abcdef0123456789abcdef');
   assert.equal(settings.execution.defaultMode, 'rwmcp-only');
   assert.equal(settings.execution.workerRoutingProfile, 'direct');
@@ -43,6 +44,8 @@ test('setup settings validate ports, absolute workspace paths and tunnel ids', (
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, tunnelId: 'tunnel_bad' }), /tunnelId/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, controlPort: 80 }), /1024/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, httpScopes: ['workstation.write'] }), /workstation.read/);
+  assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, openaiToolPacks: ['unknown-pack'] }), /Invalid option|invalid/i);
+  assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, openaiToolPacks: ['camera', 'camera'] }), /duplicates/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, controlPort: 8683, workspaceRoot: workspace }), /different loopback ports/);
   assert.throws(() => normalizeSetupSettings({ mcpPort: 8683, workspaceRoot: workspace, execution: { codexModel: 'gpt-6-sol\\nmalicious=true' } }), /Invalid string|regular expression|regex/i);
 
@@ -73,7 +76,8 @@ test('setup settings persist outside the repository and round-trip', async () =>
     organizationId: '',
     cloudflaredManaged: false,
     controlPort: 9684,
-    httpScopes: ['workstation.read', 'workstation.execute', 'workstation.full_control']
+    httpScopes: ['workstation.read', 'workstation.execute', 'workstation.full_control'],
+    openaiToolPacks: ['canopen', 'industrial']
   }, options);
   const file = await saveSetupSettings(settings, options);
   assert.equal(file, setupSettingsPath(options));

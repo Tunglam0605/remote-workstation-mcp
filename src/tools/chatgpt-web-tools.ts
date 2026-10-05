@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { recommendedChatGptAppName } from '../device-identity.js';
+import { describeOpenAiToolExposure } from '../tool-exposure.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal, principalHasExactScope } from '../security/request-principal.js';
 
@@ -16,7 +17,7 @@ function allows(scopes: readonly string[], required: string): boolean {
   return scopes.includes('*') || scopes.includes(required) || scopes.includes('workstation.full_control');
 }
 
-export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> {
+export function buildChatGptWebStatus(ctx: AppContext, env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
   const principal = currentPrincipal();
   const identity = ctx.identity ?? {
     version: 1 as const,
@@ -49,6 +50,7 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
   const activeProcessCount = ctx.processes.activeCount();
   const activeTerminalCount = ctx.engineering.terminals.activeCount();
   const activeHardwareLeaseCount = ctx.engineering.resources.activeCount();
+  const toolExposure = describeOpenAiToolExposure(principal?.type ?? env.RWMCP_CLIENT_TYPE ?? 'mcp', env);
   const healthWarnings = [
     ...(!dataPlane.directIpv4Available && !controlPlaneRelay.supported ? ['data-plane-unavailable'] : []),
     ...(authenticated && !openAiTunnelPrincipal ? ['unexpected-authenticated-principal'] : []),
@@ -89,7 +91,8 @@ export function buildChatGptWebStatus(ctx: AppContext): Record<string, unknown> 
         adminRequest: authenticated && allows(scopes, 'workstation.admin_request'),
         fullControl: authenticated && allows(scopes, 'workstation.full_control'),
         crossNodeTransfer: authenticated && controllerPrincipalMatches && principalHasExactScope('workstation.cross_node_transfer')
-      }
+      },
+      toolExposure
     },
     policy: {
       mode: ctx.policy.effectiveMode(),

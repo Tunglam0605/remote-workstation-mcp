@@ -22,6 +22,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'camera',
       register: registerCameraTools
     })
     .add({
@@ -36,6 +37,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'canopen',
       register: registerCanopenTools
     })
     .add({
@@ -43,6 +45,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'media',
       initialize: initializeMediaExtension,
       register: registerMediaTools
     })
@@ -51,6 +54,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'industrial',
       register: registerMqttTools
     })
     .add({
@@ -58,6 +62,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'industrial',
       register: registerIndustrialTools
     })
     .add({
@@ -65,6 +70,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'industrial',
       register: registerOpcUaTools
     })
     .add({
@@ -72,6 +78,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'domain',
       exposure: 'expanded',
+      toolPack: 'industrial',
       register: registerModbusTcpTools
     })
     .add({

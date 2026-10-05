@@ -9,6 +9,7 @@ import { setupHtml } from './ui.js';
 import { OwnerExecutionBridge } from './owner-execution.js';
 import { ExecutionPolicyService } from '../execution-policy.js';
 import { ACTION_SCHEMA_VERSION, capabilitiesForPlatform, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
+import { parseOpenAiToolPacks } from '../tool-exposure.js';
 import { resolveExecutable } from '../adapters/engineering/executable-resolver.js';
 import { windowsCommandShim } from '../adapters/windows-command-shim.js';
 import { CodexAccountBroker } from '../workers/codex-account-broker.js';
@@ -398,7 +399,8 @@ async function syncLinuxDirectNodeSettings(settings: SetupSettings): Promise<voi
   await updateEnvFile(linuxOpenAiEnvPath(), {
     CONTROL_PLANE_TUNNEL_ID: settings.tunnelId || undefined,
     RWMCP_PORT: String(settings.mcpPort),
-    RWMCP_HTTP_SCOPES: settings.httpScopes.join(',')
+    RWMCP_HTTP_SCOPES: settings.httpScopes.join(','),
+    RWMCP_OPENAI_TOOL_PACKS: settings.openaiToolPacks.length ? settings.openaiToolPacks.join(',') : undefined
   });
 }
 
@@ -410,12 +412,16 @@ async function loadEffectiveSetupSettings(repoRoot: string): Promise<SetupSettin
   const envPort = Number(envFile.get('RWMCP_PORT'));
   const scopes = (envFile.get('RWMCP_HTTP_SCOPES') || tui.httpScopes.join(','))
     .split(',').map(value => value.trim()).filter(Boolean);
+  const toolPacks = envFile.has('RWMCP_OPENAI_TOOL_PACKS')
+    ? parseOpenAiToolPacks(envFile.get('RWMCP_OPENAI_TOOL_PACKS'))
+    : settings.openaiToolPacks;
   return normalizeSetupSettings({
     ...settings,
     mcpPort: Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : tui.mcpPort,
     workspaceRoot: tui.workspaceRoot && tui.workspaceRoot !== '-' ? tui.workspaceRoot : settings.workspaceRoot,
     tunnelId: envFile.get('CONTROL_PLANE_TUNNEL_ID') || settings.tunnelId,
-    httpScopes: scopes.length ? scopes : settings.httpScopes
+    httpScopes: scopes.length ? scopes : settings.httpScopes,
+    openaiToolPacks: toolPacks
   });
 }
 async function linuxRuntimeStatus(repoRoot: string): Promise<Record<string, unknown>> {
@@ -1805,8 +1811,10 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           organizationId: body.organizationId ?? '',
           cloudflaredManaged: body.cloudflaredManaged ?? false,
           controlPort: body.controlPort ?? currentSettings.controlPort,
-          httpScopes: body.httpScopes ?? currentSettings.httpScopes
+          httpScopes: body.httpScopes ?? currentSettings.httpScopes,
+          openaiToolPacks: body.openaiToolPacks ?? currentSettings.openaiToolPacks
         });
+        const toolPacksChanged = JSON.stringify(settings.openaiToolPacks) !== JSON.stringify(currentSettings.openaiToolPacks);
         const mcpPortFree = await portAvailable(settings.mcpPort);
         let managedRuntimeOwnsPort = false;
         if (!mcpPortFree) {
@@ -1833,7 +1841,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
         json(res, 200, {
           ok: true,
           message: `${settingsPath}; ${policy.created ? 'created default policy' : 'existing policy preserved'} at ${policy.path}; ${hosts.created ? 'created hosts config' : 'existing hosts config preserved'} at ${hosts.path}.`,
-          runtimeApiKeyStored: await runtimeKeyStored()
+          runtimeApiKeyStored: await runtimeKeyStored(),
+          restartRequired: toolPacksChanged
         });
         return;
       }

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { OPENAI_TOOL_PACK_IDS } from '../tool-exposure.js';
 
 export const SETUP_SETTINGS_VERSION = 1 as const;
 export const DEFAULT_CONTROL_PORT = 8684 as const;
@@ -236,6 +237,8 @@ export const setupSettingsSchema = z.object({
   httpScopes: z.array(workstationScopeSchema).min(1).default([...DEFAULT_HTTP_SCOPES])
     .refine(scopes => scopes.includes('workstation.read'), { message: 'httpScopes must include workstation.read.' })
     .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' }),
+  openaiToolPacks: z.array(z.enum(OPENAI_TOOL_PACK_IDS)).max(OPENAI_TOOL_PACK_IDS.length).default([])
+    .refine(packs => new Set(packs).size === packs.length, { message: 'openaiToolPacks must not contain duplicates.' }),
   execution: executionSettingsSchema.default({
     codexEnabled: false,
     codexModel: 'gpt-6-sol',
@@ -318,6 +321,7 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     cloudflaredManaged: raw.cloudflaredManaged ?? false,
     controlPort: migratedControlPort,
     httpScopes: migratedScopes,
+    openaiToolPacks: Array.isArray(raw.openaiToolPacks) ? raw.openaiToolPacks : [],
     execution: raw.execution && typeof raw.execution === 'object' ? (() => {
       const legacy = raw.execution as Record<string, unknown>;
       const targetMode = inferExecutionTargetMode(legacy);

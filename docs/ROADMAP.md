@@ -80,6 +80,17 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - keep PTZ movement, camera configuration, snapshots, two-way audio and arbitrary endpoint mutation outside this fleet diagnostic surface;
 - advance Action Schema to 48; Engineering API remains 5.
 
+## v0.68 development - Selective OpenAI Tool Packs
+
+- preserve the proven v0.67.1 OpenAI baseline tool surface unchanged by default; no existing baseline tool is removed or renamed;
+- add bounded reusable pack IDs `camera`, `canopen`, `media` and `industrial` so owners can expose only the specialist extension families needed by a workstation/project;
+- map Industrial to generic MQTT observation, industrial endpoint profiles, OPC UA and Modbus TCP rather than project-specific products or devices;
+- require every expanded extension to declare exactly one canonical pack and fail CI/registration when an expanded extension is unclassified;
+- keep `RWMCP_OPENAI_TOOL_SURFACE=full` as an explicit diagnostic/compatibility opt-in while owner settings persist selected packs through Windows and Linux Direct Node startup;
+- expose effective `baseline`, `baseline-plus-packs` or `full` status through `chatgpt_web_status` and surface pack selection in Moonlight Settings;
+- require a managed runtime restart after pack changes because MCP tool discovery is session/runtime scoped;
+- keep Action Schema 51 and Engineering API 5 because existing public tool names and input schemas remain unchanged; only owner-controlled availability is made composable.
+
 ## Next — post-v0.67 hardening
 
 - continue incremental source-size reduction only where it improves ownership or testability;

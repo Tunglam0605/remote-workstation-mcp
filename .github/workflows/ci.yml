@@ -260,18 +260,24 @@ jobs:
             organizationId = 'org-ci'
             cloudflaredManaged = $false
             httpScopes = @('workstation.read','workstation.write','workstation.execute')
+            openaiToolPacks = @('canopen','industrial')
           } | ConvertTo-Json | Set-Content -Path $settingsPath -Encoding utf8
 
           . (Join-Path $PWD 'scripts\windows-settings.ps1')
           Remove-Item Env:RWMCP_PORT -ErrorAction SilentlyContinue
           Remove-Item Env:CONTROL_PLANE_TUNNEL_ID -ErrorAction SilentlyContinue
           Remove-Item Env:CONTROL_PLANE_ORGANIZATION_ID -ErrorAction SilentlyContinue
+          Remove-Item Env:RWMCP_OPENAI_TOOL_PACKS -ErrorAction SilentlyContinue
           Apply-RwmcpPersistedEnvironment -Root $PWD | Out-Null
           if ($env:RWMCP_PORT -ne '18765') { throw "Persisted MCP port was not loaded: $($env:RWMCP_PORT)" }
           if ($env:CONTROL_PLANE_TUNNEL_ID -ne 'tunnel_0123456789abcdef0123456789abcdef') { throw 'Persisted tunnel id was not loaded.' }
           if ($env:CONTROL_PLANE_ORGANIZATION_ID -ne 'org-ci') { throw 'Persisted organization id was not loaded.' }
           $scopeSet = @($env:RWMCP_HTTP_SCOPES -split ',')
           if (-not ($scopeSet -contains 'workstation.admin_request')) { throw 'Legacy execute scopes were not migrated to request-only Administrator scope.' }
+          $toolPackSet = @($env:RWMCP_OPENAI_TOOL_PACKS -split ',')
+          if (-not ($toolPackSet -contains 'canopen') -or -not ($toolPackSet -contains 'industrial') -or ($toolPackSet -contains 'camera')) {
+            throw "Persisted OpenAI tool packs were not loaded exactly: $env:RWMCP_OPENAI_TOOL_PACKS"
+          }
 
           $secretPath = Get-RwmcpSecretPath
           $testSecret = 'ci-dpapi-roundtrip-secret-value-0123456789abcdef'

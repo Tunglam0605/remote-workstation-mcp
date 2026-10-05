@@ -90,6 +90,8 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - expose effective `baseline`, `baseline-plus-packs` or `full` status through `chatgpt_web_status` and surface pack selection in Moonlight Settings;
 - require a managed runtime restart after pack changes because MCP tool discovery is session/runtime scoped;
 - keep Action Schema 51 and Engineering API 5 because existing public tool names and input schemas remain unchanged; only owner-controlled availability is made composable.
+- make `capabilities_list` pack-aware without introducing another MCP discovery tool: provider readiness remains independent from exposure, hidden specialist capabilities report their canonical `enablePack`, and the response includes a bounded pack catalog with capability IDs and tool counts;
+- preserve `tool_discover` as executable/toolchain discovery rather than overloading its established contract with MCP catalog semantics;
 
 ## Next — post-v0.67 hardening
 

@@ -7,6 +7,8 @@ import { resolveCapabilityReadiness } from '../capability-readiness.js';
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, objectiveWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
+import { currentPrincipal } from '../security/request-principal.js';
+import { describeCapabilityToolExposure, describeOpenAiToolExposure, describeOpenAiToolPackCatalog } from '../tool-exposure.js';
 import { EXECUTION_TARGET_MODES } from '../setup/settings.js';
 import { planWorkerRoute, WORKER_ROUTING_INTENTS } from '../worker-route-plan.js';
 
@@ -80,23 +82,33 @@ const projectSessionGroupMutation = z.discriminatedUnion('action', [
 
 export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   server.registerTool('capabilities_list', {
-    description: 'Discover workstation capabilities exposed by this MCP server and their implementation status.',
+    description: 'Discover workstation capabilities, provider readiness and current OpenAI tool-pack exposure, including specialist capability families that are installed but not exposed in the active tool surface.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
-  }, async () => result(await audited(ctx.audit, 'capabilities_list', undefined, async () => ({
-    server: 'remote-workstation-mcp', version: SERVER_VERSION, channel: BUILD_CHANNEL, gitCommit: BUILD_COMMIT ?? null, protocol: 'MCP', vendorNeutral: true,
-    actionSchemaVersion: ACTION_SCHEMA_VERSION,
-    engineeringApiVersion: ENGINEERING_API_VERSION,
-    actorTag: ctx.actor,
-    identityNote: 'Authenticated HTTP principals are request-scoped. RWMCP client tags remain fallback observability metadata for local transports; local owner policy and leases remain the authority.',
-    capabilities: await resolveCapabilityReadiness(capabilitiesForPlatform(os.platform()), {
+  }, async () => result(await audited(ctx.audit, 'capabilities_list', undefined, async () => {
+    const staticCapabilities = capabilitiesForPlatform(os.platform());
+    const runtimeCapabilities = await resolveCapabilityReadiness(staticCapabilities, {
       firmwareProviderStatus: () => ctx.engineering.firmware.providerStatus('openocd'),
       canProviderStatus: () => ctx.engineering.can.providerStatus(),
       modbusProviderStatus: () => ctx.engineering.modbusRtu.providerStatus(),
       networkProviderStatus: () => ctx.engineering.network.providerStatus(),
       browserCapabilities: () => ctx.browser.capabilities()
-    })
-  }))));
+    });
+    const clientType = currentPrincipal()?.type ?? ctx.actor.clientType;
+    return {
+      server: 'remote-workstation-mcp', version: SERVER_VERSION, channel: BUILD_CHANNEL, gitCommit: BUILD_COMMIT ?? null, protocol: 'MCP', vendorNeutral: true,
+      actionSchemaVersion: ACTION_SCHEMA_VERSION,
+      engineeringApiVersion: ENGINEERING_API_VERSION,
+      actorTag: ctx.actor,
+      identityNote: 'Authenticated HTTP principals are request-scoped. RWMCP client tags remain fallback observability metadata for local transports; local owner policy and leases remain the authority.',
+      toolExposure: describeOpenAiToolExposure(clientType),
+      toolPacks: describeOpenAiToolPackCatalog(staticCapabilities, clientType),
+      capabilities: runtimeCapabilities.map(capability => ({
+        ...capability,
+        exposure: describeCapabilityToolExposure(capability.id, clientType)
+      }))
+    };
+  })));
 
   server.registerTool('system_info', {
     description: 'Return non-secret host OS, CPU, memory and uptime information.',

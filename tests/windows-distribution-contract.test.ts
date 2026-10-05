@@ -469,12 +469,15 @@ test('Windows installer refreshes stale non-current version slots from the verif
 
 test('Windows direct OpenAI launcher and restart handoff fail safely around shared runtime state', async () => {
   const directOpenAI = await read('scripts/start-openai-windows.ps1');
+  const runtime = await read('scripts/runtime-control-windows.ps1');
   const restartStarter = await read('scripts/start-restart-handoff-windows.ps1');
 
   assert.match(directOpenAI, /Get-RwmcpUserConfigDir/);
   assert.match(directOpenAI, /SharedConfigDir/);
   assert.match(directOpenAI, /SharedPolicyPath/);
   assert.match(directOpenAI, /SharedHostsPath/);
+  assert.match(directOpenAI, /RWMCP_CLIENT_TYPE.*openai-secure-mcp-tunnel/);
+  assert.match(runtime, /RWMCP_CLIENT_TYPE.*openai-secure-mcp-tunnel/);
   assert.match(restartStarter, /runtime\\openai-tunnel\\tunnel-client\.exe/);
   assert.match(restartStarter, /OpenAI restart target is incomplete; tunnel-client is missing/);
 });

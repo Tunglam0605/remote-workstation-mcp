@@ -43,7 +43,7 @@ $env:RWMCP_POLICY = $PolicyPath
 $env:RWMCP_HOSTS = $HostsPath
 $env:RWMCP_AUDIT = if ($env:RWMCP_AUDIT) { $env:RWMCP_AUDIT } else { Join-Path $RuntimeDir 'audit.jsonl' }
 $env:RWMCP_CLIENT_ID = if ($env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID } else { 'openai-tunnel' }
-$env:RWMCP_CLIENT_TYPE = if ($env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE } else { 'chatgpt' }
+$env:RWMCP_CLIENT_TYPE = if ($env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE } else { 'openai-secure-mcp-tunnel' }
 $env:RWMCP_OPENAI_TUNNEL_CLIENT = $TunnelBinary
 
 if (-not $env:CLOUDFLARED_MANAGED) {

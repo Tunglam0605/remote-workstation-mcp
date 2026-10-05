@@ -216,7 +216,7 @@ function Apply-RuntimeEnvironment([string]$runtimeMode) {
   if (-not $env:RWMCP_HOSTS) { $env:RWMCP_HOSTS = if (Test-Path $externalHosts) { $externalHosts } else { $repoHosts } }
   if (-not $env:RWMCP_AUDIT) { $env:RWMCP_AUDIT = Join-Path $UserConfigDir 'audit.jsonl' }
   if (-not $env:RWMCP_CLIENT_ID) { $env:RWMCP_CLIENT_ID = if ($runtimeMode -eq 'OpenAI') { 'openai-tunnel' } else { 'windows-local' } }
-  if (-not $env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE = if ($runtimeMode -eq 'OpenAI') { 'chatgpt' } else { 'mcp' } }
+  if (-not $env:RWMCP_CLIENT_TYPE) { $env:RWMCP_CLIENT_TYPE = if ($runtimeMode -eq 'OpenAI') { 'openai-secure-mcp-tunnel' } else { 'mcp' } }
   if (-not $env:RWMCP_PORT) { $env:RWMCP_PORT = '8683' }
 
   if (-not (Test-Path $env:RWMCP_POLICY)) { throw "Policy file not found: $($env:RWMCP_POLICY)" }

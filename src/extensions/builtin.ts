@@ -6,7 +6,7 @@ import { registerCanopenTools } from './canopen/register.js';
 import { registerModbusTools } from './modbus/register.js';
 import { registerModbusTcpTools } from './modbus-tcp/register.js';
 import { registerMqttTools } from './mqtt/register.js';
-import { registerMediaTools } from './media/register.js';
+import { initializeMediaExtension, registerMediaTools } from './media/register.js';
 import { registerOpcUaTools } from './opcua/register.js';
 import { registerRos2Tools } from './ros2/register.js';
 import { registerStm32Tools } from './stm32/register.js';
@@ -21,6 +21,7 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       id: 'domain.camera',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
       register: registerCameraTools
     })
     .add({
@@ -34,36 +35,43 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       id: 'domain.canopen',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
       register: registerCanopenTools
     })
     .add({
       id: 'domain.media',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
+      initialize: initializeMediaExtension,
       register: registerMediaTools
     })
     .add({
       id: 'domain.mqtt',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
       register: registerMqttTools
     })
     .add({
       id: 'domain.industrial-profiles',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
       register: registerIndustrialTools
     })
     .add({
       id: 'domain.opcua',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
       register: registerOpcUaTools
     })
     .add({
       id: 'domain.modbus-tcp',
       version: 1,
       kind: 'domain',
+      exposure: 'expanded',
       register: registerModbusTcpTools
     })
     .add({

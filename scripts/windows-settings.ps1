@@ -57,6 +57,10 @@ function Apply-RwmcpPersistedEnvironment([string]$Root, [switch]$IncludeOpenAISe
       }
       $env:RWMCP_HTTP_SCOPES = ($scopes -join ',')
     }
+    if (-not $env:RWMCP_OPENAI_TOOL_PACKS -and $settings.PSObject.Properties.Name -contains 'openaiToolPacks') {
+      $packs = @($settings.openaiToolPacks | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+      $env:RWMCP_OPENAI_TOOL_PACKS = ($packs -join ',')
+    }
     if (-not $env:CONTROL_PLANE_TUNNEL_ID -and $settings.PSObject.Properties.Name -contains 'tunnelId' -and $settings.tunnelId) {
       $env:CONTROL_PLANE_TUNNEL_ID = [string]$settings.tunnelId
     }

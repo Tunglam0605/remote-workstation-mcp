@@ -1,8 +1,15 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { AppContext } from '../context.js';
+import {
+  resolveOpenAiToolPacks,
+  resolveOpenAiToolSurface,
+  type OpenAiToolPackId,
+  type OpenAiToolSurface
+} from '../tool-exposure.js';
 import type { ExtensionRegistrationResult, RwmcpExtension } from './types.js';
 
-export type ExtensionToolSurface = 'baseline' | 'full';
+export type ExtensionToolSurface = OpenAiToolSurface;
+export const resolveExtensionToolSurface = resolveOpenAiToolSurface;
 
 const initializedExtensionIdsByContext = new WeakMap<AppContext, Set<string>>();
 
@@ -19,19 +26,6 @@ function initializeExtensionOnce(extension: RwmcpExtension, ctx: AppContext): vo
   initialized.add(id);
 }
 
-export function resolveExtensionToolSurface(
-  clientType: string,
-  env: NodeJS.ProcessEnv = process.env
-): ExtensionToolSurface {
-  if (
-    (clientType === 'openai-secure-mcp-tunnel' || clientType === 'chatgpt') &&
-    env.RWMCP_OPENAI_TOOL_SURFACE !== 'full'
-  ) {
-    return 'baseline';
-  }
-  return 'full';
-}
-
 export class ExtensionRegistry {
   readonly #extensions = new Map<string, RwmcpExtension>();
 
@@ -41,6 +35,12 @@ export class ExtensionRegistry {
     if (this.#extensions.has(id)) throw new Error(`Duplicate extension id: ${id}`);
     if (!Number.isInteger(extension.version) || extension.version <= 0) {
       throw new Error(`Extension ${id} has an invalid version.`);
+    }
+    if (extension.exposure === 'expanded' && !extension.toolPack) {
+      throw new Error(`Expanded extension ${id} must declare a tool pack.`);
+    }
+    if (extension.toolPack && extension.exposure !== 'expanded') {
+      throw new Error(`Baseline extension ${id} must not declare a tool pack.`);
     }
     this.#extensions.set(id, extension);
     return this;
@@ -54,13 +54,18 @@ export class ExtensionRegistry {
     server: McpServer,
     ctx: AppContext,
     platform: NodeJS.Platform = process.platform,
-    toolSurface: ExtensionToolSurface = resolveExtensionToolSurface(ctx.actor.clientType)
+    toolSurface: ExtensionToolSurface = resolveExtensionToolSurface(ctx.actor.clientType),
+    toolPacks: readonly OpenAiToolPackId[] = resolveOpenAiToolPacks(ctx.actor.clientType)
   ): ExtensionRegistrationResult[] {
     return this.list().map(extension => {
       if (extension.platforms && !extension.platforms.includes(platform)) {
         return { id: extension.id, registered: false, reason: 'unsupported-platform' as const };
       }
-      if (toolSurface === 'baseline' && extension.exposure === 'expanded') {
+      if (
+        toolSurface === 'baseline' &&
+        extension.exposure === 'expanded' &&
+        (!extension.toolPack || !toolPacks.includes(extension.toolPack))
+      ) {
         return { id: extension.id, registered: false, reason: 'client-surface-filtered' as const };
       }
       initializeExtensionOnce(extension, ctx);

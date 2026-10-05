@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { AppContext } from '../context.js';
+import type { OpenAiToolPackId } from '../tool-exposure.js';
 
 export type ExtensionKind = 'domain' | 'productivity' | 'app';
 export type ExtensionExposure = 'baseline' | 'expanded';
@@ -11,6 +12,7 @@ export interface RwmcpExtension {
   readonly kind: ExtensionKind;
   readonly platforms?: readonly RuntimePlatform[];
   readonly exposure?: ExtensionExposure;
+  readonly toolPack?: OpenAiToolPackId;
   readonly initialize?: (ctx: AppContext) => void;
   readonly register: (server: McpServer, ctx: AppContext) => void;
 }

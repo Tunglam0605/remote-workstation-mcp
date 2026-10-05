@@ -35,7 +35,7 @@ test('baseline tool surface filters expanded extensions without deleting them fr
   const seen: string[] = [];
   const registry = new ExtensionRegistry()
     .add({ id: 'baseline', version: 1, kind: 'domain', register: () => { seen.push('baseline'); } })
-    .add({ id: 'expanded', version: 1, kind: 'domain', exposure: 'expanded', register: () => { seen.push('expanded'); } });
+    .add({ id: 'expanded', version: 1, kind: 'domain', exposure: 'expanded', toolPack: 'camera', register: () => { seen.push('expanded'); } });
 
   const result = registry.registerAll(fakeServer, fakeContext, 'win32', 'baseline');
   assert.deepEqual(seen, ['baseline']);
@@ -53,12 +53,27 @@ test('full tool surface registers expanded extensions', () => {
     version: 1,
     kind: 'domain',
     exposure: 'expanded',
+    toolPack: 'camera',
     register: () => { seen.push('expanded'); }
   });
 
   const [result] = registry.registerAll(fakeServer, fakeContext, 'win32', 'full');
   assert.deepEqual(seen, ['expanded']);
   assert.deepEqual(result, { id: 'expanded', registered: true });
+});
+
+test('baseline plus selected pack exposes only matching expanded extensions', () => {
+  const seen: string[] = [];
+  const registry = new ExtensionRegistry()
+    .add({ id: 'camera', version: 1, kind: 'domain', exposure: 'expanded', toolPack: 'camera', register: () => { seen.push('camera'); } })
+    .add({ id: 'industrial', version: 1, kind: 'domain', exposure: 'expanded', toolPack: 'industrial', register: () => { seen.push('industrial'); } });
+
+  const result = registry.registerAll(fakeServer, fakeContext, 'win32', 'baseline', ['camera']);
+  assert.deepEqual(seen, ['camera']);
+  assert.deepEqual(result, [
+    { id: 'camera', registered: true },
+    { id: 'industrial', registered: false, reason: 'client-surface-filtered' }
+  ]);
 });
 
 test('OpenAI Secure MCP Tunnel defaults to baseline exposure and permits explicit full opt-in', () => {
@@ -92,6 +107,7 @@ test('filtered extensions are not initialized until they are actually exposed', 
     version: 1,
     kind: 'domain',
     exposure: 'expanded',
+    toolPack: 'camera',
     initialize: () => { lifecycle.push('initialize'); },
     register: () => { lifecycle.push('register'); }
   });
@@ -125,4 +141,20 @@ test('extension registry rejects duplicate ids and invalid versions', () => {
     kind: 'app',
     register: () => undefined
   }), /invalid version/);
+
+  assert.throws(() => new ExtensionRegistry().add({
+    id: 'expanded-without-pack',
+    version: 1,
+    kind: 'domain',
+    exposure: 'expanded',
+    register: () => undefined
+  }), /must declare a tool pack/);
+
+  assert.throws(() => new ExtensionRegistry().add({
+    id: 'baseline-with-pack',
+    version: 1,
+    kind: 'domain',
+    toolPack: 'camera',
+    register: () => undefined
+  }), /must not declare a tool pack/);
 });

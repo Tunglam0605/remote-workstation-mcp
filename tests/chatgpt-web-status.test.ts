@@ -68,10 +68,10 @@ test('chatgpt_web_status is classified as read-only', () => {
 });
 
 test('ChatGPT Web status does not claim an authenticated tunnel for local calls', () => {
-  const status = buildChatGptWebStatus(fakeContext()) as any;
+  const status = buildChatGptWebStatus(fakeContext(), {}) as any;
   assert.equal(status.ok, true);
-  assert.equal(status.serverVersion, '0.67.1');
-  assert.equal(status.channel, 'stable');
+  assert.equal(status.serverVersion, '0.68.0-dev.0');
+  assert.equal(status.channel, 'development');
   assert.equal(status.gitCommit, null);
   assert.equal(status.chatgptWeb.authenticated, false);
   assert.equal(status.chatgptWeb.directControlPathVerified, false);
@@ -87,6 +87,7 @@ test('ChatGPT Web status does not claim an authenticated tunnel for local calls'
   assert.equal(status.nodeHealth.security.multiNode.defaultDeny, true);
   assert.equal(status.nodeHealth.security.legacyRemoteControlEnabled, false);
   assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, false);
+  assert.deepEqual(status.chatgptWeb.toolExposure, { mode: 'full', packs: [] });
 });
 
 test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scopes', () => {
@@ -95,7 +96,7 @@ test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scop
     type: 'openai-secure-mcp-tunnel',
     scopes: ['workstation.read', 'workstation.write', 'workstation.execute'],
     authenticated: true
-  }, () => buildChatGptWebStatus(fakeContext())) as any;
+  }, () => buildChatGptWebStatus(fakeContext(), { RWMCP_OPENAI_TOOL_PACKS: 'canopen,industrial' })) as any;
 
   assert.equal(status.chatgptWeb.authenticated, true);
   assert.equal(status.chatgptWeb.secureTunnelPrincipal, true);
@@ -107,6 +108,7 @@ test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scop
   assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, false);
   assert.equal(status.nodeHealth.state, 'healthy');
   assert.deepEqual(status.nodeHealth.warnings, []);
+  assert.deepEqual(status.chatgptWeb.toolExposure, { mode: 'baseline-plus-packs', packs: ['canopen', 'industrial'] });
 });
 
 test('ChatGPT Web status exposes cross-node permission only for the configured controller and dedicated scope', () => {

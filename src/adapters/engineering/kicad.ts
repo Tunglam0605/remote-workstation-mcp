@@ -10,6 +10,7 @@ import { EngineeringCommandRunner } from './command-runner.js';
 import { resolveExecutable, resolveFirstExecutable } from './executable-resolver.js';
 import { resolveExistingProjectPath } from './project-path.js';
 import { parseKicadBomCsv } from './kicad-bom.js';
+import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -177,6 +178,33 @@ function safeOutputDirectory(value: string): string {
   if (result === '.' || result === '') throw new Error('KiCad output directory must not be the project root.');
   return result;
 }
+
+function safeOutputFileName(value: string, extension: string): string {
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 128) throw new Error('KiCad output file name must contain 1..128 characters.');
+  if (path.basename(normalized) !== normalized || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(normalized)) {
+    throw new Error('KiCad output file name must be a plain portable file name.');
+  }
+  if (path.extname(normalized).toLowerCase() !== extension.toLowerCase()) {
+    throw new Error(`KiCad output file must use ${extension}.`);
+  }
+  return normalized;
+}
+
+function boundedTheme(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 128 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    throw new Error('KiCad schematic theme must contain 1..128 printable characters.');
+  }
+  return normalized;
+}
+
+export type KicadVisualExportRequest =
+  | { kind: 'schematic_svg'; schematic: string; outputDir: string; blackAndWhite?: boolean; excludeDrawingSheet?: boolean; pages?: number[]; theme?: string }
+  | { kind: 'schematic_pdf'; schematic: string; outputDir: string; fileName?: string; blackAndWhite?: boolean; excludeDrawingSheet?: boolean; pages?: number[]; theme?: string }
+  | { kind: 'pcb_3d_render'; board: string; outputDir: string; fileName?: string; format?: 'png' | 'jpeg'; width?: number; height?: number; side?: 'top' | 'bottom' | 'left' | 'right' | 'front' | 'back'; background?: 'default' | 'transparent' | 'opaque'; quality?: 'basic' | 'high'; perspective?: boolean; floor?: boolean; useBoardStackupColors?: boolean; zoom?: number }
+  | { kind: 'pcb_step'; board: string; outputDir: string; fileName?: string; noDnp?: boolean; boardOnly?: boolean; substituteModels?: boolean; includeTracks?: boolean; includePads?: boolean; includeZones?: boolean; includeInnerCopper?: boolean; includeSilkscreen?: boolean; includeSoldermask?: boolean; fuseShapes?: boolean };
 
 function insideRoot(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -698,9 +726,13 @@ export class KicadAdapter {
     const cli = await discoverKicadCli();
     const result = await this.runner.run(cli.path, ['version'], cwd, 10_000);
     if (result.exitCode !== 0 || result.timedOut) throw new Error(`KiCad version probe failed: ${result.stderr || result.stdout}`);
-    const [boardStats, bomExport] = await Promise.all([
+    const [boardStats, bomExport, schematicSvg, schematicPdf, pcb3dRender, stepExport] = await Promise.all([
       this.commandSupported(cli.path, cwd, ['pcb', 'export', 'stats']),
-      this.commandSupported(cli.path, cwd, ['sch', 'export', 'bom'])
+      this.commandSupported(cli.path, cwd, ['sch', 'export', 'bom']),
+      this.commandSupported(cli.path, cwd, ['sch', 'export', 'svg']),
+      this.commandSupported(cli.path, cwd, ['sch', 'export', 'pdf']),
+      this.commandSupported(cli.path, cwd, ['pcb', 'render']),
+      this.commandSupported(cli.path, cwd, ['pcb', 'export', 'step'])
     ]);
     return {
       version: result.stdout.trim() || result.stderr.trim(),
@@ -709,6 +741,10 @@ export class KicadAdapter {
       capabilities: {
         boardStats,
         bomExport,
+        schematicSvg,
+        schematicPdf,
+        pcb3dRender,
+        stepExport,
         drcJson: true,
         ercJson: true
       }
@@ -802,6 +838,167 @@ export class KicadAdapter {
       files.schematic ? this.erc(workspace, projectPath, files.schematic) : Promise.resolve(undefined)
     ]);
     return { files, ...(drc ? { drc } : {}), ...(erc ? { erc } : {}) };
+  }
+
+  async designReview(
+    workspace: string,
+    projectPath: string,
+    files: { schematic?: string; board?: string },
+    options: KicadDesignReviewOptions & { runRuleChecks?: boolean } = {}
+  ) {
+    this.policy.assertEngineeringEnabled();
+    if (!files.schematic && !files.board) throw new Error('KiCad design review requires schematic and/or board.');
+    const readSource = async (relative: string, extension: '.kicad_sch' | '.kicad_pcb', label: string) => {
+      const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, relative, label);
+      if (path.extname(input).toLowerCase() !== extension) throw new Error(`${label} must use ${extension}.`);
+      const stat = await fs.stat(input);
+      if (!stat.isFile()) throw new Error(`${label} is not a regular file.`);
+      if (stat.size > 32 * 1024 * 1024) throw new Error(`${label} exceeds the 32 MiB review limit.`);
+      return await fs.readFile(input, 'utf8');
+    };
+    const [schematicSource, boardSource] = await Promise.all([
+      files.schematic ? readSource(files.schematic, '.kicad_sch', 'KiCad design-review schematic') : Promise.resolve(undefined),
+      files.board ? readSource(files.board, '.kicad_pcb', 'KiCad design-review board') : Promise.resolve(undefined)
+    ]);
+    const analysis = analyzeKicadDesign(
+      { ...(schematicSource ? { schematic: schematicSource } : {}), ...(boardSource ? { board: boardSource } : {}) },
+      options
+    );
+    if (options.runRuleChecks === false) return { files, analysis, ruleChecksRun: false };
+
+    const validation = await this.validate(workspace, projectPath, { ...files, jobsets: [] });
+    const recommendations = [...analysis.recommendations];
+    const drcErrors = Number(validation.drc?.report.counts.active.bySeverity.error ?? 0);
+    const drcUnconnected = Number(validation.drc?.report.counts.active.unconnected ?? 0);
+    const drcParity = Number(validation.drc?.report.counts.active.schematicParity ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.active.bySeverity.error ?? 0);
+    if (drcErrors + drcUnconnected + drcParity > 0) {
+      recommendations.unshift({
+        category: 'routing' as const,
+        priority: 'high' as const,
+        code: 'active-drc-findings',
+        message: `Resolve active DRC findings before treating layout optimization as accepted: errors=${drcErrors}, unconnected=${drcUnconnected}, schematicParity=${drcParity}.`,
+        count: drcErrors + drcUnconnected + drcParity,
+        nextTools: ['kicad_drc', 'kicad_ipc_routing_inspect']
+      });
+    }
+    if (ercErrors > 0) {
+      recommendations.unshift({
+        category: 'schematic' as const,
+        priority: 'high' as const,
+        code: 'active-erc-findings',
+        message: `Resolve active ERC errors before PCB optimization: errors=${ercErrors}.`,
+        count: ercErrors,
+        nextTools: ['kicad_erc', 'kicad_edit']
+      });
+    }
+    return { files, analysis: { ...analysis, recommendations }, validation, ruleChecksRun: true };
+  }
+
+  async visualExport(workspace: string, projectPath: string, request: KicadVisualExportRequest) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const cli = await discoverKicadCli();
+    const relativeOutput = safeOutputDirectory(request.outputDir);
+
+    const pagesArgs = (pages: number[] | undefined) => {
+      if (!pages?.length) return [] as string[];
+      if (pages.length > 32 || pages.some(page => !Number.isInteger(page) || page < 1 || page > 9999)) {
+        throw new Error('KiCad schematic export pages must contain 1..32 page numbers in range 1..9999.');
+      }
+      return ['--pages', [...new Set(pages)].join(',')];
+    };
+
+    let inputRelative: string;
+    let supportArgs: string[];
+    let buildArgs: (output: string) => { args: string[]; primaryName?: string };
+
+    if (request.kind === 'schematic_svg' || request.kind === 'schematic_pdf') {
+      inputRelative = request.schematic;
+      supportArgs = ['sch', 'export', request.kind === 'schematic_svg' ? 'svg' : 'pdf'];
+      const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.schematic, 'KiCad schematic visual export');
+      if (path.extname(input).toLowerCase() !== '.kicad_sch') throw new Error('KiCad schematic visual export requires a .kicad_sch file.');
+      const theme = boundedTheme(request.theme);
+      buildArgs = output => {
+        if (request.kind === 'schematic_svg') {
+          return {
+            args: ['sch', 'export', 'svg', '--output', output, ...(request.blackAndWhite ? ['--black-and-white'] : []), ...(request.excludeDrawingSheet ? ['--exclude-drawing-sheet'] : []), ...(theme ? ['--theme', theme] : []), ...pagesArgs(request.pages), input]
+          };
+        }
+        const fileName = safeOutputFileName(request.fileName ?? 'schematic.pdf', '.pdf');
+        const outputFile = path.join(output, fileName);
+        return {
+          primaryName: fileName,
+          args: ['sch', 'export', 'pdf', '--output', outputFile, ...(request.blackAndWhite ? ['--black-and-white'] : []), ...(request.excludeDrawingSheet ? ['--exclude-drawing-sheet'] : []), ...(theme ? ['--theme', theme] : []), ...pagesArgs(request.pages), input]
+        };
+      };
+    } else {
+      inputRelative = request.board;
+      supportArgs = request.kind === 'pcb_3d_render' ? ['pcb', 'render'] : ['pcb', 'export', 'step'];
+      const input = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.board, 'KiCad PCB visual export');
+      if (path.extname(input).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad PCB visual export requires a .kicad_pcb file.');
+      if (request.kind === 'pcb_3d_render') {
+        const format = request.format ?? 'png';
+        const extension = format === 'png' ? '.png' : '.jpeg';
+        const fileName = safeOutputFileName(request.fileName ?? `board-3d${extension}`, extension);
+        const width = request.width ?? 1600;
+        const height = request.height ?? 900;
+        const zoom = request.zoom ?? 1;
+        if (!Number.isInteger(width) || width < 320 || width > 4096 || !Number.isInteger(height) || height < 240 || height > 4096) {
+          throw new Error('KiCad 3D render dimensions must be integer width 320..4096 and height 240..4096.');
+        }
+        if (!Number.isFinite(zoom) || zoom < 0.1 || zoom > 10) throw new Error('KiCad 3D render zoom must be in range 0.1..10.');
+        buildArgs = output => {
+          const outputFile = path.join(output, fileName);
+          return {
+            primaryName: fileName,
+            args: ['pcb', 'render', '--output', outputFile, '--width', String(width), '--height', String(height), '--side', request.side ?? 'top', '--background', request.background ?? 'default', '--quality', request.quality ?? 'high', '--zoom', String(zoom), ...(request.perspective ? ['--perspective'] : []), ...(request.floor ? ['--floor'] : []), ...(request.useBoardStackupColors ? ['--use-board-stackup-colors'] : []), input]
+          };
+        };
+      } else {
+        const fileName = safeOutputFileName(request.fileName ?? 'board.step', '.step');
+        buildArgs = output => {
+          const outputFile = path.join(output, fileName);
+          return {
+            primaryName: fileName,
+            args: ['pcb', 'export', 'step', '--output', outputFile, ...(request.noDnp ? ['--no-dnp'] : []), ...(request.boardOnly ? ['--board-only'] : []), ...(request.substituteModels ? ['--subst-models'] : []), ...(request.includeTracks ? ['--include-tracks'] : []), ...(request.includePads ? ['--include-pads'] : []), ...(request.includeZones ? ['--include-zones'] : []), ...(request.includeInnerCopper ? ['--include-inner-copper'] : []), ...(request.includeSilkscreen ? ['--include-silkscreen'] : []), ...(request.includeSoldermask ? ['--include-soldermask'] : []), ...(request.fuseShapes ? ['--fuse-shapes'] : []), input]
+          };
+        };
+      }
+    }
+
+    if (!await this.commandSupported(cli.path, projectRoot, supportArgs)) {
+      throw new Error(`KICAD_CAPABILITY_UNAVAILABLE: this KiCad CLI does not provide ${supportArgs.join(' ')}.`);
+    }
+
+    const output = await prepareNewOutputDirectory(projectRoot, relativeOutput);
+    const built = buildArgs(output);
+    try {
+      const result = await this.runner.run(cli.path, built.args, projectRoot, 180_000);
+      if (result.exitCode !== 0 || result.timedOut) {
+        throw new Error(`KiCad ${request.kind} export failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+      }
+      const manifest = await fabricationManifest(output);
+      if (manifest.fileCount < 1) throw new Error('KiCad visual export produced no files.');
+      const primaryArtifact = built.primaryName
+        ? manifest.files.find(item => item.path === built.primaryName)
+        : undefined;
+      return {
+        kind: request.kind,
+        input: inputRelative,
+        outputDir: relativeOutput.split(path.sep).join('/'),
+        ...(primaryArtifact ? { primaryArtifact } : {}),
+        manifest,
+        command: {
+          program: cli.path,
+          args: built.args.map(arg => arg.startsWith(output) ? path.relative(projectRoot, arg).split(path.sep).join('/') : arg)
+        }
+      };
+    } catch (error) {
+      await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async inspectEditable(workspace: string, projectPath: string, file: string, maxItems = 500) {

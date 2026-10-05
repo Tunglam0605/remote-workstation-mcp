@@ -314,6 +314,95 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     return result(await audited(ctx.audit, 'kicad_validate', workspace, () => ctx.engineering.kicad.validate(workspace, projectPath, { ...(schematic ? { schematic } : {}), ...(board ? { board } : {}), jobsets: [] })));
   });
 
+  server.registerTool('kicad_design_review', {
+    description: 'Review one KiCad design without source mutation. Combines schematic-to-PCB consistency, placement spread/outliers, routing length/via/width evidence, 3D-model coverage and optional ERC/DRC. Recommendations are deterministic review candidates and point to existing typed edit/IPC tools; they are not an autorouter or implicit mutation.',
+    inputSchema: kicadProject.extend({
+      schematic: z.string().min(1).max(1024).optional(),
+      board: z.string().min(1).max(1024).optional(),
+      runRuleChecks: z.boolean().default(true),
+      maxDetails: z.number().int().min(1).max(100).default(25),
+      shortSegmentMm: z.number().finite().min(0).max(10).default(0.25)
+    }).refine(value => Boolean(value.schematic || value.board), { message: 'schematic and/or board is required' }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, schematic, board, runRuleChecks, maxDetails, shortSegmentMm }) =>
+    result(await audited(ctx.audit, 'kicad_design_review', workspace, () => ctx.engineering.kicad.designReview(
+      workspace,
+      projectPath,
+      { ...(schematic ? { schematic } : {}), ...(board ? { board } : {}) },
+      { runRuleChecks, maxDetails, shortSegmentMm }
+    ))));
+
+  const visualCommon = {
+    workspace: z.string().min(1),
+    projectPath: z.string().default('.'),
+    workSessionId: z.string().uuid(),
+    outputDir: z.string().min(1).max(1024)
+  };
+  const schematicPages = z.array(z.number().int().min(1).max(9999)).max(32).optional();
+  const schematicTheme = z.string().min(1).max(128).refine(value => !/[\u0000-\u001f\u007f]/.test(value), { message: 'theme contains control characters' }).optional();
+  const kicadVisualExport = z.discriminatedUnion('kind', [
+    z.object({
+      ...visualCommon,
+      kind: z.literal('schematic_svg'),
+      schematic: z.string().min(1).max(1024),
+      blackAndWhite: z.boolean().optional(),
+      excludeDrawingSheet: z.boolean().optional(),
+      pages: schematicPages,
+      theme: schematicTheme
+    }).strict(),
+    z.object({
+      ...visualCommon,
+      kind: z.literal('schematic_pdf'),
+      schematic: z.string().min(1).max(1024),
+      fileName: z.string().min(1).max(128).optional(),
+      blackAndWhite: z.boolean().optional(),
+      excludeDrawingSheet: z.boolean().optional(),
+      pages: schematicPages,
+      theme: schematicTheme
+    }).strict(),
+    z.object({
+      ...visualCommon,
+      kind: z.literal('pcb_3d_render'),
+      board: z.string().min(1).max(1024),
+      fileName: z.string().min(1).max(128).optional(),
+      format: z.enum(['png', 'jpeg']).default('png'),
+      width: z.number().int().min(320).max(4096).default(1600),
+      height: z.number().int().min(240).max(4096).default(900),
+      side: z.enum(['top', 'bottom', 'left', 'right', 'front', 'back']).default('top'),
+      background: z.enum(['default', 'transparent', 'opaque']).default('default'),
+      quality: z.enum(['basic', 'high']).default('high'),
+      perspective: z.boolean().default(true),
+      floor: z.boolean().default(true),
+      useBoardStackupColors: z.boolean().default(true),
+      zoom: z.number().finite().min(0.1).max(10).default(1)
+    }).strict(),
+    z.object({
+      ...visualCommon,
+      kind: z.literal('pcb_step'),
+      board: z.string().min(1).max(1024),
+      fileName: z.string().min(1).max(128).optional(),
+      noDnp: z.boolean().default(true),
+      boardOnly: z.boolean().default(false),
+      substituteModels: z.boolean().default(true),
+      includeTracks: z.boolean().default(false),
+      includePads: z.boolean().default(false),
+      includeZones: z.boolean().default(false),
+      includeInnerCopper: z.boolean().default(false),
+      includeSilkscreen: z.boolean().default(false),
+      includeSoldermask: z.boolean().default(false),
+      fuseShapes: z.boolean().default(false)
+    }).strict()
+  ]);
+
+  server.registerTool('kicad_visual_export', {
+    description: 'Create a new project-scoped KiCad visualization artifact without modifying source files. Typed modes export schematic SVG/PDF, render PCB 3D PNG/JPEG, or export mechanical STEP. Requires a Work Session, rejects existing output directories, blocks path escape/symlinks, uses official kicad-cli subcommands and returns a SHA-256 manifest.',
+    inputSchema: kicadVisualExport,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_visual_export', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.visualExport(request.workspace, request.projectPath, request))
+    )));
+
   server.registerTool('kicad_bom_report', {
     description: 'Export a bounded temporary schematic BOM with a fixed field contract (Refs, Value, Footprint, Qty, DNP) and return a typed report. No BOM plugin or arbitrary script is executed.',
     inputSchema: kicadProject.extend({ schematic: z.string().min(1).max(1024), maxRows: z.number().int().min(1).max(5000).default(500) }),

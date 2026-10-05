@@ -82,19 +82,29 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 
 ## v0.68 development - Selective OpenAI Tool Packs
 
-- preserve the proven v0.67.1 OpenAI baseline tool surface unchanged by default; no existing baseline tool is removed or renamed;
+- preserve the proven v0.67.1 OpenAI baseline semantics by default; no existing baseline tool is removed or renamed, while additive baseline capabilities remain explicitly versioned through the Action Schema;
 - add bounded reusable pack IDs `camera`, `canopen`, `media` and `industrial` so owners can expose only the specialist extension families needed by a workstation/project;
 - map Industrial to generic MQTT observation, industrial endpoint profiles, OPC UA and Modbus TCP rather than project-specific products or devices;
 - require every expanded extension to declare exactly one canonical pack and fail CI/registration when an expanded extension is unclassified;
 - keep `RWMCP_OPENAI_TOOL_SURFACE=full` as an explicit diagnostic/compatibility opt-in while owner settings persist selected packs through Windows and Linux Direct Node startup;
 - expose effective `baseline`, `baseline-plus-packs` or `full` status through `chatgpt_web_status` and surface pack selection in Moonlight Settings;
 - require a managed runtime restart after pack changes because MCP tool discovery is session/runtime scoped;
-- keep Action Schema 51 and Engineering API 5 because existing public tool names and input schemas remain unchanged; only owner-controlled availability is made composable.
+- keep Engineering API 5 because the workflow envelope is unchanged; Action Schema advances when additive public tools are introduced.
 - make `capabilities_list` pack-aware without introducing another MCP discovery tool: provider readiness remains independent from exposure, hidden specialist capabilities report their canonical `enablePack`, and the response includes a bounded pack catalog with capability IDs and tool counts;
 - preserve `tool_discover` as executable/toolchain discovery rather than overloading its established contract with MCP catalog semantics;
 - add bounded reusable recommendation metadata for every pack (`summary`, `recommendedFor`, `notNeededFor`) so ChatGPT can infer the appropriate specialist surface from the user's task without a second planner/router service;
 - enforce a recommend-only activation contract: pack recommendations never mutate settings, owners remain authoritative, baseline stays available, and pack changes require a managed runtime restart;
 - show the same pack purpose/guidance in Moonlight Settings so the owner and ChatGPT reason from one consistent model.
+
+### KiCad Phase 7 - PCB Design Review & Visualization
+
+- add `kicad_design_review` as one reusable read-only design-intelligence surface combining schematic-to-PCB reference/value/footprint consistency, footprint-placement spread/outliers, routed-net length/via/width evidence, Edge.Cuts bounding evidence and 3D-model coverage;
+- keep optimization recommendations evidence-oriented: longest nets, via-heavy nets, short-segment candidates and placement outliers are ranked for review and are not mislabeled as DRC violations;
+- combine optional ERC/DRC evidence into the same review without mutating sources;
+- add `kicad_visual_export` as one typed derived-artifact surface for schematic SVG/PDF, PCB 3D PNG/JPEG rendering and STEP export through official `kicad-cli`;
+- require Work Session ownership for visual exports, project-relative new output directories, fail-if-exists behavior, symlink/path-escape rejection and SHA-256 manifests;
+- keep routing/placement execution delegated to the existing typed IPC primitives with exact live-board SHA, board leases and DRC rollback; do not expose blind autorouting, raw IPC scripts, implicit save or source upgrade;
+- advance Action Schema from 51 to 53 for the two additive public KiCad tools; Engineering API remains 5.
 
 ## Next — post-v0.67 hardening
 

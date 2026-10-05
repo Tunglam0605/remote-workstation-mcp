@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Stable release: v0.67.0 - channel=stable - Action Schema 51 - Engineering API 5.** This release expands the reusable Engineering Workbench with CANopen EDS/DCF semantics and passive capture analysis, project-agnostic MQTT JSON observation, industrial endpoint profiles, camera fleet diagnostics, typed Remotion/ComfyUI workflows, capability-readiness reporting, stricter architecture/security gates, dead-code enforcement and a smaller production package. Public engineering surfaces remain generic and project-specific semantics stay in profiles, manifests, EDS/DCF files, presets or higher-level workflows.
+**Stable release: v0.67.1 - channel=stable - Action Schema 51 - Engineering API 5.** This release expands the reusable Engineering Workbench with CANopen EDS/DCF semantics and passive capture analysis, project-agnostic MQTT JSON observation, industrial endpoint profiles, camera fleet diagnostics, typed Remotion/ComfyUI workflows, capability-readiness reporting, stricter architecture/security gates, dead-code enforcement and a smaller production package. Public engineering surfaces remain generic and project-specific semantics stay in profiles, manifests, EDS/DCF files, presets or higher-level workflows.
 
 **Previous stable release: v0.66.0 - channel=stable - Action Schema 36 - Engineering API 5** - established the architecture-consolidation baseline: Extension Registry, one-way architecture boundaries, modular engineering families, split bootstrap construction, decomposed Moonlight page ownership, and canonical release publication.
 

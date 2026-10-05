@@ -2,6 +2,13 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+## 0.67.1 — Secure Tunnel Extension Lifecycle Hotfix
+
+- Fixes the live ChatGPT `internal error` regression introduced by v0.67 extension-owned workflow contributions. Streamable HTTP may build a fresh MCP server for successive requests while reusing one `AppContext`; extension `initialize(ctx)` now runs once per context, while `register(server, ctx)` remains per-server. Media workflow contributions therefore bootstrap once and no longer fail later `tools/call` requests with duplicate workflow IDs.
+- Aligns Windows OpenAI runtime identity with the canonical `openai-secure-mcp-tunnel` client type while retaining the legacy `chatgpt` label as a compatibility alias for extension-surface resolution.
+- Keeps newly expanded v0.67 extension families behind the baseline OpenAI tool surface unless `RWMCP_OPENAI_TOOL_SURFACE=full` is explicitly selected, and keeps extension-specific media parameters out of the stable Work Objective core schema.
+- Acceptance on 2026-10-05: full `npm run verify` passed; guarded Windows A/B validation reached the real OpenAI Secure MCP Tunnel, returned HTTP 200 for `chatgpt_web_status`, `workstation_identity` and `workspace_list`, recorded `CONFIRMED_AND_ROLLED_BACK`, and restored v0.66.0 automatically after the test window.
+
 ## 0.67.0 — Engineering Workbench Expansion & Hardening
 
 - Stable identity is `0.67.0` on `channel=stable`; promoted on 2026-10-01 after the full Linux/Windows acceptance matrix passed.

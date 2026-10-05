@@ -61,7 +61,12 @@ test('KiCad professional tools use temporary reports and fixed BOM fields withou
   try {
     const engine = new PolicyEngine(config(root));
     const adapter = new KicadAdapter(engine, new PathGuard(engine), runner as never);
-    assert.equal((await adapter.version('w')).version, '10.0.6');
+    const provider = await adapter.version('w');
+    assert.equal(provider.version, '10.0.6');
+    assert.equal(provider.capabilities.schematicSvg, true);
+    assert.equal(provider.capabilities.schematicPdf, true);
+    assert.equal(provider.capabilities.pcb3dRender, true);
+    assert.equal(provider.capabilities.stepExport, true);
     const stats = await adapter.boardStats('w', '.', 'robot.kicad_pcb');
     assert.deepEqual(stats.report, { board_size: { width: 100, height: 80 }, copper_layers: 4, vias: 12 });
     assert.equal((await adapter.drc('w', '.', 'robot.kicad_pcb')).report.counts.total, 0);

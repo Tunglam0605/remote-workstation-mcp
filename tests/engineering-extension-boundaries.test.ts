@@ -133,6 +133,8 @@ const KICAD_TOOLS = [
   'kicad_drc',
   'kicad_erc',
   'kicad_validate',
+  'kicad_design_review',
+  'kicad_visual_export',
   'kicad_bom_report',
   'kicad_edit_inspect',
   'kicad_edit'

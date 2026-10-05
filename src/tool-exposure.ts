@@ -20,6 +20,75 @@ export const OPENAI_TOOL_PACK_CAPABILITY_IDS: Record<OpenAiToolPackId, readonly 
   ]
 };
 
+export interface OpenAiToolPackMetadata {
+  label: string;
+  summary: string;
+  recommendedFor: readonly string[];
+  notNeededFor: readonly string[];
+}
+
+export const OPENAI_TOOL_PACK_METADATA: Record<OpenAiToolPackId, OpenAiToolPackMetadata> = {
+  camera: {
+    label: 'Camera',
+    summary: 'RTSP/ONVIF camera diagnostics, stream metadata, bounded PTZ and multi-camera health observation.',
+    recommendedFor: [
+      'RTSP or ONVIF camera discovery and health checks',
+      'camera stream metadata and bounded fleet diagnostics',
+      'bounded ONVIF PTZ inspection or movement'
+    ],
+    notNeededFor: [
+      'generic network diagnostics that do not require camera protocols'
+    ]
+  },
+  canopen: {
+    label: 'CANopen',
+    summary: 'Reusable CANopen EDS/DCF semantics and passive SDO/PDO/NMT/Heartbeat/EMCY analysis.',
+    recommendedFor: [
+      'CANopen EDS or DCF inspection and Object Dictionary work',
+      'passive CANopen node, SDO, PDO, NMT, Heartbeat or EMCY analysis',
+      'semantic decoding of CAN captures using configured CANopen communication objects'
+    ],
+    notNeededFor: [
+      'raw CAN interface status or capture that does not require CANopen semantics'
+    ]
+  },
+  media: {
+    label: 'Media / video',
+    summary: 'Bounded media probing/transcoding plus typed Remotion and ComfyUI render/job workflows.',
+    recommendedFor: [
+      'media file inspection or bounded transcoding',
+      'typed Remotion preset rendering',
+      'typed ComfyUI jobs and artifact handoff'
+    ],
+    notNeededFor: [
+      'ordinary filesystem work that does not require media processing or rendering'
+    ]
+  },
+  industrial: {
+    label: 'Industrial protocols',
+    summary: 'Generic MQTT observation, industrial endpoint profiles, OPC UA and Modbus TCP diagnostics.',
+    recommendedFor: [
+      'generic MQTT subscribe-only observation',
+      'industrial endpoint profile inspection or preflight',
+      'read-only OPC UA browse/read diagnostics',
+      'read-only Modbus TCP diagnostics'
+    ],
+    notNeededFor: [
+      'Modbus RTU-only work, which remains available in the baseline surface',
+      'generic network reachability checks that do not require an industrial protocol'
+    ]
+  }
+};
+
+export const OPENAI_TOOL_PACK_SELECTION_POLICY = {
+  mode: 'recommend-only',
+  automaticActivation: false,
+  ownerControlled: true,
+  restartRequired: true,
+  baselineAlwaysAvailable: true,
+  fullSurfaceExplicitOptIn: true
+} as const;
+
 export type CapabilityExposureReason = 'baseline' | 'selected-pack' | 'full' | 'pack-not-selected';
 
 export interface CapabilityToolExposure {
@@ -31,7 +100,7 @@ export interface CapabilityToolExposure {
 
 export type OpenAiToolPackExposureReason = 'selected-pack' | 'full' | 'not-selected';
 
-export interface OpenAiToolPackCatalogEntry {
+export interface OpenAiToolPackCatalogEntry extends OpenAiToolPackMetadata {
   id: OpenAiToolPackId;
   selected: boolean;
   exposed: boolean;
@@ -123,6 +192,7 @@ export function describeOpenAiToolPackCatalog(
       : selected
         ? 'selected-pack'
         : 'not-selected';
-    return { id, selected, exposed, reason, capabilityIds, toolCount };
+    const metadata = OPENAI_TOOL_PACK_METADATA[id];
+    return { id, ...metadata, selected, exposed, reason, capabilityIds, toolCount };
   });
 }

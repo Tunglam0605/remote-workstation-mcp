@@ -88,6 +88,10 @@ test('ChatGPT Web status does not claim an authenticated tunnel for local calls'
   assert.equal(status.nodeHealth.security.legacyRemoteControlEnabled, false);
   assert.equal(status.chatgptWeb.permissions.crossNodeTransfer, false);
   assert.deepEqual(status.chatgptWeb.toolExposure, { mode: 'full', packs: [] });
+  assert.deepEqual(status.chatgptWeb.toolPackPolicy, {
+    mode: 'recommend-only', automaticActivation: false, ownerControlled: true, restartRequired: true,
+    baselineAlwaysAvailable: true, fullSurfaceExplicitOptIn: true
+  });
 });
 
 test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scopes', () => {
@@ -109,6 +113,8 @@ test('ChatGPT Web status verifies authenticated OpenAI tunnel principal and scop
   assert.equal(status.nodeHealth.state, 'healthy');
   assert.deepEqual(status.nodeHealth.warnings, []);
   assert.deepEqual(status.chatgptWeb.toolExposure, { mode: 'baseline-plus-packs', packs: ['canopen', 'industrial'] });
+  assert.equal(status.chatgptWeb.toolPackPolicy.mode, 'recommend-only');
+  assert.equal(status.chatgptWeb.toolPackPolicy.automaticActivation, false);
 });
 
 test('ChatGPT Web status exposes cross-node permission only for the configured controller and dedicated scope', () => {

@@ -4,7 +4,7 @@ import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { recommendedChatGptAppName } from '../device-identity.js';
-import { describeOpenAiToolExposure } from '../tool-exposure.js';
+import { describeOpenAiToolExposure, OPENAI_TOOL_PACK_SELECTION_POLICY } from '../tool-exposure.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal, principalHasExactScope } from '../security/request-principal.js';
 
@@ -92,7 +92,8 @@ export function buildChatGptWebStatus(ctx: AppContext, env: NodeJS.ProcessEnv = 
         fullControl: authenticated && allows(scopes, 'workstation.full_control'),
         crossNodeTransfer: authenticated && controllerPrincipalMatches && principalHasExactScope('workstation.cross_node_transfer')
       },
-      toolExposure
+      toolExposure,
+      toolPackPolicy: OPENAI_TOOL_PACK_SELECTION_POLICY
     },
     policy: {
       mode: ctx.policy.effectiveMode(),

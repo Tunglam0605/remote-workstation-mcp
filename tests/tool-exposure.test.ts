@@ -6,6 +6,8 @@ import {
   describeOpenAiToolExposure,
   describeOpenAiToolPackCatalog,
   OPENAI_TOOL_PACK_CAPABILITY_IDS,
+  OPENAI_TOOL_PACK_METADATA,
+  OPENAI_TOOL_PACK_SELECTION_POLICY,
   parseOpenAiToolPacks,
   resolveOpenAiToolPacks,
   resolveOpenAiToolSurface,
@@ -113,4 +115,39 @@ test('capability to pack lookup stays deterministic', () => {
   assert.equal(toolPackForCapability('engineering.mqtt'), 'industrial');
   assert.equal(toolPackForCapability('engineering.modbus_rtu'), undefined);
   assert.equal(toolPackForCapability('engineering.firmware'), undefined);
+});
+
+
+test('every tool pack has reusable recommendation metadata and no automatic activation policy', () => {
+  assert.deepEqual(Object.keys(OPENAI_TOOL_PACK_METADATA), ['camera', 'canopen', 'media', 'industrial']);
+  for (const [id, metadata] of Object.entries(OPENAI_TOOL_PACK_METADATA)) {
+    assert.ok(metadata.label.length > 0, `${id} label missing`);
+    assert.ok(metadata.summary.length > 20, `${id} summary too short`);
+    assert.ok(metadata.recommendedFor.length >= 2, `${id} recommendations too sparse`);
+    assert.ok(metadata.notNeededFor.length >= 1, `${id} negative guidance missing`);
+  }
+  assert.deepEqual(OPENAI_TOOL_PACK_SELECTION_POLICY, {
+    mode: 'recommend-only',
+    automaticActivation: false,
+    ownerControlled: true,
+    restartRequired: true,
+    baselineAlwaysAvailable: true,
+    fullSurfaceExplicitOptIn: true
+  });
+});
+
+test('pack catalog carries recommendation metadata together with exposure state', () => {
+  const [camera, canopen, media, industrial] = describeOpenAiToolPackCatalog(
+    CAPABILITIES,
+    'openai-secure-mcp-tunnel',
+    { RWMCP_OPENAI_TOOL_PACKS: 'canopen' }
+  );
+  assert.equal(camera.label, 'Camera');
+  assert.match(canopen.summary, /CANopen/);
+  assert.equal(canopen.selected, true);
+  assert.equal(canopen.exposed, true);
+  assert.ok(canopen.recommendedFor.some(item => /EDS|DCF/.test(item)));
+  assert.ok(media.recommendedFor.some(item => /Remotion/.test(item)));
+  assert.ok(industrial.recommendedFor.some(item => /OPC UA/.test(item)));
+  assert.ok(industrial.notNeededFor.some(item => /Modbus RTU/.test(item)));
 });

@@ -45,6 +45,20 @@ test('Moonlight views use actual workstation scope names and transient secret in
   assert.match(executionSource, /Share Codex skills with RWMCP workers/);
 });
 
+
+
+test('Moonlight Settings explains tool packs as owner-controlled recommendations', async () => {
+  const source = await readFile(viewsPath, 'utf8');
+  for (const text of [
+    'RTSP/ONVIF camera diagnostics',
+    'EDS/DCF plus passive SDO/PDO/NMT/Heartbeat/EMCY analysis',
+    'Media probing/transcoding plus typed Remotion and ComfyUI workflows',
+    'Generic MQTT, industrial endpoint profiles, OPC UA and Modbus TCP diagnostics',
+    'ChatGPT may recommend a specialist pack for the current task',
+    'packs are owner-controlled and are never enabled automatically',
+    'requires a managed runtime restart'
+  ]) assert.ok(source.includes(text), `missing tool-pack guidance: ${text}`);
+});
 test('opening a view reads store state without issuing an API request', async () => {
   const [source, capabilitySource, systemAccessSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(capabilityViewsPath, 'utf8'), readFile(systemAccessViewsPath, 'utf8')]);
   assert.match(source, /function open\(page\)/);

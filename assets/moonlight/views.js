@@ -183,10 +183,15 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
     const scopes = new Set(settings.httpScopes || []);
     const scopeList = el('div', { class: 'moon-check-grid' });
     for (const [id, label] of scopeChoices) scopeList.append(field(label, el('input', { type: 'checkbox', value: id, checked: scopes.has(id) })));
-    const toolPackChoices = [['camera', 'Camera'], ['canopen', 'CANopen'], ['media', 'Media / video'], ['industrial', 'Industrial protocols']];
+    const toolPackChoices = [
+      ['camera', 'Camera', 'RTSP/ONVIF camera diagnostics, stream metadata, bounded PTZ and fleet health.'],
+      ['canopen', 'CANopen', 'EDS/DCF plus passive SDO/PDO/NMT/Heartbeat/EMCY analysis.'],
+      ['media', 'Media / video', 'Media probing/transcoding plus typed Remotion and ComfyUI workflows.'],
+      ['industrial', 'Industrial protocols', 'Generic MQTT, industrial endpoint profiles, OPC UA and Modbus TCP diagnostics.']
+    ];
     const toolPacks = new Set(settings.openaiToolPacks || []);
     const toolPackList = el('div', { class: 'moon-check-grid' });
-    for (const [id, label] of toolPackChoices) toolPackList.append(field(label, el('input', { type: 'checkbox', value: id, checked: toolPacks.has(id) })));
+    for (const [id, label, hint] of toolPackChoices) toolPackList.append(field(label, el('input', { type: 'checkbox', value: id, checked: toolPacks.has(id) }), hint));
     const config = section('Runtime configuration', 'Runtime keys are submitted once to the local control center and are not retained by this view.');
     const configGrid = el('div', { class: 'moon-form-grid' },
       field('MCP port', mcpPort),
@@ -203,7 +208,7 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       el('h4', { class: 'moon-subheading', text: t('HTTP scopes') }),
       scopeList,
       el('h4', { class: 'moon-subheading', text: t('OpenAI tool packs') }),
-      el('p', { class: 'moon-muted', text: t('Baseline tools stay available. Enable only the specialist packs you need; changing packs requires a managed runtime restart.') }),
+      el('p', { class: 'moon-muted', text: t('Baseline tools stay available. ChatGPT may recommend a specialist pack for the current task, but packs are owner-controlled and are never enabled automatically. Changing packs requires a managed runtime restart.') }),
       toolPackList
     );
     config.append(actions(button('Save runtime settings', async () => { if (!confirm(t('Save runtime settings?'))) return; try { const runtimeApiKey = key.value || undefined; const result = await mutate('/api/save', { mcpPort: Number(mcpPort.value), controlPort: controlPort.value ? Number(controlPort.value) : undefined, workspaceRoot: workspaceRoot.value, tunnelId: tunnelId.value || undefined, organizationId: orgId.value || undefined, cloudflaredManaged: managedTunnel.checked, httpScopes: [...scopeList.querySelectorAll('input:checked')].map((input) => input.value), openaiToolPacks: [...toolPackList.querySelectorAll('input:checked')].map((input) => input.value), runtimeApiKey, ...(runtimeApiKey ? { storeRuntimeApiKey: true } : {}) }, ['status', 'runtime', 'permissions'], 'Runtime settings saved.'); if (result?.restartRequired) toast(t('Tool-pack changes were saved. Restart the managed runtime to activate them.')); } finally { key.value = ''; } }, 'primary-button'), button('Install tunnel client', async () => { if (!confirm(t('Install the secure tunnel client on this host?'))) return; await mutate('/api/install-tunnel-client', {}, ['status', 'runtime'], 'Tunnel client installation requested.'); }), button('Delete stored key', async () => { if (!confirm(t('Delete the stored runtime API key?'))) return; await mutate('/api/runtime-key', undefined, ['status'], 'Stored runtime key deleted.', 'DELETE'); }, 'secondary-button danger-button')));

@@ -8,7 +8,7 @@ import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
 import { engineeringWorkflowIdSchema, objectiveWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal } from '../security/request-principal.js';
-import { describeCapabilityToolExposure, describeOpenAiToolExposure, describeOpenAiToolPackCatalog } from '../tool-exposure.js';
+import { describeCapabilityToolExposure, describeOpenAiToolExposure, describeOpenAiToolPackCatalog, OPENAI_TOOL_PACK_SELECTION_POLICY } from '../tool-exposure.js';
 import { EXECUTION_TARGET_MODES } from '../setup/settings.js';
 import { planWorkerRoute, WORKER_ROUTING_INTENTS } from '../worker-route-plan.js';
 
@@ -102,6 +102,7 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       actorTag: ctx.actor,
       identityNote: 'Authenticated HTTP principals are request-scoped. RWMCP client tags remain fallback observability metadata for local transports; local owner policy and leases remain the authority.',
       toolExposure: describeOpenAiToolExposure(clientType),
+      toolPackPolicy: OPENAI_TOOL_PACK_SELECTION_POLICY,
       toolPacks: describeOpenAiToolPackCatalog(staticCapabilities, clientType),
       capabilities: runtimeCapabilities.map(capability => ({
         ...capability,

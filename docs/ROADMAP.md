@@ -92,6 +92,9 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - keep Action Schema 51 and Engineering API 5 because existing public tool names and input schemas remain unchanged; only owner-controlled availability is made composable.
 - make `capabilities_list` pack-aware without introducing another MCP discovery tool: provider readiness remains independent from exposure, hidden specialist capabilities report their canonical `enablePack`, and the response includes a bounded pack catalog with capability IDs and tool counts;
 - preserve `tool_discover` as executable/toolchain discovery rather than overloading its established contract with MCP catalog semantics;
+- add bounded reusable recommendation metadata for every pack (`summary`, `recommendedFor`, `notNeededFor`) so ChatGPT can infer the appropriate specialist surface from the user's task without a second planner/router service;
+- enforce a recommend-only activation contract: pack recommendations never mutate settings, owners remain authoritative, baseline stays available, and pack changes require a managed runtime restart;
+- show the same pack purpose/guidance in Moonlight Settings so the owner and ChatGPT reason from one consistent model.
 
 ## Next — post-v0.67 hardening
 

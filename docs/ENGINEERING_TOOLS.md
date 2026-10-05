@@ -78,17 +78,18 @@ The monitor-expect workflow persists stable serial identity/baud/readiness marke
 
 ROS build configuration accepts only typed fields such as `symlinkInstall`, `mergeInstall`, and a bounded `packagesSelect` list. It does not accept arbitrary colcon arguments or shell strings. `ros2_topic_info` provides verbose endpoint/QoS inspection.
 
-## KiCad PCB Design Workbench - Phase 7
+## KiCad PCB Design Workbench - Phases 7-8
 
 RWMCP treats KiCad as a reusable CAD workflow rather than a project-specific board generator. The design layer now separates **review/planning evidence** from **typed mutation**:
 
 - `kicad_design_review` reads explicit `.kicad_sch` / `.kicad_pcb` files and reports schematic-to-PCB consistency, footprint placement spread, approximate Edge.Cuts bounds, routed-net length/via/width rankings, short-segment evidence and 3D-model coverage. Optional ERC/DRC is included in the same result. Rankings identify optimization candidates; they are not DRC violations by themselves.
+- `kicad_layout_optimize_plan` performs deeper topology/geometry planning. With a schematic it asks official `kicad-cli` for a temporary `kicadsexpr` netlist, correlates `(reference,pin,net)` with PCB pads, resolves rotated pad positions, computes per-net HPWL/MST proxies, explicit route length, vias/layers, footprint affinity and bounded net-weighted placement pull candidates. High-fanout nets are suppressed from placement pressure, and route/placement scores remain review evidence rather than autorouter authority.
 - `kicad_visual_export` creates only new derived artifacts inside the authorized project: schematic SVG/PDF, PCB 3D PNG/JPEG, or STEP. It uses official `kicad-cli`, requires Work Session ownership, refuses an existing destination, rejects path escape/symlinks and returns SHA-256 manifests.
 - Existing `kicad_ipc_board_inspect`, `kicad_ipc_batch_place`, `kicad_ipc_routing_inspect`, `kicad_ipc_track_add/update` and `kicad_ipc_via_add/update` remain the execution primitives. Mutations require exact live-board identity and keep DRC non-regression/compensating rollback behavior.
 - Existing `kicad_edit_inspect` / `kicad_edit` remain the transactional file-edit path for bounded schematic symbol and footprint fields.
 - Blind autorouting, raw IPC/Python scripts, routing-item deletion, zone mutation/refill, source-format upgrade and implicit save remain outside the public surface.
 
-KiCad 10.0.6 on the Windows acceptance node advertises official CLI support for `sch export svg`, `sch export pdf`, `pcb render` and `pcb export step`; the public tool keeps these modes typed instead of accepting arbitrary CLI flags.
+KiCad 10.0.6 on the Windows acceptance node advertises official CLI support for `sch export svg`, `sch export pdf`, `sch export netlist`, `pcb render` and `pcb export step`; the public tool keeps these modes typed instead of accepting arbitrary CLI flags.
 
 ## Initial providers
 

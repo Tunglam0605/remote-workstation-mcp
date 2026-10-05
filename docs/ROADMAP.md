@@ -106,6 +106,17 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - keep routing/placement execution delegated to the existing typed IPC primitives with exact live-board SHA, board leases and DRC rollback; do not expose blind autorouting, raw IPC scripts, implicit save or source upgrade;
 - advance Action Schema from 51 to 53 for the two additive public KiCad tools; Engineering API remains 5.
 
+### KiCad Phase 8 - Layout Optimization Intelligence
+
+- add `kicad_layout_optimize_plan` as one reusable read-only planner over an explicit `.kicad_pcb` and optional `.kicad_sch`;
+- obtain schematic connectivity through official `kicad-cli sch export netlist --format kicadsexpr` into a bounded temporary file rather than reverse-engineering schematic wire text;
+- resolve footprint-relative pad geometry into absolute board coordinates, build pad/net topology, and compare schematic `(reference,pin,net)` nodes with PCB pad assignments;
+- compute evidence-oriented HPWL and Euclidean minimum-spanning-tree proxies per net, explicit routed copper length, via counts and copper-layer participation;
+- rank route-detour candidates using track-length-to-pad-MST ratios while explicitly warning that zones, tuning and topology constraints can make high ratios intentional;
+- compute footprint affinity and bounded net-weighted centroid pull vectors while suppressing high-fanout nets from placement pressure; suggested translations are geometry-only candidates, not collision-safe placement guarantees;
+- keep execution delegated to `kicad_ipc_batch_place`, track/via typed primitives and DRC rollback. No blind autorouter, raw KiCad command flags, implicit board save or direct planner mutation is added;
+- advance Action Schema from 53 to 54 for the one additive planner tool; Engineering API remains 5.
+
 ## Next — post-v0.67 hardening
 
 - continue incremental source-size reduction only where it improves ownership or testability;

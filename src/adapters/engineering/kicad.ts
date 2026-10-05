@@ -11,6 +11,7 @@ import { resolveExecutable, resolveFirstExecutable } from './executable-resolver
 import { resolveExistingProjectPath } from './project-path.js';
 import { parseKicadBomCsv } from './kicad-bom.js';
 import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
+import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -726,11 +727,12 @@ export class KicadAdapter {
     const cli = await discoverKicadCli();
     const result = await this.runner.run(cli.path, ['version'], cwd, 10_000);
     if (result.exitCode !== 0 || result.timedOut) throw new Error(`KiCad version probe failed: ${result.stderr || result.stdout}`);
-    const [boardStats, bomExport, schematicSvg, schematicPdf, pcb3dRender, stepExport] = await Promise.all([
+    const [boardStats, bomExport, schematicSvg, schematicPdf, schematicNetlist, pcb3dRender, stepExport] = await Promise.all([
       this.commandSupported(cli.path, cwd, ['pcb', 'export', 'stats']),
       this.commandSupported(cli.path, cwd, ['sch', 'export', 'bom']),
       this.commandSupported(cli.path, cwd, ['sch', 'export', 'svg']),
       this.commandSupported(cli.path, cwd, ['sch', 'export', 'pdf']),
+      this.commandSupported(cli.path, cwd, ['sch', 'export', 'netlist']),
       this.commandSupported(cli.path, cwd, ['pcb', 'render']),
       this.commandSupported(cli.path, cwd, ['pcb', 'export', 'step'])
     ]);
@@ -743,6 +745,7 @@ export class KicadAdapter {
         bomExport,
         schematicSvg,
         schematicPdf,
+        schematicNetlist,
         pcb3dRender,
         stepExport,
         drcJson: true,
@@ -893,6 +896,69 @@ export class KicadAdapter {
       });
     }
     return { files, analysis: { ...analysis, recommendations }, validation, ruleChecksRun: true };
+  }
+
+  async layoutOptimizePlan(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    schematic: string | undefined,
+    options: KicadLayoutOptimizationOptions & { runRuleChecks?: boolean } = {}
+  ) {
+    this.policy.assertEngineeringExecute();
+    const cwd = await this.paths.resolveExisting(workspace, projectPath);
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad layout-optimization board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad layout optimization requires a .kicad_pcb board file.');
+    const boardStat = await fs.stat(boardPath);
+    if (!boardStat.isFile()) throw new Error('KiCad layout-optimization board is not a regular file.');
+    if (boardStat.size > 32 * 1024 * 1024) throw new Error('KiCad layout-optimization board exceeds the 32 MiB limit.');
+    const boardSource = await fs.readFile(boardPath, 'utf8');
+
+    let schematicNetlist: string | undefined;
+    let netlistCommand: { program: string; args: string[] } | undefined;
+    if (schematic) {
+      const schematicPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, schematic, 'KiCad layout-optimization schematic');
+      if (path.extname(schematicPath).toLowerCase() !== '.kicad_sch') throw new Error('KiCad layout optimization schematic must use .kicad_sch.');
+      const cli = await discoverKicadCli();
+      if (!await this.commandSupported(cli.path, cwd, ['sch', 'export', 'netlist'])) {
+        throw new Error('KICAD_CAPABILITY_UNAVAILABLE: this KiCad CLI does not provide `sch export netlist`.');
+      }
+      const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-layout-netlist-'));
+      const output = path.join(temp, 'schematic.net');
+      const args = ['sch', 'export', 'netlist', '--format', 'kicadsexpr', '--output', output, schematicPath];
+      try {
+        const result = await this.runner.run(cli.path, args, cwd, 120_000);
+        if (result.exitCode !== 0 || result.timedOut) {
+          throw new Error(`KiCad schematic netlist export failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+        }
+        const stat = await fs.stat(output);
+        if (!stat.isFile()) throw new Error('KiCad schematic netlist export did not produce a regular file.');
+        if (stat.size > 32 * 1024 * 1024) throw new Error('KiCad schematic netlist exceeds the 32 MiB optimization limit.');
+        schematicNetlist = await fs.readFile(output, 'utf8');
+        netlistCommand = {
+          program: cli.path,
+          args: args.map(arg => arg === output ? '<temp-schematic.net>' : arg === schematicPath ? schematic : arg)
+        };
+      } finally {
+        await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+
+    const analysis = analyzeKicadLayoutOptimization(
+      { board: boardSource, ...(schematicNetlist ? { schematicNetlist } : {}) },
+      options
+    );
+    const runRuleChecks = options.runRuleChecks !== false;
+    const validation = runRuleChecks
+      ? await this.validate(workspace, projectPath, { board, ...(schematic ? { schematic } : {}), jobsets: [] })
+      : undefined;
+    return {
+      files: { board, ...(schematic ? { schematic } : {}) },
+      ...(netlistCommand ? { netlistCommand } : {}),
+      analysis,
+      ruleChecksRun: runRuleChecks,
+      ...(validation ? { validation } : {})
+    };
   }
 
   async visualExport(workspace: string, projectPath: string, request: KicadVisualExportRequest) {

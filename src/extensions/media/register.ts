@@ -38,15 +38,41 @@ const remotionParameters = z.record(
   if (Object.keys(value).length > 64) ctx.addIssue({ code: 'custom', message: 'Remotion parameters are limited to 64 bindings.' });
 });
 
-export function registerMediaTools(server: McpServer, ctx: AppContext): void {
+interface MediaServices {
+  profiles: MediaProfileStore;
+  adapter: MediaVideoAdapter;
+  remotion: RemotionRenderAdapter;
+  jobs: ComfyUiPresetJobs;
+  artifacts: ComfyUiArtifactImporter;
+}
+
+const mediaServicesByContext = new WeakMap<AppContext, MediaServices>();
+
+function mediaServices(ctx: AppContext): MediaServices {
+  const existing = mediaServicesByContext.get(ctx);
+  if (existing) return existing;
   const profiles = new MediaProfileStore();
-  const adapter = new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles);
-  const remotion = new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore());
   const jobs = new ComfyUiPresetJobs(profiles, new ComfyUiPresetStore());
-  const artifacts = new ComfyUiArtifactImporter(ctx.paths, profiles, jobs);
+  const services: MediaServices = {
+    profiles,
+    adapter: new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles),
+    remotion: new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore()),
+    jobs,
+    artifacts: new ComfyUiArtifactImporter(ctx.paths, profiles, jobs)
+  };
+  mediaServicesByContext.set(ctx, services);
+  return services;
+}
+
+export function initializeMediaExtension(ctx: AppContext): void {
+  const { adapter, remotion, jobs, artifacts } = mediaServices(ctx);
   for (const contribution of mediaWorkflowContributions({ adapter, remotion, jobs, artifacts })) {
     ctx.engineering.workflows.registerContribution(contribution);
   }
+}
+
+export function registerMediaTools(server: McpServer, ctx: AppContext): void {
+  const { adapter, remotion, jobs, artifacts } = mediaServices(ctx);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',

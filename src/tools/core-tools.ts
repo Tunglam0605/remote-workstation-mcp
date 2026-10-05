@@ -5,7 +5,7 @@ import type { AppContext } from '../context.js';
 import { ACTION_SCHEMA_VERSION, BUILD_CHANNEL, BUILD_COMMIT, capabilitiesForPlatform, ENGINEERING_API_VERSION, SERVER_VERSION } from '../capabilities.js';
 import { resolveCapabilityReadiness } from '../capability-readiness.js';
 import { CONCURRENCY_OPERATIONS } from '../concurrency-policy.js';
-import { engineeringWorkflowIdSchema, persistedWorkflowParametersSchema } from '../engineering-workflow-contract.js';
+import { engineeringWorkflowIdSchema, objectiveWorkflowParametersSchema } from '../engineering-workflow-contract.js';
 import { audited } from '../security/audit.js';
 import { EXECUTION_TARGET_MODES } from '../setup/settings.js';
 import { planWorkerRoute, WORKER_ROUTING_INTENTS } from '../worker-route-plan.js';
@@ -30,7 +30,7 @@ const workObjectiveMutation = z.discriminatedUnion('action', [
         workspace: z.string().min(1).max(128),
         projectPath: z.string().min(1).max(1024).default('.'),
         workflow: engineeringWorkflowIdSchema,
-        parameters: persistedWorkflowParametersSchema
+        parameters: objectiveWorkflowParametersSchema
       }).strict(),
       z.object({
         kind: z.literal('worker-provider'),
@@ -57,7 +57,7 @@ const decompositionExecution = z.discriminatedUnion('kind', [
     workspace: z.string().min(1).max(128),
     projectPath: z.string().min(1).max(1024).default('.'),
     workflow: engineeringWorkflowIdSchema,
-    parameters: persistedWorkflowParametersSchema
+    parameters: objectiveWorkflowParametersSchema
   }).strict()
 ]);
 const objectiveDecompositionTask = z.object({

@@ -110,6 +110,17 @@ export const persistedWorkflowParametersSchema = workflowRuntimeParametersSchema
   relayDataBase64: true
 }).default({});
 
+export const objectiveWorkflowParametersSchema = persistedWorkflowParametersSchema.removeDefault().omit({
+  mediaPresetId: true,
+  mediaParameters: true,
+  mediaOutput: true,
+  mediaArtifactIndex: true,
+  mediaPollIntervalMs: true,
+  mediaCompletionTimeoutMs: true,
+  mediaOperationTimeoutMs: true,
+  mediaMaxBytes: true
+}).default({});
+
 export const workflowParametersSchema = z.record(z.string().min(1).max(80), z.unknown()).default({});
 export const profileProjectSchema = z.object({
   workspace: z.string().min(1),

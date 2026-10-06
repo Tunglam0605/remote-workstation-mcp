@@ -68,6 +68,60 @@ const BOARD = `(kicad_pcb
 )
 `;
 
+
+const PAD_CLEARANCE_BOARD = `(kicad_pcb
+  (version 20241229)
+  (generator "rwmcp-test")
+  (general (thickness 1.6))
+  (layers
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+    (44 "Edge.Cuts" user)
+  )
+  (setup (pad_to_mask_clearance 0))
+  (net 0 "")
+  (net 1 "/B_P")
+  (net 2 "/B_N")
+  (footprint "Resistor_SMD:R_0603_1608Metric"
+    (layer "F.Cu")
+    (at 91.5 78.5)
+    (property "Reference" "R3")
+    (property "Value" "1k")
+    (pad "1" smd roundrect (at -0.825 0) (size 0.9 0.95) (layers "F.Cu" "F.Paste" "F.Mask") (net 1 "/B_P"))
+    (pad "2" smd roundrect (at 0.825 0) (size 0.9 0.95) (layers "F.Cu" "F.Paste" "F.Mask") (net 2 "/B_N"))
+  )
+  (footprint "Resistor_SMD:R_0603_1608Metric"
+    (layer "F.Cu")
+    (at 100 87)
+    (property "Reference" "R4")
+    (property "Value" "1k")
+    (pad "1" smd roundrect (at -0.825 0) (size 0.9 0.95) (layers "F.Cu" "F.Paste" "F.Mask") (net 1 "/B_P"))
+    (pad "2" smd roundrect (at 0.825 0) (size 0.9 0.95) (layers "F.Cu" "F.Paste" "F.Mask") (net 2 "/B_N"))
+  )
+  (gr_rect
+    (start 80 70)
+    (end 110 100)
+    (stroke (width 0.05) (type default))
+    (fill none)
+    (layer "Edge.Cuts")
+  )
+)`;
+
+function segmentIntersectsRect(
+  op: { start:{x:number;y:number}; end:{x:number;y:number} },
+  rect: { minX:number; minY:number; maxX:number; maxY:number }
+): boolean {
+  let t0=0,t1=1;
+  const dx=op.end.x-op.start.x,dy=op.end.y-op.start.y;
+  for(const [p,q] of [[-dx,op.start.x-rect.minX],[dx,rect.maxX-op.start.x],[-dy,op.start.y-rect.minY],[dy,rect.maxY-op.start.y]] as const){
+    if(Math.abs(p)<1e-12){if(q<0)return false;continue;}
+    const t=q/p;
+    if(p<0)t0=Math.max(t0,t);else t1=Math.min(t1,t);
+    if(t0>t1)return false;
+  }
+  return true;
+}
+
 function segmentCrossesObstacle(op: { start:{x:number;y:number}; end:{x:number;y:number} }): boolean {
   // Obstacle courtyard is x=16..24, y=10..20. A straight orthogonal segment crosses
   // it only if its fixed coordinate lies inside the range and its span overlaps.
@@ -111,6 +165,29 @@ test('route planner detours around courtyard obstacles and emits batch-applicabl
   assert.ok(applied.summary.segments > 0);
   assert.deepEqual(applied.summary.nets, ['/SIG']);
   assert.match(applied.source, /\(segment/);
+});
+
+
+test('route planner treats sibling pads on a different net as copper obstacles', () => {
+  const planned = planKicadRoutes(PAD_CLEARANCE_BOARD, {
+    gridMm: 0.5,
+    edgeInsetMm: 1,
+    defaultWidthMm: 0.3,
+    defaultClearanceMm: 0.2,
+    viaDiameterMm: 0.7,
+    viaDrillMm: 0.35,
+    selectedNets: ['/B_N'],
+    maxOperations: 128
+  });
+  assert.equal(planned.routed.length, 1);
+  assert.equal(planned.routed[0]?.netName, '/B_N');
+
+  // R4 pad 1 belongs to /B_P. Its 0.9 x 0.95 mm copper envelope is expanded
+  // by current-track half-width (0.15 mm) + clearance (0.2 mm).
+  const forbidden={minX:98.375,minY:86.175,maxX:99.975,maxY:87.825};
+  const fCuSegments=planned.operations.filter((op): op is Extract<(typeof planned.operations)[number],{kind:'segment'}> => op.kind==='segment'&&op.layer==='F.Cu');
+  assert.ok(fCuSegments.length>0);
+  for(const op of fCuSegments) assert.equal(segmentIntersectsRect(op,forbidden),false,JSON.stringify(op));
 });
 
 test('route planner supports unprefixed selected net names and per-net styles', () => {

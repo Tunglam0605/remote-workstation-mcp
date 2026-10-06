@@ -17,6 +17,9 @@ import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprin
 import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicNetlist, type KicadSchematicNetSpec, type KicadSchematicSynthesisOptions } from './kicad-schematic-synthesis.js';
 import { canonicalKicadBoardNetName, synthesizeKicadBoard } from './kicad-board-synthesis.js';
 import { planKicadSemanticPlacement, type KicadPlacementHint } from './kicad-semantic-placement.js';
+import { applyKicadRouteBatch, type KicadRouteBatchOperation } from './kicad-route-batch.js';
+import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-electrical-review.js';
+import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -1241,6 +1244,220 @@ export class KicadAdapter {
       await fs.rm(boardFile, { force: true }).catch(() => undefined);
       await atomicReplace(projectFile, originalProjectText).catch(() => undefined);
       await atomicReplace(manifestPath, originalManifestText).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async routeBatchApply(
+    workspace: string,
+    projectPath: string,
+    request: {
+      board: string;
+      expectedBoardSha256: string;
+      operations: KicadRouteBatchOperation[];
+      requireNoNewViolations?: boolean;
+      requireUnconnectedNonIncrease?: boolean;
+      requireParityNonIncrease?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(request.expectedBoardSha256)) throw new Error('KiCad route batch expectedBoardSha256 must be a SHA-256 digest.');
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.board, 'KiCad route-batch board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad route batch requires a .kicad_pcb file.');
+    const stat = await fs.stat(boardPath);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('KiCad route-batch board is missing or exceeds 128 MiB.');
+    const beforeSource = await fs.readFile(boardPath, 'utf8');
+    const beforeSha = sha256Text(beforeSource);
+    if (beforeSha.toLowerCase() !== request.expectedBoardSha256.toLowerCase()) {
+      throw new Error(`KiCad route-batch SHA mismatch: expected ${request.expectedBoardSha256}, actual ${beforeSha}.`);
+    }
+    const before = await this.drc(workspace, projectPath, request.board, true);
+    const patched = applyKicadRouteBatch(beforeSource, request.operations);
+    const backup = await createKicadBackup(boardPath);
+    try {
+      await atomicReplace(boardPath, patched.source);
+      const after = await this.drc(workspace, projectPath, request.board, true);
+      const beforeViolations = Number(before.report.counts.active.violations ?? 0);
+      const afterViolations = Number(after.report.counts.active.violations ?? 0);
+      const beforeUnconnected = Number(before.report.counts.active.unconnected ?? 0);
+      const afterUnconnected = Number(after.report.counts.active.unconnected ?? 0);
+      const beforeParity = Number(before.report.counts.active.schematicParity ?? 0);
+      const afterParity = Number(after.report.counts.active.schematicParity ?? 0);
+      const reasons: string[] = [];
+      if (request.requireNoNewViolations !== false && afterViolations > beforeViolations) reasons.push(`violations ${beforeViolations}->${afterViolations}`);
+      if (request.requireUnconnectedNonIncrease !== false && afterUnconnected > beforeUnconnected) reasons.push(`unconnected ${beforeUnconnected}->${afterUnconnected}`);
+      if (request.requireParityNonIncrease !== false && afterParity > beforeParity) reasons.push(`schematicParity ${beforeParity}->${afterParity}`);
+      if (reasons.length) {
+        await atomicReplace(boardPath, beforeSource);
+        throw new Error(`KiCad route batch rejected and rolled back: ${reasons.join(', ')}.`);
+      }
+      const afterSource = await fs.readFile(boardPath, 'utf8');
+      return {
+        board: request.board,
+        beforeSha256: beforeSha,
+        afterSha256: sha256Text(afterSource),
+        backup: path.relative(path.dirname(boardPath), backup).split(path.sep).join('/'),
+        summary: patched.summary,
+        drc: { before: before.report.counts.active, after: after.report.counts.active },
+        accepted: true
+      };
+    } catch (error) {
+      const current = await fs.readFile(boardPath, 'utf8').catch(() => undefined);
+      if (current !== beforeSource) await atomicReplace(boardPath, beforeSource).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async electricalReview(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    intents: KicadElectricalNetIntent[]
+  ) {
+    this.policy.assertEngineeringEnabled();
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad electrical-review board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad electrical review requires a .kicad_pcb file.');
+    const stat = await fs.stat(boardPath);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('KiCad electrical-review board is missing or exceeds 128 MiB.');
+    const source = await fs.readFile(boardPath, 'utf8');
+    return { board, boardSha256: sha256Text(source), analysis: analyzeKicadElectrical(source, intents) };
+  }
+
+  async manufacturingPackage(
+    workspace: string,
+    projectPath: string,
+    request: {
+      board: string;
+      schematic?: string;
+      outputDir: string;
+      includeIpc2581?: boolean;
+      includeIpcD356?: boolean;
+      includeOdb?: boolean;
+      includeStep?: boolean;
+      requireClean?: boolean;
+      requireAssemblyConsistency?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const relativeOutput = safeOutputDirectory(request.outputDir);
+    const board = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.board, 'KiCad manufacturing-package board');
+    if (path.extname(board).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad manufacturing package requires a .kicad_pcb file.');
+    const boardStat = await fs.stat(board);
+    if (!boardStat.isFile() || boardStat.size > 128 * 1024 * 1024) throw new Error('KiCad manufacturing-package board is missing or exceeds 128 MiB.');
+    const boardSource = await fs.readFile(board, 'utf8');
+    const schematic = request.schematic
+      ? await resolveExistingProjectPath(this.paths, workspace, projectPath, request.schematic, 'KiCad manufacturing-package schematic')
+      : undefined;
+    if (schematic && path.extname(schematic).toLowerCase() !== '.kicad_sch') throw new Error('KiCad manufacturing package schematic must use .kicad_sch.');
+
+    const validation = await this.validate(workspace, projectPath, { board: request.board, ...(request.schematic ? { schematic: request.schematic } : {}), jobsets: [] });
+    const drcErrors = Number(validation.drc?.report.counts.active.bySeverity.error ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.active.bySeverity.error ?? 0);
+    const unconnected = Number(validation.drc?.report.counts.active.unconnected ?? 0);
+    const schematicParity = Number(validation.drc?.report.counts.active.schematicParity ?? 0);
+    if (request.requireClean !== false && drcErrors + ercErrors + unconnected + schematicParity > 0) {
+      throw new Error(`KiCad manufacturing package blocked by active validation findings: DRC errors=${drcErrors}, ERC errors=${ercErrors}, unconnected=${unconnected}, schematicParity=${schematicParity}.`);
+    }
+
+    const cli = await discoverKicadCli();
+    const output = await prepareNewOutputDirectory(projectRoot, relativeOutput);
+    const gerberDir = path.join(output, 'gerbers');
+    const drillDir = path.join(output, 'drill');
+    const assemblyDir = path.join(output, 'assembly');
+    const exchangeDir = path.join(output, 'exchange');
+    const mechanicalDir = path.join(output, 'mechanical');
+    await Promise.all([gerberDir, drillDir, assemblyDir, exchangeDir, mechanicalDir].map(dir => fs.mkdir(dir, { recursive: true })));
+
+    const positionFile = path.join(assemblyDir, 'positions.csv');
+    const bomFile = path.join(assemblyDir, 'bom.csv');
+    const drillReport = path.join(drillDir, 'drill-report.txt');
+    const ipc2581File = path.join(exchangeDir, 'design.ipc2581');
+    const ipcD356File = path.join(exchangeDir, 'netlist.d356');
+    const odbFile = path.join(exchangeDir, 'design.odb.zip');
+    const stepFile = path.join(mechanicalDir, 'board.step');
+
+    const includeIpc2581 = request.includeIpc2581 !== false;
+    const includeIpcD356 = request.includeIpcD356 !== false;
+    const includeOdb = request.includeOdb === true;
+    const includeStep = request.includeStep !== false;
+
+    const commands: Array<{ id: string; args: string[] }> = [
+      { id: 'gerbers', args: ['pcb', 'export', 'gerbers', '--output', gerberDir, '--check-zones', '--subtract-soldermask', board] },
+      { id: 'drill', args: ['pcb', 'export', 'drill', '--output', drillDir, '--format', 'excellon', '--excellon-units', 'mm', '--excellon-separate-th', '--generate-report', '--report-path', drillReport, board] },
+      { id: 'positions', args: ['pcb', 'export', 'pos', '--output', positionFile, '--format', 'csv', '--units', 'mm', '--side', 'both', '--exclude-dnp', board] },
+      ...(schematic ? [{ id: 'bom', args: ['sch', 'export', 'bom', '--fields', 'Reference,Value,Footprint,QUANTITY,DNP', '--labels', 'Refs,Value,Footprint,Qty,DNP', '--output', bomFile, schematic] }] : []),
+      ...(includeIpc2581 ? [{ id: 'ipc2581', args: ['pcb', 'export', 'ipc2581', '--output', ipc2581File, '--version', 'C', '--units', 'mm', board] }] : []),
+      ...(includeIpcD356 ? [{ id: 'ipcd356', args: ['pcb', 'export', 'ipcd356', '--output', ipcD356File, board] }] : []),
+      ...(includeOdb ? [{ id: 'odb', args: ['pcb', 'export', 'odb', '--output', odbFile, '--compression', 'zip', '--units', 'mm', '--check-zones', board] }] : []),
+      ...(includeStep ? [{ id: 'step', args: ['pcb', 'export', 'step', '--output', stepFile, '--no-dnp', '--subst-models', board] }] : [])
+    ];
+
+    try {
+      for (const command of commands) {
+        const result = await this.runner.run(cli.path, command.args, projectRoot, 180_000);
+        if (result.exitCode !== 0 || result.timedOut) {
+          throw new Error(`KiCad manufacturing ${command.id} export failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+        }
+      }
+
+      const posStat = await fs.stat(positionFile);
+      if (!posStat.isFile() || posStat.size > 16 * 1024 * 1024) throw new Error('KiCad manufacturing position export is missing or exceeds 16 MiB.');
+      const positions = parseKicadPositionCsv(await fs.readFile(positionFile, 'utf8'));
+      const bom = schematic ? parseKicadBomCsv(await fs.readFile(bomFile, 'utf8'), 5000) : undefined;
+      const audit = auditKicadManufacturing(boardSource, positions.references, bom?.rows.map(row => row.refs) ?? []);
+      if (request.requireAssemblyConsistency !== false && !audit.ready) {
+        throw new Error(`KiCad manufacturing assembly consistency rejected: ${audit.findings.filter(item => item.severity === 'high').map(item => `${item.code}=${item.count}`).join(', ') || 'high-severity finding'}.`);
+      }
+
+      const reportPath = path.join(output, 'manufacturing-report.json');
+      const report = {
+        schemaVersion: 1,
+        source: { board: request.board, ...(request.schematic ? { schematic: request.schematic } : {}) },
+        validation: { drcErrors, ercErrors, unconnected, schematicParity },
+        formats: { gerber: true, excellon: true, positionsCsv: true, bomCsv: Boolean(schematic), ipc2581: includeIpc2581, ipcD356: includeIpcD356, odb: includeOdb, step: includeStep },
+        assembly: audit
+      };
+      await fs.writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+      const manifest = await fabricationManifest(output);
+      const manifestPath = path.join(output, 'manifest.json');
+      await fs.writeFile(manifestPath, JSON.stringify({
+        ...manifest,
+        generatedAt: new Date().toISOString(),
+        source: report.source,
+        validation: report.validation,
+        assemblyReady: audit.ready
+      }, null, 2) + '\n', 'utf8');
+
+      const redactArg = (arg: string) => {
+        const absoluteMappings: Array<[string, string]> = [
+          [board, request.board],
+          ...(schematic && request.schematic ? [[schematic, request.schematic] as [string, string]] : []),
+          [gerberDir, path.join(relativeOutput, 'gerbers').split(path.sep).join('/')],
+          [drillDir, path.join(relativeOutput, 'drill').split(path.sep).join('/')],
+          [positionFile, path.join(relativeOutput, 'assembly', 'positions.csv').split(path.sep).join('/')],
+          [bomFile, path.join(relativeOutput, 'assembly', 'bom.csv').split(path.sep).join('/')],
+          [drillReport, path.join(relativeOutput, 'drill', 'drill-report.txt').split(path.sep).join('/')],
+          [ipc2581File, path.join(relativeOutput, 'exchange', 'design.ipc2581').split(path.sep).join('/')],
+          [ipcD356File, path.join(relativeOutput, 'exchange', 'netlist.d356').split(path.sep).join('/')],
+          [odbFile, path.join(relativeOutput, 'exchange', 'design.odb.zip').split(path.sep).join('/')],
+          [stepFile, path.join(relativeOutput, 'mechanical', 'board.step').split(path.sep).join('/')]
+        ];
+        return absoluteMappings.find(([absolute]) => arg === absolute)?.[1] ?? arg;
+      };
+      return {
+        outputDir: relativeOutput.split(path.sep).join('/'),
+        reportPath: path.relative(projectRoot, reportPath).split(path.sep).join('/'),
+        manifestPath: path.relative(projectRoot, manifestPath).split(path.sep).join('/'),
+        validation,
+        audit,
+        manifest,
+        commands: commands.map(command => ({ id: command.id, args: command.args.map(redactArg) }))
+      };
+    } catch (error) {
+      await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
       throw error;
     }
   }

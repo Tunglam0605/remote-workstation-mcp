@@ -446,6 +446,96 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.boardSynthesize(request.workspace, request.projectPath, request))
     )));
 
+  const routePoint = z.object({
+    x: z.number().finite().min(-100000).max(100000),
+    y: z.number().finite().min(-100000).max(100000)
+  }).strict();
+  const routeOperation = z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('segment'),
+      netName: z.string().min(1).max(128),
+      layer: z.string().regex(/^(?:F|B|In\d+)\.Cu$/),
+      start: routePoint,
+      end: routePoint,
+      widthMm: z.number().finite().min(0.05).max(20),
+      locked: z.boolean().optional()
+    }).strict(),
+    z.object({
+      kind: z.literal('via'),
+      netName: z.string().min(1).max(128),
+      position: routePoint,
+      diameterMm: z.number().finite().min(0.1).max(20),
+      drillMm: z.number().finite().min(0.05).max(10),
+      layers: z.tuple([
+        z.string().regex(/^(?:F|B|In\d+)\.Cu$/),
+        z.string().regex(/^(?:F|B|In\d+)\.Cu$/)
+      ]).optional(),
+      locked: z.boolean().optional()
+    }).strict().refine(value => value.drillMm < value.diameterMm, { message: 'drillMm must be smaller than diameterMm' })
+  ]);
+
+  server.registerTool('kicad_route_batch_apply', {
+    description: 'Apply 1..256 typed straight-track/through-via routing operations to one authorized KiCad PCB in a single transaction. Requires Work Session ownership and exact board SHA, validates net/layer identity, backs up and writes atomically, runs KiCad DRC plus schematic parity before/after, and rolls the entire batch back on regression. No raw scripts, deletion, arcs, blind/micro vias or implicit autorouting.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      operations: z.array(routeOperation).min(1).max(256),
+      requireNoNewViolations: z.boolean().default(true),
+      requireUnconnectedNonIncrease: z.boolean().default(true),
+      requireParityNonIncrease: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_route_batch_apply', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.routeBatchApply(request.workspace, request.projectPath, request))
+    )));
+
+  const electricalIntent = z.object({
+    netName: z.string().min(1).max(128),
+    kind: z.enum(['power', 'clock', 'differential', 'can', 'rs485', 'pwm', 'analog', 'digital', 'high_speed']),
+    currentA: z.number().finite().min(0).max(1000).optional(),
+    voltageV: z.number().finite().gt(0).max(2000).optional(),
+    maxVoltageDropPct: z.number().finite().min(0).max(100).optional(),
+    maxLengthMm: z.number().finite().gt(0).max(100000).optional(),
+    maxViaCount: z.number().int().min(0).max(10000).optional(),
+    targetImpedanceOhm: z.number().finite().gt(0).max(10000).optional(),
+    pairWith: z.string().min(1).max(128).optional(),
+    maxSkewMm: z.number().finite().min(0).max(100000).optional()
+  }).strict();
+
+  server.registerTool('kicad_electrical_review', {
+    description: 'Review explicit routed nets against typed electrical design intent without source mutation. Reports route length/vias/layers/widths, copper-only 20 C DC resistance/voltage-drop/I²R estimates when stackup copper thickness and current are known, paired-net routed-length skew, and critical-net layer-transition evidence. It deliberately does not claim IPC-2152 ampacity, controlled impedance, EMI/EMC or thermal simulation; target impedance is recorded as requiring a field solver.',
+    inputSchema: kicadProject.extend({
+      board: z.string().min(1).max(1024),
+      intents: z.array(electricalIntent).min(1).max(128)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, board, intents }) =>
+    result(await audited(ctx.audit, 'kicad_electrical_review', workspace, () =>
+      ctx.engineering.kicad.electricalReview(workspace, projectPath, board, intents)
+    )));
+
+  server.registerTool('kicad_manufacturing_package', {
+    description: 'Create one new project-scoped production package from an explicit KiCad PCB and optional schematic. The package is blocked by active DRC/ERC/unconnected/schematic-parity findings by default, exports Gerber + Excellon + assembly positions plus optional BOM/IPC-2581/IPC-D-356/ODB++/STEP, audits PCB assembly intent against position/BOM outputs, and writes SHA-256 manufacturing/report manifests. Requires Work Session ownership; source KiCad files are never rewritten.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      schematic: z.string().min(1).max(1024).optional(),
+      outputDir: z.string().min(1).max(1024),
+      includeIpc2581: z.boolean().default(true),
+      includeIpcD356: z.boolean().default(true),
+      includeOdb: z.boolean().default(false),
+      includeStep: z.boolean().default(true),
+      requireClean: z.boolean().default(true),
+      requireAssemblyConsistency: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_manufacturing_package', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.manufacturingPackage(request.workspace, request.projectPath, request))
+    )));
+
   server.registerTool('kicad_board_stats', {
     description: 'Export bounded JSON board statistics for one explicit .kicad_pcb file into a temporary report; project sources are not saved or upgraded.',
     inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),

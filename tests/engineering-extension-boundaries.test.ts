@@ -109,6 +109,7 @@ const ROS2_TOOLS = [
 
 const STM32_TOOLS = [
   'stm32_ioc_inspect',
+  'stm32_pin_plan',
   'stm32_svd_inspect'
 ] as const;
 
@@ -133,6 +134,9 @@ const KICAD_TOOLS = [
   'kicad_schematic_synthesize',
   'kicad_semantic_place_plan',
   'kicad_board_synthesize',
+  'kicad_route_batch_apply',
+  'kicad_electrical_review',
+  'kicad_manufacturing_package',
   'kicad_board_stats',
   'kicad_drc',
   'kicad_erc',

@@ -332,6 +332,24 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       { runRuleChecks, maxDetails, shortSegmentMm }
     ))));
 
+  server.registerTool('kicad_layout_optimize_plan', {
+    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Suggested moves are geometry-only review candidates and never bypass the existing typed IPC/DRC mutation gates.',
+    inputSchema: kicadProject.extend({
+      board: z.string().min(1).max(1024),
+      schematic: z.string().min(1).max(1024).optional(),
+      runRuleChecks: z.boolean().default(true),
+      maxDetails: z.number().int().min(1).max(100).default(25),
+      maxPlacementNetPads: z.number().int().min(2).max(128).default(24),
+      maxSuggestedStepMm: z.number().finite().gt(0).max(50).default(5),
+      placementGridMm: z.number().finite().gt(0).max(10).default(0.5)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm }) =>
+    result(await audited(ctx.audit, 'kicad_layout_optimize_plan', workspace, () => ctx.engineering.kicad.layoutOptimizePlan(
+      workspace, projectPath, board, schematic,
+      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm }
+    ))));
+
   const visualCommon = {
     workspace: z.string().min(1),
     projectPath: z.string().default('.'),

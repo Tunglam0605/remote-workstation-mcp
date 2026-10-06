@@ -134,6 +134,7 @@ const KICAD_TOOLS = [
   'kicad_erc',
   'kicad_validate',
   'kicad_design_review',
+  'kicad_layout_optimize_plan',
   'kicad_visual_export',
   'kicad_bom_report',
   'kicad_edit_inspect',

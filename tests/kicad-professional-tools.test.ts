@@ -65,6 +65,7 @@ test('KiCad professional tools use temporary reports and fixed BOM fields withou
     assert.equal(provider.version, '10.0.6');
     assert.equal(provider.capabilities.schematicSvg, true);
     assert.equal(provider.capabilities.schematicPdf, true);
+    assert.equal(provider.capabilities.schematicNetlist, true);
     assert.equal(provider.capabilities.pcb3dRender, true);
     assert.equal(provider.capabilities.stepExport, true);
     const stats = await adapter.boardStats('w', '.', 'robot.kicad_pcb');

@@ -91,6 +91,12 @@ RWMCP treats KiCad as a reusable CAD workflow rather than a project-specific boa
 
 KiCad 10.0.6 on the Windows acceptance node advertises official CLI support for `sch export svg`, `sch export pdf`, `sch export netlist`, `pcb render` and `pcb export step`; the public tool keeps these modes typed instead of accepting arbitrary CLI flags.
 
+### Phase 9: constraints, high-speed and DFM review
+
+`kicad_constraints_review` reads project-owned design intent from `.kicad_pro`, physical/routing evidence from `.kicad_pcb`, and optional custom rules from `.kicad_dru`. It reports Board Setup hard minimums, routing/via presets, net-class defaults and assignments, physical stackup (including dielectric sublayers), copper finish, zones, actual track/via geometry, differential-pair length/skew evidence, and a bounded custom-rule catalog.
+
+The review deliberately distinguishes **hard minimum violations** from **net-class default deviations**. KiCad net-class track/via/differential values are routing defaults/optimal values unless a custom rule or hard minimum constrains them, so RWMCP never labels a default deviation as a violation. Custom-rule conditions are not reimplemented or evaluated by RWMCP; KiCad DRC remains authoritative for rule ordering, matching and violations. The parser is bounded to 128 MiB and uses iterator-based route/zone scanning so large professional boards remain practical.
+
 ## Initial providers
 
 - STM32 build: CMake/Make plus Keil MDK µVision `.uvprojx` batch builds on Windows. Multi-target Keil projects are represented as explicit profile variants; RWMCP refuses to guess when more than one variant is available.

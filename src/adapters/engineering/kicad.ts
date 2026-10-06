@@ -12,6 +12,7 @@ import { resolveExistingProjectPath } from './project-path.js';
 import { parseKicadBomCsv } from './kicad-bom.js';
 import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
+import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './kicad-constraints-review.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -856,7 +857,7 @@ export class KicadAdapter {
       if (path.extname(input).toLowerCase() !== extension) throw new Error(`${label} must use ${extension}.`);
       const stat = await fs.stat(input);
       if (!stat.isFile()) throw new Error(`${label} is not a regular file.`);
-      if (stat.size > 32 * 1024 * 1024) throw new Error(`${label} exceeds the 32 MiB review limit.`);
+      if (stat.size > 128 * 1024 * 1024) throw new Error(`${label} exceeds the 128 MiB constraints-review limit.`);
       return await fs.readFile(input, 'utf8');
     };
     const [schematicSource, boardSource] = await Promise.all([
@@ -958,6 +959,44 @@ export class KicadAdapter {
       analysis,
       ruleChecksRun: runRuleChecks,
       ...(validation ? { validation } : {})
+    };
+  }
+
+  async constraintsReview(
+    workspace: string,
+    projectPath: string,
+    files: { projectFile: string; board: string; customRules?: string },
+    options: KicadConstraintsReviewOptions & { runDrc?: boolean } = {}
+  ) {
+    this.policy.assertEngineeringExecute();
+    const readBounded = async (relative: string, extension: string, label: string) => {
+      const resolved = await resolveExistingProjectPath(this.paths, workspace, projectPath, relative, label);
+      if (path.extname(resolved).toLowerCase() !== extension) throw new Error(`${label} must use ${extension}.`);
+      const stat = await fs.stat(resolved);
+      if (!stat.isFile()) throw new Error(`${label} is not a regular file.`);
+      if (stat.size > 32 * 1024 * 1024) throw new Error(`${label} exceeds the 32 MiB review limit.`);
+      return await fs.readFile(resolved, 'utf8');
+    };
+
+    const [projectSource, boardSource, customRulesSource] = await Promise.all([
+      readBounded(files.projectFile, '.kicad_pro', 'KiCad constraints-review project'),
+      readBounded(files.board, '.kicad_pcb', 'KiCad constraints-review board'),
+      files.customRules
+        ? readBounded(files.customRules, '.kicad_dru', 'KiCad constraints-review custom rules')
+        : Promise.resolve(undefined)
+    ]);
+
+    const analysis = analyzeKicadConstraints(
+      { project: projectSource, board: boardSource, ...(customRulesSource ? { customRules: customRulesSource } : {}) },
+      options
+    );
+    const runDrc = options.runDrc !== false;
+    const drc = runDrc ? await this.drc(workspace, projectPath, files.board) : undefined;
+    return {
+      files,
+      analysis,
+      drcRun: runDrc,
+      ...(drc ? { drc } : {})
     };
   }
 

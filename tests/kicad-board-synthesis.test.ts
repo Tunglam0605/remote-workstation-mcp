@@ -85,3 +85,30 @@ test('board synthesis rejects unknown endpoints and unsupported copper-layer cou
     {reference:'R1',value:'10k',symbol,footprint,symbolUuid:'11111111-1111-4111-8111-111111111111'}
   ],[],{projectName:'robot',widthMm:60,heightMm:40,copperLayers:3}),/even integer/);
 });
+
+
+test('board synthesis preserves KiCad no-connect nets and symbol parity fields',()=>{
+  const mcuLike: KicadResolvedSymbol = {
+    ...symbol,
+    id:'MCU_Test:U',
+    name:'U',
+    properties:{...symbol.properties,Datasheet:'https://example.com/mcu.pdf',Description:'Synthetic MCU'},
+    pins:[
+      {...symbol.pins[0]!,name:'PA11'},
+      {...symbol.pins[1]!,name:'PA12'}
+    ]
+  };
+  const noConnect='unconnected-(U1-PA12-Pad2)';
+  const result=synthesizeKicadBoard([
+    {reference:'U1',value:'MCU',symbol:mcuLike,footprint,symbolUuid:'33333333-3333-4333-8333-333333333333'}
+  ],[
+    {name:'USB_DM',endpoints:[{reference:'U1',pinNumber:'1'}]},
+    {name:noConnect,endpoints:[{reference:'U1',pinNumber:'2'}]}
+  ],{projectName:'mcu',widthMm:60,heightMm:40});
+
+  assert.equal(canonicalKicadBoardNetName(noConnect),noConnect);
+  assert.equal(result.nets.find(net=>net.name===noConnect)?.canonicalName,noConnect);
+  assert.match(result.source,/\(net 2 "unconnected-\(U1-PA12-Pad2\)"\)/);
+  assert.match(result.source,/\(property "Datasheet" "https:\/\/example\.com\/mcu\.pdf"/);
+  assert.match(result.source,/\(property "Description" "Synthetic MCU"/);
+});

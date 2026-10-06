@@ -233,3 +233,73 @@ test('route planner rejects invalid routing layers and oversized grids', () => {
   const largeBoard = BOARD.replace('(end 40 30)', '(end 400 300)');
   assert.throws(() => planKicadRoutes(largeBoard, { gridMm: 0.1 }), /grid exceeds/);
 });
+
+
+test('route planner excludes KiCad auto no-connect nets even when multiple pads share one net', () => {
+  const source = BOARD
+    .replace('(net 2 "/AUX")', '(net 2 "/AUX")\n  (net 3 "unconnected-(U1-VSS-Pad10)")')
+    .replace(
+      '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))',
+      '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))\n    (pad "2" smd rect (at 0 2) (size 1 1) (layers "F.Cu" "F.Mask") (net 3 "unconnected-(U1-VSS-Pad10)"))'
+    )
+    .replace(
+      '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 2 "/AUX"))',
+      '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 2 "/AUX"))\n    (pad "2" smd rect (at 0 2) (size 1 1) (layers "F.Cu" "F.Mask") (net 3 "unconnected-(U1-VSS-Pad10)"))'
+    );
+  const planned = planKicadRoutes(source, { gridMm: 0.5 });
+  assert.equal(planned.routed.some(item => item.netName === 'unconnected-(U1-VSS-Pad10)'), false);
+  assert.equal(planned.skipped.some(item => item.netName === 'unconnected-(U1-VSS-Pad10)'), false);
+});
+
+
+test('route planner uses exact foreign-pad clearance for 0.5 mm pitch egress', () => {
+  const source = `(kicad_pcb
+    (version 20241229)
+    (generator "rwmcp-test")
+    (general (thickness 1.6))
+    (layers
+      (0 "F.Cu" signal)
+      (31 "B.Cu" signal)
+      (44 "Edge.Cuts" user)
+    )
+    (setup (pad_to_mask_clearance 0))
+    (net 0 "")
+    (net 1 "/USB_DP")
+    (net 2 "unconnected-(U1-PA10-Pad69)")
+    (footprint "Package_QFP:FinePitch"
+      (layer "F.Cu")
+      (at 12 15)
+      (property "Reference" "U1")
+      (property "Value" "MCU")
+      (pad "71" smd rect (at 0 0) (size 1.5 0.3) (layers "F.Cu" "F.Mask") (net 1 "/USB_DP"))
+      (pad "69" smd rect (at 0 0.5) (size 1.5 0.3) (layers "F.Cu" "F.Mask") (net 2 "unconnected-(U1-PA10-Pad69)"))
+    )
+    (footprint "Resistor_SMD:R"
+      (layer "F.Cu")
+      (at 30 15)
+      (property "Reference" "R1")
+      (property "Value" "22R")
+      (pad "1" smd rect (at 0 0) (size 0.9 0.95) (layers "F.Cu" "F.Mask") (net 1 "/USB_DP"))
+    )
+    (gr_rect
+      (start 0 0)
+      (end 40 30)
+      (stroke (width 0.05) (type default))
+      (fill none)
+      (layer "Edge.Cuts")
+    )
+  )`;
+  const planned = planKicadRoutes(source, {
+    gridMm: 0.25,
+    edgeInsetMm: 1,
+    defaultWidthMm: 0.2,
+    defaultClearanceMm: 0.2,
+    viaDiameterMm: 0.6,
+    viaDrillMm: 0.3,
+    selectedNets: ['/USB_DP']
+  });
+  assert.equal(planned.complete, true);
+  assert.equal(planned.routed.length, 1);
+  assert.equal(planned.routed[0]?.netName, '/USB_DP');
+  assert.ok(planned.operations.some(op => op.kind === 'segment'));
+});

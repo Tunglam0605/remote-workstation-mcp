@@ -934,6 +934,14 @@ export class KicadAdapter {
         throw new Error(`KiCad synthesized schematic ERC has ${ercErrors} active error(s); output rejected.`);
       }
 
+      const noConnectNets = synthesisOptions.markUnusedNoConnect !== false
+        ? actualNets
+            .filter(net => net.name.startsWith('unconnected-('))
+            .map(net => ({
+              name: net.name,
+              endpoints: net.nodes.map(node => ({ reference: node.reference, pinNumber: node.pin }))
+            }))
+        : [];
       const designManifest = {
         schemaVersion: 1,
         projectName: request.projectName,
@@ -954,7 +962,8 @@ export class KicadAdapter {
             dnp: requested?.dnp === true
           };
         }),
-        nets: generated.nets
+        nets: generated.nets,
+        noConnectNets
       };
       const designManifestText = JSON.stringify(designManifest, null, 2) + '\n';
       const designManifestFile = path.join(output, request.projectName + '.rwmcp-design.json');
@@ -1107,7 +1116,8 @@ export class KicadAdapter {
     const placements = new Map((request.placements ?? []).map(item => [item.reference, item]));
     const rawComponents = asArray(manifest.components).map(asRecord);
     const rawNets = asArray(manifest.nets).map(asRecord);
-    const nets: KicadSchematicNetSpec[] = rawNets.map(net => ({
+    const rawNoConnectNets = asArray(manifest.noConnectNets).map(asRecord);
+    const parseManifestNets = (items: Record<string, unknown>[]): KicadSchematicNetSpec[] => items.map(net => ({
       name: typeof net.name === 'string' ? net.name : '',
       endpoints: asArray(net.endpoints).map(endpoint => {
         const entry = asRecord(endpoint);
@@ -1118,7 +1128,15 @@ export class KicadAdapter {
         };
       })
     }));
-    if (nets.some(net => !net.name || net.endpoints.some(endpoint => !endpoint.reference || !endpoint.pinNumber))) throw new Error('KiCad design manifest contains invalid net data.');
+    const nets = parseManifestNets(rawNets);
+    const noConnectNets = parseManifestNets(rawNoConnectNets);
+    if ([...nets, ...noConnectNets].some(net => !net.name || net.endpoints.some(endpoint => !endpoint.reference || !endpoint.pinNumber))) {
+      throw new Error('KiCad design manifest contains invalid net data.');
+    }
+    if (noConnectNets.some(net => !net.name.startsWith('unconnected-(') || net.endpoints.length < 1 || net.endpoints.length > 128)) {
+      throw new Error('KiCad design manifest contains invalid no-connect net evidence.');
+    }
+    const boardNets = [...nets, ...noConnectNets];
 
     const boardComponents = [];
     for (const entry of rawComponents) {
@@ -1140,7 +1158,7 @@ export class KicadAdapter {
     }
     if (!boardComponents.length) throw new Error('KiCad board synthesis has no on-board components.');
 
-    const generated = synthesizeKicadBoard(boardComponents, nets, {
+    const generated = synthesizeKicadBoard(boardComponents, boardNets, {
       projectName, widthMm: request.widthMm, heightMm: request.heightMm,
       copperLayers: request.copperLayers ?? 2, thicknessMm: request.thicknessMm ?? 1.6,
       originXmm: request.originXmm ?? 20, originYmm: request.originYmm ?? 20

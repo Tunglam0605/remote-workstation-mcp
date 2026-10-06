@@ -350,6 +350,24 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm }
     ))));
 
+  server.registerTool('kicad_constraints_review', {
+    description: 'Review KiCad Board Setup and routing constraints without source mutation. Reads explicit .kicad_pro + .kicad_pcb and optional .kicad_dru, summarizes hard manufacturing/routing minimums, net classes/defaults, stackup, zones, differential-pair evidence and custom-rule catalog, then compares explicit routing against hard minimums. Net-class defaults are never mislabeled as DRC violations and custom-rule expressions are not re-evaluated by RWMCP; KiCad DRC remains authoritative.',
+    inputSchema: kicadProject.extend({
+      projectFile: z.string().min(1).max(1024),
+      board: z.string().min(1).max(1024),
+      customRules: z.string().min(1).max(1024).optional(),
+      runDrc: z.boolean().default(true),
+      maxDetails: z.number().int().min(1).max(100).default(25)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, projectFile, board, customRules, runDrc, maxDetails }) =>
+    result(await audited(ctx.audit, 'kicad_constraints_review', workspace, () => ctx.engineering.kicad.constraintsReview(
+      workspace,
+      projectPath,
+      { projectFile, board, ...(customRules ? { customRules } : {}) },
+      { runDrc, maxDetails }
+    ))));
+
   const visualCommon = {
     workspace: z.string().min(1),
     projectPath: z.string().default('.'),

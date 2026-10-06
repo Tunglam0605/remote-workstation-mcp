@@ -691,6 +691,17 @@ This hotfix keeps the setup flow owner-local and non-elevated: `Prepare this PC 
 
 This phase was accelerated after direct ChatGPT Web control was accepted on a real workstation.
 
+### KiCad Phase 9 - Constraints, High-Speed & DFM Intelligence
+
+- add `kicad_constraints_review` as one reusable read-only review over explicit `.kicad_pro` + `.kicad_pcb` and optional `.kicad_dru`;
+- treat Board Setup hard minimums (track/via/drill/annular constraints) separately from net-class routing defaults so intentional width/via overrides are not mislabeled as DRC violations;
+- parse physical stackup including KiCad 10 dielectric `addsublayer` slices, copper finish, dielectric material/epsilon/loss metadata and total-vs-board thickness evidence;
+- summarize zones, routing presets, net-class assignments, direct differential-pair length/width/via evidence and custom-rule constraint catalogs;
+- keep arbitrary `.kicad_dru` conditions catalog-only and explicitly defer matching/order/violation authority to KiCad DRC;
+- support large professional boards with a bounded 128 MiB review limit and iterator-based track/zone parsing; acceptance includes the KiCad 10 Jetson AGX Thor demo (~88.7 MiB, 10 copper layers, 872 routed nets, 3235 vias, 131 zones) in under one second on the Windows acceptance node;
+- advance Action Schema from 54 to 55 for the additive review tool; Engineering API remains 5.
+
+
 ### v0.8.0 - Hub-gateway MVP - complete
 
 - one ChatGPT Web connection can reach one Remote Workstation Hub

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import test from 'node:test';
-import { planStm32Pins, resolveCubeMxMcu, type CubeMxMcu } from '../src/adapters/engineering/stm32-cubemx-pin-db.js';
+import { discoverCubeMxDbRoot, planStm32Pins, resolveCubeMxMcu, type CubeMxMcu } from '../src/adapters/engineering/stm32-cubemx-pin-db.js';
 
 const fixture:CubeMxMcu={
   refName:'STM32TEST',
@@ -42,6 +43,13 @@ test('STM32 pin planner preserves debug from unrelated allocations while allowin
 
 test('STM32CubeMX resolver accepts production ordering-code suffixes on installed database when present', async(t)=>{
   if(process.platform!=='win32'){t.skip('Windows CubeMX acceptance only');return;}
+  try{
+    const stat=await fs.stat(discoverCubeMxDbRoot());
+    if(!stat.isDirectory()){t.skip('STM32CubeMX MCU database is not installed');return;}
+  }catch(error){
+    if((error as NodeJS.ErrnoException).code==='ENOENT'){t.skip('STM32CubeMX MCU database is not installed');return;}
+    throw error;
+  }
   const mcu=await resolveCubeMxMcu('STM32F407VET6');
   assert.equal(mcu.family,'STM32F4');
   assert.equal(mcu.packageName,'LQFP100');

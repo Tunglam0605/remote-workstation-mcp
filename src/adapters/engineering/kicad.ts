@@ -13,6 +13,14 @@ import { parseKicadBomCsv } from './kicad-bom.js';
 import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
 import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './kicad-constraints-review.js';
+import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprint, resolveKicadSymbol, searchKicadFootprints, searchKicadSymbols } from './kicad-library.js';
+import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicNetlist, type KicadSchematicNetSpec, type KicadSchematicSynthesisOptions } from './kicad-schematic-synthesis.js';
+import { canonicalKicadBoardNetName, synthesizeKicadBoard } from './kicad-board-synthesis.js';
+import { planKicadSemanticPlacement, type KicadPlacementHint } from './kicad-semantic-placement.js';
+import { applyKicadRouteBatch, type KicadRouteBatchOperation } from './kicad-route-batch.js';
+import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.js';
+import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-electrical-review.js';
+import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -752,6 +760,1076 @@ export class KicadAdapter {
         drcJson: true,
         ercJson: true
       }
+    };
+  }
+
+  async libraryLookup(
+    workspace: string,
+    projectPath: string,
+    request:
+      | { mode: 'search'; query: string; kind: 'symbol' | 'footprint' | 'both'; limit: number }
+      | { mode: 'symbol'; symbolId: string }
+      | { mode: 'footprint'; footprintId: string }
+      | { mode: 'component'; symbolId: string; footprintId?: string }
+  ) {
+    this.policy.assertEngineeringEnabled();
+    await this.paths.resolveExisting(workspace, projectPath);
+    const cli = await discoverKicadCli();
+    const paths = defaultKicadLibraryPaths(cli.path);
+    if (request.mode === 'search') {
+      const [symbols, footprints] = await Promise.all([
+        request.kind === 'footprint' ? Promise.resolve([]) : searchKicadSymbols(paths, request.query, request.limit),
+        request.kind === 'symbol' ? Promise.resolve([]) : searchKicadFootprints(paths, request.query, request.limit)
+      ]);
+      return {
+        provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+        query: request.query,
+        kind: request.kind,
+        symbols,
+        footprints
+      };
+    }
+    if (request.mode === 'symbol') {
+      const symbol = await resolveKicadSymbol(paths, request.symbolId);
+      return { provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot }, symbol };
+    }
+    if (request.mode === 'footprint') {
+      const footprint = await resolveKicadFootprint(paths, request.footprintId);
+      return {
+        provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+        footprint: { ...footprint, source: undefined }
+      };
+    }
+    const symbol = await resolveKicadSymbol(paths, request.symbolId);
+    const selectedFootprintId = request.footprintId ?? symbol.footprint;
+    if (!selectedFootprintId) {
+      return {
+        provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+        symbol,
+        footprint: undefined,
+        compatibility: undefined,
+        warning: 'The symbol has no default footprint and no footprintId was supplied.'
+      };
+    }
+    const footprint = await resolveKicadFootprint(paths, selectedFootprintId);
+    return {
+      provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+      symbol,
+      footprint: { ...footprint, source: undefined },
+      compatibility: footprintMatchesFilters(footprint.id, symbol.footprintFilters)
+    };
+  }
+
+  async schematicSynthesize(
+    workspace: string,
+    projectPath: string,
+    request: {
+      outputDir: string;
+      projectName: string;
+      title?: string;
+      revision?: string;
+      company?: string;
+      components: Array<{
+        reference: string;
+        symbolId: string;
+        value?: string;
+        footprintId?: string;
+        xMm?: number;
+        yMm?: number;
+        rotationDeg?: 0 | 90 | 180 | 270;
+        unit?: number;
+        inBom?: boolean;
+        onBoard?: boolean;
+        dnp?: boolean;
+      }>;
+      nets: KicadSchematicNetSpec[];
+      markUnusedNoConnect?: boolean;
+      allowUnconnectedPowerPins?: boolean;
+      allowFootprintFilterMismatch?: boolean;
+      runErc?: boolean;
+      requireErcClean?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const outputDir = safeOutputDirectory(request.outputDir);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(request.projectName)) {
+      throw new Error('KiCad synthesized projectName must be a portable 1..64 character name.');
+    }
+    if (request.components.length < 1 || request.components.length > 128) throw new Error('KiCad schematic synthesis requires 1..128 components.');
+    if (request.nets.length > 512) throw new Error('KiCad schematic synthesis supports at most 512 nets.');
+
+    const cli = await discoverKicadCli();
+    const libraryPaths = defaultKicadLibraryPaths(cli.path);
+    const resolvedComponents = [];
+    for (const component of request.components) {
+      const symbol = await resolveKicadSymbol(libraryPaths, component.symbolId);
+      const footprintId = component.footprintId ?? symbol.footprint;
+      if (component.onBoard !== false && !footprintId) {
+        throw new Error(`On-board component ${component.reference} requires an explicit/default footprint.`);
+      }
+      if (footprintId) {
+        const footprint = await resolveKicadFootprint(libraryPaths, footprintId);
+        const compatible = footprintMatchesFilters(footprint.id, symbol.footprintFilters);
+        if (compatible === false && request.allowFootprintFilterMismatch !== true) {
+          throw new Error(`Footprint ${footprint.id} does not match filters for ${symbol.id}: ${symbol.footprintFilters.join(', ') || '<none>'}.`);
+        }
+      }
+      resolvedComponents.push({
+        reference: component.reference,
+        symbol,
+        ...(component.value !== undefined ? { value: component.value } : {}),
+        ...(footprintId ? { footprintId } : {}),
+        ...(component.xMm !== undefined ? { xMm: component.xMm } : {}),
+        ...(component.yMm !== undefined ? { yMm: component.yMm } : {}),
+        ...(component.rotationDeg !== undefined ? { rotationDeg: component.rotationDeg } : {}),
+        ...(component.unit !== undefined ? { unit: component.unit } : {}),
+        ...(component.inBom !== undefined ? { inBom: component.inBom } : {}),
+        ...(component.onBoard !== undefined ? { onBoard: component.onBoard } : {}),
+        ...(component.dnp !== undefined ? { dnp: component.dnp } : {})
+      });
+    }
+
+    const synthesisOptions: KicadSchematicSynthesisOptions = {
+      ...(request.title ? { title: request.title } : {}),
+      ...(request.revision ? { revision: request.revision } : {}),
+      ...(request.company ? { company: request.company } : {}),
+      markUnusedNoConnect: request.markUnusedNoConnect !== false,
+      allowUnconnectedPowerPins: request.allowUnconnectedPowerPins === true
+    };
+    const generated = synthesizeKicadSchematic(resolvedComponents, request.nets, synthesisOptions);
+    const output = await prepareNewOutputDirectory(projectRoot, outputDir);
+    const projectFile = path.join(output, request.projectName + '.kicad_pro');
+    const schematicFile = path.join(output, request.projectName + '.kicad_sch');
+    const relativeProject = path.relative(projectRoot, projectFile).split(path.sep).join('/');
+    const relativeSchematic = path.relative(projectRoot, schematicFile).split(path.sep).join('/');
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-synth-'));
+    try {
+      const templateRaw = await fs.readFile(libraryPaths.blankProjectTemplate, 'utf8');
+      const template = JSON.parse(templateRaw) as Record<string, unknown>;
+      const meta = asRecord(template.meta);
+      template.meta = { ...meta, filename: request.projectName + '.kicad_pro', version: typeof meta.version === 'number' ? meta.version : 1 };
+      await fs.writeFile(projectFile, JSON.stringify(template, null, 2) + '\n', 'utf8');
+      await fs.writeFile(schematicFile, generated.source, 'utf8');
+
+      const netlistOutput = path.join(temp, 'roundtrip.net');
+      const netlistArgs = ['sch', 'export', 'netlist', '--format', 'kicadsexpr', '--output', netlistOutput, schematicFile];
+      const netlistResult = await this.runner.run(cli.path, netlistArgs, projectRoot, 120_000);
+      if (netlistResult.exitCode !== 0 || netlistResult.timedOut) {
+        throw new Error(`KiCad synthesized schematic netlist round-trip failed: ${netlistResult.stderr || netlistResult.stdout || `exit=${netlistResult.exitCode}`}`);
+      }
+      const netlistStat = await fs.stat(netlistOutput);
+      if (!netlistStat.isFile() || netlistStat.size > 16 * 1024 * 1024) throw new Error('KiCad synthesized netlist is missing or exceeds 16 MiB.');
+      const actualNets = parseKicadSexprNetlist(await fs.readFile(netlistOutput, 'utf8'));
+      const verification = verifyKicadSchematicNetlist(request.nets, actualNets);
+      if (!verification.valid) {
+        throw new Error(`KiCad synthesized netlist does not match requested connectivity: ${JSON.stringify(verification.missingEndpoints.slice(0, 16))}`);
+      }
+
+      const runErc = request.runErc !== false;
+      const erc = runErc ? await this.erc(workspace, projectPath, relativeSchematic) : undefined;
+      const ercErrors = Number(erc?.report.counts.active.bySeverity.error ?? 0);
+      if (request.requireErcClean !== false && runErc && ercErrors > 0) {
+        throw new Error(`KiCad synthesized schematic ERC has ${ercErrors} active error(s); output rejected.`);
+      }
+
+      const designManifest = {
+        schemaVersion: 1,
+        projectName: request.projectName,
+        projectFile: path.basename(projectFile),
+        schematicFile: path.basename(schematicFile),
+        rootUuid: generated.rootUuid,
+        components: generated.components.map(component => {
+          const requested = request.components.find(item => item.reference === component.reference);
+          return {
+            reference: component.reference,
+            symbolId: component.symbolId,
+            symbolUuid: component.symbolUuid,
+            unit: component.unit,
+            value: component.value,
+            ...(component.footprintId ? { footprintId: component.footprintId } : {}),
+            inBom: requested?.inBom !== false,
+            onBoard: requested?.onBoard !== false,
+            dnp: requested?.dnp === true
+          };
+        }),
+        nets: generated.nets
+      };
+      const designManifestText = JSON.stringify(designManifest, null, 2) + '\n';
+      const designManifestFile = path.join(output, request.projectName + '.rwmcp-design.json');
+      await fs.writeFile(designManifestFile, designManifestText, 'utf8');
+      const relativeDesignManifest = path.relative(projectRoot, designManifestFile).split(path.sep).join('/');
+      const designManifestSha256 = sha256Text(designManifestText);
+
+      const manifest = await fabricationManifest(output);
+      return {
+        outputDir: outputDir.split(path.sep).join('/'),
+        projectFile: relativeProject,
+        schematicFile: relativeSchematic,
+        designManifestFile: relativeDesignManifest,
+        designManifestSha256,
+        generated: {
+          rootUuid: generated.rootUuid,
+          componentCount: generated.components.length,
+          netCount: generated.nets.length,
+          unusedPinCount: generated.unusedPins.length,
+          components: generated.components,
+          nets: generated.nets
+        },
+        roundTrip: {
+          valid: true,
+          actualNetCount: actualNets.length,
+          expectedNetCount: request.nets.length,
+          command: { program: cli.path, args: netlistArgs.map(arg => arg === netlistOutput ? '<temp-roundtrip.net>' : arg === schematicFile ? relativeSchematic : arg) }
+        },
+        ercRun: runErc,
+        ...(erc ? { erc } : {}),
+        manifest
+      };
+    } catch (error) {
+      await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    } finally {
+      await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  async semanticPlacementPlan(
+    workspace: string,
+    projectPath: string,
+    request: {
+      designManifest: string;
+      expectedDesignManifestSha256: string;
+      widthMm: number;
+      heightMm: number;
+      originXmm?: number;
+      originYmm?: number;
+      gridMm?: number;
+      minSpacingMm?: number;
+      edgeInsetMm?: number;
+      hints?: KicadPlacementHint[];
+    }
+  ) {
+    this.policy.assertEngineeringEnabled();
+    const manifestPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.designManifest, 'KiCad semantic-placement design manifest');
+    if (!manifestPath.endsWith('.rwmcp-design.json')) throw new Error('KiCad semantic placement requires a .rwmcp-design.json manifest.');
+    const stat = await fs.stat(manifestPath);
+    if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error('KiCad design manifest is missing or exceeds 4 MiB.');
+    const text = await fs.readFile(manifestPath, 'utf8');
+    const actual = sha256Text(text);
+    if (actual.toLowerCase() !== request.expectedDesignManifestSha256.toLowerCase()) {
+      throw new Error(`KiCad design manifest SHA mismatch: expected ${request.expectedDesignManifestSha256}, actual ${actual}.`);
+    }
+    const manifest = JSON.parse(text) as unknown;
+    const plan = planKicadSemanticPlacement(manifest, {
+      widthMm: request.widthMm,
+      heightMm: request.heightMm,
+      ...(request.originXmm !== undefined ? { originXmm: request.originXmm } : {}),
+      ...(request.originYmm !== undefined ? { originYmm: request.originYmm } : {}),
+      ...(request.gridMm !== undefined ? { gridMm: request.gridMm } : {}),
+      ...(request.minSpacingMm !== undefined ? { minSpacingMm: request.minSpacingMm } : {}),
+      ...(request.edgeInsetMm !== undefined ? { edgeInsetMm: request.edgeInsetMm } : {}),
+      ...(request.hints ? { hints: request.hints } : {})
+    });
+    return { designManifest: request.designManifest, designManifestSha256: actual, plan };
+  }
+
+  async boardSynthesize(
+    workspace: string,
+    projectPath: string,
+    request: {
+      designManifest: string;
+      expectedDesignManifestSha256: string;
+      widthMm: number;
+      heightMm: number;
+      copperLayers?: number;
+      thicknessMm?: number;
+      originXmm?: number;
+      originYmm?: number;
+      placements?: Array<{ reference: string; xMm: number; yMm: number; rotationDeg?: number; side?: 'front' | 'back'; locked?: boolean }>;
+      minimums?: {
+        clearanceMm?: number;
+        trackWidthMm?: number;
+        viaDiameterMm?: number;
+        viaDrillMm?: number;
+        viaAnnularWidthMm?: number;
+        copperEdgeClearanceMm?: number;
+      };
+      defaultRouting?: {
+        trackWidthMm?: number;
+        viaDiameterMm?: number;
+        viaDrillMm?: number;
+        diffPairWidthMm?: number;
+        diffPairGapMm?: number;
+      };
+      netClasses?: Array<{
+        name: string;
+        nets: string[];
+        clearanceMm?: number;
+        trackWidthMm?: number;
+        viaDiameterMm?: number;
+        viaDrillMm?: number;
+        diffPairWidthMm?: number;
+        diffPairGapMm?: number;
+      }>;
+      runDrc?: boolean;
+      requireNoViolations?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const manifestPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.designManifest, 'KiCad design manifest');
+    if (!manifestPath.endsWith('.rwmcp-design.json')) throw new Error('KiCad board synthesis requires a .rwmcp-design.json manifest.');
+    const manifestStat = await fs.stat(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.size > 4 * 1024 * 1024) throw new Error('KiCad design manifest is missing or exceeds 4 MiB.');
+    const originalManifestText = await fs.readFile(manifestPath, 'utf8');
+    const actualManifestSha = sha256Text(originalManifestText);
+    if (actualManifestSha.toLowerCase() !== request.expectedDesignManifestSha256.toLowerCase()) {
+      throw new Error(`KiCad design manifest SHA mismatch: expected ${request.expectedDesignManifestSha256}, actual ${actualManifestSha}.`);
+    }
+    const manifest = asRecord(JSON.parse(originalManifestText));
+    if (manifest.schemaVersion !== 1 || typeof manifest.projectName !== 'string') throw new Error('Unsupported KiCad design manifest schema.');
+    const projectName = manifest.projectName;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) throw new Error('KiCad design manifest projectName is invalid.');
+    const designDir = path.dirname(manifestPath);
+    if (!insideRoot(projectRoot, designDir)) throw new Error('KiCad design manifest directory escapes the project.');
+    const projectFile = path.join(designDir, typeof manifest.projectFile === 'string' ? manifest.projectFile : projectName + '.kicad_pro');
+    const schematicFile = path.join(designDir, typeof manifest.schematicFile === 'string' ? manifest.schematicFile : projectName + '.kicad_sch');
+    const boardFile = path.join(designDir, projectName + '.kicad_pcb');
+    try { await fs.lstat(boardFile); throw new Error('KiCad synthesized board already exists; board synthesis is fail-if-exists.'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const originalProjectText = await fs.readFile(projectFile, 'utf8');
+    await fs.access(schematicFile);
+
+    const cli = await discoverKicadCli();
+    const libraryPaths = defaultKicadLibraryPaths(cli.path);
+    const placements = new Map((request.placements ?? []).map(item => [item.reference, item]));
+    const rawComponents = asArray(manifest.components).map(asRecord);
+    const rawNets = asArray(manifest.nets).map(asRecord);
+    const nets: KicadSchematicNetSpec[] = rawNets.map(net => ({
+      name: typeof net.name === 'string' ? net.name : '',
+      endpoints: asArray(net.endpoints).map(endpoint => {
+        const entry = asRecord(endpoint);
+        return {
+          reference: typeof entry.reference === 'string' ? entry.reference : '',
+          pinNumber: typeof entry.pinNumber === 'string' ? entry.pinNumber : '',
+          ...(typeof entry.expectedPinName === 'string' ? { expectedPinName: entry.expectedPinName } : {})
+        };
+      })
+    }));
+    if (nets.some(net => !net.name || net.endpoints.some(endpoint => !endpoint.reference || !endpoint.pinNumber))) throw new Error('KiCad design manifest contains invalid net data.');
+
+    const boardComponents = [];
+    for (const entry of rawComponents) {
+      if (entry.onBoard === false) continue;
+      const reference = typeof entry.reference === 'string' ? entry.reference : '';
+      const symbolId = typeof entry.symbolId === 'string' ? entry.symbolId : '';
+      const symbolUuid = typeof entry.symbolUuid === 'string' ? entry.symbolUuid : '';
+      const footprintId = typeof entry.footprintId === 'string' ? entry.footprintId : '';
+      const value = typeof entry.value === 'string' ? entry.value : '';
+      if (!reference || !symbolId || !symbolUuid || !footprintId) throw new Error(`KiCad design manifest component is incomplete: ${reference || '<unknown>'}.`);
+      const [symbol, footprint] = await Promise.all([resolveKicadSymbol(libraryPaths, symbolId), resolveKicadFootprint(libraryPaths, footprintId)]);
+      const compatible = footprintMatchesFilters(footprint.id, symbol.footprintFilters);
+      if (compatible === false) throw new Error(`Manifest footprint ${footprint.id} no longer matches installed symbol filters for ${symbol.id}.`);
+      const placement = placements.get(reference);
+      boardComponents.push({
+        reference, value: value || symbol.name, symbol, footprint, symbolUuid,
+        ...(placement ? { xMm: placement.xMm, yMm: placement.yMm, rotationDeg: placement.rotationDeg ?? 0, side: placement.side ?? 'front', locked: placement.locked ?? false } : {})
+      });
+    }
+    if (!boardComponents.length) throw new Error('KiCad board synthesis has no on-board components.');
+
+    const generated = synthesizeKicadBoard(boardComponents, nets, {
+      projectName, widthMm: request.widthMm, heightMm: request.heightMm,
+      copperLayers: request.copperLayers ?? 2, thicknessMm: request.thicknessMm ?? 1.6,
+      originXmm: request.originXmm ?? 20, originYmm: request.originYmm ?? 20
+    });
+
+    const minimums = {
+      clearanceMm: request.minimums?.clearanceMm ?? 0.2,
+      trackWidthMm: request.minimums?.trackWidthMm ?? 0.15,
+      viaDiameterMm: request.minimums?.viaDiameterMm ?? 0.5,
+      viaDrillMm: request.minimums?.viaDrillMm ?? 0.25,
+      viaAnnularWidthMm: request.minimums?.viaAnnularWidthMm ?? 0.1,
+      copperEdgeClearanceMm: request.minimums?.copperEdgeClearanceMm ?? 0.3
+    };
+    const defaultRouting = {
+      trackWidthMm: request.defaultRouting?.trackWidthMm ?? 0.25,
+      viaDiameterMm: request.defaultRouting?.viaDiameterMm ?? 0.6,
+      viaDrillMm: request.defaultRouting?.viaDrillMm ?? 0.3,
+      diffPairWidthMm: request.defaultRouting?.diffPairWidthMm ?? 0.2,
+      diffPairGapMm: request.defaultRouting?.diffPairGapMm ?? 0.25
+    };
+    if (defaultRouting.trackWidthMm < minimums.trackWidthMm || defaultRouting.viaDiameterMm < minimums.viaDiameterMm || defaultRouting.viaDrillMm < minimums.viaDrillMm) {
+      throw new Error('KiCad default routing geometry must not be below configured hard minimums.');
+    }
+
+    const projectJson = asRecord(JSON.parse(originalProjectText));
+    const boardSettings = asRecord(projectJson.board);
+    const designSettings = asRecord(boardSettings.design_settings);
+    const oldRules = asRecord(designSettings.rules);
+    designSettings.rules = {
+      ...oldRules,
+      min_clearance: minimums.clearanceMm,
+      min_copper_edge_clearance: minimums.copperEdgeClearanceMm,
+      min_track_width: minimums.trackWidthMm,
+      min_via_diameter: minimums.viaDiameterMm,
+      min_through_hole_diameter: minimums.viaDrillMm,
+      min_via_annular_width: minimums.viaAnnularWidthMm,
+      min_hole_clearance: 0.2, min_hole_to_hole: 0.25,
+      min_microvia_diameter: 0.3, min_microvia_drill: 0.1,
+      use_height_for_length_calcs: true
+    };
+    const classes = [{
+      name: 'Default', priority: 2147483647, clearance: minimums.clearanceMm,
+      track_width: defaultRouting.trackWidthMm, via_diameter: defaultRouting.viaDiameterMm, via_drill: defaultRouting.viaDrillMm,
+      microvia_diameter: 0.3, microvia_drill: 0.1, diff_pair_width: defaultRouting.diffPairWidthMm, diff_pair_gap: defaultRouting.diffPairGapMm, diff_pair_via_gap: defaultRouting.diffPairGapMm
+    }];
+    const assignments: Record<string, string[]> = {};
+    for (const [index, item] of (request.netClasses ?? []).entries()) {
+      if (!item.name || item.name === 'Default') throw new Error('Custom KiCad net class names must be non-empty and must not be Default.');
+      const cls = {
+        name: item.name, priority: index + 1, clearance: item.clearanceMm ?? minimums.clearanceMm,
+        track_width: item.trackWidthMm ?? defaultRouting.trackWidthMm, via_diameter: item.viaDiameterMm ?? defaultRouting.viaDiameterMm, via_drill: item.viaDrillMm ?? defaultRouting.viaDrillMm,
+        microvia_diameter: 0.3, microvia_drill: 0.1, diff_pair_width: item.diffPairWidthMm ?? defaultRouting.diffPairWidthMm, diff_pair_gap: item.diffPairGapMm ?? defaultRouting.diffPairGapMm, diff_pair_via_gap: item.diffPairGapMm ?? defaultRouting.diffPairGapMm
+      };
+      if (cls.track_width < minimums.trackWidthMm || cls.via_diameter < minimums.viaDiameterMm || cls.via_drill < minimums.viaDrillMm) throw new Error(`Net class ${item.name} geometry is below hard minimums.`);
+      classes.push(cls);
+      for (const net of item.nets) {
+        if (!nets.some(candidate => candidate.name === net)) throw new Error(`Net class ${item.name} references unknown net ${net}.`);
+        assignments[canonicalKicadBoardNetName(net)] = [item.name];
+      }
+    }
+    designSettings.track_widths = [0, ...[...new Set(classes.map(item => item.track_width))].sort((a, b) => a - b)];
+    designSettings.via_dimensions = [{ diameter: 0, drill: 0 }, ...classes.map(item => ({ diameter: item.via_diameter, drill: item.via_drill }))];
+    designSettings.diff_pair_dimensions = [{ width: 0, gap: 0, via_gap: 0 }, ...classes.map(item => ({ width: item.diff_pair_width, gap: item.diff_pair_gap, via_gap: item.diff_pair_via_gap }))];
+    boardSettings.design_settings = designSettings;
+    projectJson.board = boardSettings;
+    projectJson.net_settings = { ...asRecord(projectJson.net_settings), classes, netclass_assignments: assignments, meta: { version: 3 } };
+    const updatedProjectText = JSON.stringify(projectJson, null, 2) + '\n';
+
+    const relativeBoard = path.relative(projectRoot, boardFile).split(path.sep).join('/');
+    const relativeProject = path.relative(projectRoot, projectFile).split(path.sep).join('/');
+    const relativeSchematic = path.relative(projectRoot, schematicFile).split(path.sep).join('/');
+    try {
+      await fs.writeFile(boardFile, generated.source, { encoding: 'utf8', flag: 'wx' });
+      await atomicReplace(projectFile, updatedProjectText);
+      const stats = await this.boardStats(workspace, projectPath, relativeBoard);
+      const runDrc = request.runDrc !== false;
+      const drc = runDrc ? await this.drc(workspace, projectPath, relativeBoard, true) : undefined;
+      const violations = Number(drc?.report.counts.active.violations ?? 0);
+      const parity = Number(drc?.report.counts.active.schematicParity ?? 0);
+      if (request.requireNoViolations !== false && runDrc && (violations > 0 || parity > 0)) {
+        throw new Error(`KiCad synthesized board DRC rejected: active violations=${violations}, schematicParity=${parity}.`);
+      }
+      const updatedManifest = {
+        ...manifest,
+        board: {
+          file: path.basename(boardFile), sha256: sha256Text(generated.source),
+          widthMm: request.widthMm, heightMm: request.heightMm, copperLayers: request.copperLayers ?? 2, thicknessMm: request.thicknessMm ?? 1.6,
+          components: generated.components, nets: generated.nets
+        }
+      };
+      const updatedManifestText = JSON.stringify(updatedManifest, null, 2) + '\n';
+      await atomicReplace(manifestPath, updatedManifestText);
+      const updatedManifestSha256 = sha256Text(updatedManifestText);
+      return {
+        projectFile: relativeProject, schematicFile: relativeSchematic, boardFile: relativeBoard,
+        designManifest: request.designManifest, designManifestSha256: updatedManifestSha256,
+        boardSha256: sha256Text(generated.source),
+        generated: { componentCount: generated.components.length, netCount: generated.nets.length, components: generated.components, nets: generated.nets },
+        stats, drcRun: runDrc, ...(drc ? { drc } : {})
+      };
+    } catch (error) {
+      await fs.rm(boardFile, { force: true }).catch(() => undefined);
+      await atomicReplace(projectFile, originalProjectText).catch(() => undefined);
+      await atomicReplace(manifestPath, originalManifestText).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async routePlan(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    options: KicadRoutePlanOptions = {}
+  ) {
+    this.policy.assertEngineeringEnabled();
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad route-plan board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad route plan requires a .kicad_pcb file.');
+    const stat = await fs.stat(boardPath);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('KiCad route-plan board is missing or exceeds 128 MiB.');
+    const source = await fs.readFile(boardPath, 'utf8');
+    return { board, boardSha256: sha256Text(source), plan: planKicadRoutes(source, options) };
+  }
+
+  async routeBatchApply(
+    workspace: string,
+    projectPath: string,
+    request: {
+      board: string;
+      expectedBoardSha256: string;
+      operations: KicadRouteBatchOperation[];
+      requireNoNewViolations?: boolean;
+      requireUnconnectedNonIncrease?: boolean;
+      requireParityNonIncrease?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(request.expectedBoardSha256)) throw new Error('KiCad route batch expectedBoardSha256 must be a SHA-256 digest.');
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.board, 'KiCad route-batch board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad route batch requires a .kicad_pcb file.');
+    const stat = await fs.stat(boardPath);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('KiCad route-batch board is missing or exceeds 128 MiB.');
+    const beforeSource = await fs.readFile(boardPath, 'utf8');
+    const beforeSha = sha256Text(beforeSource);
+    if (beforeSha.toLowerCase() !== request.expectedBoardSha256.toLowerCase()) {
+      throw new Error(`KiCad route-batch SHA mismatch: expected ${request.expectedBoardSha256}, actual ${beforeSha}.`);
+    }
+    const before = await this.drc(workspace, projectPath, request.board, true);
+    const patched = applyKicadRouteBatch(beforeSource, request.operations);
+    const backup = await createKicadBackup(boardPath);
+    try {
+      await atomicReplace(boardPath, patched.source);
+      const after = await this.drc(workspace, projectPath, request.board, true);
+      const beforeViolations = Number(before.report.counts.active.violations ?? 0);
+      const afterViolations = Number(after.report.counts.active.violations ?? 0);
+      const beforeUnconnected = Number(before.report.counts.active.unconnected ?? 0);
+      const afterUnconnected = Number(after.report.counts.active.unconnected ?? 0);
+      const beforeParity = Number(before.report.counts.active.schematicParity ?? 0);
+      const afterParity = Number(after.report.counts.active.schematicParity ?? 0);
+      const reasons: string[] = [];
+      if (request.requireNoNewViolations !== false && afterViolations > beforeViolations) reasons.push(`violations ${beforeViolations}->${afterViolations}`);
+      if (request.requireUnconnectedNonIncrease !== false && afterUnconnected > beforeUnconnected) reasons.push(`unconnected ${beforeUnconnected}->${afterUnconnected}`);
+      if (request.requireParityNonIncrease !== false && afterParity > beforeParity) reasons.push(`schematicParity ${beforeParity}->${afterParity}`);
+      if (reasons.length) {
+        await atomicReplace(boardPath, beforeSource);
+        throw new Error(`KiCad route batch rejected and rolled back: ${reasons.join(', ')}.`);
+      }
+      const afterSource = await fs.readFile(boardPath, 'utf8');
+      return {
+        board: request.board,
+        beforeSha256: beforeSha,
+        afterSha256: sha256Text(afterSource),
+        backup: path.relative(path.dirname(boardPath), backup).split(path.sep).join('/'),
+        summary: patched.summary,
+        drc: { before: before.report.counts.active, after: after.report.counts.active },
+        accepted: true
+      };
+    } catch (error) {
+      const current = await fs.readFile(boardPath, 'utf8').catch(() => undefined);
+      if (current !== beforeSource) await atomicReplace(boardPath, beforeSource).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async electricalReview(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    intents: KicadElectricalNetIntent[]
+  ) {
+    this.policy.assertEngineeringEnabled();
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad electrical-review board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad electrical review requires a .kicad_pcb file.');
+    const stat = await fs.stat(boardPath);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('KiCad electrical-review board is missing or exceeds 128 MiB.');
+    const source = await fs.readFile(boardPath, 'utf8');
+    return { board, boardSha256: sha256Text(source), analysis: analyzeKicadElectrical(source, intents) };
+  }
+
+  async manufacturingPackage(
+    workspace: string,
+    projectPath: string,
+    request: {
+      board: string;
+      schematic?: string;
+      outputDir: string;
+      includeIpc2581?: boolean;
+      includeIpcD356?: boolean;
+      includeOdb?: boolean;
+      includeStep?: boolean;
+      requireClean?: boolean;
+      requireAssemblyConsistency?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const relativeOutput = safeOutputDirectory(request.outputDir);
+    const board = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.board, 'KiCad manufacturing-package board');
+    if (path.extname(board).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad manufacturing package requires a .kicad_pcb file.');
+    const boardStat = await fs.stat(board);
+    if (!boardStat.isFile() || boardStat.size > 128 * 1024 * 1024) throw new Error('KiCad manufacturing-package board is missing or exceeds 128 MiB.');
+    const boardSource = await fs.readFile(board, 'utf8');
+    const schematic = request.schematic
+      ? await resolveExistingProjectPath(this.paths, workspace, projectPath, request.schematic, 'KiCad manufacturing-package schematic')
+      : undefined;
+    if (schematic && path.extname(schematic).toLowerCase() !== '.kicad_sch') throw new Error('KiCad manufacturing package schematic must use .kicad_sch.');
+
+    const validation = await this.validate(workspace, projectPath, { board: request.board, ...(request.schematic ? { schematic: request.schematic } : {}), jobsets: [] });
+    const drcErrors = Number(validation.drc?.report.counts.active.bySeverity.error ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.active.bySeverity.error ?? 0);
+    const unconnected = Number(validation.drc?.report.counts.active.unconnected ?? 0);
+    const schematicParity = Number(validation.drc?.report.counts.active.schematicParity ?? 0);
+    if (request.requireClean !== false && drcErrors + ercErrors + unconnected + schematicParity > 0) {
+      throw new Error(`KiCad manufacturing package blocked by active validation findings: DRC errors=${drcErrors}, ERC errors=${ercErrors}, unconnected=${unconnected}, schematicParity=${schematicParity}.`);
+    }
+
+    const cli = await discoverKicadCli();
+    const output = await prepareNewOutputDirectory(projectRoot, relativeOutput);
+    const gerberDir = path.join(output, 'gerbers');
+    const drillDir = path.join(output, 'drill');
+    const assemblyDir = path.join(output, 'assembly');
+    const exchangeDir = path.join(output, 'exchange');
+    const mechanicalDir = path.join(output, 'mechanical');
+    await Promise.all([gerberDir, drillDir, assemblyDir, exchangeDir, mechanicalDir].map(dir => fs.mkdir(dir, { recursive: true })));
+
+    const positionFile = path.join(assemblyDir, 'positions.csv');
+    const bomFile = path.join(assemblyDir, 'bom.csv');
+    const drillReport = path.join(drillDir, 'drill-report.txt');
+    const ipc2581File = path.join(exchangeDir, 'design.ipc2581');
+    const ipcD356File = path.join(exchangeDir, 'netlist.d356');
+    const odbFile = path.join(exchangeDir, 'design.odb.zip');
+    const stepFile = path.join(mechanicalDir, 'board.step');
+
+    const includeIpc2581 = request.includeIpc2581 !== false;
+    const includeIpcD356 = request.includeIpcD356 !== false;
+    const includeOdb = request.includeOdb === true;
+    const includeStep = request.includeStep !== false;
+
+    const commands: Array<{ id: string; args: string[] }> = [
+      { id: 'gerbers', args: ['pcb', 'export', 'gerbers', '--output', gerberDir, '--check-zones', '--subtract-soldermask', board] },
+      { id: 'drill', args: ['pcb', 'export', 'drill', '--output', drillDir, '--format', 'excellon', '--excellon-units', 'mm', '--excellon-separate-th', '--generate-report', '--report-path', drillReport, board] },
+      { id: 'positions', args: ['pcb', 'export', 'pos', '--output', positionFile, '--format', 'csv', '--units', 'mm', '--side', 'both', '--exclude-dnp', board] },
+      ...(schematic ? [{ id: 'bom', args: ['sch', 'export', 'bom', '--fields', 'Reference,Value,Footprint,QUANTITY,DNP', '--labels', 'Refs,Value,Footprint,Qty,DNP', '--output', bomFile, schematic] }] : []),
+      ...(includeIpc2581 ? [{ id: 'ipc2581', args: ['pcb', 'export', 'ipc2581', '--output', ipc2581File, '--version', 'C', '--units', 'mm', board] }] : []),
+      ...(includeIpcD356 ? [{ id: 'ipcd356', args: ['pcb', 'export', 'ipcd356', '--output', ipcD356File, board] }] : []),
+      ...(includeOdb ? [{ id: 'odb', args: ['pcb', 'export', 'odb', '--output', odbFile, '--compression', 'zip', '--units', 'mm', '--check-zones', board] }] : []),
+      ...(includeStep ? [{ id: 'step', args: ['pcb', 'export', 'step', '--output', stepFile, '--no-dnp', '--subst-models', board] }] : [])
+    ];
+
+    try {
+      for (const command of commands) {
+        const result = await this.runner.run(cli.path, command.args, projectRoot, 180_000);
+        if (result.exitCode !== 0 || result.timedOut) {
+          throw new Error(`KiCad manufacturing ${command.id} export failed: ${result.stderr || result.stdout || `exit=${result.exitCode}`}`);
+        }
+      }
+
+      const posStat = await fs.stat(positionFile);
+      if (!posStat.isFile() || posStat.size > 16 * 1024 * 1024) throw new Error('KiCad manufacturing position export is missing or exceeds 16 MiB.');
+      const positions = parseKicadPositionCsv(await fs.readFile(positionFile, 'utf8'));
+      const bom = schematic ? parseKicadBomCsv(await fs.readFile(bomFile, 'utf8'), 5000) : undefined;
+      const audit = auditKicadManufacturing(boardSource, positions.references, bom?.rows.map(row => row.refs) ?? []);
+      if (request.requireAssemblyConsistency !== false && !audit.ready) {
+        throw new Error(`KiCad manufacturing assembly consistency rejected: ${audit.findings.filter(item => item.severity === 'high').map(item => `${item.code}=${item.count}`).join(', ') || 'high-severity finding'}.`);
+      }
+
+      const reportPath = path.join(output, 'manufacturing-report.json');
+      const report = {
+        schemaVersion: 1,
+        source: { board: request.board, ...(request.schematic ? { schematic: request.schematic } : {}) },
+        validation: { drcErrors, ercErrors, unconnected, schematicParity },
+        formats: { gerber: true, excellon: true, positionsCsv: true, bomCsv: Boolean(schematic), ipc2581: includeIpc2581, ipcD356: includeIpcD356, odb: includeOdb, step: includeStep },
+        assembly: audit
+      };
+      await fs.writeFile(reportPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+      const manifest = await fabricationManifest(output);
+      const manifestPath = path.join(output, 'manifest.json');
+      await fs.writeFile(manifestPath, JSON.stringify({
+        ...manifest,
+        generatedAt: new Date().toISOString(),
+        source: report.source,
+        validation: report.validation,
+        assemblyReady: audit.ready
+      }, null, 2) + '\n', 'utf8');
+
+      const redactArg = (arg: string) => {
+        const absoluteMappings: Array<[string, string]> = [
+          [board, request.board],
+          ...(schematic && request.schematic ? [[schematic, request.schematic] as [string, string]] : []),
+          [gerberDir, path.join(relativeOutput, 'gerbers').split(path.sep).join('/')],
+          [drillDir, path.join(relativeOutput, 'drill').split(path.sep).join('/')],
+          [positionFile, path.join(relativeOutput, 'assembly', 'positions.csv').split(path.sep).join('/')],
+          [bomFile, path.join(relativeOutput, 'assembly', 'bom.csv').split(path.sep).join('/')],
+          [drillReport, path.join(relativeOutput, 'drill', 'drill-report.txt').split(path.sep).join('/')],
+          [ipc2581File, path.join(relativeOutput, 'exchange', 'design.ipc2581').split(path.sep).join('/')],
+          [ipcD356File, path.join(relativeOutput, 'exchange', 'netlist.d356').split(path.sep).join('/')],
+          [odbFile, path.join(relativeOutput, 'exchange', 'design.odb.zip').split(path.sep).join('/')],
+          [stepFile, path.join(relativeOutput, 'mechanical', 'board.step').split(path.sep).join('/')]
+        ];
+        return absoluteMappings.find(([absolute]) => arg === absolute)?.[1] ?? arg;
+      };
+      return {
+        outputDir: relativeOutput.split(path.sep).join('/'),
+        reportPath: path.relative(projectRoot, reportPath).split(path.sep).join('/'),
+        manifestPath: path.relative(projectRoot, manifestPath).split(path.sep).join('/'),
+        validation,
+        audit,
+        manifest,
+        commands: commands.map(command => ({ id: command.id, args: command.args.map(redactArg) }))
+      };
+    } catch (error) {
+      await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async designAgentRun(
+    workspace: string,
+    projectPath: string,
+    request: {
+      outputDir: string;
+      projectName: string;
+      title?: string;
+      revision?: string;
+      company?: string;
+      components: Array<{
+        reference: string;
+        symbolId: string;
+        value?: string;
+        footprintId?: string;
+        xMm?: number;
+        yMm?: number;
+        rotationDeg?: 0 | 90 | 180 | 270;
+        unit?: number;
+        inBom?: boolean;
+        onBoard?: boolean;
+        dnp?: boolean;
+      }>;
+      nets: KicadSchematicNetSpec[];
+      schematic?: {
+        markUnusedNoConnect?: boolean;
+        allowUnconnectedPowerPins?: boolean;
+        allowFootprintFilterMismatch?: boolean;
+        requireErcClean?: boolean;
+      };
+      board: {
+        widthMm: number;
+        heightMm: number;
+        copperLayers?: number;
+        thicknessMm?: number;
+        originXmm?: number;
+        originYmm?: number;
+        minimums?: {
+          clearanceMm?: number;
+          trackWidthMm?: number;
+          viaDiameterMm?: number;
+          viaDrillMm?: number;
+          viaAnnularWidthMm?: number;
+          copperEdgeClearanceMm?: number;
+        };
+        defaultRouting?: {
+          trackWidthMm?: number;
+          viaDiameterMm?: number;
+          viaDrillMm?: number;
+          diffPairWidthMm?: number;
+          diffPairGapMm?: number;
+        };
+        netClasses?: Array<{
+          name: string;
+          nets: string[];
+          clearanceMm?: number;
+          trackWidthMm?: number;
+          viaDiameterMm?: number;
+          viaDrillMm?: number;
+          diffPairWidthMm?: number;
+          diffPairGapMm?: number;
+        }>;
+      };
+      placement?: {
+        gridMm?: number;
+        minSpacingMm?: number;
+        edgeInsetMm?: number;
+        hints?: KicadPlacementHint[];
+        retrySpacingMultipliers?: number[];
+      };
+      routing?: KicadRoutePlanOptions & {
+        enabled?: boolean;
+        batchSize?: number;
+      };
+      electricalIntents?: KicadElectricalNetIntent[];
+      reviewArtifacts?: boolean;
+      manufacturing?: {
+        enabled?: boolean;
+        outputDir?: string;
+        includeIpc2581?: boolean;
+        includeIpcD356?: boolean;
+        includeOdb?: boolean;
+        includeStep?: boolean;
+        requireAssemblyConsistency?: boolean;
+      };
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const stages: Array<{ stage: string; status: 'passed' | 'warning' | 'failed' | 'skipped'; detail?: string }> = [];
+    const warnings: string[] = [];
+
+    const schematic = await this.schematicSynthesize(workspace, projectPath, {
+      outputDir: request.outputDir,
+      projectName: request.projectName,
+      ...(request.title ? { title: request.title } : {}),
+      ...(request.revision ? { revision: request.revision } : {}),
+      ...(request.company ? { company: request.company } : {}),
+      components: request.components,
+      nets: request.nets,
+      markUnusedNoConnect: request.schematic?.markUnusedNoConnect !== false,
+      allowUnconnectedPowerPins: request.schematic?.allowUnconnectedPowerPins === true,
+      allowFootprintFilterMismatch: request.schematic?.allowFootprintFilterMismatch === true,
+      runErc: true,
+      requireErcClean: request.schematic?.requireErcClean !== false
+    });
+    stages.push({ stage: 'schematic-synthesis', status: 'passed' });
+
+    const placementBase = request.placement?.minSpacingMm ?? 3;
+    const multipliers = request.placement?.retrySpacingMultipliers?.length
+      ? request.placement.retrySpacingMultipliers
+      : [1, 1.5, 2];
+    if (multipliers.length > 5 || multipliers.some(value => !Number.isFinite(value) || value < 1 || value > 4)) {
+      throw new Error('KiCad design agent placement retrySpacingMultipliers must contain 1..5 values in range 1..4.');
+    }
+
+    let placement: Awaited<ReturnType<KicadAdapter['semanticPlacementPlan']>> | undefined;
+    let board: Awaited<ReturnType<KicadAdapter['boardSynthesize']>> | undefined;
+    let lastBoardError: unknown;
+    for (const [index, multiplier] of multipliers.entries()) {
+      placement = await this.semanticPlacementPlan(workspace, projectPath, {
+        designManifest: schematic.designManifestFile,
+        expectedDesignManifestSha256: schematic.designManifestSha256,
+        widthMm: request.board.widthMm,
+        heightMm: request.board.heightMm,
+        originXmm: request.board.originXmm ?? 20,
+        originYmm: request.board.originYmm ?? 20,
+        gridMm: request.placement?.gridMm ?? 0.5,
+        minSpacingMm: placementBase * multiplier,
+        edgeInsetMm: request.placement?.edgeInsetMm ?? 4,
+        ...(request.placement?.hints ? { hints: request.placement.hints } : {})
+      });
+      try {
+        board = await this.boardSynthesize(workspace, projectPath, {
+          designManifest: schematic.designManifestFile,
+          expectedDesignManifestSha256: schematic.designManifestSha256,
+          widthMm: request.board.widthMm,
+          heightMm: request.board.heightMm,
+          copperLayers: request.board.copperLayers ?? 2,
+          thicknessMm: request.board.thicknessMm ?? 1.6,
+          originXmm: request.board.originXmm ?? 20,
+          originYmm: request.board.originYmm ?? 20,
+          placements: placement.plan.placements.map(item => ({
+            reference: item.reference,
+            xMm: item.xMm,
+            yMm: item.yMm,
+            rotationDeg: item.rotationDeg,
+            side: item.side,
+            locked: item.locked
+          })),
+          ...(request.board.minimums ? { minimums: request.board.minimums } : {}),
+          ...(request.board.defaultRouting ? { defaultRouting: request.board.defaultRouting } : {}),
+          ...(request.board.netClasses ? { netClasses: request.board.netClasses } : {}),
+          runDrc: true,
+          requireNoViolations: true
+        });
+        stages.push({ stage: 'semantic-placement', status: 'passed', detail: `spacing=${Number((placementBase * multiplier).toFixed(3))}mm attempt=${index + 1}` });
+        stages.push({ stage: 'board-synthesis', status: 'passed' });
+        break;
+      } catch (error) {
+        lastBoardError = error;
+        stages.push({ stage: `board-synthesis-attempt-${index + 1}`, status: 'warning', detail: error instanceof Error ? error.message.slice(0, 512) : String(error).slice(0, 512) });
+      }
+    }
+    if (!board || !placement) {
+      throw new Error(`KiCad design agent could not synthesize a DRC-acceptable placed board after ${multipliers.length} placement attempt(s): ${lastBoardError instanceof Error ? lastBoardError.message : String(lastBoardError)}`);
+    }
+
+    let currentBoardSha = board.boardSha256;
+    let routePlanResult: Awaited<ReturnType<KicadAdapter['routePlan']>> | undefined;
+    const routeBatches: Array<Awaited<ReturnType<KicadAdapter['routeBatchApply']>>> = [];
+    let routeApplyError: string | undefined;
+    if (request.routing?.enabled !== false) {
+      const semanticPriority: Record<KicadElectricalNetIntent['kind'], number> = {
+        power: 700, clock: 600, differential: 500, high_speed: 500, analog: 400,
+        can: 300, rs485: 300, pwm: 200, encoder: 200, digital: 100
+      };
+      const normalizeRouteNet = (name: string) => canonicalKicadBoardNetName(name.trim());
+      const routingStyles = [...(request.routing?.styles ?? [])].map(style => ({ ...style }));
+      const styleIndex = new Map(routingStyles.map((style, index) => [normalizeRouteNet(style.netName), index]));
+      const mergeStyle = (netName: string, inherited: Partial<(typeof routingStyles)[number]>) => {
+        const key = normalizeRouteNet(netName);
+        const index = styleIndex.get(key);
+        if (index === undefined) {
+          styleIndex.set(key, routingStyles.length);
+          routingStyles.push({ netName, ...inherited });
+          return;
+        }
+        const existing = routingStyles[index]!;
+        routingStyles[index] = { ...inherited, ...existing, netName: existing.netName };
+      };
+      for (const netClass of request.board.netClasses ?? []) {
+        for (const netName of netClass.nets) mergeStyle(netName, {
+          ...(netClass.trackWidthMm !== undefined ? { widthMm: netClass.trackWidthMm } : {}),
+          ...(netClass.clearanceMm !== undefined ? { clearanceMm: netClass.clearanceMm } : {})
+        });
+      }
+      for (const intent of request.electricalIntents ?? []) mergeStyle(intent.netName, { priority: semanticPriority[intent.kind] });
+      const routeOptions: KicadRoutePlanOptions = {
+        ...(request.board.defaultRouting?.trackWidthMm !== undefined ? { defaultWidthMm: request.board.defaultRouting.trackWidthMm } : {}),
+        ...(request.board.minimums?.clearanceMm !== undefined ? { defaultClearanceMm: request.board.minimums.clearanceMm } : {}),
+        ...(request.board.defaultRouting?.viaDiameterMm !== undefined ? { viaDiameterMm: request.board.defaultRouting.viaDiameterMm } : {}),
+        ...(request.board.defaultRouting?.viaDrillMm !== undefined ? { viaDrillMm: request.board.defaultRouting.viaDrillMm } : {}),
+        ...(request.routing ?? {}),
+        ...(routingStyles.length ? { styles: routingStyles } : {})
+      };
+      routePlanResult = await this.routePlan(workspace, projectPath, board.boardFile, routeOptions);
+      stages.push({
+        stage: 'route-plan',
+        status: routePlanResult.plan.complete ? 'passed' : 'warning',
+        detail: `routed=${routePlanResult.plan.nets.routedCount} skipped=${routePlanResult.plan.nets.skippedCount} operations=${routePlanResult.plan.operationCount}`
+      });
+      const batchSize = request.routing?.batchSize ?? 192;
+      if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 256) throw new Error('KiCad design agent routing batchSize must be 1..256.');
+      let offset = 0;
+      outer: for (const net of routePlanResult.plan.routed) {
+        const netOps = routePlanResult.plan.operations.slice(offset, offset + net.operations);
+        offset += net.operations;
+        for (let start = 0; start < netOps.length; start += batchSize) {
+          const operations = netOps.slice(start, start + batchSize);
+          try {
+            const applied = await this.routeBatchApply(workspace, projectPath, {
+              board: board.boardFile,
+              expectedBoardSha256: currentBoardSha,
+              operations,
+              requireNoNewViolations: true,
+              requireUnconnectedNonIncrease: true,
+              requireParityNonIncrease: true
+            });
+            currentBoardSha = applied.afterSha256;
+            routeBatches.push(applied);
+          } catch (error) {
+            routeApplyError = `Net ${net.netName}: ${error instanceof Error ? error.message : String(error)}`;
+            stages.push({ stage: 'route-apply', status: 'warning', detail: routeApplyError.slice(0, 512) });
+            break outer;
+          }
+        }
+      }
+      if (!routeApplyError) stages.push({ stage: 'route-apply', status: 'passed', detail: `batches=${routeBatches.length}` });
+    } else {
+      stages.push({ stage: 'route-plan', status: 'skipped', detail: 'routing.enabled=false' });
+    }
+
+    const validation = await this.validate(workspace, projectPath, { schematic: schematic.schematicFile, board: board.boardFile, jobsets: [] });
+    const drcErrors = Number(validation.drc?.report.counts.active.bySeverity.error ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.active.bySeverity.error ?? 0);
+    const unconnected = Number(validation.drc?.report.counts.active.unconnected ?? 0);
+    const schematicParity = Number(validation.drc?.report.counts.active.schematicParity ?? 0);
+    const activeViolations = Number(validation.drc?.report.counts.active.violations ?? 0);
+    const clean = drcErrors === 0 && ercErrors === 0 && unconnected === 0 && schematicParity === 0 && activeViolations === 0;
+    stages.push({ stage: 'erc-drc-validation', status: clean ? 'passed' : 'warning', detail: `drcErrors=${drcErrors} ercErrors=${ercErrors} violations=${activeViolations} unconnected=${unconnected} parity=${schematicParity}` });
+
+    const electrical = request.electricalIntents?.length
+      ? await this.electricalReview(workspace, projectPath, board.boardFile, request.electricalIntents)
+      : undefined;
+    if (electrical) stages.push({ stage: 'electrical-review', status: electrical.analysis.findings.high > 0 ? 'warning' : 'passed', detail: `high=${electrical.analysis.findings.high} review=${electrical.analysis.findings.review}` });
+
+    const constraints = await this.constraintsReview(workspace, projectPath, { projectFile: board.projectFile, board: board.boardFile }, { runDrc: false, maxDetails: 50 });
+    stages.push({ stage: 'constraints-review', status: constraints.analysis.recommendations.some(item => item.priority === 'high') ? 'warning' : 'passed' });
+    const designReview = await this.designReview(workspace, projectPath, { schematic: schematic.schematicFile, board: board.boardFile }, { runRuleChecks: false, maxDetails: 50 });
+    stages.push({ stage: 'design-review', status: designReview.analysis.recommendations.some(item => item.priority === 'high') ? 'warning' : 'passed' });
+
+    const specializedReviewReasons = (request.electricalIntents ?? []).filter(intent =>
+      intent.targetImpedanceOhm !== undefined || intent.kind === 'differential' || intent.kind === 'high_speed'
+    ).map(intent => `${intent.netName}:${intent.kind}${intent.targetImpedanceOhm !== undefined ? `:${intent.targetImpedanceOhm}ohm` : ''}`);
+    const routeComplete = !routeApplyError && unconnected === 0 && (routePlanResult ? routePlanResult.plan.complete : true);
+    const electricalHigh = electrical?.analysis.findings.high ?? 0;
+    let status: 'complete' | 'needs-review' | 'needs-specialized-review' = !clean || !routeComplete || electricalHigh > 0
+      ? 'needs-review'
+      : specializedReviewReasons.length
+        ? 'needs-specialized-review'
+        : 'complete';
+
+    const reviewArtifacts: Record<string, unknown> = {};
+    if (request.reviewArtifacts !== false) {
+      try {
+        reviewArtifacts.schematic = await this.visualExport(workspace, projectPath, {
+          kind: 'schematic_pdf', schematic: schematic.schematicFile, outputDir: `${request.outputDir}/review-schematic`, fileName: 'schematic.pdf'
+        });
+        stages.push({ stage: 'schematic-review-artifact', status: 'passed' });
+      } catch (error) {
+        warnings.push(`Schematic PDF export failed: ${error instanceof Error ? error.message : String(error)}`);
+        stages.push({ stage: 'schematic-review-artifact', status: 'warning' });
+      }
+      try {
+        reviewArtifacts.pcb3d = await this.visualExport(workspace, projectPath, {
+          kind: 'pcb_3d_render', board: board.boardFile, outputDir: `${request.outputDir}/review-3d`, fileName: 'board.png', format: 'png', width: 1600, height: 900, side: 'top', background: 'default', quality: 'high', perspective: true, floor: true, useBoardStackupColors: true, zoom: 1
+        });
+        stages.push({ stage: 'pcb-3d-review-artifact', status: 'passed' });
+      } catch (error) {
+        warnings.push(`PCB 3D render failed: ${error instanceof Error ? error.message : String(error)}`);
+        stages.push({ stage: 'pcb-3d-review-artifact', status: 'warning' });
+      }
+    }
+
+    let manufacturing: Awaited<ReturnType<KicadAdapter['manufacturingPackage']>> | undefined;
+    const manufacturingEnabled = request.manufacturing?.enabled !== false;
+    if (manufacturingEnabled && status === 'complete') {
+      try {
+        manufacturing = await this.manufacturingPackage(workspace, projectPath, {
+          board: board.boardFile,
+          schematic: schematic.schematicFile,
+          outputDir: request.manufacturing?.outputDir ?? `${request.outputDir}/manufacturing`,
+          includeIpc2581: request.manufacturing?.includeIpc2581 !== false,
+          includeIpcD356: request.manufacturing?.includeIpcD356 !== false,
+          includeOdb: request.manufacturing?.includeOdb === true,
+          includeStep: request.manufacturing?.includeStep !== false,
+          requireClean: true,
+          requireAssemblyConsistency: request.manufacturing?.requireAssemblyConsistency !== false
+        });
+        stages.push({ stage: 'manufacturing-package', status: 'passed' });
+      } catch (error) {
+        status = 'needs-review';
+        warnings.push(`Manufacturing package blocked: ${error instanceof Error ? error.message : String(error)}`);
+        stages.push({ stage: 'manufacturing-package', status: 'warning', detail: warnings[warnings.length - 1]!.slice(0, 512) });
+      }
+    } else {
+      stages.push({ stage: 'manufacturing-package', status: 'skipped', detail: manufacturingEnabled ? `design status=${status}` : 'manufacturing.enabled=false' });
+    }
+
+    return {
+      schemaVersion: 1,
+      status,
+      stages,
+      warnings,
+      specializedReviewReasons,
+      outputs: {
+        projectFile: board.projectFile,
+        schematicFile: schematic.schematicFile,
+        boardFile: board.boardFile,
+        designManifest: board.designManifest,
+        designManifestSha256: board.designManifestSha256,
+        boardSha256: currentBoardSha,
+        reviewArtifacts,
+        ...(manufacturing ? { manufacturing: { outputDir: manufacturing.outputDir, reportPath: manufacturing.reportPath, manifestPath: manufacturing.manifestPath } } : {})
+      },
+      placement: placement.plan,
+      routing: routePlanResult ? {
+        plan: routePlanResult.plan,
+        appliedBatchCount: routeBatches.length,
+        ...(routeApplyError ? { applyError: routeApplyError } : {}),
+        finalBoardSha256: currentBoardSha
+      } : { skipped: true, finalBoardSha256: currentBoardSha },
+      validation: { clean, drcErrors, ercErrors, activeViolations, unconnected, schematicParity },
+      ...(electrical ? { electrical: electrical.analysis } : {}),
+      constraints: constraints.analysis,
+      designReview: designReview.analysis,
+      manufacturing: manufacturing?.audit,
+      limitations: [
+        'Natural-language interpretation and part/peripheral choice belong to the calling agent; this server executes the resulting typed design specification.',
+        'Automatic routing is bounded orthogonal two-layer candidate routing plus KiCad DRC acceptance, not a replacement for specialized RF/DDR/high-speed routing expertise.',
+        'Controlled impedance, electromagnetic compatibility, power integrity and thermal behavior require specialized calculations/solvers when the design intent demands them.'
+      ]
     };
   }
 

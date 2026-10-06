@@ -287,6 +287,348 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'kicad_provider_status', workspace, () => ctx.engineering.kicad.version(workspace, projectPath))));
 
+  const kicadLibraryLookup = z.discriminatedUnion('mode', [
+    kicadProject.extend({
+      mode: z.literal('search'),
+      query: z.string().min(1).max(128),
+      kind: z.enum(['symbol', 'footprint', 'both']).default('both'),
+      limit: z.number().int().min(1).max(50).default(10)
+    }).strict(),
+    kicadProject.extend({
+      mode: z.literal('symbol'),
+      symbolId: z.string().min(3).max(256)
+    }).strict(),
+    kicadProject.extend({
+      mode: z.literal('footprint'),
+      footprintId: z.string().min(3).max(256)
+    }).strict(),
+    kicadProject.extend({
+      mode: z.literal('component'),
+      symbolId: z.string().min(3).max(256),
+      footprintId: z.string().min(3).max(256).optional()
+    }).strict()
+  ]);
+
+  server.registerTool('kicad_library_lookup', {
+    description: 'Search or resolve installed KiCad symbol/footprint libraries without project mutation. Resolves symbol inheritance, effective properties, pin names/numbers/electrical types/alternate functions, default footprint and footprint filters; footprint resolution reports pads, attributes and 3D-model coverage. Component mode validates the selected/default footprint against the symbol footprint filters.',
+    inputSchema: kicadLibraryLookup,
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async (request) =>
+    result(await audited(ctx.audit, 'kicad_library_lookup', request.workspace, () => ctx.engineering.kicad.libraryLookup(request.workspace, request.projectPath, request))));
+
+  const schematicComponent = z.object({
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+    symbolId: z.string().min(3).max(256),
+    value: z.string().max(256).optional(),
+    footprintId: z.string().min(3).max(256).optional(),
+    xMm: z.number().finite().min(0).max(2000).optional(),
+    yMm: z.number().finite().min(0).max(2000).optional(),
+    rotationDeg: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(),
+    unit: z.number().int().min(1).max(32).optional(),
+    inBom: z.boolean().optional(),
+    onBoard: z.boolean().optional(),
+    dnp: z.boolean().optional()
+  }).strict();
+  const schematicEndpoint = z.object({
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+    pinNumber: z.string().min(1).max(32),
+    expectedPinName: z.string().min(1).max(128).optional()
+  }).strict();
+  const schematicNet = z.object({
+    name: z.string().min(1).max(128),
+    endpoints: z.array(schematicEndpoint).min(1).max(128)
+  }).strict();
+
+  server.registerTool('kicad_schematic_synthesize', {
+    description: 'Create a new KiCad project + schematic from typed installed-library component and net specifications. Resolves exact symbols, inherited pins/alternate functions and footprints from the installed KiCad libraries, generates deterministic label-driven connectivity, round-trips the result through official `kicad-cli sch export netlist`, optionally runs ERC, and deletes the output if parsing/connectivity/ERC acceptance fails. Requires a Work Session and a new project-relative output directory; existing files are never overwritten.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      outputDir: z.string().min(1).max(1024),
+      projectName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+      title: z.string().max(256).optional(),
+      revision: z.string().max(64).optional(),
+      company: z.string().max(256).optional(),
+      components: z.array(schematicComponent).min(1).max(128),
+      nets: z.array(schematicNet).max(512),
+      markUnusedNoConnect: z.boolean().default(true),
+      allowUnconnectedPowerPins: z.boolean().default(false),
+      allowFootprintFilterMismatch: z.boolean().default(false),
+      runErc: z.boolean().default(true),
+      requireErcClean: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_schematic_synthesize', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.schematicSynthesize(request.workspace, request.projectPath, request))
+    )));
+
+  const boardMinimums = z.object({
+    clearanceMm: z.number().finite().min(0.05).max(10).optional(),
+    trackWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).optional(),
+    viaDrillMm: z.number().finite().min(0.05).max(10).optional(),
+    viaAnnularWidthMm: z.number().finite().min(0.02).max(10).optional(),
+    copperEdgeClearanceMm: z.number().finite().min(0).max(20).optional()
+  }).strict();
+  const boardRouting = z.object({
+    trackWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).optional(),
+    viaDrillMm: z.number().finite().min(0.05).max(10).optional(),
+    diffPairWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    diffPairGapMm: z.number().finite().min(0.05).max(20).optional()
+  }).strict();
+  const boardNetClass = z.object({
+    name: z.string().min(1).max(64),
+    nets: z.array(z.string().min(1).max(128)).max(512),
+    clearanceMm: z.number().finite().min(0.05).max(10).optional(),
+    trackWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).optional(),
+    viaDrillMm: z.number().finite().min(0.05).max(10).optional(),
+    diffPairWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    diffPairGapMm: z.number().finite().min(0.05).max(20).optional()
+  }).strict();
+
+  const placementHint = z.object({
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+    role: z.enum(['mcu','connector','debug','power','transceiver','crystal','decoupling','sensor','driver','generic']).optional(),
+    anchorRef: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+    edge: z.enum(['top','bottom','left','right']).optional(),
+    locked: z.boolean().optional()
+  }).strict();
+
+  server.registerTool('kicad_semantic_place_plan', {
+    description: 'Plan professional semantic component placement from an exact synthesized-design manifest SHA without mutating files. Classifies MCU/core, connectors, debug headers, power, transceivers, crystals, decoupling, sensors and drivers; applies edge/accessibility and anchor-proximity rules, then uses connectivity-weighted centroid placement for remaining parts. Returns typed placements directly consumable by kicad_board_synthesize.',
+    inputSchema: kicadProject.extend({
+      designManifest: z.string().min(1).max(1024),
+      expectedDesignManifestSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      widthMm: z.number().finite().min(20).max(1000),
+      heightMm: z.number().finite().min(20).max(1000),
+      originXmm: z.number().finite().min(0).max(1000).default(20),
+      originYmm: z.number().finite().min(0).max(1000).default(20),
+      gridMm: z.number().finite().gt(0).max(10).default(0.5),
+      minSpacingMm: z.number().finite().min(0.5).max(50).default(3),
+      edgeInsetMm: z.number().finite().min(1).max(50).default(4),
+      hints: z.array(placementHint).max(256).optional()
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async (request) =>
+    result(await audited(ctx.audit, 'kicad_semantic_place_plan', request.workspace, () => ctx.engineering.kicad.semanticPlacementPlan(request.workspace, request.projectPath, request))));
+
+  server.registerTool('kicad_board_synthesize', {
+    description: 'Create the PCB side of an RWMCP-synthesized KiCad design from an exact design-manifest SHA. Resolves installed footprints/symbols again, creates a bounded 2..12-layer board with physical stackup and Edge.Cuts, assigns pad nets/pin functions/path linkage to the generated schematic, updates Board Setup hard minimums and net classes, then requires official KiCad stats and optional DRC/schematic-parity acceptance. Existing boards are never overwritten; failure removes the PCB and restores project/manifest revisions.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      designManifest: z.string().min(1).max(1024),
+      expectedDesignManifestSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      widthMm: z.number().finite().min(10).max(1000),
+      heightMm: z.number().finite().min(10).max(1000),
+      copperLayers: z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8), z.literal(10), z.literal(12)]).default(2),
+      thicknessMm: z.number().finite().min(0.2).max(10).default(1.6),
+      originXmm: z.number().finite().min(0).max(1000).default(20),
+      originYmm: z.number().finite().min(0).max(1000).default(20),
+      placements: z.array(z.object({
+        reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+        xMm: z.number().finite().min(-1000).max(2000),
+        yMm: z.number().finite().min(-1000).max(2000),
+        rotationDeg: z.number().finite().min(-3600).max(3600).optional(),
+        side: z.enum(['front', 'back']).optional(),
+        locked: z.boolean().optional()
+      }).strict()).max(128).optional(),
+      minimums: boardMinimums.optional(),
+      defaultRouting: boardRouting.optional(),
+      netClasses: z.array(boardNetClass).max(32).optional(),
+      runDrc: z.boolean().default(true),
+      requireNoViolations: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_board_synthesize', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.boardSynthesize(request.workspace, request.projectPath, request))
+    )));
+
+  const routePoint = z.object({
+    x: z.number().finite().min(-100000).max(100000),
+    y: z.number().finite().min(-100000).max(100000)
+  }).strict();
+  const routeOperation = z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('segment'),
+      netName: z.string().min(1).max(128),
+      layer: z.string().regex(/^(?:F|B|In\d+)\.Cu$/),
+      start: routePoint,
+      end: routePoint,
+      widthMm: z.number().finite().min(0.05).max(20),
+      locked: z.boolean().optional()
+    }).strict(),
+    z.object({
+      kind: z.literal('via'),
+      netName: z.string().min(1).max(128),
+      position: routePoint,
+      diameterMm: z.number().finite().min(0.1).max(20),
+      drillMm: z.number().finite().min(0.05).max(10),
+      layers: z.tuple([
+        z.string().regex(/^(?:F|B|In\d+)\.Cu$/),
+        z.string().regex(/^(?:F|B|In\d+)\.Cu$/)
+      ]).optional(),
+      locked: z.boolean().optional()
+    }).strict().refine(value => value.drillMm < value.diameterMm, { message: 'drillMm must be smaller than diameterMm' })
+  ]);
+
+  const routePlanOptions = z.object({
+    layers: z.tuple([z.string().regex(/^(?:F|B|In\d+)\.Cu$/), z.string().regex(/^(?:F|B|In\d+)\.Cu$/)]).optional(),
+    gridMm: z.number().finite().min(0.1).max(5).default(0.5),
+    edgeInsetMm: z.number().finite().min(0).max(20).default(0.5),
+    defaultWidthMm: z.number().finite().min(0.05).max(20).default(0.25),
+    defaultClearanceMm: z.number().finite().min(0).max(10).default(0.2),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).default(0.6),
+    viaDrillMm: z.number().finite().min(0.05).max(10).default(0.3),
+    viaCostMm: z.number().finite().min(0).max(1000).default(8),
+    turnPenaltyMm: z.number().finite().min(0).max(100).default(0.25),
+    wrongWayPenaltyMm: z.number().finite().min(0).max(100).default(0.15),
+    maxPadsPerNet: z.number().int().min(2).max(128).default(32),
+    maxOperations: z.number().int().min(1).max(8192).default(4096),
+    selectedNets: z.array(z.string().min(1).max(128)).max(512).optional(),
+    skipNets: z.array(z.string().min(1).max(128)).max(512).optional(),
+    styles: z.array(z.object({
+      netName: z.string().min(1).max(128),
+      widthMm: z.number().finite().min(0.05).max(20).optional(),
+      clearanceMm: z.number().finite().min(0).max(10).optional(),
+      preferredLayer: z.string().regex(/^(?:F|B|In\d+)\.Cu$/).optional(),
+      priority: z.number().int().min(-1000).max(1000).optional()
+    }).strict()).max(256).optional()
+  }).strict();
+
+  server.registerTool('kicad_route_plan', {
+    description: 'Plan bounded priority-ordered obstacle-aware orthogonal candidate routing for an explicit KiCad PCB without source mutation. Parses pad/net geometry, Edge.Cuts, footprint courtyard/pad envelopes and existing copper; uses a two-layer grid A* with via/turn/wrong-way costs and MST decomposition for multi-pad nets. Returns typed segment/via operations plus exact board SHA for kicad_route_batch_apply. KiCad DRC remains authoritative; controlled impedance, RF/DDR/differential coupling, return-path, EMI and thermal behavior are explicitly outside this planner.',
+    inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024), ...routePlanOptions.shape }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, board, ...options }) =>
+    result(await audited(ctx.audit, 'kicad_route_plan', workspace, () => ctx.engineering.kicad.routePlan(workspace, projectPath, board, options))));
+
+  server.registerTool('kicad_route_batch_apply', {
+    description: 'Apply 1..256 typed straight-track/through-via routing operations to one authorized KiCad PCB in a single transaction. Requires Work Session ownership and exact board SHA, validates net/layer identity, backs up and writes atomically, runs KiCad DRC plus schematic parity before/after, and rolls the entire batch back on regression. No raw scripts, deletion, arcs, blind/micro vias or implicit autorouting.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      operations: z.array(routeOperation).min(1).max(256),
+      requireNoNewViolations: z.boolean().default(true),
+      requireUnconnectedNonIncrease: z.boolean().default(true),
+      requireParityNonIncrease: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_route_batch_apply', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.routeBatchApply(request.workspace, request.projectPath, request))
+    )));
+
+  const electricalIntent = z.object({
+    netName: z.string().min(1).max(128),
+    kind: z.enum(['power', 'clock', 'differential', 'can', 'rs485', 'pwm', 'encoder', 'analog', 'digital', 'high_speed']),
+    currentA: z.number().finite().min(0).max(1000).optional(),
+    voltageV: z.number().finite().gt(0).max(2000).optional(),
+    maxVoltageDropPct: z.number().finite().min(0).max(100).optional(),
+    maxLengthMm: z.number().finite().gt(0).max(100000).optional(),
+    maxViaCount: z.number().int().min(0).max(10000).optional(),
+    targetImpedanceOhm: z.number().finite().gt(0).max(10000).optional(),
+    pairWith: z.string().min(1).max(128).optional(),
+    maxSkewMm: z.number().finite().min(0).max(100000).optional()
+  }).strict();
+
+  server.registerTool('kicad_electrical_review', {
+    description: 'Review explicit routed nets against typed electrical design intent without source mutation. Reports route length/vias/layers/widths, copper-only 20 C DC resistance/voltage-drop/I²R estimates when stackup copper thickness and current are known, paired-net routed-length skew, and critical-net layer-transition evidence. It deliberately does not claim IPC-2152 ampacity, controlled impedance, EMI/EMC or thermal simulation; target impedance is recorded as requiring a field solver.',
+    inputSchema: kicadProject.extend({
+      board: z.string().min(1).max(1024),
+      intents: z.array(electricalIntent).min(1).max(128)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, board, intents }) =>
+    result(await audited(ctx.audit, 'kicad_electrical_review', workspace, () =>
+      ctx.engineering.kicad.electricalReview(workspace, projectPath, board, intents)
+    )));
+
+  server.registerTool('kicad_manufacturing_package', {
+    description: 'Create one new project-scoped production package from an explicit KiCad PCB and optional schematic. The package is blocked by active DRC/ERC/unconnected/schematic-parity findings by default, exports Gerber + Excellon + assembly positions plus optional BOM/IPC-2581/IPC-D-356/ODB++/STEP, audits PCB assembly intent against position/BOM outputs, and writes SHA-256 manufacturing/report manifests. Requires Work Session ownership; source KiCad files are never rewritten.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      schematic: z.string().min(1).max(1024).optional(),
+      outputDir: z.string().min(1).max(1024),
+      includeIpc2581: z.boolean().default(true),
+      includeIpcD356: z.boolean().default(true),
+      includeOdb: z.boolean().default(false),
+      includeStep: z.boolean().default(true),
+      requireClean: z.boolean().default(true),
+      requireAssemblyConsistency: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_manufacturing_package', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.manufacturingPackage(request.workspace, request.projectPath, request))
+    )));
+
+  const designAgentRouting = routePlanOptions.extend({
+    enabled: z.boolean().default(true),
+    batchSize: z.number().int().min(1).max(256).default(192)
+  }).strict();
+  const designAgentBoard = z.object({
+    widthMm: z.number().finite().min(20).max(1000),
+    heightMm: z.number().finite().min(20).max(1000),
+    copperLayers: z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8), z.literal(10), z.literal(12)]).default(2),
+    thicknessMm: z.number().finite().min(0.2).max(10).default(1.6),
+    originXmm: z.number().finite().min(0).max(1000).default(20),
+    originYmm: z.number().finite().min(0).max(1000).default(20),
+    minimums: boardMinimums.optional(),
+    defaultRouting: boardRouting.optional(),
+    netClasses: z.array(boardNetClass).max(32).optional()
+  }).strict();
+  const designAgentPlacement = z.object({
+    gridMm: z.number().finite().gt(0).max(10).default(0.5),
+    minSpacingMm: z.number().finite().min(0.5).max(50).default(3),
+    edgeInsetMm: z.number().finite().min(1).max(50).default(4),
+    hints: z.array(placementHint).max(256).optional(),
+    retrySpacingMultipliers: z.array(z.number().finite().min(1).max(4)).min(1).max(5).default([1, 1.5, 2])
+  }).strict();
+  const designAgentManufacturing = z.object({
+    enabled: z.boolean().default(true),
+    outputDir: z.string().min(1).max(1024).optional(),
+    includeIpc2581: z.boolean().default(true),
+    includeIpcD356: z.boolean().default(true),
+    includeOdb: z.boolean().default(false),
+    includeStep: z.boolean().default(true),
+    requireAssemblyConsistency: z.boolean().default(true)
+  }).strict();
+
+  server.registerTool('kicad_design_agent_run', {
+    description: 'Execute the end-to-end typed KiCad PCB Design Agent for a new project: installed-library schematic synthesis with netlist/ERC round-trip, semantic placement with bounded retry spacing, board/stackup/net-class synthesis, obstacle-aware routing plan plus DRC-gated transactional route batches, final ERC/DRC/parity validation, electrical/constraint/design reviews, schematic PDF + PCB 3D review artifacts, and a manufacturing package only when all acceptance gates are clean. Returns complete, needs-review, or needs-specialized-review; differential/high-speed/controlled-impedance intent is never falsely certified by the geometric router. Natural-language interpretation and STM32 peripheral/pin selection remain agent-side typed planning steps before this tool.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      outputDir: z.string().min(1).max(1024),
+      projectName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+      title: z.string().max(256).optional(),
+      revision: z.string().max(64).optional(),
+      company: z.string().max(256).optional(),
+      components: z.array(schematicComponent).min(1).max(128),
+      nets: z.array(schematicNet).max(512),
+      schematic: z.object({
+        markUnusedNoConnect: z.boolean().default(true),
+        allowUnconnectedPowerPins: z.boolean().default(false),
+        allowFootprintFilterMismatch: z.boolean().default(false),
+        requireErcClean: z.boolean().default(true)
+      }).strict().optional(),
+      board: designAgentBoard,
+      placement: designAgentPlacement.optional(),
+      routing: designAgentRouting.optional(),
+      electricalIntents: z.array(electricalIntent).max(128).optional(),
+      reviewArtifacts: z.boolean().default(true),
+      manufacturing: designAgentManufacturing.optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_design_agent_run', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.designAgentRun(request.workspace, request.projectPath, request))
+    )));
+
   server.registerTool('kicad_board_stats', {
     description: 'Export bounded JSON board statistics for one explicit .kicad_pcb file into a temporary report; project sources are not saved or upgraded.',
     inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),

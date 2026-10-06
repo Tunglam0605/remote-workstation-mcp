@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Stm32IocInspection, Stm32IocPeripheral, Stm32IocPin } from '../../engineering/types.js';
 import { PathGuard } from '../../security/path-guard.js';
+import { planStm32Pins, resolveCubeMxMcu, type Stm32PinPlanRequest } from './stm32-cubemx-pin-db.js';
 
 const MAX_IOC_BYTES = 4 * 1024 * 1024;
 const MAX_PINS = 256;
@@ -173,6 +174,16 @@ export function parseStm32IocText(file: string, size: number, text: string): Stm
 
 export class Stm32IocAdapter {
   constructor(private readonly paths: PathGuard) {}
+
+  async planPins(workspace: string, projectPath: string, partNumber: string, request: Stm32PinPlanRequest) {
+    await this.paths.resolveExisting(workspace, projectPath);
+    const mcu = await resolveCubeMxMcu(partNumber);
+    const plan = planStm32Pins(mcu, request);
+    return {
+      provider: { source: 'STM32CubeMX database', refName: mcu.refName, family: mcu.family, package: mcu.packageName },
+      plan
+    };
+  }
 
   async inspect(workspace: string, projectPath = '.', iocFile?: string): Promise<Stm32IocInspection> {
     const root = await this.paths.resolveExisting(workspace, projectPath);

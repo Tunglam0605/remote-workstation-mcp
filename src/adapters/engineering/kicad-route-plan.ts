@@ -282,7 +282,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const p=toPoint(x,y);
     return obstacles.some(o=>!exempt.has(o.reference??'')&&p.x>=o.minX-inflate&&p.x<=o.maxX+inflate&&p.y>=o.minY-inflate&&p.y<=o.maxY+inflate);
   };
-  const padOccupied=layers.map(()=>new Map<string,Set<string>>());
+  const padBuckets=layers.map(()=>new Map<string,Pad[]>());
   for(const pad of parsed.pads)for(let li=0;li<layers.length;li++){
     if(!layerAccess(pad,layers[li]!))continue;
     const minPadX=Math.max(0,Math.floor((pad.obstacle.minX-minX)/gridMm));
@@ -290,16 +290,23 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const minPadY=Math.max(0,Math.floor((pad.obstacle.minY-minY)/gridMm));
     const maxPadY=Math.min(ny-1,Math.ceil((pad.obstacle.maxY-minY)/gridMm));
     for(let x=minPadX;x<=maxPadX;x++)for(let y=minPadY;y<=maxPadY;y++){
-      const key=cellKey(x,y),nets=padOccupied[li]!.get(key)??new Set<string>();
-      nets.add(pad.netName);padOccupied[li]!.set(key,nets);
+      const key=cellKey(x,y),bucket=padBuckets[li]!.get(key)??[];
+      bucket.push(pad);padBuckets[li]!.set(key,bucket);
     }
   }
   const nearForeignPad=(layer:number,x:number,y:number,radiusMm:number,netName:string)=>{
-    const radiusCells=Math.ceil(Math.max(0,radiusMm)/gridMm);
+    const radiusCells=Math.ceil(Math.max(0,radiusMm)/gridMm)+1;
+    const point=toPoint(x,y),seen=new Set<Pad>();
     for(let dx=-radiusCells;dx<=radiusCells;dx++)for(let dy=-radiusCells;dy<=radiusCells;dy++){
-      if(Math.hypot(dx*gridMm,dy*gridMm)>radiusMm+gridMm*1.5)continue;
-      const nets=padOccupied[layer]!.get(cellKey(x+dx,y+dy));
-      if(nets&&[...nets].some(name=>name!==netName))return true;
+      const bucket=padBuckets[layer]!.get(cellKey(x+dx,y+dy));
+      if(!bucket)continue;
+      for(const pad of bucket){
+        if(seen.has(pad))continue;seen.add(pad);
+        if(pad.netName===netName)continue;
+        const gapX=Math.max(pad.obstacle.minX-point.x,0,point.x-pad.obstacle.maxX);
+        const gapY=Math.max(pad.obstacle.minY-point.y,0,point.y-pad.obstacle.maxY);
+        if(Math.hypot(gapX,gapY)<=radiusMm+1e-9)return true;
+      }
     }
     return false;
   };
@@ -384,7 +391,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
 
   const priorityFor=(name:string)=>styleMap.get(name)?.priority??0;
   const candidateNets=[...byNet.entries()]
-    .filter(([name,pads])=>pads.length>=2&&(!selected||selected.has(name))&&!skippedExplicit.has(name))
+    .filter(([name,pads])=>!name.startsWith('unconnected-(')&&pads.length>=2&&(!selected||selected.has(name))&&!skippedExplicit.has(name))
     .sort((a,b)=>priorityFor(b[0])-priorityFor(a[0])||a[1].length-b[1].length||a[0].localeCompare(b[0]));
 
   for(const [netName,pads] of candidateNets){

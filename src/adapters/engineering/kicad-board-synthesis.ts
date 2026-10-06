@@ -99,6 +99,9 @@ function injectBeforeClose(block:string,lines:string[]):string {
 }
 
 export function canonicalKicadBoardNetName(name:string):string {
+  // KiCad's auto-generated no-connect net names are already canonical and must
+  // stay unscoped so PCB/schematic parity can match them exactly.
+  if(name.startsWith('unconnected-(')) return name;
   // Schematic synthesis currently emits local labels, so KiCad canonicalizes every
   // root-sheet label as /NAME regardless of conventional power-like spelling.
   // True global labels/power-symbol nets will require an explicit net-scope field.
@@ -176,6 +179,10 @@ function boardFootprint(component:KicadBoardComponentSpec,netIds:Map<string,{id:
   }
   if(!hadRef) body.unshift(`(property "Reference" "${quote(component.reference)}" (at 0 -2 0) (layer "F.SilkS") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   if(!hadValue) body.unshift(`(property "Value" "${quote(component.value)}" (at 0 2 0) (layer "F.Fab") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+  const datasheet=component.symbol.properties.Datasheet?.trim();
+  if(datasheet && datasheet!=='~' && !body.some(block=>propertyName(block)==='Datasheet')) {
+    body.push(`(property "Datasheet" "${quote(datasheet)}" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+  }
   const description=component.symbol.properties.Description?.trim();
   if(description && !body.some(block=>propertyName(block)==='Description')) {
     body.push(`(property "Description" "${quote(description)}" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);

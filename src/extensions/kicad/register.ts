@@ -287,6 +287,139 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath }) => result(await audited(ctx.audit, 'kicad_provider_status', workspace, () => ctx.engineering.kicad.version(workspace, projectPath))));
 
+  const kicadLibraryLookup = z.discriminatedUnion('mode', [
+    kicadProject.extend({
+      mode: z.literal('search'),
+      query: z.string().min(1).max(128),
+      kind: z.enum(['symbol', 'footprint', 'both']).default('both'),
+      limit: z.number().int().min(1).max(50).default(10)
+    }).strict(),
+    kicadProject.extend({
+      mode: z.literal('symbol'),
+      symbolId: z.string().min(3).max(256)
+    }).strict(),
+    kicadProject.extend({
+      mode: z.literal('footprint'),
+      footprintId: z.string().min(3).max(256)
+    }).strict(),
+    kicadProject.extend({
+      mode: z.literal('component'),
+      symbolId: z.string().min(3).max(256),
+      footprintId: z.string().min(3).max(256).optional()
+    }).strict()
+  ]);
+
+  server.registerTool('kicad_library_lookup', {
+    description: 'Search or resolve installed KiCad symbol/footprint libraries without project mutation. Resolves symbol inheritance, effective properties, pin names/numbers/electrical types/alternate functions, default footprint and footprint filters; footprint resolution reports pads, attributes and 3D-model coverage. Component mode validates the selected/default footprint against the symbol footprint filters.',
+    inputSchema: kicadLibraryLookup,
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async (request) =>
+    result(await audited(ctx.audit, 'kicad_library_lookup', request.workspace, () => ctx.engineering.kicad.libraryLookup(request.workspace, request.projectPath, request))));
+
+  const schematicComponent = z.object({
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+    symbolId: z.string().min(3).max(256),
+    value: z.string().max(256).optional(),
+    footprintId: z.string().min(3).max(256).optional(),
+    xMm: z.number().finite().min(0).max(2000).optional(),
+    yMm: z.number().finite().min(0).max(2000).optional(),
+    rotationDeg: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(),
+    unit: z.number().int().min(1).max(32).optional(),
+    inBom: z.boolean().optional(),
+    onBoard: z.boolean().optional(),
+    dnp: z.boolean().optional()
+  }).strict();
+  const schematicEndpoint = z.object({
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+    pinNumber: z.string().min(1).max(32),
+    expectedPinName: z.string().min(1).max(128).optional()
+  }).strict();
+  const schematicNet = z.object({
+    name: z.string().min(1).max(128),
+    endpoints: z.array(schematicEndpoint).min(1).max(128)
+  }).strict();
+
+  server.registerTool('kicad_schematic_synthesize', {
+    description: 'Create a new KiCad project + schematic from typed installed-library component and net specifications. Resolves exact symbols, inherited pins/alternate functions and footprints from the installed KiCad libraries, generates deterministic label-driven connectivity, round-trips the result through official `kicad-cli sch export netlist`, optionally runs ERC, and deletes the output if parsing/connectivity/ERC acceptance fails. Requires a Work Session and a new project-relative output directory; existing files are never overwritten.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      outputDir: z.string().min(1).max(1024),
+      projectName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+      title: z.string().max(256).optional(),
+      revision: z.string().max(64).optional(),
+      company: z.string().max(256).optional(),
+      components: z.array(schematicComponent).min(1).max(128),
+      nets: z.array(schematicNet).max(512),
+      markUnusedNoConnect: z.boolean().default(true),
+      allowUnconnectedPowerPins: z.boolean().default(false),
+      allowFootprintFilterMismatch: z.boolean().default(false),
+      runErc: z.boolean().default(true),
+      requireErcClean: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_schematic_synthesize', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.schematicSynthesize(request.workspace, request.projectPath, request))
+    )));
+
+  const boardMinimums = z.object({
+    clearanceMm: z.number().finite().min(0.05).max(10).optional(),
+    trackWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).optional(),
+    viaDrillMm: z.number().finite().min(0.05).max(10).optional(),
+    viaAnnularWidthMm: z.number().finite().min(0.02).max(10).optional(),
+    copperEdgeClearanceMm: z.number().finite().min(0).max(20).optional()
+  }).strict();
+  const boardRouting = z.object({
+    trackWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).optional(),
+    viaDrillMm: z.number().finite().min(0.05).max(10).optional(),
+    diffPairWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    diffPairGapMm: z.number().finite().min(0.05).max(20).optional()
+  }).strict();
+  const boardNetClass = z.object({
+    name: z.string().min(1).max(64),
+    nets: z.array(z.string().min(1).max(128)).max(512),
+    clearanceMm: z.number().finite().min(0.05).max(10).optional(),
+    trackWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    viaDiameterMm: z.number().finite().min(0.1).max(20).optional(),
+    viaDrillMm: z.number().finite().min(0.05).max(10).optional(),
+    diffPairWidthMm: z.number().finite().min(0.05).max(20).optional(),
+    diffPairGapMm: z.number().finite().min(0.05).max(20).optional()
+  }).strict();
+
+  server.registerTool('kicad_board_synthesize', {
+    description: 'Create the PCB side of an RWMCP-synthesized KiCad design from an exact design-manifest SHA. Resolves installed footprints/symbols again, creates a bounded 2..12-layer board with physical stackup and Edge.Cuts, assigns pad nets/pin functions/path linkage to the generated schematic, updates Board Setup hard minimums and net classes, then requires official KiCad stats and optional DRC/schematic-parity acceptance. Existing boards are never overwritten; failure removes the PCB and restores project/manifest revisions.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      designManifest: z.string().min(1).max(1024),
+      expectedDesignManifestSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      widthMm: z.number().finite().min(10).max(1000),
+      heightMm: z.number().finite().min(10).max(1000),
+      copperLayers: z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8), z.literal(10), z.literal(12)]).default(2),
+      thicknessMm: z.number().finite().min(0.2).max(10).default(1.6),
+      originXmm: z.number().finite().min(0).max(1000).default(20),
+      originYmm: z.number().finite().min(0).max(1000).default(20),
+      placements: z.array(z.object({
+        reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+        xMm: z.number().finite().min(-1000).max(2000),
+        yMm: z.number().finite().min(-1000).max(2000),
+        rotationDeg: z.number().finite().min(-3600).max(3600).optional(),
+        side: z.enum(['front', 'back']).optional(),
+        locked: z.boolean().optional()
+      }).strict()).max(128).optional(),
+      minimums: boardMinimums.optional(),
+      defaultRouting: boardRouting.optional(),
+      netClasses: z.array(boardNetClass).max(32).optional(),
+      runDrc: z.boolean().default(true),
+      requireNoViolations: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_board_synthesize', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.boardSynthesize(request.workspace, request.projectPath, request))
+    )));
+
   server.registerTool('kicad_board_stats', {
     description: 'Export bounded JSON board statistics for one explicit .kicad_pcb file into a temporary report; project sources are not saved or upgraded.',
     inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024) }),

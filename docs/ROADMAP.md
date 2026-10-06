@@ -702,6 +702,15 @@ This phase was accelerated after direct ChatGPT Web control was accepted on a re
 - advance Action Schema from 54 to 55 for the additive review tool; Engineering API remains 5.
 
 
+### KiCad Phase 10-12 - Creation Foundation
+
+- Phase 10 adds `kicad_library_lookup` for bounded installed-library symbol/footprint search and exact resolution, including inherited symbol pins/alternates, default footprints, footprint filters, pads and 3D-model evidence;
+- Phase 11 adds `kicad_schematic_synthesize`, a Work-Session-gated, fail-if-exists project/schematic generator using installed libraries, explicit typed nets, pin-name guards, official KiCad netlist round-trip verification and optional ERC-clean acceptance;
+- Phase 12 adds `kicad_board_synthesize`, which consumes an exact SHA-256 design manifest, re-resolves installed footprints/symbols, creates 2..12-layer boards with Edge.Cuts/stackup/pad-net linkage, updates Board Setup hard minimums/net classes, and requires official stats plus DRC/schematic-parity acceptance with rollback;
+- real KiCad 10.0.6 acceptance for the synthesis pipeline parses the generated schematic and 4-layer PCB successfully with zero DRC violations and zero schematic-parity issues before routing;
+- advance Action Schema to 58 for the three additive creation tools while retaining Engineering API 5.
+
+
 ### v0.8.0 - Hub-gateway MVP - complete
 
 - one ChatGPT Web connection can reach one Remote Workstation Hub

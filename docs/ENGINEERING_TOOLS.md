@@ -97,6 +97,12 @@ KiCad 10.0.6 on the Windows acceptance node advertises official CLI support for 
 
 The review deliberately distinguishes **hard minimum violations** from **net-class default deviations**. KiCad net-class track/via/differential values are routing defaults/optimal values unless a custom rule or hard minimum constrains them, so RWMCP never labels a default deviation as a violation. Custom-rule conditions are not reimplemented or evaluated by RWMCP; KiCad DRC remains authoritative for rule ordering, matching and violations. The parser is bounded to 128 MiB and uses iterator-based route/zone scanning so large professional boards remain practical.
 
+### Phase 10-12: library, schematic and board synthesis
+
+The KiCad workbench now has a typed creation foundation in addition to review/edit tooling. `kicad_library_lookup` resolves installed symbol/footprint definitions instead of relying on model memory. `kicad_schematic_synthesize` creates a new project/schematic only in a new output directory, verifies exact requested connectivity by round-tripping through `kicad-cli sch export netlist`, and can reject ERC errors. `kicad_board_synthesize` binds to the exact generated design-manifest SHA, creates a new PCB with real footprint geometry, stackup/Edge.Cuts/net linkage and Board Setup/net-class settings, then validates through official KiCad board statistics and DRC/schematic-parity checks.
+
+These synthesis paths are intentionally fail-if-exists and rollback on acceptance failure. They do not overwrite arbitrary existing user designs and do not infer part pinouts from language-model memory.
+
 ## Initial providers
 
 - STM32 build: CMake/Make plus Keil MDK µVision `.uvprojx` batch builds on Windows. Multi-target Keil projects are represented as explicit profile variants; RWMCP refuses to guess when more than one variant is available.

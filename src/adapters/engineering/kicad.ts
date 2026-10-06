@@ -13,6 +13,9 @@ import { parseKicadBomCsv } from './kicad-bom.js';
 import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
 import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './kicad-constraints-review.js';
+import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprint, resolveKicadSymbol, searchKicadFootprints, searchKicadSymbols } from './kicad-library.js';
+import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicNetlist, type KicadSchematicNetSpec, type KicadSchematicSynthesisOptions } from './kicad-schematic-synthesis.js';
+import { canonicalKicadBoardNetName, synthesizeKicadBoard } from './kicad-board-synthesis.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -753,6 +756,452 @@ export class KicadAdapter {
         ercJson: true
       }
     };
+  }
+
+  async libraryLookup(
+    workspace: string,
+    projectPath: string,
+    request:
+      | { mode: 'search'; query: string; kind: 'symbol' | 'footprint' | 'both'; limit: number }
+      | { mode: 'symbol'; symbolId: string }
+      | { mode: 'footprint'; footprintId: string }
+      | { mode: 'component'; symbolId: string; footprintId?: string }
+  ) {
+    this.policy.assertEngineeringEnabled();
+    await this.paths.resolveExisting(workspace, projectPath);
+    const cli = await discoverKicadCli();
+    const paths = defaultKicadLibraryPaths(cli.path);
+    if (request.mode === 'search') {
+      const [symbols, footprints] = await Promise.all([
+        request.kind === 'footprint' ? Promise.resolve([]) : searchKicadSymbols(paths, request.query, request.limit),
+        request.kind === 'symbol' ? Promise.resolve([]) : searchKicadFootprints(paths, request.query, request.limit)
+      ]);
+      return {
+        provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+        query: request.query,
+        kind: request.kind,
+        symbols,
+        footprints
+      };
+    }
+    if (request.mode === 'symbol') {
+      const symbol = await resolveKicadSymbol(paths, request.symbolId);
+      return { provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot }, symbol };
+    }
+    if (request.mode === 'footprint') {
+      const footprint = await resolveKicadFootprint(paths, request.footprintId);
+      return {
+        provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+        footprint: { ...footprint, source: undefined }
+      };
+    }
+    const symbol = await resolveKicadSymbol(paths, request.symbolId);
+    const selectedFootprintId = request.footprintId ?? symbol.footprint;
+    if (!selectedFootprintId) {
+      return {
+        provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+        symbol,
+        footprint: undefined,
+        compatibility: undefined,
+        warning: 'The symbol has no default footprint and no footprintId was supplied.'
+      };
+    }
+    const footprint = await resolveKicadFootprint(paths, selectedFootprintId);
+    return {
+      provider: { executable: cli.path, source: cli.source, shareRoot: paths.shareRoot },
+      symbol,
+      footprint: { ...footprint, source: undefined },
+      compatibility: footprintMatchesFilters(footprint.id, symbol.footprintFilters)
+    };
+  }
+
+  async schematicSynthesize(
+    workspace: string,
+    projectPath: string,
+    request: {
+      outputDir: string;
+      projectName: string;
+      title?: string;
+      revision?: string;
+      company?: string;
+      components: Array<{
+        reference: string;
+        symbolId: string;
+        value?: string;
+        footprintId?: string;
+        xMm?: number;
+        yMm?: number;
+        rotationDeg?: 0 | 90 | 180 | 270;
+        unit?: number;
+        inBom?: boolean;
+        onBoard?: boolean;
+        dnp?: boolean;
+      }>;
+      nets: KicadSchematicNetSpec[];
+      markUnusedNoConnect?: boolean;
+      allowUnconnectedPowerPins?: boolean;
+      allowFootprintFilterMismatch?: boolean;
+      runErc?: boolean;
+      requireErcClean?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const outputDir = safeOutputDirectory(request.outputDir);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(request.projectName)) {
+      throw new Error('KiCad synthesized projectName must be a portable 1..64 character name.');
+    }
+    if (request.components.length < 1 || request.components.length > 128) throw new Error('KiCad schematic synthesis requires 1..128 components.');
+    if (request.nets.length > 512) throw new Error('KiCad schematic synthesis supports at most 512 nets.');
+
+    const cli = await discoverKicadCli();
+    const libraryPaths = defaultKicadLibraryPaths(cli.path);
+    const resolvedComponents = [];
+    for (const component of request.components) {
+      const symbol = await resolveKicadSymbol(libraryPaths, component.symbolId);
+      const footprintId = component.footprintId ?? symbol.footprint;
+      if (component.onBoard !== false && !footprintId) {
+        throw new Error(`On-board component ${component.reference} requires an explicit/default footprint.`);
+      }
+      if (footprintId) {
+        const footprint = await resolveKicadFootprint(libraryPaths, footprintId);
+        const compatible = footprintMatchesFilters(footprint.id, symbol.footprintFilters);
+        if (compatible === false && request.allowFootprintFilterMismatch !== true) {
+          throw new Error(`Footprint ${footprint.id} does not match filters for ${symbol.id}: ${symbol.footprintFilters.join(', ') || '<none>'}.`);
+        }
+      }
+      resolvedComponents.push({
+        reference: component.reference,
+        symbol,
+        ...(component.value !== undefined ? { value: component.value } : {}),
+        ...(footprintId ? { footprintId } : {}),
+        ...(component.xMm !== undefined ? { xMm: component.xMm } : {}),
+        ...(component.yMm !== undefined ? { yMm: component.yMm } : {}),
+        ...(component.rotationDeg !== undefined ? { rotationDeg: component.rotationDeg } : {}),
+        ...(component.unit !== undefined ? { unit: component.unit } : {}),
+        ...(component.inBom !== undefined ? { inBom: component.inBom } : {}),
+        ...(component.onBoard !== undefined ? { onBoard: component.onBoard } : {}),
+        ...(component.dnp !== undefined ? { dnp: component.dnp } : {})
+      });
+    }
+
+    const synthesisOptions: KicadSchematicSynthesisOptions = {
+      ...(request.title ? { title: request.title } : {}),
+      ...(request.revision ? { revision: request.revision } : {}),
+      ...(request.company ? { company: request.company } : {}),
+      markUnusedNoConnect: request.markUnusedNoConnect !== false,
+      allowUnconnectedPowerPins: request.allowUnconnectedPowerPins === true
+    };
+    const generated = synthesizeKicadSchematic(resolvedComponents, request.nets, synthesisOptions);
+    const output = await prepareNewOutputDirectory(projectRoot, outputDir);
+    const projectFile = path.join(output, request.projectName + '.kicad_pro');
+    const schematicFile = path.join(output, request.projectName + '.kicad_sch');
+    const relativeProject = path.relative(projectRoot, projectFile).split(path.sep).join('/');
+    const relativeSchematic = path.relative(projectRoot, schematicFile).split(path.sep).join('/');
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-synth-'));
+    try {
+      const templateRaw = await fs.readFile(libraryPaths.blankProjectTemplate, 'utf8');
+      const template = JSON.parse(templateRaw) as Record<string, unknown>;
+      const meta = asRecord(template.meta);
+      template.meta = { ...meta, filename: request.projectName + '.kicad_pro', version: typeof meta.version === 'number' ? meta.version : 1 };
+      await fs.writeFile(projectFile, JSON.stringify(template, null, 2) + '\n', 'utf8');
+      await fs.writeFile(schematicFile, generated.source, 'utf8');
+
+      const netlistOutput = path.join(temp, 'roundtrip.net');
+      const netlistArgs = ['sch', 'export', 'netlist', '--format', 'kicadsexpr', '--output', netlistOutput, schematicFile];
+      const netlistResult = await this.runner.run(cli.path, netlistArgs, projectRoot, 120_000);
+      if (netlistResult.exitCode !== 0 || netlistResult.timedOut) {
+        throw new Error(`KiCad synthesized schematic netlist round-trip failed: ${netlistResult.stderr || netlistResult.stdout || `exit=${netlistResult.exitCode}`}`);
+      }
+      const netlistStat = await fs.stat(netlistOutput);
+      if (!netlistStat.isFile() || netlistStat.size > 16 * 1024 * 1024) throw new Error('KiCad synthesized netlist is missing or exceeds 16 MiB.');
+      const actualNets = parseKicadSexprNetlist(await fs.readFile(netlistOutput, 'utf8'));
+      const verification = verifyKicadSchematicNetlist(request.nets, actualNets);
+      if (!verification.valid) {
+        throw new Error(`KiCad synthesized netlist does not match requested connectivity: ${JSON.stringify(verification.missingEndpoints.slice(0, 16))}`);
+      }
+
+      const runErc = request.runErc !== false;
+      const erc = runErc ? await this.erc(workspace, projectPath, relativeSchematic) : undefined;
+      const ercErrors = Number(erc?.report.counts.active.bySeverity.error ?? 0);
+      if (request.requireErcClean !== false && runErc && ercErrors > 0) {
+        throw new Error(`KiCad synthesized schematic ERC has ${ercErrors} active error(s); output rejected.`);
+      }
+
+      const designManifest = {
+        schemaVersion: 1,
+        projectName: request.projectName,
+        projectFile: path.basename(projectFile),
+        schematicFile: path.basename(schematicFile),
+        rootUuid: generated.rootUuid,
+        components: generated.components.map(component => {
+          const requested = request.components.find(item => item.reference === component.reference);
+          return {
+            reference: component.reference,
+            symbolId: component.symbolId,
+            symbolUuid: component.symbolUuid,
+            unit: component.unit,
+            value: component.value,
+            ...(component.footprintId ? { footprintId: component.footprintId } : {}),
+            inBom: requested?.inBom !== false,
+            onBoard: requested?.onBoard !== false,
+            dnp: requested?.dnp === true
+          };
+        }),
+        nets: generated.nets
+      };
+      const designManifestText = JSON.stringify(designManifest, null, 2) + '\n';
+      const designManifestFile = path.join(output, request.projectName + '.rwmcp-design.json');
+      await fs.writeFile(designManifestFile, designManifestText, 'utf8');
+      const relativeDesignManifest = path.relative(projectRoot, designManifestFile).split(path.sep).join('/');
+      const designManifestSha256 = sha256Text(designManifestText);
+
+      const manifest = await fabricationManifest(output);
+      return {
+        outputDir: outputDir.split(path.sep).join('/'),
+        projectFile: relativeProject,
+        schematicFile: relativeSchematic,
+        designManifestFile: relativeDesignManifest,
+        designManifestSha256,
+        generated: {
+          rootUuid: generated.rootUuid,
+          componentCount: generated.components.length,
+          netCount: generated.nets.length,
+          unusedPinCount: generated.unusedPins.length,
+          components: generated.components,
+          nets: generated.nets
+        },
+        roundTrip: {
+          valid: true,
+          actualNetCount: actualNets.length,
+          expectedNetCount: request.nets.length,
+          command: { program: cli.path, args: netlistArgs.map(arg => arg === netlistOutput ? '<temp-roundtrip.net>' : arg === schematicFile ? relativeSchematic : arg) }
+        },
+        ercRun: runErc,
+        ...(erc ? { erc } : {}),
+        manifest
+      };
+    } catch (error) {
+      await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    } finally {
+      await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  async boardSynthesize(
+    workspace: string,
+    projectPath: string,
+    request: {
+      designManifest: string;
+      expectedDesignManifestSha256: string;
+      widthMm: number;
+      heightMm: number;
+      copperLayers?: number;
+      thicknessMm?: number;
+      originXmm?: number;
+      originYmm?: number;
+      placements?: Array<{ reference: string; xMm: number; yMm: number; rotationDeg?: number; side?: 'front' | 'back'; locked?: boolean }>;
+      minimums?: {
+        clearanceMm?: number;
+        trackWidthMm?: number;
+        viaDiameterMm?: number;
+        viaDrillMm?: number;
+        viaAnnularWidthMm?: number;
+        copperEdgeClearanceMm?: number;
+      };
+      defaultRouting?: {
+        trackWidthMm?: number;
+        viaDiameterMm?: number;
+        viaDrillMm?: number;
+        diffPairWidthMm?: number;
+        diffPairGapMm?: number;
+      };
+      netClasses?: Array<{
+        name: string;
+        nets: string[];
+        clearanceMm?: number;
+        trackWidthMm?: number;
+        viaDiameterMm?: number;
+        viaDrillMm?: number;
+        diffPairWidthMm?: number;
+        diffPairGapMm?: number;
+      }>;
+      runDrc?: boolean;
+      requireNoViolations?: boolean;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const manifestPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.designManifest, 'KiCad design manifest');
+    if (!manifestPath.endsWith('.rwmcp-design.json')) throw new Error('KiCad board synthesis requires a .rwmcp-design.json manifest.');
+    const manifestStat = await fs.stat(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.size > 4 * 1024 * 1024) throw new Error('KiCad design manifest is missing or exceeds 4 MiB.');
+    const originalManifestText = await fs.readFile(manifestPath, 'utf8');
+    const actualManifestSha = sha256Text(originalManifestText);
+    if (actualManifestSha.toLowerCase() !== request.expectedDesignManifestSha256.toLowerCase()) {
+      throw new Error(`KiCad design manifest SHA mismatch: expected ${request.expectedDesignManifestSha256}, actual ${actualManifestSha}.`);
+    }
+    const manifest = asRecord(JSON.parse(originalManifestText));
+    if (manifest.schemaVersion !== 1 || typeof manifest.projectName !== 'string') throw new Error('Unsupported KiCad design manifest schema.');
+    const projectName = manifest.projectName;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) throw new Error('KiCad design manifest projectName is invalid.');
+    const designDir = path.dirname(manifestPath);
+    if (!insideRoot(projectRoot, designDir)) throw new Error('KiCad design manifest directory escapes the project.');
+    const projectFile = path.join(designDir, typeof manifest.projectFile === 'string' ? manifest.projectFile : projectName + '.kicad_pro');
+    const schematicFile = path.join(designDir, typeof manifest.schematicFile === 'string' ? manifest.schematicFile : projectName + '.kicad_sch');
+    const boardFile = path.join(designDir, projectName + '.kicad_pcb');
+    try { await fs.lstat(boardFile); throw new Error('KiCad synthesized board already exists; board synthesis is fail-if-exists.'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const originalProjectText = await fs.readFile(projectFile, 'utf8');
+    await fs.access(schematicFile);
+
+    const cli = await discoverKicadCli();
+    const libraryPaths = defaultKicadLibraryPaths(cli.path);
+    const placements = new Map((request.placements ?? []).map(item => [item.reference, item]));
+    const rawComponents = asArray(manifest.components).map(asRecord);
+    const rawNets = asArray(manifest.nets).map(asRecord);
+    const nets: KicadSchematicNetSpec[] = rawNets.map(net => ({
+      name: typeof net.name === 'string' ? net.name : '',
+      endpoints: asArray(net.endpoints).map(endpoint => {
+        const entry = asRecord(endpoint);
+        return {
+          reference: typeof entry.reference === 'string' ? entry.reference : '',
+          pinNumber: typeof entry.pinNumber === 'string' ? entry.pinNumber : '',
+          ...(typeof entry.expectedPinName === 'string' ? { expectedPinName: entry.expectedPinName } : {})
+        };
+      })
+    }));
+    if (nets.some(net => !net.name || net.endpoints.some(endpoint => !endpoint.reference || !endpoint.pinNumber))) throw new Error('KiCad design manifest contains invalid net data.');
+
+    const boardComponents = [];
+    for (const entry of rawComponents) {
+      if (entry.onBoard === false) continue;
+      const reference = typeof entry.reference === 'string' ? entry.reference : '';
+      const symbolId = typeof entry.symbolId === 'string' ? entry.symbolId : '';
+      const symbolUuid = typeof entry.symbolUuid === 'string' ? entry.symbolUuid : '';
+      const footprintId = typeof entry.footprintId === 'string' ? entry.footprintId : '';
+      const value = typeof entry.value === 'string' ? entry.value : '';
+      if (!reference || !symbolId || !symbolUuid || !footprintId) throw new Error(`KiCad design manifest component is incomplete: ${reference || '<unknown>'}.`);
+      const [symbol, footprint] = await Promise.all([resolveKicadSymbol(libraryPaths, symbolId), resolveKicadFootprint(libraryPaths, footprintId)]);
+      const compatible = footprintMatchesFilters(footprint.id, symbol.footprintFilters);
+      if (compatible === false) throw new Error(`Manifest footprint ${footprint.id} no longer matches installed symbol filters for ${symbol.id}.`);
+      const placement = placements.get(reference);
+      boardComponents.push({
+        reference, value: value || symbol.name, symbol, footprint, symbolUuid,
+        ...(placement ? { xMm: placement.xMm, yMm: placement.yMm, rotationDeg: placement.rotationDeg ?? 0, side: placement.side ?? 'front', locked: placement.locked ?? false } : {})
+      });
+    }
+    if (!boardComponents.length) throw new Error('KiCad board synthesis has no on-board components.');
+
+    const generated = synthesizeKicadBoard(boardComponents, nets, {
+      projectName, widthMm: request.widthMm, heightMm: request.heightMm,
+      copperLayers: request.copperLayers ?? 2, thicknessMm: request.thicknessMm ?? 1.6,
+      originXmm: request.originXmm ?? 20, originYmm: request.originYmm ?? 20
+    });
+
+    const minimums = {
+      clearanceMm: request.minimums?.clearanceMm ?? 0.2,
+      trackWidthMm: request.minimums?.trackWidthMm ?? 0.15,
+      viaDiameterMm: request.minimums?.viaDiameterMm ?? 0.5,
+      viaDrillMm: request.minimums?.viaDrillMm ?? 0.25,
+      viaAnnularWidthMm: request.minimums?.viaAnnularWidthMm ?? 0.1,
+      copperEdgeClearanceMm: request.minimums?.copperEdgeClearanceMm ?? 0.3
+    };
+    const defaultRouting = {
+      trackWidthMm: request.defaultRouting?.trackWidthMm ?? 0.25,
+      viaDiameterMm: request.defaultRouting?.viaDiameterMm ?? 0.6,
+      viaDrillMm: request.defaultRouting?.viaDrillMm ?? 0.3,
+      diffPairWidthMm: request.defaultRouting?.diffPairWidthMm ?? 0.2,
+      diffPairGapMm: request.defaultRouting?.diffPairGapMm ?? 0.25
+    };
+    if (defaultRouting.trackWidthMm < minimums.trackWidthMm || defaultRouting.viaDiameterMm < minimums.viaDiameterMm || defaultRouting.viaDrillMm < minimums.viaDrillMm) {
+      throw new Error('KiCad default routing geometry must not be below configured hard minimums.');
+    }
+
+    const projectJson = asRecord(JSON.parse(originalProjectText));
+    const boardSettings = asRecord(projectJson.board);
+    const designSettings = asRecord(boardSettings.design_settings);
+    const oldRules = asRecord(designSettings.rules);
+    designSettings.rules = {
+      ...oldRules,
+      min_clearance: minimums.clearanceMm,
+      min_copper_edge_clearance: minimums.copperEdgeClearanceMm,
+      min_track_width: minimums.trackWidthMm,
+      min_via_diameter: minimums.viaDiameterMm,
+      min_through_hole_diameter: minimums.viaDrillMm,
+      min_via_annular_width: minimums.viaAnnularWidthMm,
+      min_hole_clearance: 0.2, min_hole_to_hole: 0.25,
+      min_microvia_diameter: 0.3, min_microvia_drill: 0.1,
+      use_height_for_length_calcs: true
+    };
+    const classes = [{
+      name: 'Default', priority: 2147483647, clearance: minimums.clearanceMm,
+      track_width: defaultRouting.trackWidthMm, via_diameter: defaultRouting.viaDiameterMm, via_drill: defaultRouting.viaDrillMm,
+      microvia_diameter: 0.3, microvia_drill: 0.1, diff_pair_width: defaultRouting.diffPairWidthMm, diff_pair_gap: defaultRouting.diffPairGapMm, diff_pair_via_gap: defaultRouting.diffPairGapMm
+    }];
+    const assignments: Record<string, string[]> = {};
+    for (const [index, item] of (request.netClasses ?? []).entries()) {
+      if (!item.name || item.name === 'Default') throw new Error('Custom KiCad net class names must be non-empty and must not be Default.');
+      const cls = {
+        name: item.name, priority: index + 1, clearance: item.clearanceMm ?? minimums.clearanceMm,
+        track_width: item.trackWidthMm ?? defaultRouting.trackWidthMm, via_diameter: item.viaDiameterMm ?? defaultRouting.viaDiameterMm, via_drill: item.viaDrillMm ?? defaultRouting.viaDrillMm,
+        microvia_diameter: 0.3, microvia_drill: 0.1, diff_pair_width: item.diffPairWidthMm ?? defaultRouting.diffPairWidthMm, diff_pair_gap: item.diffPairGapMm ?? defaultRouting.diffPairGapMm, diff_pair_via_gap: item.diffPairGapMm ?? defaultRouting.diffPairGapMm
+      };
+      if (cls.track_width < minimums.trackWidthMm || cls.via_diameter < minimums.viaDiameterMm || cls.via_drill < minimums.viaDrillMm) throw new Error(`Net class ${item.name} geometry is below hard minimums.`);
+      classes.push(cls);
+      for (const net of item.nets) {
+        if (!nets.some(candidate => candidate.name === net)) throw new Error(`Net class ${item.name} references unknown net ${net}.`);
+        assignments[canonicalKicadBoardNetName(net)] = [item.name];
+      }
+    }
+    designSettings.track_widths = [0, ...[...new Set(classes.map(item => item.track_width))].sort((a, b) => a - b)];
+    designSettings.via_dimensions = [{ diameter: 0, drill: 0 }, ...classes.map(item => ({ diameter: item.via_diameter, drill: item.via_drill }))];
+    designSettings.diff_pair_dimensions = [{ width: 0, gap: 0, via_gap: 0 }, ...classes.map(item => ({ width: item.diff_pair_width, gap: item.diff_pair_gap, via_gap: item.diff_pair_via_gap }))];
+    boardSettings.design_settings = designSettings;
+    projectJson.board = boardSettings;
+    projectJson.net_settings = { ...asRecord(projectJson.net_settings), classes, netclass_assignments: assignments, meta: { version: 3 } };
+    const updatedProjectText = JSON.stringify(projectJson, null, 2) + '\n';
+
+    const relativeBoard = path.relative(projectRoot, boardFile).split(path.sep).join('/');
+    const relativeProject = path.relative(projectRoot, projectFile).split(path.sep).join('/');
+    const relativeSchematic = path.relative(projectRoot, schematicFile).split(path.sep).join('/');
+    try {
+      await fs.writeFile(boardFile, generated.source, { encoding: 'utf8', flag: 'wx' });
+      await atomicReplace(projectFile, updatedProjectText);
+      const stats = await this.boardStats(workspace, projectPath, relativeBoard);
+      const runDrc = request.runDrc !== false;
+      const drc = runDrc ? await this.drc(workspace, projectPath, relativeBoard, true) : undefined;
+      const violations = Number(drc?.report.counts.active.violations ?? 0);
+      const parity = Number(drc?.report.counts.active.schematicParity ?? 0);
+      if (request.requireNoViolations !== false && runDrc && (violations > 0 || parity > 0)) {
+        throw new Error(`KiCad synthesized board DRC rejected: active violations=${violations}, schematicParity=${parity}.`);
+      }
+      const updatedManifest = {
+        ...manifest,
+        board: {
+          file: path.basename(boardFile), sha256: sha256Text(generated.source),
+          widthMm: request.widthMm, heightMm: request.heightMm, copperLayers: request.copperLayers ?? 2, thicknessMm: request.thicknessMm ?? 1.6,
+          components: generated.components, nets: generated.nets
+        }
+      };
+      const updatedManifestText = JSON.stringify(updatedManifest, null, 2) + '\n';
+      await atomicReplace(manifestPath, updatedManifestText);
+      const updatedManifestSha256 = sha256Text(updatedManifestText);
+      return {
+        projectFile: relativeProject, schematicFile: relativeSchematic, boardFile: relativeBoard,
+        designManifest: request.designManifest, designManifestSha256: updatedManifestSha256,
+        boardSha256: sha256Text(generated.source),
+        generated: { componentCount: generated.components.length, netCount: generated.nets.length, components: generated.components, nets: generated.nets },
+        stats, drcRun: runDrc, ...(drc ? { drc } : {})
+      };
+    } catch (error) {
+      await fs.rm(boardFile, { force: true }).catch(() => undefined);
+      await atomicReplace(projectFile, originalProjectText).catch(() => undefined);
+      await atomicReplace(manifestPath, originalManifestText).catch(() => undefined);
+      throw error;
+    }
   }
 
   async boardStats(workspace: string, projectPath: string, board: string) {

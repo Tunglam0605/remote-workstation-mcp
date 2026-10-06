@@ -8,7 +8,7 @@ const MAX_GRID_STATES = 650_000;
 
 type Point = { x: number; y: number };
 type Rect = { minX: number; minY: number; maxX: number; maxY: number; reference?: string };
-type Pad = { reference: string; number: string; netId: number; netName: string; position: Point; layers: string[] };
+type Pad = { reference: string; number: string; netId: number; netName: string; position: Point; layers: string[]; obstacle: Rect };
 type Footprint = { reference: string; at: Point; rotationDeg: number; pads: Pad[]; obstacle?: Rect };
 type RouteStyle = { netName: string; widthMm?: number; clearanceMm?: number; preferredLayer?: string; priority?: number };
 
@@ -136,10 +136,18 @@ function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
       const position=transform({x:pAt.x,y:pAt.y},{x:origin.x,y:origin.y},origin.rotationDeg);
       const net=netOf(pblock);if(!net||net.id===0)continue;
       const layers=layersOf(pblock);
-      const pad:Pad={reference,number:padNumber(pblock),netId:net.id,netName:net.name,position,layers};
+      const size=padSize(pblock),halfX=size.x/2,halfY=size.y/2;
+      const padRotation=origin.rotationDeg+pAt.rotationDeg;
+      const padCorners=[
+        transform({x:-halfX,y:-halfY},position,padRotation),
+        transform({x:-halfX,y:halfY},position,padRotation),
+        transform({x:halfX,y:-halfY},position,padRotation),
+        transform({x:halfX,y:halfY},position,padRotation)
+      ];
+      const padObstacle:Rect={minX:Math.min(...padCorners.map(p=>p.x)),minY:Math.min(...padCorners.map(p=>p.y)),maxX:Math.max(...padCorners.map(p=>p.x)),maxY:Math.max(...padCorners.map(p=>p.y))};
+      const pad:Pad={reference,number:padNumber(pblock),netId:net.id,netName:net.name,position,layers,obstacle:padObstacle};
       pads.push(pad);allPads.push(pad);
       if(allPads.length>MAX_PADS)throw new Error(`KiCad route planner exceeds ${MAX_PADS} connected pads.`);
-      const size=padSize(pblock),halfX=size.x/2,halfY=size.y/2;
       localObstacles.push({minX:pAt.x-halfX,minY:pAt.y-halfY,maxX:pAt.x+halfX,maxY:pAt.y+halfY});
     }
     for(const token of ['fp_rect','fp_line']){
@@ -274,6 +282,27 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const p=toPoint(x,y);
     return obstacles.some(o=>!exempt.has(o.reference??'')&&p.x>=o.minX-inflate&&p.x<=o.maxX+inflate&&p.y>=o.minY-inflate&&p.y<=o.maxY+inflate);
   };
+  const padOccupied=layers.map(()=>new Map<string,Set<string>>());
+  for(const pad of parsed.pads)for(let li=0;li<layers.length;li++){
+    if(!layerAccess(pad,layers[li]!))continue;
+    const minPadX=Math.max(0,Math.floor((pad.obstacle.minX-minX)/gridMm));
+    const maxPadX=Math.min(nx-1,Math.ceil((pad.obstacle.maxX-minX)/gridMm));
+    const minPadY=Math.max(0,Math.floor((pad.obstacle.minY-minY)/gridMm));
+    const maxPadY=Math.min(ny-1,Math.ceil((pad.obstacle.maxY-minY)/gridMm));
+    for(let x=minPadX;x<=maxPadX;x++)for(let y=minPadY;y<=maxPadY;y++){
+      const key=cellKey(x,y),nets=padOccupied[li]!.get(key)??new Set<string>();
+      nets.add(pad.netName);padOccupied[li]!.set(key,nets);
+    }
+  }
+  const nearForeignPad=(layer:number,x:number,y:number,radiusMm:number,netName:string)=>{
+    const radiusCells=Math.ceil(Math.max(0,radiusMm)/gridMm);
+    for(let dx=-radiusCells;dx<=radiusCells;dx++)for(let dy=-radiusCells;dy<=radiusCells;dy++){
+      if(Math.hypot(dx*gridMm,dy*gridMm)>radiusMm+gridMm*1.5)continue;
+      const nets=padOccupied[layer]!.get(cellKey(x+dx,y+dy));
+      if(nets&&[...nets].some(name=>name!==netName))return true;
+    }
+    return false;
+  };
   const nearOccupied=(set:Set<string>,x:number,y:number,radiusMm:number)=>{
     const radiusCells=Math.ceil(Math.max(0,radiusMm)/gridMm);
     for(let dx=-radiusCells;dx<=radiusCells;dx++)for(let dy=-radiusCells;dy<=radiusCells;dy++){
@@ -283,7 +312,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     return false;
   };
 
-  const findPath=(start:Pad,end:Pad,width:number,clearance:number,preferredLayer?:string)=>{
+  const findPath=(netName:string,start:Pad,end:Pad,width:number,clearance:number,preferredLayer?:string)=>{
     const s=toGrid(start.position),e=toGrid(end.position);
     const startLayers=layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(start,x.layer)).map(x=>x.index);
     const endLayers=new Set(layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(end,x.layer)).map(x=>x.index));
@@ -303,6 +332,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
         if(x<0||y<0||x>=nx||y>=ny)continue;
         const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
+        if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
         if(!endpoint&&(nearOccupied(existing[cur.layer]!,x,y,inflate)||nearOccupied(planned[cur.layer]!,x,y,inflate)||insideObstacle(x,y,inflate,exempt)))continue;
         const horizontal=dy===0,layerName=layers[cur.layer]!;
         const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
@@ -313,7 +343,9 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       const other=cur.layer===0?1:0;
       const endpoint=(cur.x===s.x&&cur.y===s.y)||(cur.x===e.x&&cur.y===e.y);
       const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
-      if(endpoint||(!nearOccupied(existing[other]!,cur.x,cur.y,viaInflate)&&!nearOccupied(planned[other]!,cur.x,cur.y,viaInflate)&&!insideObstacle(cur.x,cur.y,viaInflate,exempt))){
+      const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
+      const viaBlocked=[cur.layer,other].some(li=>nearOccupied(existing[li]!,cur.x,cur.y,viaInflate)||nearOccupied(planned[li]!,cur.x,cur.y,viaInflate)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
+      if(!viaForeignPadBlocked&&(endpoint||!viaBlocked)){
         const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
         if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+Math.hypot(e.x-cur.x,e.y-cur.y)*gridMm,next);}
       }
@@ -363,7 +395,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const reserveRadius=Math.max(width/2,viaDiameter/2)+clearance;
     const reserve=(state:GridState)=>{const r=Math.ceil(reserveRadius/gridMm);for(let dx=-r;dx<=r;dx++)for(let dy=-r;dy<=r;dy++){if(Math.hypot(dx*gridMm,dy*gridMm)>reserveRadius+gridMm*0.75)continue;const x=state.x+dx,y=state.y+dy;if(x<0||y<0||x>=nx||y>=ny)continue;const cell=cellKey(x,y);if(!planned[state.layer]!.has(cell)){planned[state.layer]!.add(cell);added.push({layer:state.layer,cell});}}};
     for(const [a,b] of edges){
-      const path=findPath(a,b,width,clearance,style?.preferredLayer);
+      const path=findPath(netName,a,b,width,clearance,style?.preferredLayer);
       if(!path){failed=true;break;}
       const edgeOps=pathToOperations(netName,path,a,b,width);
       if(operations.length+netOps.length+edgeOps.length>maxOperations){failed=true;break;}

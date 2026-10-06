@@ -388,6 +388,32 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     diffPairGapMm: z.number().finite().min(0.05).max(20).optional()
   }).strict();
 
+  const placementHint = z.object({
+    reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+    role: z.enum(['mcu','connector','debug','power','transceiver','crystal','decoupling','sensor','driver','generic']).optional(),
+    anchorRef: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+    edge: z.enum(['top','bottom','left','right']).optional(),
+    locked: z.boolean().optional()
+  }).strict();
+
+  server.registerTool('kicad_semantic_place_plan', {
+    description: 'Plan professional semantic component placement from an exact synthesized-design manifest SHA without mutating files. Classifies MCU/core, connectors, debug headers, power, transceivers, crystals, decoupling, sensors and drivers; applies edge/accessibility and anchor-proximity rules, then uses connectivity-weighted centroid placement for remaining parts. Returns typed placements directly consumable by kicad_board_synthesize.',
+    inputSchema: kicadProject.extend({
+      designManifest: z.string().min(1).max(1024),
+      expectedDesignManifestSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      widthMm: z.number().finite().min(20).max(1000),
+      heightMm: z.number().finite().min(20).max(1000),
+      originXmm: z.number().finite().min(0).max(1000).default(20),
+      originYmm: z.number().finite().min(0).max(1000).default(20),
+      gridMm: z.number().finite().gt(0).max(10).default(0.5),
+      minSpacingMm: z.number().finite().min(0.5).max(50).default(3),
+      edgeInsetMm: z.number().finite().min(1).max(50).default(4),
+      hints: z.array(placementHint).max(256).optional()
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async (request) =>
+    result(await audited(ctx.audit, 'kicad_semantic_place_plan', request.workspace, () => ctx.engineering.kicad.semanticPlacementPlan(request.workspace, request.projectPath, request))));
+
   server.registerTool('kicad_board_synthesize', {
     description: 'Create the PCB side of an RWMCP-synthesized KiCad design from an exact design-manifest SHA. Resolves installed footprints/symbols again, creates a bounded 2..12-layer board with physical stackup and Edge.Cuts, assigns pad nets/pin functions/path linkage to the generated schematic, updates Board Setup hard minimums and net classes, then requires official KiCad stats and optional DRC/schematic-parity acceptance. Existing boards are never overwritten; failure removes the PCB and restores project/manifest revisions.',
     inputSchema: kicadProject.extend({

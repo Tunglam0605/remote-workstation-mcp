@@ -16,6 +16,7 @@ import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './k
 import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprint, resolveKicadSymbol, searchKicadFootprints, searchKicadSymbols } from './kicad-library.js';
 import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicNetlist, type KicadSchematicNetSpec, type KicadSchematicSynthesisOptions } from './kicad-schematic-synthesis.js';
 import { canonicalKicadBoardNetName, synthesizeKicadBoard } from './kicad-board-synthesis.js';
+import { planKicadSemanticPlacement, type KicadPlacementHint } from './kicad-semantic-placement.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
 
@@ -988,6 +989,46 @@ export class KicadAdapter {
     } finally {
       await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined);
     }
+  }
+
+  async semanticPlacementPlan(
+    workspace: string,
+    projectPath: string,
+    request: {
+      designManifest: string;
+      expectedDesignManifestSha256: string;
+      widthMm: number;
+      heightMm: number;
+      originXmm?: number;
+      originYmm?: number;
+      gridMm?: number;
+      minSpacingMm?: number;
+      edgeInsetMm?: number;
+      hints?: KicadPlacementHint[];
+    }
+  ) {
+    this.policy.assertEngineeringEnabled();
+    const manifestPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.designManifest, 'KiCad semantic-placement design manifest');
+    if (!manifestPath.endsWith('.rwmcp-design.json')) throw new Error('KiCad semantic placement requires a .rwmcp-design.json manifest.');
+    const stat = await fs.stat(manifestPath);
+    if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error('KiCad design manifest is missing or exceeds 4 MiB.');
+    const text = await fs.readFile(manifestPath, 'utf8');
+    const actual = sha256Text(text);
+    if (actual.toLowerCase() !== request.expectedDesignManifestSha256.toLowerCase()) {
+      throw new Error(`KiCad design manifest SHA mismatch: expected ${request.expectedDesignManifestSha256}, actual ${actual}.`);
+    }
+    const manifest = JSON.parse(text) as unknown;
+    const plan = planKicadSemanticPlacement(manifest, {
+      widthMm: request.widthMm,
+      heightMm: request.heightMm,
+      ...(request.originXmm !== undefined ? { originXmm: request.originXmm } : {}),
+      ...(request.originYmm !== undefined ? { originYmm: request.originYmm } : {}),
+      ...(request.gridMm !== undefined ? { gridMm: request.gridMm } : {}),
+      ...(request.minSpacingMm !== undefined ? { minSpacingMm: request.minSpacingMm } : {}),
+      ...(request.edgeInsetMm !== undefined ? { edgeInsetMm: request.edgeInsetMm } : {}),
+      ...(request.hints ? { hints: request.hints } : {})
+    });
+    return { designManifest: request.designManifest, designManifestSha256: actual, plan };
   }
 
   async boardSynthesize(

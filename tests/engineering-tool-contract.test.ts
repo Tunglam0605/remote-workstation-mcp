@@ -34,7 +34,7 @@ test('Engineering Workflow Engine exposes a frozen-snapshot-safe ChatGPT action 
 
 test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 while retaining Engineering API v5', async () => {
   const capabilities = await read('src/capabilities.ts');
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 58;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 60;/);
   assert.match(capabilities, /export const ENGINEERING_API_VERSION = 5;/);
   const packageJson = JSON.parse(await read('package.json')) as { version: string };
   assert.ok(capabilities.includes(`export const SERVER_VERSION = '${packageJson.version}';`));
@@ -419,7 +419,7 @@ test('v0.68 KiCad Phase 8 layout optimization planner stays read-only and geomet
   assert.match(layout, /geometry-only candidates|geometryOnly/);
   assert.doesNotMatch(kicadTools, /registerTool\('(?:kicad_.*autoroute|kicad_.*raw|kicad_layout_apply)'/);
   assert.doesNotMatch(layout, /child_process|spawn|execFile|board\.save|writeFile/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('v0.68 KiCad Phase 9 constraints review stays read-only and defers custom-rule authority to KiCad DRC', async () => {
@@ -440,7 +440,7 @@ test('v0.68 KiCad Phase 9 constraints review stays read-only and defers custom-r
   assert.match(constraints, /differentialPairs/);
   assert.doesNotMatch(kicadTools, /registerTool\('(?:kicad_.*rule_edit|kicad_.*constraints_apply|kicad_.*autoroute)'/);
   assert.doesNotMatch(constraints, /child_process|spawn|execFile|writeFile|board\.save/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('v0.68 KiCad Phase 10 library intelligence resolves installed libraries without project mutation', async () => {
@@ -460,7 +460,7 @@ test('v0.68 KiCad Phase 10 library intelligence resolves installed libraries wit
   assert.match(adapter, /defaultKicadLibraryPaths/);
   assert.doesNotMatch(library, /writeFile|spawn|execFile|child_process/);
   assert.doesNotMatch(register, /kicad_library_(?:write|install|mutate|download)/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('v0.68 KiCad Phase 11 schematic synthesis is Work-Session gated and round-trip verified', async () => {
@@ -482,7 +482,7 @@ test('v0.68 KiCad Phase 11 schematic synthesis is Work-Session gated and round-t
   assert.match(synthesis, /positive Y up/);
   assert.doesNotMatch(register, /rawSexpr|rawSchematic|rawArgs/);
   assert.doesNotMatch(synthesis, /child_process|spawn|execFile|writeFile/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('v0.68 KiCad Phase 12 board synthesis is manifest-SHA gated and rollback-safe', async () => {
@@ -505,7 +505,7 @@ test('v0.68 KiCad Phase 12 board synthesis is manifest-SHA gated and rollback-sa
   assert.match(board, /pintype/);
   assert.match(board, /Edge\.Cuts/);
   assert.doesNotMatch(register, /rawPcb|rawBoard|rawSexpr/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('v0.62 Modbus RTU Phase 1 is bounded and read-only at the protocol surface', async () => {
@@ -729,7 +729,7 @@ test('current runtime retains Work Session routing under Action Schema v26 and K
   const workflowExecution = await read('src/engineering-workflow-execution.ts');
   const firmware = await read('src/adapters/engineering/firmware.ts');
 
-  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 58;/);
+  assert.match(capabilities, /export const ACTION_SCHEMA_VERSION = 60;/);
   assert.match(coreTools, /work_session_create/);
   assert.match(coreTools, /work_session_resume/);
   assert.match(coreTools, /work_session_lifecycle_preview/);
@@ -985,7 +985,7 @@ test('v0.65 ESP-IDF environment provenance and maintenance stay typed behind the
 
   assert.match(capabilities, /v0\.65 extends/);
   assert.match(capabilities, /arbitrary environment maps/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
   assert.doesNotMatch(workflows, /workflow === 'espidf\.(erase|efuse|raw)'/);
   assert.doesNotMatch(firmware, /async\s+(?:eraseFlash|writeEfuse|runRawEsptool)\s*\(/);
 });
@@ -1016,7 +1016,7 @@ test('Camera Diagnostics Phase 2 keeps PTZ credentials owner-local and movement 
   assert.match(scopes, /camera_fleet_probe: 'workstation\.read'/);
 
   assert.match(capabilities, /engineering\.camera/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
   assert.match(register, /registerTool\('camera_ptz_status'/);
   assert.match(register, /registerTool\('camera_ptz_move'/);
   assert.match(register, /registerTool\('camera_ptz_stop'/);
@@ -1054,7 +1054,7 @@ test('Media/Video Phase 1 stays typed, project-scoped and bounded', async () => 
   assert.match(scopes, /media_comfyui_status: 'workstation\.read'/);
 
   assert.match(capabilities, /engineering\.media/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
   assert.match(adapter, /ffmpeg/);
   assert.match(adapter, /ffprobe/);
   assert.match(adapter, /fail-if-exists/);
@@ -1088,7 +1088,7 @@ test('Media/Video Phase 2 restricts ComfyUI submission to owner-local typed pres
   assert.match(jobs, /\/history\//);
   assert.match(workflowStore, /comfyui-presets\.json/);
   assert.match(workflowStore, /comfyui-workflows/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
   assert.doesNotMatch(register, /workflowJson|rawWorkflow|arbitraryWorkflow/);
 });
 
@@ -1111,7 +1111,7 @@ test('Media/Video Phase 3 imports only bounded durable ComfyUI artifacts', async
   assert.match(importer, /fs\.rename\(temp, destinationAbsolute\)/);
   assert.match(importer, /fs\.rm\(temp/);
   assert.doesNotMatch(register, /sourceFilename|sourceSubfolder/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('Media/Video Phase 4 renders only owner-local typed Remotion presets', async () => {
@@ -1134,7 +1134,7 @@ test('Media/Video Phase 4 renders only owner-local typed Remotion presets', asyn
   assert.match(renderer, /createHash\('sha256'\)/);
   assert.match(renderer, /mkdtemp/);
   assert.doesNotMatch(register, /entryPoint|rawArgs|commandLine|shellCommand/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('MQTT and industrial extensions stay project-agnostic and profile-driven', async () => {
@@ -1148,7 +1148,7 @@ test('MQTT and industrial extensions stay project-agnostic and profile-driven', 
   }
   assert.match(mqttRegister, /registerTool\('mqtt_json_observe'/);
   assert.match(industrialStore, /kind: z\.literal\('mqtt-topic'\)/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
 });
 
 test('CANopen Phase 2/3 exposes only bounded read-only semantic and passive analysis diagnostics', async () => {
@@ -1174,7 +1174,7 @@ test('CANopen Phase 2/3 exposes only bounded read-only semantic and passive anal
   assert.doesNotMatch(analysis, /laser|b300|aubot/i);
   assert.match(builtin, /id: 'domain\.canopen'/);
   assert.doesNotMatch(builtin, /id: 'domain\.canopen'[\s\S]{0,160}platforms: \['linux'\]/);
-  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 58/);
+  assert.match(capabilities, /ACTION_SCHEMA_VERSION = 60/);
   assert.match(capabilities, /ENGINEERING_API_VERSION = 5/);
   assert.doesNotMatch(register, /canopen_(?:send|transmit|configure|lss)/);
 });

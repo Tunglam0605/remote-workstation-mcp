@@ -16,6 +16,26 @@ export function registerStm32Tools(server: McpServer, ctx: AppContext): void {
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath, iocFile }) => result(await audited(ctx.audit, 'stm32_ioc_inspect', workspace, () => ctx.engineering.stm32Ioc.inspect(workspace, projectPath, iocFile))));
 
+  server.registerTool('stm32_pin_plan', {
+    description: 'Plan conflict-free STM32 physical pin assignments from the installed official STM32CubeMX MCU database. Supports exact peripheral signals and wildcard signal groups such as TIM*_CH* with requested counts, explicit reservations/preferences, and preserves SWD/JTAG pins by default. Returns CubeMX physical pin positions suitable for later KiCad-symbol pin-number cross-check; CubeMX condition expressions are reported but not re-evaluated by RWMCP.',
+    inputSchema: workspacePathSchema.extend({
+      partNumber: z.string().min(8).max(64).regex(/^STM32[A-Za-z0-9()+-]+$/),
+      exactSignals: z.array(z.string().min(1).max(128)).max(96).optional(),
+      groups: z.array(z.object({
+        pattern: z.string().min(1).max(128),
+        count: z.number().int().min(1).max(64)
+      }).strict()).max(32).optional(),
+      reservedPins: z.array(z.string().min(1).max(32)).max(128).optional(),
+      preferredPins: z.record(z.string(), z.array(z.string().min(1).max(32)).max(32)).optional(),
+      preserveDebug: z.boolean().default(true)
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workspace, projectPath, partNumber, exactSignals, groups, reservedPins, preferredPins, preserveDebug }) =>
+    result(await audited(ctx.audit, 'stm32_pin_plan', workspace, () => ctx.engineering.stm32Ioc.planPins(
+      workspace, projectPath, partNumber,
+      { ...(exactSignals ? { exactSignals } : {}), ...(groups ? { groups } : {}), ...(reservedPins ? { reservedPins } : {}), ...(preferredPins ? { preferredPins } : {}), preserveDebug }
+    ))));
+
   server.registerTool('stm32_svd_inspect', {
     description: 'Inspect a project-scoped CMSIS-SVD file and return bounded STM32 device, peripheral, register, cluster and bit-field metadata without connecting to target hardware or allowing register writes.',
     inputSchema: workspacePathSchema.extend({ svdFile: z.string().min(1).max(1024) }),

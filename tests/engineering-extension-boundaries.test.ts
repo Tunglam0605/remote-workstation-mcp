@@ -131,6 +131,7 @@ const KICAD_TOOLS = [
   'kicad_provider_status',
   'kicad_library_lookup',
   'kicad_schematic_synthesize',
+  'kicad_semantic_place_plan',
   'kicad_board_synthesize',
   'kicad_board_stats',
   'kicad_drc',

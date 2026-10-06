@@ -18,6 +18,7 @@ import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicN
 import { canonicalKicadBoardNetName, synthesizeKicadBoard } from './kicad-board-synthesis.js';
 import { planKicadSemanticPlacement, type KicadPlacementHint } from './kicad-semantic-placement.js';
 import { applyKicadRouteBatch, type KicadRouteBatchOperation } from './kicad-route-batch.js';
+import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.js';
 import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-electrical-review.js';
 import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
@@ -1248,6 +1249,21 @@ export class KicadAdapter {
     }
   }
 
+  async routePlan(
+    workspace: string,
+    projectPath: string,
+    board: string,
+    options: KicadRoutePlanOptions = {}
+  ) {
+    this.policy.assertEngineeringEnabled();
+    const boardPath = await resolveExistingProjectPath(this.paths, workspace, projectPath, board, 'KiCad route-plan board');
+    if (path.extname(boardPath).toLowerCase() !== '.kicad_pcb') throw new Error('KiCad route plan requires a .kicad_pcb file.');
+    const stat = await fs.stat(boardPath);
+    if (!stat.isFile() || stat.size > 128 * 1024 * 1024) throw new Error('KiCad route-plan board is missing or exceeds 128 MiB.');
+    const source = await fs.readFile(boardPath, 'utf8');
+    return { board, boardSha256: sha256Text(source), plan: planKicadRoutes(source, options) };
+  }
+
   async routeBatchApply(
     workspace: string,
     projectPath: string,
@@ -1460,6 +1476,361 @@ export class KicadAdapter {
       await fs.rm(output, { recursive: true, force: true }).catch(() => undefined);
       throw error;
     }
+  }
+
+  async designAgentRun(
+    workspace: string,
+    projectPath: string,
+    request: {
+      outputDir: string;
+      projectName: string;
+      title?: string;
+      revision?: string;
+      company?: string;
+      components: Array<{
+        reference: string;
+        symbolId: string;
+        value?: string;
+        footprintId?: string;
+        xMm?: number;
+        yMm?: number;
+        rotationDeg?: 0 | 90 | 180 | 270;
+        unit?: number;
+        inBom?: boolean;
+        onBoard?: boolean;
+        dnp?: boolean;
+      }>;
+      nets: KicadSchematicNetSpec[];
+      schematic?: {
+        markUnusedNoConnect?: boolean;
+        allowUnconnectedPowerPins?: boolean;
+        allowFootprintFilterMismatch?: boolean;
+        requireErcClean?: boolean;
+      };
+      board: {
+        widthMm: number;
+        heightMm: number;
+        copperLayers?: number;
+        thicknessMm?: number;
+        originXmm?: number;
+        originYmm?: number;
+        minimums?: {
+          clearanceMm?: number;
+          trackWidthMm?: number;
+          viaDiameterMm?: number;
+          viaDrillMm?: number;
+          viaAnnularWidthMm?: number;
+          copperEdgeClearanceMm?: number;
+        };
+        defaultRouting?: {
+          trackWidthMm?: number;
+          viaDiameterMm?: number;
+          viaDrillMm?: number;
+          diffPairWidthMm?: number;
+          diffPairGapMm?: number;
+        };
+        netClasses?: Array<{
+          name: string;
+          nets: string[];
+          clearanceMm?: number;
+          trackWidthMm?: number;
+          viaDiameterMm?: number;
+          viaDrillMm?: number;
+          diffPairWidthMm?: number;
+          diffPairGapMm?: number;
+        }>;
+      };
+      placement?: {
+        gridMm?: number;
+        minSpacingMm?: number;
+        edgeInsetMm?: number;
+        hints?: KicadPlacementHint[];
+        retrySpacingMultipliers?: number[];
+      };
+      routing?: KicadRoutePlanOptions & {
+        enabled?: boolean;
+        batchSize?: number;
+      };
+      electricalIntents?: KicadElectricalNetIntent[];
+      reviewArtifacts?: boolean;
+      manufacturing?: {
+        enabled?: boolean;
+        outputDir?: string;
+        includeIpc2581?: boolean;
+        includeIpcD356?: boolean;
+        includeOdb?: boolean;
+        includeStep?: boolean;
+        requireAssemblyConsistency?: boolean;
+      };
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    const stages: Array<{ stage: string; status: 'passed' | 'warning' | 'failed' | 'skipped'; detail?: string }> = [];
+    const warnings: string[] = [];
+
+    const schematic = await this.schematicSynthesize(workspace, projectPath, {
+      outputDir: request.outputDir,
+      projectName: request.projectName,
+      ...(request.title ? { title: request.title } : {}),
+      ...(request.revision ? { revision: request.revision } : {}),
+      ...(request.company ? { company: request.company } : {}),
+      components: request.components,
+      nets: request.nets,
+      markUnusedNoConnect: request.schematic?.markUnusedNoConnect !== false,
+      allowUnconnectedPowerPins: request.schematic?.allowUnconnectedPowerPins === true,
+      allowFootprintFilterMismatch: request.schematic?.allowFootprintFilterMismatch === true,
+      runErc: true,
+      requireErcClean: request.schematic?.requireErcClean !== false
+    });
+    stages.push({ stage: 'schematic-synthesis', status: 'passed' });
+
+    const placementBase = request.placement?.minSpacingMm ?? 3;
+    const multipliers = request.placement?.retrySpacingMultipliers?.length
+      ? request.placement.retrySpacingMultipliers
+      : [1, 1.5, 2];
+    if (multipliers.length > 5 || multipliers.some(value => !Number.isFinite(value) || value < 1 || value > 4)) {
+      throw new Error('KiCad design agent placement retrySpacingMultipliers must contain 1..5 values in range 1..4.');
+    }
+
+    let placement: Awaited<ReturnType<KicadAdapter['semanticPlacementPlan']>> | undefined;
+    let board: Awaited<ReturnType<KicadAdapter['boardSynthesize']>> | undefined;
+    let lastBoardError: unknown;
+    for (const [index, multiplier] of multipliers.entries()) {
+      placement = await this.semanticPlacementPlan(workspace, projectPath, {
+        designManifest: schematic.designManifestFile,
+        expectedDesignManifestSha256: schematic.designManifestSha256,
+        widthMm: request.board.widthMm,
+        heightMm: request.board.heightMm,
+        originXmm: request.board.originXmm ?? 20,
+        originYmm: request.board.originYmm ?? 20,
+        gridMm: request.placement?.gridMm ?? 0.5,
+        minSpacingMm: placementBase * multiplier,
+        edgeInsetMm: request.placement?.edgeInsetMm ?? 4,
+        ...(request.placement?.hints ? { hints: request.placement.hints } : {})
+      });
+      try {
+        board = await this.boardSynthesize(workspace, projectPath, {
+          designManifest: schematic.designManifestFile,
+          expectedDesignManifestSha256: schematic.designManifestSha256,
+          widthMm: request.board.widthMm,
+          heightMm: request.board.heightMm,
+          copperLayers: request.board.copperLayers ?? 2,
+          thicknessMm: request.board.thicknessMm ?? 1.6,
+          originXmm: request.board.originXmm ?? 20,
+          originYmm: request.board.originYmm ?? 20,
+          placements: placement.plan.placements.map(item => ({
+            reference: item.reference,
+            xMm: item.xMm,
+            yMm: item.yMm,
+            rotationDeg: item.rotationDeg,
+            side: item.side,
+            locked: item.locked
+          })),
+          ...(request.board.minimums ? { minimums: request.board.minimums } : {}),
+          ...(request.board.defaultRouting ? { defaultRouting: request.board.defaultRouting } : {}),
+          ...(request.board.netClasses ? { netClasses: request.board.netClasses } : {}),
+          runDrc: true,
+          requireNoViolations: true
+        });
+        stages.push({ stage: 'semantic-placement', status: 'passed', detail: `spacing=${Number((placementBase * multiplier).toFixed(3))}mm attempt=${index + 1}` });
+        stages.push({ stage: 'board-synthesis', status: 'passed' });
+        break;
+      } catch (error) {
+        lastBoardError = error;
+        stages.push({ stage: `board-synthesis-attempt-${index + 1}`, status: 'warning', detail: error instanceof Error ? error.message.slice(0, 512) : String(error).slice(0, 512) });
+      }
+    }
+    if (!board || !placement) {
+      throw new Error(`KiCad design agent could not synthesize a DRC-acceptable placed board after ${multipliers.length} placement attempt(s): ${lastBoardError instanceof Error ? lastBoardError.message : String(lastBoardError)}`);
+    }
+
+    let currentBoardSha = board.boardSha256;
+    let routePlanResult: Awaited<ReturnType<KicadAdapter['routePlan']>> | undefined;
+    const routeBatches: Array<Awaited<ReturnType<KicadAdapter['routeBatchApply']>>> = [];
+    let routeApplyError: string | undefined;
+    if (request.routing?.enabled !== false) {
+      const semanticPriority: Record<KicadElectricalNetIntent['kind'], number> = {
+        power: 700, clock: 600, differential: 500, high_speed: 500, analog: 400,
+        can: 300, rs485: 300, pwm: 200, encoder: 200, digital: 100
+      };
+      const normalizeRouteNet = (name: string) => canonicalKicadBoardNetName(name.trim());
+      const routingStyles = [...(request.routing?.styles ?? [])].map(style => ({ ...style }));
+      const styleIndex = new Map(routingStyles.map((style, index) => [normalizeRouteNet(style.netName), index]));
+      const mergeStyle = (netName: string, inherited: Partial<(typeof routingStyles)[number]>) => {
+        const key = normalizeRouteNet(netName);
+        const index = styleIndex.get(key);
+        if (index === undefined) {
+          styleIndex.set(key, routingStyles.length);
+          routingStyles.push({ netName, ...inherited });
+          return;
+        }
+        const existing = routingStyles[index]!;
+        routingStyles[index] = { ...inherited, ...existing, netName: existing.netName };
+      };
+      for (const netClass of request.board.netClasses ?? []) {
+        for (const netName of netClass.nets) mergeStyle(netName, {
+          ...(netClass.trackWidthMm !== undefined ? { widthMm: netClass.trackWidthMm } : {}),
+          ...(netClass.clearanceMm !== undefined ? { clearanceMm: netClass.clearanceMm } : {})
+        });
+      }
+      for (const intent of request.electricalIntents ?? []) mergeStyle(intent.netName, { priority: semanticPriority[intent.kind] });
+      const routeOptions: KicadRoutePlanOptions = {
+        ...(request.board.defaultRouting?.trackWidthMm !== undefined ? { defaultWidthMm: request.board.defaultRouting.trackWidthMm } : {}),
+        ...(request.board.minimums?.clearanceMm !== undefined ? { defaultClearanceMm: request.board.minimums.clearanceMm } : {}),
+        ...(request.board.defaultRouting?.viaDiameterMm !== undefined ? { viaDiameterMm: request.board.defaultRouting.viaDiameterMm } : {}),
+        ...(request.board.defaultRouting?.viaDrillMm !== undefined ? { viaDrillMm: request.board.defaultRouting.viaDrillMm } : {}),
+        ...(request.routing ?? {}),
+        ...(routingStyles.length ? { styles: routingStyles } : {})
+      };
+      routePlanResult = await this.routePlan(workspace, projectPath, board.boardFile, routeOptions);
+      stages.push({
+        stage: 'route-plan',
+        status: routePlanResult.plan.complete ? 'passed' : 'warning',
+        detail: `routed=${routePlanResult.plan.nets.routedCount} skipped=${routePlanResult.plan.nets.skippedCount} operations=${routePlanResult.plan.operationCount}`
+      });
+      const batchSize = request.routing?.batchSize ?? 192;
+      if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 256) throw new Error('KiCad design agent routing batchSize must be 1..256.');
+      let offset = 0;
+      outer: for (const net of routePlanResult.plan.routed) {
+        const netOps = routePlanResult.plan.operations.slice(offset, offset + net.operations);
+        offset += net.operations;
+        for (let start = 0; start < netOps.length; start += batchSize) {
+          const operations = netOps.slice(start, start + batchSize);
+          try {
+            const applied = await this.routeBatchApply(workspace, projectPath, {
+              board: board.boardFile,
+              expectedBoardSha256: currentBoardSha,
+              operations,
+              requireNoNewViolations: true,
+              requireUnconnectedNonIncrease: true,
+              requireParityNonIncrease: true
+            });
+            currentBoardSha = applied.afterSha256;
+            routeBatches.push(applied);
+          } catch (error) {
+            routeApplyError = `Net ${net.netName}: ${error instanceof Error ? error.message : String(error)}`;
+            stages.push({ stage: 'route-apply', status: 'warning', detail: routeApplyError.slice(0, 512) });
+            break outer;
+          }
+        }
+      }
+      if (!routeApplyError) stages.push({ stage: 'route-apply', status: 'passed', detail: `batches=${routeBatches.length}` });
+    } else {
+      stages.push({ stage: 'route-plan', status: 'skipped', detail: 'routing.enabled=false' });
+    }
+
+    const validation = await this.validate(workspace, projectPath, { schematic: schematic.schematicFile, board: board.boardFile, jobsets: [] });
+    const drcErrors = Number(validation.drc?.report.counts.active.bySeverity.error ?? 0);
+    const ercErrors = Number(validation.erc?.report.counts.active.bySeverity.error ?? 0);
+    const unconnected = Number(validation.drc?.report.counts.active.unconnected ?? 0);
+    const schematicParity = Number(validation.drc?.report.counts.active.schematicParity ?? 0);
+    const activeViolations = Number(validation.drc?.report.counts.active.violations ?? 0);
+    const clean = drcErrors === 0 && ercErrors === 0 && unconnected === 0 && schematicParity === 0 && activeViolations === 0;
+    stages.push({ stage: 'erc-drc-validation', status: clean ? 'passed' : 'warning', detail: `drcErrors=${drcErrors} ercErrors=${ercErrors} violations=${activeViolations} unconnected=${unconnected} parity=${schematicParity}` });
+
+    const electrical = request.electricalIntents?.length
+      ? await this.electricalReview(workspace, projectPath, board.boardFile, request.electricalIntents)
+      : undefined;
+    if (electrical) stages.push({ stage: 'electrical-review', status: electrical.analysis.findings.high > 0 ? 'warning' : 'passed', detail: `high=${electrical.analysis.findings.high} review=${electrical.analysis.findings.review}` });
+
+    const constraints = await this.constraintsReview(workspace, projectPath, { projectFile: board.projectFile, board: board.boardFile }, { runDrc: false, maxDetails: 50 });
+    stages.push({ stage: 'constraints-review', status: constraints.analysis.recommendations.some(item => item.priority === 'high') ? 'warning' : 'passed' });
+    const designReview = await this.designReview(workspace, projectPath, { schematic: schematic.schematicFile, board: board.boardFile }, { runRuleChecks: false, maxDetails: 50 });
+    stages.push({ stage: 'design-review', status: designReview.analysis.recommendations.some(item => item.priority === 'high') ? 'warning' : 'passed' });
+
+    const specializedReviewReasons = (request.electricalIntents ?? []).filter(intent =>
+      intent.targetImpedanceOhm !== undefined || intent.kind === 'differential' || intent.kind === 'high_speed'
+    ).map(intent => `${intent.netName}:${intent.kind}${intent.targetImpedanceOhm !== undefined ? `:${intent.targetImpedanceOhm}ohm` : ''}`);
+    const routeComplete = !routeApplyError && unconnected === 0 && (routePlanResult ? routePlanResult.plan.complete : true);
+    const electricalHigh = electrical?.analysis.findings.high ?? 0;
+    let status: 'complete' | 'needs-review' | 'needs-specialized-review' = !clean || !routeComplete || electricalHigh > 0
+      ? 'needs-review'
+      : specializedReviewReasons.length
+        ? 'needs-specialized-review'
+        : 'complete';
+
+    const reviewArtifacts: Record<string, unknown> = {};
+    if (request.reviewArtifacts !== false) {
+      try {
+        reviewArtifacts.schematic = await this.visualExport(workspace, projectPath, {
+          kind: 'schematic_pdf', schematic: schematic.schematicFile, outputDir: `${request.outputDir}/review-schematic`, fileName: 'schematic.pdf'
+        });
+        stages.push({ stage: 'schematic-review-artifact', status: 'passed' });
+      } catch (error) {
+        warnings.push(`Schematic PDF export failed: ${error instanceof Error ? error.message : String(error)}`);
+        stages.push({ stage: 'schematic-review-artifact', status: 'warning' });
+      }
+      try {
+        reviewArtifacts.pcb3d = await this.visualExport(workspace, projectPath, {
+          kind: 'pcb_3d_render', board: board.boardFile, outputDir: `${request.outputDir}/review-3d`, fileName: 'board.png', format: 'png', width: 1600, height: 900, side: 'top', background: 'default', quality: 'high', perspective: true, floor: true, useBoardStackupColors: true, zoom: 1
+        });
+        stages.push({ stage: 'pcb-3d-review-artifact', status: 'passed' });
+      } catch (error) {
+        warnings.push(`PCB 3D render failed: ${error instanceof Error ? error.message : String(error)}`);
+        stages.push({ stage: 'pcb-3d-review-artifact', status: 'warning' });
+      }
+    }
+
+    let manufacturing: Awaited<ReturnType<KicadAdapter['manufacturingPackage']>> | undefined;
+    const manufacturingEnabled = request.manufacturing?.enabled !== false;
+    if (manufacturingEnabled && status === 'complete') {
+      try {
+        manufacturing = await this.manufacturingPackage(workspace, projectPath, {
+          board: board.boardFile,
+          schematic: schematic.schematicFile,
+          outputDir: request.manufacturing?.outputDir ?? `${request.outputDir}/manufacturing`,
+          includeIpc2581: request.manufacturing?.includeIpc2581 !== false,
+          includeIpcD356: request.manufacturing?.includeIpcD356 !== false,
+          includeOdb: request.manufacturing?.includeOdb === true,
+          includeStep: request.manufacturing?.includeStep !== false,
+          requireClean: true,
+          requireAssemblyConsistency: request.manufacturing?.requireAssemblyConsistency !== false
+        });
+        stages.push({ stage: 'manufacturing-package', status: 'passed' });
+      } catch (error) {
+        status = 'needs-review';
+        warnings.push(`Manufacturing package blocked: ${error instanceof Error ? error.message : String(error)}`);
+        stages.push({ stage: 'manufacturing-package', status: 'warning', detail: warnings[warnings.length - 1]!.slice(0, 512) });
+      }
+    } else {
+      stages.push({ stage: 'manufacturing-package', status: 'skipped', detail: manufacturingEnabled ? `design status=${status}` : 'manufacturing.enabled=false' });
+    }
+
+    return {
+      schemaVersion: 1,
+      status,
+      stages,
+      warnings,
+      specializedReviewReasons,
+      outputs: {
+        projectFile: board.projectFile,
+        schematicFile: schematic.schematicFile,
+        boardFile: board.boardFile,
+        designManifest: board.designManifest,
+        designManifestSha256: board.designManifestSha256,
+        boardSha256: currentBoardSha,
+        reviewArtifacts,
+        ...(manufacturing ? { manufacturing: { outputDir: manufacturing.outputDir, reportPath: manufacturing.reportPath, manifestPath: manufacturing.manifestPath } } : {})
+      },
+      placement: placement.plan,
+      routing: routePlanResult ? {
+        plan: routePlanResult.plan,
+        appliedBatchCount: routeBatches.length,
+        ...(routeApplyError ? { applyError: routeApplyError } : {}),
+        finalBoardSha256: currentBoardSha
+      } : { skipped: true, finalBoardSha256: currentBoardSha },
+      validation: { clean, drcErrors, ercErrors, activeViolations, unconnected, schematicParity },
+      ...(electrical ? { electrical: electrical.analysis } : {}),
+      constraints: constraints.analysis,
+      designReview: designReview.analysis,
+      manufacturing: manufacturing?.audit,
+      limitations: [
+        'Natural-language interpretation and part/peripheral choice belong to the calling agent; this server executes the resulting typed design specification.',
+        'Automatic routing is bounded orthogonal two-layer candidate routing plus KiCad DRC acceptance, not a replacement for specialized RF/DDR/high-speed routing expertise.',
+        'Controlled impedance, electromagnetic compatibility, power integrity and thermal behavior require specialized calculations/solvers when the design intent demands them.'
+      ]
+    };
   }
 
   async boardStats(workspace: string, projectPath: string, board: string) {

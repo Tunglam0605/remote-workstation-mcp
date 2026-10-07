@@ -183,6 +183,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   media_file_probe: 'workstation.execute',
   media_transcode_plan: 'workstation.read',
   media_transcode: 'workstation.execute',
+  media_video_edit_plan: 'workstation.read',
+  media_video_edit: 'workstation.execute',
   media_remotion_status: 'workstation.read',
   media_remotion_preset_list: 'workstation.read',
   media_remotion_render_plan: 'workstation.read',

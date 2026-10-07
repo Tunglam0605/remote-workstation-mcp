@@ -116,6 +116,17 @@ v0.68.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - preserve Phase 8 native export as the preferred path whenever a version-bound semantic UI profile is actually available; never replace missing accessibility with hidden coordinate clicking;
 - advance Action Schema to 69; Engineering API remains 5.
 
+## Post-v0.68 tool expansion — Media/Video Phase 10: generic idea-to-video recipe
+
+- add read-only `media_video_edit_plan` plus Work Session-owned `media_video_edit` as the direct path from project-local source videos to an accepted MP4 without requiring a pre-existing CapCut draft;
+- keep natural-language interpretation in ChatGPT and compile only a typed deterministic recipe inside RWMCP: ordered clips, source trim ranges, scalar speed, volume, opacity, uniform scale, rotation, horizontal/vertical flip, bounded FPS, source/9:16/16:9/1:1 canvas presets and bounded captions;
+- resolve every input through the selected project root, FFprobe its media properties and bind exact source-file SHA-256/size evidence into the reviewed plan so changed source bytes invalidate execution before FFmpeg starts;
+- reuse the Phase 9 fixed internal renderer rather than exposing FFmpeg argv, filter expressions, shell commands, arbitrary executable paths or a second free-form planner;
+- redact caption contents from public plan evidence while retaining bounded text length/SHA-256, deterministic timeline timing and exact plan SHA-256;
+- require fail-if-exists project-scoped MP4 output, partial-artifact cleanup, FFmpeg completion, FFprobe positive-duration video/duration acceptance and final SHA-256 evidence before success;
+- retain Phase 6 + Phase 8/9 CapCut workflows for users already working in a CapCut draft; Phase 10 is the preferred direct workflow for prompts such as "take these clips, cut the start, speed up this section, add a hook/caption, make it vertical and export MP4";
+- advance Action Schema to 70; Engineering API remains 5.
+
 ## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
 
 - add `camera_fleet_probe` as a read-only fleet diagnostic over owner-local camera profiles;

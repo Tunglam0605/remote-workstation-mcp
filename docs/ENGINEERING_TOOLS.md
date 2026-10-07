@@ -445,7 +445,7 @@ Phase 6 adds typed editing for owner-local CapCut desktop drafts without exposin
 - split/remove/text edits fail closed on advanced grouped/keyframed/curve-speed/rich-text states that the adapter cannot preserve with high confidence.
 - CapCut draft storage is not treated as a stable public vendor API. Unsupported layouts or mirror divergence block mutation rather than being guessed.
 
-Native CapCut export/import UI automation is intentionally separate from draft mutation and remains a future guarded desktop-provider layer unless a stable provider interface is available.
+Native CapCut export remains intentionally separate from draft mutation. Phase 8 provides the guarded semantic export layer when a version-bound UI profile is actually usable; Phase 9 provides a deterministic headless fallback when CapCut's Qt/QML UI exposes no semantic child controls.
 
 ### CapCut semantic Windows UI foundation (Phase 7)
 
@@ -487,6 +487,20 @@ Some CapCut Desktop builds use Qt/QML surfaces that expose only the top-level wi
 - the editable CapCut draft remains authoritative. Native Phase 8 export remains preferred whenever the installed CapCut version exposes a validated semantic export profile.
 
 This fallback enables ChatGPT to translate a natural-language editing brief into typed Phase 6 operations and still produce a verified MP4 on CapCut builds whose UI is not semantically automatable, while keeping the approximation boundary explicit.
+
+### Generic idea-to-video recipe (Phase 10)
+
+Phase 10 removes the requirement for an existing CapCut draft when the user simply has one or more source videos plus an editing idea. ChatGPT remains the creative planner and converts the brief into a bounded deterministic recipe; RWMCP validates and renders that recipe.
+
+- `media_video_edit_plan` accepts only project-relative source clips plus typed timing/transform/audio/canvas/caption fields. It FFprobes each source, hashes the exact source bytes, derives the output timeline and returns an exact plan SHA-256 without creating an artifact.
+- `media_video_edit` requires an explicit Work Session plus the exact reviewed plan SHA-256. Sources are resolved and hashed again before execution, so source replacement or edits invalidate the plan before FFmpeg runs.
+- supported recipe primitives are ordered clips, source trim ranges, scalar speed, volume, opacity, uniform scale, rotation, horizontal/vertical flip, source/9:16/16:9/1:1 canvas presets, bounded FPS and bounded captions.
+- callers never supply raw FFmpeg argv, filter expressions, shell commands or arbitrary executable paths. The adapter compiles into the same fixed renderer used by the validated Phase 9 subset.
+- output is project-scoped, fail-if-exists and cleaned on failure. Success requires FFmpeg completion, FFprobe video/duration acceptance and SHA-256 evidence.
+- caption contents are not echoed in the public plan; the plan carries bounded text length/hash evidence instead.
+- this is the preferred direct path for requests such as “take these clips, remove the first two seconds, speed up this section, add a hook/caption, make it vertical and export MP4.” If the user is already working in a CapCut draft, Phase 6 editing plus Phase 8/9 export remains available instead.
+
+The intent is **idea → typed recipe → reviewed plan → accepted MP4**, without embedding a second free-form planning model inside RWMCP and without depending on CapCut GUI accessibility.
 
 ## Safety model
 

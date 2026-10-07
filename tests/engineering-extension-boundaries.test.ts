@@ -49,6 +49,8 @@ const MEDIA_TOOLS = [
   'media_file_probe',
   'media_transcode_plan',
   'media_transcode',
+  'media_video_edit_plan',
+  'media_video_edit',
   'media_remotion_status',
   'media_remotion_preset_list',
   'media_remotion_render_plan',

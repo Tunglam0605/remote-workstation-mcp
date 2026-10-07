@@ -19,6 +19,7 @@ export interface BrowserElementCandidate {
   ordinal: number;
   visible: boolean;
   enabled: boolean;
+  value?: string;
 }
 
 export interface BrowserElementTarget {
@@ -74,14 +75,24 @@ async function accessibleName(locator: Locator, fallback = ''): Promise<string> 
   return (await locator.innerText({ timeout: 1_000 }).catch(() => fallback)).slice(0, 256);
 }
 
+async function semanticValue(locator: Locator, role: SemanticRole): Promise<string | undefined> {
+  if (role !== 'textbox' && role !== 'combobox') return undefined;
+  const type = (await locator.getAttribute('type').catch(() => null))?.toLowerCase();
+  if (type === 'password' || type === 'file') return undefined;
+  const value = await locator.inputValue({ timeout: 1_000 }).catch(() => undefined);
+  return value === undefined ? undefined : value.slice(0, 2_048);
+}
+
 async function describe(locator: Locator, role: SemanticRole, ordinal: number, fallbackName = ''): Promise<BrowserElementCandidate> {
   const name = await accessibleName(locator, fallbackName);
+  const value = await semanticValue(locator, role);
   return {
     role,
     name,
     ordinal,
     visible: await locator.isVisible().catch(() => false),
-    enabled: await locator.isEnabled().catch(() => false)
+    enabled: await locator.isEnabled().catch(() => false),
+    ...(value === undefined ? {} : { value })
   };
 }
 

@@ -256,7 +256,8 @@ export class BrowserCore {
         role: candidate.role,
         name: candidate.name,
         visible: candidate.visible,
-        enabled: candidate.enabled
+        enabled: candidate.enabled,
+        ...(candidate.value === undefined ? {} : { value: candidate.value })
       };
     });
   }

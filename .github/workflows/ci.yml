@@ -145,6 +145,7 @@ jobs:
             'scripts/lib/tunnel-health-windows.ps1',
             'scripts/test-tunnel-health-windows.ps1',
             'scripts/show-windows-notification.ps1',
+            'scripts/ui/windows-ui-automation.ps1',
             'scripts/setup-web-windows.ps1',
             'scripts/start-windows.ps1',
             'scripts/start-openai-windows.ps1'

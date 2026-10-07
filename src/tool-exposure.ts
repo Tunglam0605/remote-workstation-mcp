@@ -54,12 +54,13 @@ export const OPENAI_TOOL_PACK_METADATA: Record<OpenAiToolPackId, OpenAiToolPackM
   },
   media: {
     label: 'Media / video',
-    summary: 'Bounded media probing/transcoding plus typed Remotion, ComfyUI and guarded CapCut draft-editing workflows.',
+    summary: 'Bounded media probing/transcoding plus typed Remotion, ComfyUI, guarded CapCut draft editing and semantic Windows UI inspection.',
     recommendedFor: [
       'media file inspection or bounded transcoding',
       'typed Remotion preset rendering',
       'typed ComfyUI jobs and artifact handoff',
-      'guarded CapCut timeline inspection and typed draft editing'
+      'guarded CapCut timeline inspection and typed draft editing',
+      'semantic CapCut desktop UI inspection for native workflow calibration'
     ],
     notNeededFor: [
       'ordinary filesystem work that does not require media processing or rendering'

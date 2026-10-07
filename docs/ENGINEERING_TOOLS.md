@@ -447,6 +447,19 @@ Phase 6 adds typed editing for owner-local CapCut desktop drafts without exposin
 
 Native CapCut export/import UI automation is intentionally separate from draft mutation and remains a future guarded desktop-provider layer unless a stable provider interface is available.
 
+### CapCut semantic Windows UI foundation (Phase 7)
+
+Phase 7 introduces a reusable Windows UI Automation substrate for desktop applications that do not expose a stable typed API or CLI, while keeping the generic UIA primitives internal to RWMCP rather than exposing a general-purpose desktop remote-control MCP surface.
+
+- `media_capcut_ui_inspect` reads a bounded semantic UI tree for the verified local CapCut executable and returns only control names, AutomationIds, class/control types, enabled/offscreen/focusability state and supported UIA control patterns.
+- the Windows helper runs in MTA, uses `AutomationElement` plus standard control patterns such as Invoke/Value/Selection/Toggle/ExpandCollapse, and is process-bound to the exact expected executable in the current interactive session.
+- inspection never returns pixel coordinates, bounding rectangles, field values, screenshots, arbitrary selectors, raw keyboard input or raw mouse input.
+- RWMCP does not enable `UIAccess`; semantic UI mutation is additionally refused if the helper is elevated.
+- CapCut-specific code receives the verified CapCut executable internally; callers cannot retarget the helper to another arbitrary desktop process.
+- the helper script is included in packed Windows artifacts and parsed by Windows CI.
+
+This phase is intentionally **read-only calibration infrastructure** for native CapCut workflows. A future export state machine must use version-bound semantic locators, explicit Work Session ownership, fail-if-exists project-scoped output and FFprobe/SHA-256 acceptance. Until that state machine is calibrated and accepted against a safe disposable CapCut project, RWMCP does not claim native CapCut export completion.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

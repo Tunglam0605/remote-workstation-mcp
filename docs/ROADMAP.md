@@ -82,6 +82,17 @@ v0.68.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - keep native CapCut UI automation/export as a separate guarded provider layer rather than introducing coordinate macros or arbitrary desktop control;
 - advance Action Schema to 66; Engineering API remains 5.
 
+## Post-v0.68 tool expansion — Media/Video Phase 7: CapCut semantic UI foundation
+
+- add an internal reusable `WindowsSemanticUiAdapter` backed by Windows UI Automation and a fixed PowerShell helper; no generic UIA invoke/set-value surface is exposed through MCP;
+- add read-only `media_capcut_ui_inspect` bound internally to the verified CapCut executable, returning bounded semantic control metadata only;
+- use AutomationElement/control-pattern semantics rather than fixed coordinates, raw selectors, keyboard macros or pixel automation;
+- run the helper in MTA, keep it at normal user integrity, never enable UIAccess, and reject semantic mutation when the helper is elevated;
+- package and CI-parse the helper on Windows so production artifacts cannot omit an implementation-only dependency;
+- keep native CapCut export as the next guarded state machine: version-bound semantic locators, explicit Work Session ownership, project-scoped fail-if-exists MP4 output, no login/payment bypass, and FFprobe + SHA-256 acceptance;
+- do not claim native export complete until accepted on a safe disposable CapCut project;
+- advance Action Schema to 67; Engineering API remains 5.
+
 ## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
 
 - add `camera_fleet_probe` as a read-only fleet diagnostic over owner-local camera profiles;

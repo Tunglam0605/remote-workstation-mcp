@@ -611,6 +611,30 @@ export class CapCutDraftAdapter {
     throw new Error('CapCut local draft mutation is supported only on Windows and macOS.');
   }
 
+  async installationInfo() {
+    const apps = this.appsRoot();
+    let executable: string | undefined;
+    let version: string | undefined;
+    if (this.platform === 'win32' && apps) {
+      const candidate = path.join(apps, 'CapCut.exe');
+      if (await existingFile(candidate)) executable = candidate;
+      const productInfo = path.join(apps, 'ProductInfo.xml');
+      if (await existingFile(productInfo)) {
+        const raw = await readBounded(productInfo);
+        version = raw.match(/<full_appver\s+value="([^"]+)"/i)?.[1] ?? raw.match(/<appver\s+value="([^"]+)"/i)?.[1];
+      }
+    } else if (this.platform === 'darwin' && apps) {
+      executable = await fs.stat(apps).then(s => s.isDirectory() ? apps : undefined).catch(() => undefined);
+    }
+    return {
+      platform: this.platform,
+      supported: this.platform === 'win32' || this.platform === 'darwin',
+      installed: Boolean(executable),
+      executable,
+      version
+    };
+  }
+
   async providerStatus() {
     const root = this.draftsRoot();
     const apps = this.appsRoot();

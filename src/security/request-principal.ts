@@ -195,6 +195,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   media_comfyui_artifact_plan: 'workstation.read',
   media_comfyui_artifact_import: 'workstation.execute',
   media_capcut_status: 'workstation.read',
+  media_capcut_ui_inspect: 'workstation.read',
   media_capcut_project_list: 'workstation.read',
   media_capcut_project_inspect: 'workstation.read',
   media_capcut_edit_plan: 'workstation.read',

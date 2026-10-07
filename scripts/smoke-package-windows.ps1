@@ -26,6 +26,7 @@ try {
     'dist\cli.js',
     'scripts\smoke-engineering-native.mjs',
     'scripts\install-chrome-bridge-windows.ps1',
+    'scripts\ui\windows-ui-automation.ps1',
     'scripts\chrome-native-host-launcher.cs',
     'assets\chrome-bridge-extension\manifest.json',
     'assets\chrome-bridge-extension\service-worker.js',

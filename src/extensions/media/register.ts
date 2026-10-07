@@ -1,8 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../../context.js';
+import { WindowsSemanticUiAdapter } from '../../adapters/windows-semantic-ui.js';
 import { audited } from '../../security/audit.js';
 import { CapCutDraftAdapter, type CapCutEditOperation } from './capcut-draft.js';
+import { CapCutUiAdapter } from './capcut-ui.js';
 import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
 import { ComfyUiPresetJobs } from './comfyui-jobs.js';
 import { MediaVideoAdapter, type MediaTranscodePreset } from './media-adapter.js';
@@ -73,6 +75,7 @@ interface MediaServices {
   profiles: MediaProfileStore;
   adapter: MediaVideoAdapter;
   capcut: CapCutDraftAdapter;
+  capcutUi: CapCutUiAdapter;
   remotion: RemotionRenderAdapter;
   jobs: ComfyUiPresetJobs;
   artifacts: ComfyUiArtifactImporter;
@@ -85,10 +88,12 @@ function mediaServices(ctx: AppContext): MediaServices {
   if (existing) return existing;
   const profiles = new MediaProfileStore();
   const jobs = new ComfyUiPresetJobs(profiles, new ComfyUiPresetStore());
+  const capcut = new CapCutDraftAdapter(ctx.engineering.runner, ctx.engineering.resources);
   const services: MediaServices = {
     profiles,
     adapter: new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles),
-    capcut: new CapCutDraftAdapter(ctx.engineering.runner, ctx.engineering.resources),
+    capcut,
+    capcutUi: new CapCutUiAdapter(capcut, new WindowsSemanticUiAdapter()),
     remotion: new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore()),
     jobs,
     artifacts: new ComfyUiArtifactImporter(ctx.paths, profiles, jobs)
@@ -105,7 +110,7 @@ export function initializeMediaExtension(ctx: AppContext): void {
 }
 
 export function registerMediaTools(server: McpServer, ctx: AppContext): void {
-  const { adapter, capcut, remotion, jobs, artifacts } = mediaServices(ctx);
+  const { adapter, capcut, capcutUi, remotion, jobs, artifacts } = mediaServices(ctx);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',
@@ -114,11 +119,26 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
   }, async () => result(await audited(ctx.audit, 'media_provider_status', undefined, () => adapter.providerStatus())));
 
   server.registerTool('media_capcut_status', {
-    description: 'Inspect local CapCut desktop installation and draft-store readiness, including whether CapCut is currently running. No draft is modified.',
+    description: 'Inspect local CapCut installation, draft-store readiness and Windows semantic UI Automation readiness. No draft or UI element is modified.',
     inputSchema: z.object({}).strict(),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
   }, async () =>
-    result(await audited(ctx.audit, 'media_capcut_status', undefined, () => capcut.providerStatus())));
+    result(await audited(ctx.audit, 'media_capcut_status', undefined, async () => ({
+      ...(await capcut.providerStatus()),
+      uiAutomation: await capcutUi.status()
+    }))));
+
+  server.registerTool('media_capcut_ui_inspect', {
+    description: 'Read a bounded semantic Windows UI Automation tree for the running CapCut desktop process. Returns names, AutomationIds, control types and supported control patterns only; it never returns screen coordinates, field values, pixels, raw selectors or performs UI actions.',
+    inputSchema: z.object({
+      maxDepth: z.number().int().min(0).max(12).default(6),
+      maxNodes: z.number().int().min(1).max(1024).default(512)
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ maxDepth, maxNodes }) =>
+    result(await audited(ctx.audit, 'media_capcut_ui_inspect', undefined, () =>
+      capcutUi.inspect({ maxDepth, maxNodes })
+    )));
 
   server.registerTool('media_capcut_project_list', {
     description: 'List bounded local CapCut draft projects with safe timeline metadata and SHA-256 fingerprints. Source media paths and raw draft JSON are not returned.',

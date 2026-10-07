@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../../context.js';
 import { audited } from '../../security/audit.js';
+import { CapCutDraftAdapter, type CapCutEditOperation } from './capcut-draft.js';
 import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
 import { ComfyUiPresetJobs } from './comfyui-jobs.js';
 import { MediaVideoAdapter, type MediaTranscodePreset } from './media-adapter.js';
@@ -30,6 +31,36 @@ const comfyParameters = z.record(
 ).superRefine((value, ctx) => {
   if (Object.keys(value).length > 64) ctx.addIssue({ code: 'custom', message: 'ComfyUI parameters are limited to 64 bindings.' });
 });
+const capcutProjectId = z.string().min(1).max(160).refine(value =>
+  value !== '.' && value !== '..' && !value.startsWith('.') && !/[\\/\0]/.test(value),
+  'CapCut projectId must be one immediate non-hidden draft-folder name.'
+);
+const capcutSegmentId = z.string().min(1).max(160).refine(value => !/[\\/\0]/.test(value), 'Invalid CapCut segmentId.');
+const capcutSha256 = z.string().regex(/^[a-f0-9]{64}$/i);
+const capcutEditOperation = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('trim'), segmentId: capcutSegmentId, sourceStartMs: z.number().finite().min(0).max(604_800_000), sourceDurationMs: z.number().finite().gt(0).max(604_800_000) }).strict(),
+  z.object({ op: z.literal('split'), segmentId: capcutSegmentId, offsetMs: z.number().finite().gt(0).max(604_800_000) }).strict(),
+  z.object({ op: z.literal('remove_segment'), segmentId: capcutSegmentId }).strict(),
+  z.object({ op: z.literal('move'), segmentId: capcutSegmentId, targetStartMs: z.number().finite().min(0).max(604_800_000) }).strict(),
+  z.object({ op: z.literal('set_speed'), segmentId: capcutSegmentId, speed: z.number().finite().min(0.05).max(20), preserve: z.enum(['source', 'timeline']).default('source') }).strict(),
+  z.object({ op: z.literal('set_volume'), segmentId: capcutSegmentId, volume: z.number().finite().min(0).max(1) }).strict(),
+  z.object({ op: z.literal('set_opacity'), segmentId: capcutSegmentId, opacity: z.number().finite().min(0).max(1) }).strict(),
+  z.object({ op: z.literal('set_visibility'), segmentId: capcutSegmentId, visible: z.boolean() }).strict(),
+  z.object({
+    op: z.literal('set_transform'),
+    segmentId: capcutSegmentId,
+    x: z.number().finite().min(-10).max(10).optional(),
+    y: z.number().finite().min(-10).max(10).optional(),
+    scale: z.number().finite().min(0.01).max(20).optional(),
+    rotationDeg: z.number().finite().min(-3600).max(3600).optional()
+  }).strict().refine(value => value.x !== undefined || value.y !== undefined || value.scale !== undefined || value.rotationDeg !== undefined, 'set_transform requires at least one transform field.'),
+  z.object({ op: z.literal('set_flip'), segmentId: capcutSegmentId, horizontal: z.boolean().optional(), vertical: z.boolean().optional() }).strict().refine(value => value.horizontal !== undefined || value.vertical !== undefined, 'set_flip requires horizontal or vertical.'),
+  z.object({ op: z.literal('set_text'), segmentId: capcutSegmentId, text: z.string().max(10_000) }).strict(),
+  z.object({ op: z.literal('add_text_from_template'), segmentId: capcutSegmentId, text: z.string().max(10_000), startMs: z.number().finite().min(0).max(604_800_000), durationMs: z.number().finite().gt(0).max(604_800_000) }).strict(),
+  z.object({ op: z.literal('set_text_timing'), segmentId: capcutSegmentId, startMs: z.number().finite().min(0).max(604_800_000), durationMs: z.number().finite().gt(0).max(604_800_000) }).strict()
+]);
+const capcutOperations = z.array(capcutEditOperation).min(1).max(64);
+
 const remotionPresetId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const remotionParameters = z.record(
   z.string().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/),
@@ -41,6 +72,7 @@ const remotionParameters = z.record(
 interface MediaServices {
   profiles: MediaProfileStore;
   adapter: MediaVideoAdapter;
+  capcut: CapCutDraftAdapter;
   remotion: RemotionRenderAdapter;
   jobs: ComfyUiPresetJobs;
   artifacts: ComfyUiArtifactImporter;
@@ -56,6 +88,7 @@ function mediaServices(ctx: AppContext): MediaServices {
   const services: MediaServices = {
     profiles,
     adapter: new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles),
+    capcut: new CapCutDraftAdapter(ctx.engineering.runner, ctx.engineering.resources),
     remotion: new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore()),
     jobs,
     artifacts: new ComfyUiArtifactImporter(ctx.paths, profiles, jobs)
@@ -72,13 +105,64 @@ export function initializeMediaExtension(ctx: AppContext): void {
 }
 
 export function registerMediaTools(server: McpServer, ctx: AppContext): void {
-  const { adapter, remotion, jobs, artifacts } = mediaServices(ctx);
+  const { adapter, capcut, remotion, jobs, artifacts } = mediaServices(ctx);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'media_provider_status', undefined, () => adapter.providerStatus())));
+
+  server.registerTool('media_capcut_status', {
+    description: 'Inspect local CapCut desktop installation and draft-store readiness, including whether CapCut is currently running. No draft is modified.',
+    inputSchema: z.object({}).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async () =>
+    result(await audited(ctx.audit, 'media_capcut_status', undefined, () => capcut.providerStatus())));
+
+  server.registerTool('media_capcut_project_list', {
+    description: 'List bounded local CapCut draft projects with safe timeline metadata and SHA-256 fingerprints. Source media paths and raw draft JSON are not returned.',
+    inputSchema: z.object({}).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async () =>
+    result(await audited(ctx.audit, 'media_capcut_project_list', undefined, () => capcut.listProjects())));
+
+  server.registerTool('media_capcut_project_inspect', {
+    description: 'Inspect one local CapCut draft using a validated immediate draft-folder id. Returns typed tracks/segments, timing, transform/text summaries, mirror consistency and exact draft SHA-256 without exposing raw JSON.',
+    inputSchema: z.object({ projectId: capcutProjectId }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ projectId }) =>
+    result(await audited(ctx.audit, 'media_capcut_project_inspect', undefined, () => capcut.inspect(projectId))));
+
+  server.registerTool('media_capcut_edit_plan', {
+    description: 'Plan 1..64 typed CapCut draft edits against an exact draft SHA-256. Supports bounded trim, conservative split/remove, move, scalar speed, volume, opacity, visibility, transform/flip, plain single-style text, deterministic text cloning from an existing template, and text timing. Raw JSON patches are never accepted and no file is modified.',
+    inputSchema: z.object({
+      projectId: capcutProjectId,
+      expectedSha256: capcutSha256,
+      operations: capcutOperations
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ projectId, expectedSha256, operations }) =>
+    result(await audited(ctx.audit, 'media_capcut_edit_plan', undefined, () =>
+      capcut.editPlan(projectId, expectedSha256, operations as CapCutEditOperation[])
+    )));
+
+  server.registerTool('media_capcut_edit', {
+    description: 'Apply one previously planned 1..64-operation CapCut edit transactionally. Requires explicit Work Session ownership, exact source SHA-256 and exact planned-result SHA-256, CapCut proven closed, synchronized draft mirrors, an engineering resource lease, owner-local backups, temporary-file validation, verified rollback on failure and post-write SHA acceptance. Raw draft JSON and arbitrary patches are not accepted.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      projectId: capcutProjectId,
+      expectedSha256: capcutSha256,
+      expectedResultSha256: capcutSha256,
+      operations: capcutOperations
+    }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, projectId, expectedSha256, expectedResultSha256, operations }) =>
+    result(await audited(ctx.audit, 'media_capcut_edit', undefined, () =>
+      ctx.runInWorkSession(workSessionId, () =>
+        capcut.edit(projectId, expectedSha256, expectedResultSha256, operations as CapCutEditOperation[])
+      )
+    )));
 
   server.registerTool('media_file_probe', {
     description: 'Inspect one project-scoped media file through a fixed bounded ffprobe command and return format/stream metadata. No file is modified.',

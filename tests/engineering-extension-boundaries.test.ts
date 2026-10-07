@@ -35,6 +35,11 @@ const CANOPEN_TOOLS = [
 
 const MEDIA_TOOLS = [
   'media_provider_status',
+  'media_capcut_status',
+  'media_capcut_project_list',
+  'media_capcut_project_inspect',
+  'media_capcut_edit_plan',
+  'media_capcut_edit',
   'media_file_probe',
   'media_transcode_plan',
   'media_transcode',

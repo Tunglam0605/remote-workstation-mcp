@@ -432,6 +432,21 @@ Phase 5 connects the existing Media extension to the generic Engineering Workflo
 
 The contribution seam is domain-neutral so later Camera, CANopen, OPC UA or other extensions can add compound workflows without growing `EngineeringWorkflowEngine` into another domain monolith.
 
+### CapCut guarded draft editing (Phase 6)
+
+Phase 6 adds typed editing for owner-local CapCut desktop drafts without exposing raw draft JSON, arbitrary JSON patches or fixed-coordinate GUI macros. The adapter is based on the locally observed CapCut draft layout and remains fail-closed when the schema or mirrored timeline state is not safe to mutate.
+
+- `media_capcut_status` reports local CapCut installation/version, draft-store readiness, process state and supported bounded edit primitives.
+- `media_capcut_project_list` returns bounded draft IDs plus safe timeline metadata and SHA-256 fingerprints without source media paths.
+- `media_capcut_project_inspect` exposes sanitized tracks/segments, timing, transforms, plain text summaries and mirror consistency.
+- `media_capcut_edit_plan` composes 1–64 typed operations without writing and returns both the exact source SHA-256 and deterministic planned-result SHA-256.
+- `media_capcut_edit` requires an explicit Work Session, exact source SHA-256 and exact planned-result SHA-256, proves CapCut is closed, acquires a per-draft resource lease, verifies all discovered timeline mirrors agree, creates owner-local external backups, validates temporary JSON, applies all mirrors, reloads for SHA acceptance and verifies rollback on failure.
+- supported bounded primitives include trim, conservative split/remove, move, scalar speed, volume, opacity, visibility, transform/flip, plain single-style text replacement, deterministic text cloning from an existing template and text timing.
+- split/remove/text edits fail closed on advanced grouped/keyframed/curve-speed/rich-text states that the adapter cannot preserve with high confidence.
+- CapCut draft storage is not treated as a stable public vendor API. Unsupported layouts or mirror divergence block mutation rather than being guessed.
+
+Native CapCut export/import UI automation is intentionally separate from draft mutation and remains a future guarded desktop-provider layer unless a stable provider interface is available.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

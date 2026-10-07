@@ -1,8 +1,8 @@
 # Roadmap
 
-## Stable baseline — v0.67.0
+## Stable baseline — v0.68.0
 
-v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architecture-consolidation contracts remain the foundation, while v0.67 adds reusable domain diagnostics/workflows and project-wide hardening:
+v0.68.0 is the current stable Engineering Workbench baseline. The v0.66 architecture-consolidation contracts remain the foundation, while v0.67 adds reusable domain diagnostics/workflows and project-wide hardening:
 
 - Platform / Sessions / Engineering Framework / Extensions / Orchestration / MCP / Control Center boundaries are explicit and CI-enforced;
 - domain-specific CAN, Modbus RTU, ROS 2, STM32, ESP32 and KiCad MCP handlers register through the Extension Registry;
@@ -10,7 +10,7 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - AppContext delegates engineering and web construction to bootstrap factories;
 - Moonlight shared primitives and major page ownership are split out of the central view composition module;
 - release publication uses one canonical publisher workflow;
-- stable v0.67.0 is Action Schema 51 / Engineering API 5;
+- stable v0.68.0 is Action Schema 65 / Engineering API 5;
 - Direct Node authority, Work Session ownership, hardware interlocks, updater and rollback contracts remain fail-closed; v0.67 tool additions are explicitly versioned through the Action Schema.
 
 ## Post-v0.66 tool expansion — CANopen Phase 1
@@ -70,6 +70,17 @@ v0.67.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - require explicit Work Session ownership for mutating contributed workflows and fail closed on duplicate, malformed or built-in-colliding workflow IDs;
 - preserve completed artifact evidence on acceptance failure for diagnosis; never claim implicit ComfyUI queue cancellation on timeout;
 - keep Action Schema at 48 and Engineering API at 5 because the generic workflow action envelope is reused.
+
+## Post-v0.68 tool expansion — Media/Video Phase 6: CapCut guarded editing
+
+- add `media_capcut_status`, `media_capcut_project_list`, `media_capcut_project_inspect`, `media_capcut_edit_plan` and Work Session-owned `media_capcut_edit`;
+- inspect owner-local CapCut draft/timeline mirrors without exposing raw JSON or full source-media paths;
+- support bounded typed timeline edits: trim, conservative split/remove, move, scalar speed, volume, opacity, visibility, transform/flip, plain text replacement, deterministic text clone from an existing template and text timing;
+- require exact source SHA-256 plus exact planned-result SHA-256, CapCut proven closed, synchronized mirrors, a per-draft resource lease and owner-local backups before mutation;
+- use temporary-file validation, post-write mirror/SHA acceptance and verified rollback; surface incomplete rollback explicitly instead of claiming recovery;
+- treat CapCut draft storage as an observed/reverse-engineered provider format rather than a stable public vendor API, and fail closed on unsupported rich/advanced timeline state;
+- keep native CapCut UI automation/export as a separate guarded provider layer rather than introducing coordinate macros or arbitrary desktop control;
+- advance Action Schema to 66; Engineering API remains 5.
 
 ## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
 

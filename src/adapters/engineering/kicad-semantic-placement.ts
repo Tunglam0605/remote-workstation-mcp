@@ -30,11 +30,22 @@ export interface KicadPlacementPlanOptions {
   hints?: KicadPlacementHint[];
 }
 
+type ManifestPad = {
+  number: string;
+  xMm: number;
+  yMm: number;
+  widthMm?: number;
+  heightMm?: number;
+};
+
 type ManifestComponent = {
   reference: string;
   symbolId: string;
   value: string;
   footprintId?: string;
+  footprintPadCount?: number;
+  footprintPadsTruncated?: boolean;
+  footprintPads: ManifestPad[];
   onBoard: boolean;
 };
 
@@ -70,13 +81,25 @@ function asArray(value: unknown): unknown[] {
 
 export function parsePlacementManifest(raw: unknown): { components: ManifestComponent[]; nets: ManifestNet[] } {
   const root=asRecord(raw);
-  const components=asArray(root.components).map(asRecord).filter(item=>item.onBoard!==false).map(item=>({
-    reference: typeof item.reference==='string'?item.reference:'',
-    symbolId: typeof item.symbolId==='string'?item.symbolId:'',
-    value: typeof item.value==='string'?item.value:'',
-    ...(typeof item.footprintId==='string'?{footprintId:item.footprintId}:{}),
-    onBoard:item.onBoard!==false
-  })).filter(item=>item.reference && item.symbolId);
+  const components=asArray(root.components).map(asRecord).filter(item=>item.onBoard!==false).map(item=>{
+    const footprintPads=asArray(item.footprintPads).map(asRecord).map(pad=>({
+      number:typeof pad.number==='string'?pad.number:'',
+      xMm:finite(pad.xMm)?pad.xMm:Number.NaN,
+      yMm:finite(pad.yMm)?pad.yMm:Number.NaN,
+      ...(finite(pad.widthMm)?{widthMm:pad.widthMm}:{}),
+      ...(finite(pad.heightMm)?{heightMm:pad.heightMm}:{})
+    })).filter(pad=>pad.number&&finite(pad.xMm)&&finite(pad.yMm));
+    return {
+      reference: typeof item.reference==='string'?item.reference:'',
+      symbolId: typeof item.symbolId==='string'?item.symbolId:'',
+      value: typeof item.value==='string'?item.value:'',
+      ...(typeof item.footprintId==='string'?{footprintId:item.footprintId}:{}),
+      ...(finite(item.footprintPadCount)?{footprintPadCount:item.footprintPadCount}:{}),
+      footprintPadsTruncated:item.footprintPadsTruncated===true,
+      footprintPads,
+      onBoard:item.onBoard!==false
+    };
+  }).filter(item=>item.reference && item.symbolId);
   const nets=asArray(root.nets).map(asRecord).map(item=>({
     name: typeof item.name==='string'?item.name:'',
     endpoints: asArray(item.endpoints).map(asRecord).map(ep=>({
@@ -138,6 +161,82 @@ function nearestAnchor(ref:string,role:KicadPlacementRole,hints:Map<string,Kicad
   return neighbors[0]?.[0];
 }
 
+function rotateVector(point:Point,rotationDeg:number):Point {
+  // KiCad board rotation is clockwise in its downward-growing Y coordinate system.
+  const radians=rotationDeg*Math.PI/180;
+  const cos=Math.cos(radians),sin=Math.sin(radians);
+  return {x:point.x*cos+point.y*sin,y:-point.x*sin+point.y*cos};
+}
+
+function footprintPadBounds(component:ManifestComponent):{minX:number;maxX:number;minY:number;maxY:number;center:Point}|undefined {
+  if(!component.footprintPads.length) return undefined;
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const pad of component.footprintPads){
+    const hw=(pad.widthMm??0)/2,hh=(pad.heightMm??0)/2;
+    minX=Math.min(minX,pad.xMm-hw);maxX=Math.max(maxX,pad.xMm+hw);
+    minY=Math.min(minY,pad.yMm-hh);maxY=Math.max(maxY,pad.yMm+hh);
+  }
+  if(!finite(minX)||!finite(maxX)||!finite(minY)||!finite(maxY)) return undefined;
+  return {minX,maxX,minY,maxY,center:{x:(minX+maxX)/2,y:(minY+maxY)/2}};
+}
+
+function footprintPadOutwardUnit(component:ManifestComponent,pad:ManifestPad):Point|undefined {
+  const bounds=footprintPadBounds(component);
+  if(!bounds) return undefined;
+  const distances=[
+    {distance:Math.abs((pad.xMm+(pad.widthMm??0)/2)-bounds.maxX),unit:{x:1,y:0}},
+    {distance:Math.abs((pad.xMm-(pad.widthMm??0)/2)-bounds.minX),unit:{x:-1,y:0}},
+    {distance:Math.abs((pad.yMm+(pad.heightMm??0)/2)-bounds.maxY),unit:{x:0,y:1}},
+    {distance:Math.abs((pad.yMm-(pad.heightMm??0)/2)-bounds.minY),unit:{x:0,y:-1}}
+  ].sort((a,b)=>a.distance-b.distance);
+  if(distances[0]!.distance<=Math.max(0.05,distances[1]!.distance*0.5)) return distances[0]!.unit;
+  const radial={x:pad.xMm-bounds.center.x,y:pad.yMm-bounds.center.y};
+  const magnitude=Math.hypot(radial.x,radial.y);
+  return magnitude>0.25?{x:radial.x/magnitude,y:radial.y/magnitude}:undefined;
+}
+
+function pinAwarePlacementCandidate(
+  component:ManifestComponent,
+  components:Map<string,ManifestComponent>,
+  nets:ManifestNet[],
+  placed:Map<string,Placement>,
+  minSpacing:number,
+  reservedAnchorPads:Set<string>=new Set()
+):{point:Point;rotationDeg:number;anchorRef:string;anchorPin:string;netName:string;anchorKey:string}|undefined {
+  const candidates:Array<{score:number;point:Point;rotationDeg:number;anchorRef:string;anchorPin:string;netName:string;anchorKey:string}>=[];
+  for(const net of nets){
+    const own=net.endpoints.find(endpoint=>endpoint.reference===component.reference);
+    if(!own) continue;
+    for(const endpoint of net.endpoints){
+      if(endpoint.reference===component.reference) continue;
+      const anchorPlacement=placed.get(endpoint.reference);
+      const anchorComponent=components.get(endpoint.reference);
+      if(!anchorPlacement||!anchorComponent||!anchorComponent.footprintPads.length) continue;
+      const pad=anchorComponent.footprintPads.find(item=>item.number===endpoint.pinNumber);
+      if(!pad) continue;
+      const unit=footprintPadOutwardUnit(anchorComponent,pad);
+      if(!unit) continue;
+      const rotatedPad=rotateVector({x:pad.xMm,y:pad.yMm},anchorPlacement.rotationDeg);
+      const rotatedUnit=rotateVector(unit,anchorPlacement.rotationDeg);
+      const gap=Math.max(2.5,minSpacing);
+      const point={
+        x:anchorPlacement.xMm+rotatedPad.x+rotatedUnit.x*gap,
+        y:anchorPlacement.yMm+rotatedPad.y+rotatedUnit.y*gap
+      };
+      const anchorRole=anchorPlacement.role;
+      const anchorKey=endpoint.reference+'\u0000'+endpoint.pinNumber;
+      const roleScore=anchorRole==='mcu'?100:anchorRole==='transceiver'||anchorRole==='driver'?80:anchorRole==='power'?70:50;
+      const score=roleScore+(net.endpoints.length===2?20:0)-(reservedAnchorPads.has(anchorKey)?1000:0);
+      candidates.push({
+        score,point,
+        rotationDeg:Math.abs(rotatedUnit.x)>=Math.abs(rotatedUnit.y)?0:90,
+        anchorRef:endpoint.reference,anchorPin:endpoint.pinNumber,netName:net.name,anchorKey
+      });
+    }
+  }
+  return candidates.sort((a,b)=>b.score-a.score||a.netName.localeCompare(b.netName))[0];
+}
+
 function collisionFree(candidate:Point,placed:Map<string,Placement>,minSpacing:number,bounds:{minX:number;maxX:number;minY:number;maxY:number},grid:number):Point {
   const ok=(p:Point)=>[...placed.values()].every(existing=>distance(p,{x:existing.xMm,y:existing.yMm})>=minSpacing-1e-9);
   const normalize=(p:Point)=>({x:snap(clamp(p.x,bounds.minX,bounds.maxX),grid),y:snap(clamp(p.y,bounds.minY,bounds.maxY),grid)});
@@ -164,6 +263,7 @@ export function planKicadSemanticPlacement(manifest:unknown,options:KicadPlaceme
   if(!finite(edgeInset)||edgeInset<1||edgeInset>50) throw new Error('Semantic placement edgeInsetMm must be in range 1..50.');
   const parsed=parsePlacementManifest(manifest);
   if(!parsed.components.length) throw new Error('Semantic placement manifest has no on-board components.');
+  const componentMap=new Map(parsed.components.map(component=>[component.reference,component]));
   if(parsed.components.length>256) throw new Error('Semantic placement supports at most 256 on-board components.');
   const hintMap=new Map((options.hints??[]).map(h=>[h.reference,h]));
   for(const hint of options.hints??[]) if(!parsed.components.some(c=>c.reference===hint.reference)) throw new Error(`Placement hint references unknown component ${hint.reference}.`);
@@ -200,8 +300,18 @@ export function planKicadSemanticPlacement(manifest:unknown,options:KicadPlaceme
   const power=byRole('power');
   power.forEach((c,i)=>put(c,{x:bounds.minX+(i%2)*Math.max(minSpacing,6),y:bounds.minY+Math.floor(i/2)*Math.max(minSpacing,6)},0,['Power-stage component is grouped into a board-corner region to bound switching-current loops and separate noisy power from core logic.']));
 
+  const reservedPinAnchors=new Set<string>();
   for(const role of ['transceiver','crystal','decoupling','sensor','driver'] as KicadPlacementRole[]){
     for(const c of byRole(role)){
+      const pinAware=(role==='decoupling'||role==='crystal')?pinAwarePlacementCandidate(c,componentMap,parsed.nets,placed,minSpacing,reservedPinAnchors):undefined;
+      if(pinAware){
+        put(c,pinAware.point,pinAware.rotationDeg,[
+          `Pin-aware ${role} placement follows ${pinAware.anchorRef}.${pinAware.anchorPin} on net ${pinAware.netName}.`,
+          'Target is projected outward from the resolved KiCad footprint pad geometry before collision/bounds snapping.'
+        ]);
+        reservedPinAnchors.add(pinAware.anchorKey);
+        continue;
+      }
       const anchor=nearestAnchor(c.reference,role,hintMap,placed,links);
       if(anchor){
         const a=placed.get(anchor)!;
@@ -217,6 +327,15 @@ export function planKicadSemanticPlacement(manifest:unknown,options:KicadPlaceme
 
   const remaining=parsed.components.filter(c=>!placed.has(c.reference));
   for(const c of remaining){
+    const pinAware=pinAwarePlacementCandidate(c,componentMap,parsed.nets,placed,minSpacing,reservedPinAnchors);
+    if(pinAware){
+      put(c,pinAware.point,pinAware.rotationDeg,[
+        `Pin-aware placement follows ${pinAware.anchorRef}.${pinAware.anchorPin} on net ${pinAware.netName}.`,
+        'Target is projected outward from the resolved KiCad footprint pad geometry before collision/bounds snapping.'
+      ]);
+      reservedPinAnchors.add(pinAware.anchorKey);
+      continue;
+    }
     const neighbors=[...(links.get(c.reference)?.entries()??[])].filter(([ref])=>placed.has(ref));
     let target=center;
     if(neighbors.length){

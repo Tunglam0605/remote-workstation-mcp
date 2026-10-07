@@ -68,6 +68,8 @@ test('board synthesis creates stackup, Edge.Cuts, pad-net linkage and determinis
   assert.match(result.source,/\(net 1 "\/SIG"\)/);
   assert.match(result.source,/\(pinfunction "~"\)/);
   assert.match(result.source,/\(at 45 25 90\)/);
+  assert.match(result.source,/\(property "Reference" "R2"[\s\S]*?\(at 0 -1\.5 90\)/);
+  assert.match(result.source,/\(pad "1" smd roundrect[\s\S]*?\(at -0\.775 0 90\)/);
 });
 
 test('board net-name canonicalization preserves power/global names and roots local names',()=>{
@@ -75,6 +77,15 @@ test('board net-name canonicalization preserves power/global names and roots loc
   assert.equal(canonicalKicadBoardNetName('/BUS/SIG'),'/BUS/SIG');
   assert.equal(canonicalKicadBoardNetName('+3V3'),'/+3V3');
   assert.equal(canonicalKicadBoardNetName('GND'),'/GND');
+});
+
+
+test('board synthesis keeps child coordinates local and serializes absolute child orientation when footprint is rotated',()=>{
+  const result=synthesizeKicadBoard([
+    {reference:'R1',value:'10k',symbol,footprint,symbolUuid:'33333333-3333-4333-8333-333333333333',xMm:30,yMm:25,rotationDeg:90}
+  ],[{name:'SIG',endpoints:[{reference:'R1',pinNumber:'1'}]}],{projectName:'rotated',widthMm:60,heightMm:40});
+  assert.match(result.source,/\(at 30 25 90\)/);
+  assert.match(result.source,/\(pad "1"[\s\S]*?\(at -0\.775 0 90\)/);
 });
 
 test('board synthesis rejects unknown endpoints and unsupported copper-layer counts',()=>{

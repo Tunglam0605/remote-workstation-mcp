@@ -31,6 +31,7 @@ export interface KicadRoutePlanOptions {
 }
 
 type GridState = { x: number; y: number; layer: number; dir: number };
+type PlannedOccupancy = { netName: string; radiusMm: number; clearanceMm: number };
 
 function blockEnd(text:string,start:number):number{
   let depth=0,quoted=false,escaped=false;
@@ -79,8 +80,9 @@ function numberToken(block:string,token:string):number|undefined{
   return m?.[1]!==undefined?Number(m[1]):undefined;
 }
 function rotate(p:Point,degrees:number):Point{
+  // KiCad PCB coordinates use positive rotation clockwise because board Y grows downward.
   const r=degrees*Math.PI/180,c=Math.cos(r),s=Math.sin(r);
-  return {x:p.x*c-p.y*s,y:p.x*s+p.y*c};
+  return {x:p.x*c+p.y*s,y:-p.x*s+p.y*c};
 }
 function transform(p:Point,origin:Point,rotationDeg:number):Point{
   const q=rotate(p,rotationDeg);return{x:origin.x+q.x,y:origin.y+q.y};
@@ -137,7 +139,10 @@ function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
       const net=netOf(pblock);if(!net||net.id===0)continue;
       const layers=layersOf(pblock);
       const size=padSize(pblock),halfX=size.x/2,halfY=size.y/2;
-      const padRotation=origin.rotationDeg+pAt.rotationDeg;
+      // KiCad board files store pad orientation as an absolute board angle.
+      // The pad position remains footprint-local, but adding the parent rotation to
+      // the saved pad angle would rotate the copper envelope twice.
+      const padRotation=pAt.rotationDeg;
       const padCorners=[
         transform({x:-halfX,y:-halfY},position,padRotation),
         transform({x:-halfX,y:halfY},position,padRotation),
@@ -261,7 +266,8 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   if(nx*ny*layers.length>MAX_GRID_STATES)throw new Error(`KiCad route planner grid exceeds ${MAX_GRID_STATES} states; increase gridMm or reduce board area.`);
   const grid={originX:minX,originY:minY,step:gridMm,nx,ny};
   const existing=parseExistingTracks(source,grid,layers);
-  const planned=layers.map(()=>new Set<string>());
+  const planned=layers.map(()=>new Map<string,PlannedOccupancy[]>());
+  const plannedMaxEnvelope=layers.map(()=>0);
   const obstacles=parsed.footprints.flatMap(fp=>fp.obstacle?[fp.obstacle]:[]);
   const byNet=new Map<string,Pad[]>();
   for(const pad of parsed.pads){const list=byNet.get(pad.netName)??[];list.push(pad);byNet.set(pad.netName,list);}
@@ -318,6 +324,22 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     }
     return false;
   };
+  const nearPlanned=(layer:number,x:number,y:number,radiusMm:number,clearanceMm:number,netName:string)=>{
+    const searchRadius=radiusMm+clearanceMm+plannedMaxEnvelope[layer]!;
+    const radiusCells=Math.ceil(Math.max(0,searchRadius)/gridMm);
+    for(let dx=-radiusCells;dx<=radiusCells;dx++)for(let dy=-radiusCells;dy<=radiusCells;dy++){
+      const distanceMm=Math.hypot(dx*gridMm,dy*gridMm);
+      if(distanceMm>searchRadius+1e-9)continue;
+      const entries=planned[layer]!.get(cellKey(x+dx,y+dy));
+      if(!entries)continue;
+      for(const entry of entries){
+        if(entry.netName===netName)continue;
+        const required=radiusMm+entry.radiusMm+Math.max(clearanceMm,entry.clearanceMm);
+        if(distanceMm<=required+1e-9)return true;
+      }
+    }
+    return false;
+  };
 
   const findPath=(netName:string,start:Pad,end:Pad,width:number,clearance:number,preferredLayer?:string)=>{
     const s=toGrid(start.position),e=toGrid(end.position);
@@ -340,7 +362,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         if(x<0||y<0||x>=nx||y>=ny)continue;
         const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
         if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
-        if(!endpoint&&(nearOccupied(existing[cur.layer]!,x,y,inflate)||nearOccupied(planned[cur.layer]!,x,y,inflate)||insideObstacle(x,y,inflate,exempt)))continue;
+        if(!endpoint&&(nearOccupied(existing[cur.layer]!,x,y,inflate)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)||insideObstacle(x,y,inflate,exempt)))continue;
         const horizontal=dy===0,layerName=layers[cur.layer]!;
         const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
         const step=gridMm+(preferred?0:wrongWayPenalty)+(cur.dir<4&&cur.dir!==di?turnPenalty:0);
@@ -351,7 +373,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       const endpoint=(cur.x===s.x&&cur.y===s.y)||(cur.x===e.x&&cur.y===e.y);
       const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
       const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
-      const viaBlocked=[cur.layer,other].some(li=>nearOccupied(existing[li]!,cur.x,cur.y,viaInflate)||nearOccupied(planned[li]!,cur.x,cur.y,viaInflate)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
+      const viaBlocked=[cur.layer,other].some(li=>nearOccupied(existing[li]!,cur.x,cur.y,viaInflate)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
       if(!viaForeignPadBlocked&&(endpoint||!viaBlocked)){
         const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
         if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+Math.hypot(e.x-cur.x,e.y-cur.y)*gridMm,next);}
@@ -389,6 +411,17 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     return out;
   };
 
+  const operationPointKey=(point:Point)=>point.x.toFixed(4)+','+point.y.toFixed(4);
+  const routeOperationKey=(op:KicadRouteBatchOperation)=>{
+    if(op.kind==='via'){
+      const layers=[...(op.layers??['F.Cu','B.Cu'])].sort().join('|');
+      return ['via',op.netName,operationPointKey(op.position),op.diameterMm.toFixed(4),op.drillMm.toFixed(4),layers].join('|');
+    }
+    const a=operationPointKey(op.start),b=operationPointKey(op.end);
+    const [first,second]=a<=b?[a,b]:[b,a];
+    return ['segment',op.netName,op.layer,op.widthMm.toFixed(4),first,second].join('|');
+  };
+
   const priorityFor=(name:string)=>styleMap.get(name)?.priority??0;
   const candidateNets=[...byNet.entries()]
     .filter(([name,pads])=>!name.startsWith('unconnected-(')&&pads.length>=2&&(!selected||selected.has(name))&&!skippedExplicit.has(name))
@@ -398,19 +431,48 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     if(pads.length>maxPads){skipped.push({netName,reason:`pad-count-exceeds-${maxPads}`,padCount:pads.length});continue;}
     const style=styleMap.get(netName),width=style?.widthMm??defaultWidth,clearance=style?.clearanceMm??defaultClearance,priority=style?.priority??0;
     if(width<0.05||width>20||clearance<0||clearance>10||!Number.isInteger(priority)||priority<-1000||priority>1000){skipped.push({netName,reason:'invalid-style',padCount:pads.length});continue;}
-    const edges=mstEdges(pads),netOps:KicadRouteBatchOperation[]=[];const added:Array<{layer:number;cell:string}>=[];let failed=false,length=0,vias=0;
-    const reserveRadius=Math.max(width/2,viaDiameter/2)+clearance;
-    const reserve=(state:GridState)=>{const r=Math.ceil(reserveRadius/gridMm);for(let dx=-r;dx<=r;dx++)for(let dy=-r;dy<=r;dy++){if(Math.hypot(dx*gridMm,dy*gridMm)>reserveRadius+gridMm*0.75)continue;const x=state.x+dx,y=state.y+dy;if(x<0||y<0||x>=nx||y>=ny)continue;const cell=cellKey(x,y);if(!planned[state.layer]!.has(cell)){planned[state.layer]!.add(cell);added.push({layer:state.layer,cell});}}};
+    const edges=mstEdges(pads),netOps:KicadRouteBatchOperation[]=[],netOpKeys=new Set<string>();const added:Array<{layer:number;cell:string;entry:PlannedOccupancy}>=[];let failed=false,length=0,vias=0;
+    const reserve=(state:GridState,radiusMm:number)=>{
+      const cell=cellKey(state.x,state.y),entry:PlannedOccupancy={netName,radiusMm,clearanceMm:clearance};
+      const bucket=planned[state.layer]!.get(cell)??[];
+      bucket.push(entry);planned[state.layer]!.set(cell,bucket);added.push({layer:state.layer,cell,entry});
+      plannedMaxEnvelope[state.layer]=Math.max(plannedMaxEnvelope[state.layer]!,radiusMm+clearance);
+    };
     for(const [a,b] of edges){
       const path=findPath(netName,a,b,width,clearance,style?.preferredLayer);
       if(!path){failed=true;break;}
       const edgeOps=pathToOperations(netName,path,a,b,width);
-      if(operations.length+netOps.length+edgeOps.length>maxOperations){failed=true;break;}
-      netOps.push(...edgeOps);
-      for(const state of path)reserve(state);
-      for(const op of edgeOps){if(op.kind==='segment')length+=Math.hypot(op.end.x-op.start.x,op.end.y-op.start.y);else vias++;}
+      for(const op of edgeOps){
+        const key=routeOperationKey(op);
+        if(netOpKeys.has(key))continue;
+        if(operations.length+netOps.length+1>maxOperations){failed=true;break;}
+        netOpKeys.add(key);netOps.push(op);
+        if(op.kind==='segment')length+=Math.hypot(op.end.x-op.start.x,op.end.y-op.start.y);else vias++;
+      }
+      if(failed)break;
+      for(const state of path)reserve(state,width/2);
+      for(let i=1;i<path.length;i++){
+        const previous=path[i-1]!,current=path[i]!;
+        if(previous.layer!==current.layer){reserve(previous,viaDiameter/2);reserve(current,viaDiameter/2);}
+      }
     }
-    if(failed){for(const item of added)planned[item.layer]!.delete(item.cell);skipped.push({netName,reason:operations.length+netOps.length>=maxOperations?'operation-limit':'no-obstacle-safe-grid-path',padCount:pads.length});continue;}
+    if(failed){
+      const touchedLayers=new Set<number>();
+      for(const item of added){
+        touchedLayers.add(item.layer);
+        const bucket=planned[item.layer]!.get(item.cell);
+        if(!bucket)continue;
+        const index=bucket.indexOf(item.entry);
+        if(index>=0)bucket.splice(index,1);
+        if(bucket.length)planned[item.layer]!.set(item.cell,bucket);else planned[item.layer]!.delete(item.cell);
+      }
+      for(const layer of touchedLayers){
+        let maxEnvelope=0;
+        for(const bucket of planned[layer]!.values())for(const entry of bucket)maxEnvelope=Math.max(maxEnvelope,entry.radiusMm+entry.clearanceMm);
+        plannedMaxEnvelope[layer]=maxEnvelope;
+      }
+      skipped.push({netName,reason:operations.length+netOps.length>=maxOperations?'operation-limit':'no-obstacle-safe-grid-path',padCount:pads.length});continue;
+    }
     operations.push(...netOps);routed.push({netName,priority,padCount:pads.length,edges:edges.length,operations:netOps.length,estimatedLengthMm:Number(length.toFixed(4)),viaCount:vias});
   }
 

@@ -2,7 +2,7 @@ const COPPER_RESISTIVITY_OHM_M_20C = 1.724e-8;
 const MAX_BLOCKS = 250000;
 
 type Point={x:number;y:number};
-export type KicadElectricalNetKind='power'|'clock'|'differential'|'can'|'rs485'|'pwm'|'encoder'|'analog'|'digital'|'high_speed';
+export type KicadElectricalNetKind='ground'|'power'|'clock'|'differential'|'can'|'rs485'|'pwm'|'encoder'|'analog'|'digital'|'high_speed';
 export interface KicadElectricalNetIntent{
   netName:string;
   kind:KicadElectricalNetKind;

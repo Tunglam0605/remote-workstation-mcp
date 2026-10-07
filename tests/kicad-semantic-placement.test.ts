@@ -6,7 +6,7 @@ const manifest={
   schemaVersion:1,
   projectName:'robot',
   components:[
-    {reference:'U1',symbolId:'MCU_ST_STM32F4:STM32F407VETx',value:'STM32F407VET6',footprintId:'Package_QFP:LQFP-100_14x14mm_P0.5mm',onBoard:true},
+    {reference:'U1',symbolId:'MCU_ST_STM32F4:STM32F407VETx',value:'STM32F407VET6',footprintId:'Package_QFP:LQFP-100_14x14mm_P0.5mm',footprintPadCount:4,footprintPads:[{number:'1',xMm:-7,yMm:0,widthMm:0.3,heightMm:1.5},{number:'2',xMm:7,yMm:0,widthMm:0.3,heightMm:1.5},{number:'5',xMm:0,yMm:7,widthMm:1.5,heightMm:0.3},{number:'6',xMm:0,yMm:-7,widthMm:1.5,heightMm:0.3}],onBoard:true},
     {reference:'J1',symbolId:'Connector_Generic:Conn_01x04',value:'CAN',footprintId:'Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical',onBoard:true},
     {reference:'U2',symbolId:'Interface_CAN_LIN:TJA1051T',value:'CAN transceiver',footprintId:'Package_SO:SOIC-8_3.9x4.9mm_P1.27mm',onBoard:true},
     {reference:'C1',symbolId:'Device:C',value:'100n',footprintId:'Capacitor_SMD:C_0603_1608Metric',onBoard:true},
@@ -41,10 +41,17 @@ test('semantic placement applies MCU center, connector edge and anchor-aware loc
   assert.ok(Math.abs((byRef.get('U1')?.yMm??0)-50)<=0.5);
   assert.equal(byRef.get('J1')?.xMm,96);
   assert.equal(byRef.get('J1')?.rotationDeg,90);
-  assert.ok(Math.hypot((byRef.get('C1')?.xMm??0)-(byRef.get('U1')?.xMm??0),(byRef.get('C1')?.yMm??0)-(byRef.get('U1')?.yMm??0))<=7);
-  assert.ok(Math.hypot((byRef.get('Y1')?.xMm??0)-(byRef.get('U1')?.xMm??0),(byRef.get('Y1')?.yMm??0)-(byRef.get('U1')?.yMm??0))<=9);
+  const c1=byRef.get('C1');
+  assert.ok(c1?.rationale.some(item=>item.includes('Pin-aware decoupling placement follows U1.5')));
+  assert.ok((c1?.yMm??0)>(byRef.get('U1')?.yMm??0),'C1 should be projected outward from U1 pin 5');
+  const y1=byRef.get('Y1');
+  assert.ok(y1?.rationale.some(item=>item.includes('Pin-aware crystal placement follows U1.6')));
+  assert.ok((y1?.yMm??0)<(byRef.get('U1')?.yMm??0),'Y1 should be projected outward from U1 pin 6');
   assert.ok(Math.hypot((byRef.get('U2')?.xMm??0)-(byRef.get('J1')?.xMm??0),(byRef.get('U2')?.yMm??0)-(byRef.get('J1')?.yMm??0))<=11);
   assert.equal(byRef.get('U3')?.role,'power');
+  const r1=byRef.get('R1');
+  assert.ok(r1?.rationale.some(item=>item.includes('Pin-aware placement follows U1.5')));
+  assert.ok((r1?.yMm??0)>(byRef.get('U1')?.yMm??0),'R1 should escape from the same footprint side as U1 pin 5');
   for(const p of plan.placements){
     assert.equal((p.xMm*2)%1,0);
     assert.equal((p.yMm*2)%1,0);

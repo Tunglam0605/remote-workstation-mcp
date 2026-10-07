@@ -219,7 +219,29 @@ test('design agent derives route priority and geometry from electrical intent/ne
     assert.equal(route.defaultClearanceMm, 0.25);
     assert.equal(route.viaDiameterMm, 0.7);
     assert.equal(route.viaDrillMm, 0.35);
-    assert.deepEqual(route.styles, [{ netName: 'SIG', widthMm: 0.9, priority: 950, clearanceMm: 0.5 }]);
+    assert.deepEqual(route.styles, [{ netName: 'SIG', widthMm: 0.9, priority: 950, clearanceMm: 0.5, preferredLayer: 'F.Cu' }]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('design agent gives typed ground routing precedence and opposite-layer bias on two-layer boards', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-agent-ground-policy-'));
+  try {
+    const fixture = await adapterWithStages(root, {});
+    const request = {
+      ...baseRequest(),
+      electricalIntents: [
+        { netName: 'GND', kind: 'ground' as const },
+        { netName: 'SIG', kind: 'power' as const }
+      ]
+    };
+    await fixture.adapter.designAgentRun('w', '.', request);
+    const styles = fixture.getLastRouteRequest().styles;
+    assert.deepEqual(styles, [
+      { netName: 'GND', priority: 800, preferredLayer: 'B.Cu' },
+      { netName: 'SIG', priority: 700, preferredLayer: 'F.Cu' }
+    ]);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

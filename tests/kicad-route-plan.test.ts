@@ -303,3 +303,115 @@ test('route planner uses exact foreign-pad clearance for 0.5 mm pitch egress', (
   assert.equal(planned.routed[0]?.netName, '/USB_DP');
   assert.ok(planned.operations.some(op => op.kind === 'segment'));
 });
+
+
+test('route planner permits two valid 0.5 mm pitch parallel escapes without via-sized overreservation', () => {
+  const source = `(kicad_pcb
+    (version 20241229)
+    (generator "rwmcp-test")
+    (general (thickness 1.6))
+    (layers
+      (0 "F.Cu" signal)
+      (31 "B.Cu" signal)
+      (44 "Edge.Cuts" user)
+    )
+    (setup (pad_to_mask_clearance 0))
+    (net 0 "")
+    (net 1 "/USB_DM")
+    (net 2 "/USB_DP")
+    (footprint "Package_QFP:FinePitch"
+      (layer "F.Cu")
+      (at 12 15)
+      (property "Reference" "U1")
+      (property "Value" "MCU")
+      (pad "70" smd rect (at 0 0) (size 1.5 0.3) (layers "F.Cu" "F.Mask") (net 1 "/USB_DM"))
+      (pad "71" smd rect (at 0 0.5) (size 1.5 0.3) (layers "F.Cu" "F.Mask") (net 2 "/USB_DP"))
+    )
+    (footprint "Resistor_SMD:R"
+      (layer "F.Cu")
+      (at 30 15)
+      (property "Reference" "R1")
+      (property "Value" "22R")
+      (pad "1" smd rect (at 0 0) (size 0.9 0.3) (layers "F.Cu" "F.Mask") (net 1 "/USB_DM"))
+    )
+    (footprint "Resistor_SMD:R"
+      (layer "F.Cu")
+      (at 30 15.5)
+      (property "Reference" "R2")
+      (property "Value" "22R")
+      (pad "1" smd rect (at 0 0) (size 0.9 0.3) (layers "F.Cu" "F.Mask") (net 2 "/USB_DP"))
+    )
+    (gr_rect
+      (start 0 0)
+      (end 40 30)
+      (stroke (width 0.05) (type default))
+      (fill none)
+      (layer "Edge.Cuts")
+    )
+  )`;
+  const planned = planKicadRoutes(source, {
+    gridMm: 0.25,
+    edgeInsetMm: 1,
+    defaultWidthMm: 0.2,
+    defaultClearanceMm: 0.2,
+    viaDiameterMm: 0.6,
+    viaDrillMm: 0.3,
+    styles: [
+      { netName: 'USB_DM', priority: 500, widthMm: 0.2, clearanceMm: 0.2 },
+      { netName: 'USB_DP', priority: 500, widthMm: 0.2, clearanceMm: 0.2 }
+    ]
+  });
+  assert.equal(planned.complete, true);
+  assert.equal(planned.routed.length, 2);
+  assert.deepEqual(planned.routed.map(item => item.netName).sort(), ['/USB_DM', '/USB_DP']);
+});
+
+
+test('route planner transforms rotated footprint pad coordinates using KiCad clockwise board rotation', () => {
+  const source = `(kicad_pcb
+    (version 20241229)
+    (generator "rwmcp-test")
+    (general (thickness 1.6))
+    (layers
+      (0 "F.Cu" signal)
+      (31 "B.Cu" signal)
+      (44 "Edge.Cuts" user)
+    )
+    (setup (pad_to_mask_clearance 0))
+    (net 0 "")
+    (net 1 "/SIG")
+    (footprint "Device:A"
+      (layer "F.Cu")
+      (at 10 10 90)
+      (property "Reference" "A1")
+      (property "Value" "A")
+      (pad "1" smd rect (at -1 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))
+    )
+    (footprint "Device:B"
+      (layer "F.Cu")
+      (at 20 11)
+      (property "Reference" "B1")
+      (property "Value" "B")
+      (pad "1" smd rect (at 0 0) (size 0.6 0.6) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))
+    )
+    (gr_rect
+      (start 0 0)
+      (end 30 20)
+      (stroke (width 0.05) (type default))
+      (fill none)
+      (layer "Edge.Cuts")
+    )
+  )`;
+  const planned = planKicadRoutes(source, {
+    gridMm: 0.25,
+    edgeInsetMm: 1,
+    defaultWidthMm: 0.2,
+    defaultClearanceMm: 0.2,
+    selectedNets: ['/SIG']
+  });
+  assert.equal(planned.complete, true);
+  const segment=planned.operations.find(op=>op.kind==='segment');
+  assert.ok(segment && segment.kind==='segment');
+  const endpoints=[segment.start,segment.end];
+  assert.ok(endpoints.some(point=>Math.abs(point.x-10)<1e-6&&Math.abs(point.y-11)<1e-6));
+});

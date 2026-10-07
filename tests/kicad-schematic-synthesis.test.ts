@@ -33,3 +33,17 @@ test('netlist verification canonicalizes root-sheet net names and catches missin
   assert.equal(verifyKicadSchematicNetlist(expected,actual).valid,true);
   assert.equal(verifyKicadSchematicNetlist(expected,[{name:'SIG',nodes:[{reference:'R1',pin:'1'}]}]).valid,false);
 });
+
+
+test('schematic synthesis treats KiCad unit-0 pins as common pins for power/helper symbols',()=>{
+  const common={...symbol,id:'power:PWR_FLAG',name:'PWR_FLAG',pins:[
+    {number:'1',name:'',electricalType:'power_out',shape:'line',xMm:0,yMm:0,rotationDeg:0,lengthMm:0,unit:0,bodyStyle:1,alternates:[]}
+  ]};
+  const result=synthesizeKicadSchematic(
+    [{reference:'PF1',symbol:common,onBoard:false}],
+    [{name:'+3V3',endpoints:[{reference:'PF1',pinNumber:'1'}]}],
+    {markUnusedNoConnect:true}
+  );
+  assert.equal(result.components[0]?.pins.some(pin=>pin.number==='1'&&pin.connectedNet==='+3V3'),true);
+  assert.equal(result.unusedPins.length,0);
+});

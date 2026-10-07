@@ -21,6 +21,7 @@ import { applyKicadRouteBatch, type KicadRouteBatchOperation } from './kicad-rou
 import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.js';
 import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-electrical-review.js';
 import { validateKicadElectronicDesignIntent, type KicadDevicePinPlan, type KicadElectronicDesignIntent } from './kicad-design-intent.js';
+import { validateKicadSchematicArchitectureCoverage } from './kicad-schematic-architecture.js';
 import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
@@ -1628,6 +1629,28 @@ export class KicadAdapter {
       stages.push({ stage: 'design-intent-preflight', status: 'skipped', detail: 'No designIntent supplied; legacy typed schematic flow retained for compatibility.' });
     }
 
+    const schematicArchitecture = request.designIntent
+      ? validateKicadSchematicArchitectureCoverage({
+          intent: request.designIntent,
+          pinPlans: request.pinPlans ?? [],
+          componentReferences: request.components.map(item => item.reference),
+          netNames: request.nets.map(item => item.name)
+        })
+      : undefined;
+    if (schematicArchitecture) {
+      stages.push({
+        stage: 'schematic-architecture-preflight',
+        status: schematicArchitecture.valid ? 'passed' : 'failed',
+        detail: `requirements=${schematicArchitecture.plan.requirements.length} errors=${schematicArchitecture.counts.error} review=${schematicArchitecture.counts.review}`
+      });
+      if (!schematicArchitecture.valid) {
+        const detail = schematicArchitecture.findings.filter(item => item.severity === 'error').slice(0, 8).map(item => `${item.code}: ${item.message}`).join(' | ');
+        throw new Error(`KICAD_SCHEMATIC_ARCHITECTURE_BLOCKED: typed schematic inputs do not cover the professional design architecture. ${detail}`);
+      }
+    } else {
+      stages.push({ stage: 'schematic-architecture-preflight', status: 'skipped', detail: 'No designIntent supplied.' });
+    }
+
     const schematic = await this.schematicSynthesize(workspace, projectPath, {
       outputDir: request.outputDir,
       projectName: request.projectName,
@@ -1890,6 +1913,7 @@ export class KicadAdapter {
       } : { skipped: true, finalBoardSha256: currentBoardSha },
       validation: { clean, drcErrors, ercErrors, activeViolations, unconnected, schematicParity },
       ...(designIntentReview ? { designIntent: designIntentReview } : {}),
+      ...(schematicArchitecture ? { schematicArchitecture } : {}),
       ...(electrical ? { electrical: electrical.analysis } : {}),
       constraints: constraints.analysis,
       designReview: designReview.analysis,

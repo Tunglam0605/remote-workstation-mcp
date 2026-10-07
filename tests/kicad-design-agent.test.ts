@@ -271,6 +271,17 @@ test('design agent blocks professional schematic synthesis until programmable-de
     const fixture = await adapterWithStages(root, {});
     const request = {
       ...baseRequest(),
+      components: [
+        ...baseRequest().components,
+        { reference: 'U1', symbolId: 'MCU_ST_STM32F4:STM32F407VGT6', footprintId: 'Package_QFP:LQFP-100_14x14mm_P0.5mm' }
+      ],
+      nets: [
+        ...baseRequest().nets,
+        { name: '3V3', endpoints: [] },
+        { name: 'GND', endpoints: [] },
+        { name: 'CAN1_TX', endpoints: [] },
+        { name: 'CAN1_RX', endpoints: [] }
+      ],
       designIntent: {
         schemaVersion: 1 as const,
         name: 'MCU Controller',

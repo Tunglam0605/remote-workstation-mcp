@@ -14,6 +14,47 @@ const MAX_TIME_MS = 7 * DAY_MS;
 
 export type CapCutSpeedPreserve = 'source' | 'timeline';
 
+export interface CapCutHeadlessVideoSegment {
+  id: string;
+  sourcePath: string;
+  sourceStartMs: number;
+  sourceDurationMs: number;
+  targetStartMs: number;
+  targetDurationMs: number;
+  speed: number;
+  volume: number;
+  opacity: number;
+  scale: number;
+  rotationDeg: number;
+  x: number;
+  y: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  hasAudio: boolean;
+  width?: number;
+  height?: number;
+}
+
+export interface CapCutHeadlessTextSegment {
+  id: string;
+  text: string;
+  targetStartMs: number;
+  targetDurationMs: number;
+}
+
+export interface CapCutHeadlessRenderModel {
+  projectId: string;
+  sha256: string;
+  mirrorConsistent: boolean;
+  durationMs: number;
+  fps: number;
+  canvas: { width: number; height: number };
+  videos: CapCutHeadlessVideoSegment[];
+  texts: CapCutHeadlessTextSegment[];
+  blockers: string[];
+  warnings: string[];
+}
+
 export type CapCutEditOperation =
   | { op: 'trim'; segmentId: string; sourceStartMs: number; sourceDurationMs: number }
   | { op: 'split'; segmentId: string; offsetMs: number }
@@ -129,6 +170,15 @@ function materialById(draft: any, id: string): any | undefined {
   for (const list of materialArrays(draft)) {
     const found = list.find(item => item && typeof item === 'object' && item.id === id);
     if (found) return found;
+  }
+  return undefined;
+}
+
+function materialCollectionName(draft: any, id: string): string | undefined {
+  if (!draft.materials || typeof draft.materials !== 'object') return undefined;
+  for (const [name, items] of Object.entries(draft.materials)) {
+    if (!Array.isArray(items)) continue;
+    if (items.some((item: any) => item && typeof item === 'object' && item.id === id)) return name;
   }
   return undefined;
 }
@@ -783,6 +833,149 @@ export class CapCutDraftAdapter {
       mirrors,
       mirrorConsistent,
       mainTimelineId
+    };
+  }
+
+  async headlessRenderModel(projectId: string): Promise<CapCutHeadlessRenderModel> {
+    const loaded = await this.load(projectId);
+    lintDraft(loaded.draft);
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+    if (!loaded.mirrorConsistent) blockers.push('draft-mirrors-diverge');
+
+    const canvasWidth = Number(loaded.draft.canvas_config?.width);
+    const canvasHeight = Number(loaded.draft.canvas_config?.height);
+    if (!Number.isInteger(canvasWidth) || canvasWidth < 16 || canvasWidth > 7680 ||
+        !Number.isInteger(canvasHeight) || canvasHeight < 16 || canvasHeight > 7680) {
+      blockers.push('unsupported-canvas');
+    }
+    const fpsRaw = Number(loaded.draft.fps);
+    const fps = Number.isFinite(fpsRaw) && fpsRaw >= 1 && fpsRaw <= 120 ? fpsRaw : 30;
+    if (fps !== fpsRaw) warnings.push('draft-fps-defaulted-to-30');
+
+    const rows = segmentRows(loaded.draft);
+    const visibleRows = rows.filter(row => row.segment?.visible !== false);
+    const videoTrackIndexes = [...new Set(visibleRows.filter(row => row.trackType === 'video').map(row => row.trackIndex))];
+    if (videoTrackIndexes.length !== 1) blockers.push('headless-render-requires-one-visible-video-track');
+    const unsupportedTrackTypes = [...new Set(visibleRows.map(row => row.trackType).filter(type => type !== 'video' && type !== 'text'))];
+    if (unsupportedTrackTypes.length) blockers.push(`unsupported-track-types:${unsupportedTrackTypes.join(',')}`);
+
+    const allowedExtraCollections = new Set([
+      'canvases', 'material_animations', 'placeholder_infos', 'speeds',
+      'sound_channel_mappings', 'material_colors', 'vocal_separations'
+    ]);
+    const videos: CapCutHeadlessVideoSegment[] = [];
+    for (const row of visibleRows.filter(row => row.trackType === 'video')) {
+      const segment = row.segment;
+      const id = String(segment.id);
+      if (!segment.source_timerange) { blockers.push(`video:${id}:missing-source-range`); continue; }
+      if (segment.reverse || segment.is_loop || segment.responsive_layout?.enable || segment.caption_info != null ||
+          (typeof segment.group_id === 'string' && segment.group_id) ||
+          (Array.isArray(segment.keyframe_refs) && segment.keyframe_refs.length > 0) ||
+          (Array.isArray(segment.common_keyframes) && segment.common_keyframes.length > 0) ||
+          (Array.isArray(segment.lyric_keyframes) && segment.lyric_keyframes.length > 0)) {
+        blockers.push(`video:${id}:advanced-timeline-state`);
+      }
+      const material = materialById(loaded.draft, String(segment.material_id ?? ''));
+      const sourcePath = typeof material?.path === 'string' ? material.path : '';
+      if (!material || material.type !== 'video' || !sourcePath || !path.isAbsolute(sourcePath)) {
+        blockers.push(`video:${id}:unsupported-material`);
+        continue;
+      }
+      if (!(await existingFile(sourcePath))) blockers.push(`video:${id}:source-missing`);
+      for (const ref of Array.isArray(segment.extra_material_refs) ? segment.extra_material_refs : []) {
+        const collection = materialCollectionName(loaded.draft, String(ref));
+        if (collection && !allowedExtraCollections.has(collection)) blockers.push(`video:${id}:unsupported-extra:${collection}`);
+      }
+      const sourceStartMs = usToMs(segment.source_timerange.start);
+      const sourceDurationMs = usToMs(segment.source_timerange.duration);
+      const targetStartMs = usToMs(segment.target_timerange?.start);
+      const targetDurationMs = usToMs(segment.target_timerange?.duration);
+      if ([sourceStartMs, sourceDurationMs, targetStartMs, targetDurationMs].some(value => typeof value !== 'number')) {
+        blockers.push(`video:${id}:invalid-timing`);
+        continue;
+      }
+      const speed = typeof segment.speed === 'number' && Number.isFinite(segment.speed) ? segment.speed : 1;
+      const volume = typeof segment.volume === 'number' && Number.isFinite(segment.volume) ? segment.volume : 1;
+      const opacity = typeof segment.clip?.alpha === 'number' && Number.isFinite(segment.clip.alpha) ? segment.clip.alpha : 1;
+      const scaleX = typeof segment.clip?.scale?.x === 'number' && Number.isFinite(segment.clip.scale.x) ? segment.clip.scale.x : 1;
+      const scaleY = typeof segment.clip?.scale?.y === 'number' && Number.isFinite(segment.clip.scale.y) ? segment.clip.scale.y : scaleX;
+      if (Math.abs(scaleX - scaleY) > 1e-6 || scaleX <= 0 || scaleX > 20) blockers.push(`video:${id}:unsupported-nonuniform-scale`);
+      const x = typeof segment.clip?.transform?.x === 'number' && Number.isFinite(segment.clip.transform.x) ? segment.clip.transform.x : 0;
+      const y = typeof segment.clip?.transform?.y === 'number' && Number.isFinite(segment.clip.transform.y) ? segment.clip.transform.y : 0;
+      if (Math.abs(x) > 1e-6 || Math.abs(y) > 1e-6) blockers.push(`video:${id}:translation-not-supported-headlessly`);
+      const rotationDeg = typeof segment.clip?.rotation === 'number' && Number.isFinite(segment.clip.rotation) ? segment.clip.rotation : 0;
+      videos.push({
+        id,
+        sourcePath,
+        sourceStartMs: sourceStartMs!,
+        sourceDurationMs: sourceDurationMs!,
+        targetStartMs: targetStartMs!,
+        targetDurationMs: targetDurationMs!,
+        speed,
+        volume,
+        opacity,
+        scale: scaleX,
+        rotationDeg,
+        x,
+        y,
+        flipHorizontal: segment.clip?.flip?.horizontal === true,
+        flipVertical: segment.clip?.flip?.vertical === true,
+        hasAudio: material.has_audio !== false,
+        width: Number.isInteger(material.width) ? material.width : undefined,
+        height: Number.isInteger(material.height) ? material.height : undefined
+      });
+    }
+    videos.sort((a, b) => a.targetStartMs - b.targetStartMs || a.id.localeCompare(b.id));
+    for (let index = 0; index < videos.length; index += 1) {
+      const current = videos[index]!;
+      const expectedStart = index === 0 ? 0 : videos[index - 1]!.targetStartMs + videos[index - 1]!.targetDurationMs;
+      if (Math.abs(current.targetStartMs - expectedStart) > 2) blockers.push(`video:${current.id}:timeline-gap-or-overlap`);
+      const derived = current.sourceDurationMs / current.speed;
+      if (Math.abs(derived - current.targetDurationMs) > 2) blockers.push(`video:${current.id}:speed-timing-mismatch`);
+    }
+
+    const texts: CapCutHeadlessTextSegment[] = [];
+    for (const row of visibleRows.filter(row => row.trackType === 'text')) {
+      const segment = row.segment;
+      const id = String(segment.id);
+      const material = materialById(loaded.draft, String(segment.material_id ?? ''));
+      const text = textFromMaterial(material);
+      const targetStartMs = usToMs(segment.target_timerange?.start);
+      const targetDurationMs = usToMs(segment.target_timerange?.duration);
+      if (!material || material.type !== 'text' || text === undefined || typeof targetStartMs !== 'number' || typeof targetDurationMs !== 'number') {
+        blockers.push(`text:${id}:unsupported-material-or-timing`);
+        continue;
+      }
+      try {
+        const rich = JSON.parse(material.content);
+        if (Array.isArray(rich?.styles) && rich.styles.length > 1) warnings.push(`text:${id}:rich-style-approximated`);
+      } catch {}
+      if (segment.clip && (Math.abs(Number(segment.clip.transform?.x ?? 0)) > 1e-6 || Math.abs(Number(segment.clip.transform?.y ?? 0)) > 1e-6)) {
+        warnings.push(`text:${id}:position-approximated`);
+      }
+      texts.push({ id, text, targetStartMs, targetDurationMs });
+    }
+
+    const durationMs = videos.length ? videos[videos.length - 1]!.targetStartMs + videos[videos.length - 1]!.targetDurationMs : 0;
+    if (durationMs <= 0) blockers.push('no-renderable-video');
+    if (texts.some(item => item.targetStartMs + item.targetDurationMs > durationMs + 2)) warnings.push('text-extending-beyond-video-is-clipped');
+    if (texts.length) warnings.push('headless-text-style-is-generic-caption');
+
+    return {
+      projectId: loaded.projectId,
+      sha256: loaded.sha256,
+      mirrorConsistent: loaded.mirrorConsistent,
+      durationMs,
+      fps,
+      canvas: {
+        width: Number.isInteger(canvasWidth) ? canvasWidth : 0,
+        height: Number.isInteger(canvasHeight) ? canvasHeight : 0
+      },
+      videos,
+      texts,
+      blockers: [...new Set(blockers)].slice(0, 128),
+      warnings: [...new Set(warnings)].slice(0, 128)
     };
   }
 

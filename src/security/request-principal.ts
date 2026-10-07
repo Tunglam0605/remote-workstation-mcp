@@ -199,6 +199,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   media_capcut_export_profile_list: 'workstation.read',
   media_capcut_export_plan: 'workstation.read',
   media_capcut_export: 'workstation.execute',
+  media_capcut_headless_render_plan: 'workstation.read',
+  media_capcut_headless_render: 'workstation.execute',
   media_capcut_project_list: 'workstation.read',
   media_capcut_project_inspect: 'workstation.read',
   media_capcut_edit_plan: 'workstation.read',

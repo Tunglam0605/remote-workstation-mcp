@@ -5,6 +5,7 @@ import { WindowsSemanticUiAdapter } from '../../adapters/windows-semantic-ui.js'
 import { audited } from '../../security/audit.js';
 import { CapCutDraftAdapter, type CapCutEditOperation } from './capcut-draft.js';
 import { CapCutExportProfileStore } from './capcut-export-profile.js';
+import { CapCutHeadlessRenderAdapter } from './capcut-headless-render.js';
 import { CapCutNativeExportAdapter } from './capcut-native-export.js';
 import { CapCutUiAdapter } from './capcut-ui.js';
 import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
@@ -81,6 +82,7 @@ interface MediaServices {
   capcutUi: CapCutUiAdapter;
   capcutExport: CapCutNativeExportAdapter;
   capcutExportProfiles: CapCutExportProfileStore;
+  capcutHeadless: CapCutHeadlessRenderAdapter;
   remotion: RemotionRenderAdapter;
   jobs: ComfyUiPresetJobs;
   artifacts: ComfyUiArtifactImporter;
@@ -104,6 +106,13 @@ function mediaServices(ctx: AppContext): MediaServices {
     capcut,
     capcutUi,
     capcutExportProfiles,
+    capcutHeadless: new CapCutHeadlessRenderAdapter(
+      ctx.paths,
+      ctx.engineering.runner,
+      ctx.engineering.resources,
+      capcut,
+      adapter
+    ),
     capcutExport: new CapCutNativeExportAdapter(
       ctx.paths,
       ctx.engineering.resources,
@@ -128,7 +137,7 @@ export function initializeMediaExtension(ctx: AppContext): void {
 }
 
 export function registerMediaTools(server: McpServer, ctx: AppContext): void {
-  const { adapter, capcut, capcutUi, capcutExport, capcutExportProfiles, remotion, jobs, artifacts } = mediaServices(ctx);
+  const { adapter, capcut, capcutUi, capcutExport, capcutExportProfiles, capcutHeadless, remotion, jobs, artifacts } = mediaServices(ctx);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',
@@ -203,6 +212,35 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
           expectedPlanSha256,
           timeoutMs
         )
+      )
+    )));
+
+  server.registerTool('media_capcut_headless_render_plan', {
+    description: 'Plan a deterministic MP4 render from the supported subset of one CapCut draft without modifying the draft. The plan is fail-closed on unsupported timeline state, redacts source paths and text contents, reports fidelity warnings, requires project-scoped fail-if-exists output, and returns an exact plan SHA-256.',
+    inputSchema: project.extend({
+      capcutProjectId,
+      output: relativeFile
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, capcutProjectId, output }) =>
+    result(await audited(ctx.audit, 'media_capcut_headless_render_plan', workspace, () =>
+      capcutHeadless.plan(workspace, projectPath, capcutProjectId, output)
+    )));
+
+  server.registerTool('media_capcut_headless_render', {
+    description: 'Render one previously reviewed supported-subset CapCut draft to MP4 through a fixed internal FFmpeg graph. Requires Work Session ownership and exact plan SHA-256, accepts no raw FFmpeg/filter arguments, never overwrites output, cleans partial artifacts on failure, and returns FFprobe plus SHA-256 acceptance evidence. Output fidelity is declared and is not claimed pixel-identical to CapCut.',
+    inputSchema: project.extend({
+      workSessionId: z.string().uuid(),
+      capcutProjectId,
+      output: relativeFile,
+      expectedPlanSha256: capcutSha256,
+      timeoutMs: z.number().int().min(10_000).max(900_000).default(600_000)
+    }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, capcutProjectId, output, expectedPlanSha256, timeoutMs }) =>
+    result(await audited(ctx.audit, 'media_capcut_headless_render', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () =>
+        capcutHeadless.render(workspace, projectPath, capcutProjectId, output, expectedPlanSha256, timeoutMs)
       )
     )));
 

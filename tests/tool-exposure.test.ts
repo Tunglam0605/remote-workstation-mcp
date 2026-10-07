@@ -90,7 +90,7 @@ test('tool-pack catalog reports exact reusable capability groups and tool counts
     [
       { id: 'camera', selected: false, exposed: false, reason: 'not-selected', toolCount: 9 },
       { id: 'canopen', selected: true, exposed: true, reason: 'selected-pack', toolCount: 8 },
-      { id: 'media', selected: false, exposed: false, reason: 'not-selected', toolCount: 24 },
+      { id: 'media', selected: false, exposed: false, reason: 'not-selected', toolCount: 26 },
       { id: 'industrial', selected: true, exposed: true, reason: 'selected-pack', toolCount: 14 }
     ]
   );

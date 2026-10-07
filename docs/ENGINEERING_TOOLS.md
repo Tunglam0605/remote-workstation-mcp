@@ -473,6 +473,21 @@ Phase 8 builds a guarded native export path on top of the Phase 7 semantic UI su
 
 Natural-language video ideas remain a ChatGPT planning concern: ChatGPT inspects the typed timeline, translates the brief into bounded Phase 6 edit operations, reviews the deterministic edit plan, applies it through the Work Session, and then uses the Phase 8 export plan/execution path. RWMCP intentionally keeps the workstation side deterministic instead of embedding a second free-form reasoning agent inside the media adapter.
 
+### CapCut supported-subset headless render (Phase 9)
+
+Some CapCut Desktop builds use Qt/QML surfaces that expose only the top-level window to Windows UI Automation. Phase 9 provides a deterministic fallback for those builds without silently introducing coordinate control.
+
+- `media_capcut_headless_render_plan` inspects the current CapCut draft, validates the renderable subset and returns a deterministic plan SHA-256. Absolute source paths and caption text contents are redacted from the public plan.
+- `media_capcut_headless_render` requires explicit Work Session ownership plus the exact reviewed plan SHA-256 and compiles the supported subset into a fixed internal FFmpeg filter graph.
+- the current supported subset includes one contiguous visible video track, trim/split results, scalar speed, volume, opacity, uniform scale, rotation, horizontal/vertical flip and bounded text overlays.
+- unsupported track types, timeline gaps/overlaps, reverse/loop/group/keyframe state, nonuniform scale, translation, missing media and other unverified timeline constructs fail closed rather than being guessed.
+- captions use a generic local-font lower-third style when rendered headlessly. Rich CapCut styling and placement are not claimed pixel-identical; approximation warnings are returned explicitly.
+- callers cannot supply FFmpeg argv or filter expressions. Output stays project-scoped, uses fail-if-exists semantics, and partial artifacts are removed on failure.
+- success requires FFmpeg completion, a non-empty MP4, FFprobe positive-duration video evidence, duration agreement with the reviewed timeline, and SHA-256 evidence.
+- the editable CapCut draft remains authoritative. Native Phase 8 export remains preferred whenever the installed CapCut version exposes a validated semantic export profile.
+
+This fallback enables ChatGPT to translate a natural-language editing brief into typed Phase 6 operations and still produce a verified MP4 on CapCut builds whose UI is not semantically automatable, while keeping the approximation boundary explicit.
+
 ## Safety model
 
 Engineering tools do not bypass RWMCP policy. Read-only discovery/inspection remains separate from execution and hardware mutation. Workspace/project containment, explicit probe/port identity, exclusive leases, bounded input/output/runtime and authenticated MCP scopes apply before provider execution.

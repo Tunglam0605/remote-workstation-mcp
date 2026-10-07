@@ -40,6 +40,8 @@ const MEDIA_TOOLS = [
   'media_capcut_export_profile_list',
   'media_capcut_export_plan',
   'media_capcut_export',
+  'media_capcut_headless_render_plan',
+  'media_capcut_headless_render',
   'media_capcut_project_list',
   'media_capcut_project_inspect',
   'media_capcut_edit_plan',

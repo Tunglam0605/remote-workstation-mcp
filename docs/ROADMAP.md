@@ -105,6 +105,17 @@ v0.68.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - keep natural-language creative planning in ChatGPT, which composes typed Phase 6 operations and Phase 8 export plans rather than embedding free-form reasoning inside RWMCP;
 - advance Action Schema to 68; Engineering API remains 5.
 
+## Post-v0.68 tool expansion — Media/Video Phase 9: deterministic CapCut supported-subset render
+
+- add read-only `media_capcut_headless_render_plan` and Work Session-owned `media_capcut_headless_render` as a fail-closed fallback when the installed CapCut UI does not expose semantic child controls;
+- keep the CapCut draft as the editable source of truth while compiling only a documented supported subset into a fixed internal FFmpeg graph; no raw FFmpeg/filter input is accepted through MCP;
+- support contiguous single-video-track timing, trim/split results, scalar speed, audio volume, opacity, uniform scale, rotation, flip and bounded text overlays; reject unsupported tracks, gaps/overlaps, advanced keyframe/group state, nonuniform scale, translation and missing source media;
+- redact absolute source paths and text contents from the public render plan, bind the reviewed draft state into a deterministic plan SHA-256, require fail-if-exists project-scoped MP4 output and clean partial artifacts on failure;
+- explicitly report that headless output is a supported-subset approximation rather than pixel-identical CapCut export; generic caption styling and other approximations are surfaced as warnings;
+- require FFmpeg exit success, FFprobe video/duration acceptance and SHA-256 evidence before reporting a completed artifact;
+- preserve Phase 8 native export as the preferred path whenever a version-bound semantic UI profile is actually available; never replace missing accessibility with hidden coordinate clicking;
+- advance Action Schema to 69; Engineering API remains 5.
+
 ## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
 
 - add `camera_fleet_probe` as a read-only fleet diagnostic over owner-local camera profiles;

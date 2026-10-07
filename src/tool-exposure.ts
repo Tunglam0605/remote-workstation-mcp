@@ -1,4 +1,4 @@
-export const OPENAI_TOOL_PACK_IDS = ['camera', 'canopen', 'media', 'industrial'] as const;
+export const OPENAI_TOOL_PACK_IDS = ['camera', 'canopen', 'media', 'social', 'industrial'] as const;
 
 export type OpenAiToolPackId = typeof OPENAI_TOOL_PACK_IDS[number];
 export type OpenAiToolSurface = 'baseline' | 'full';
@@ -12,6 +12,7 @@ export const OPENAI_TOOL_PACK_CAPABILITY_IDS: Record<OpenAiToolPackId, readonly 
   camera: ['engineering.camera'],
   canopen: ['engineering.canopen'],
   media: ['engineering.media'],
+  social: ['web.social'],
   industrial: [
     'engineering.mqtt',
     'engineering.industrial_profiles',
@@ -64,6 +65,18 @@ export const OPENAI_TOOL_PACK_METADATA: Record<OpenAiToolPackId, OpenAiToolPackM
     ],
     notNeededFor: [
       'ordinary filesystem work that does not require media processing or rendering'
+    ]
+  },
+  social: {
+    label: 'Social publishing',
+    summary: 'Guarded YouTube/TikTok browser profiles, owner-controlled domain bundles, SHA-bound upload plans and semantic upload handoff.',
+    recommendedFor: [
+      'YouTube Shorts upload and scheduling workflows',
+      'TikTok upload and scheduling workflows',
+      'cross-platform social video publishing queues'
+    ],
+    notNeededFor: [
+      'local media editing that does not publish to an external social platform'
     ]
   },
   industrial: {

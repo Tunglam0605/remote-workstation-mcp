@@ -1630,3 +1630,24 @@ Target criteria:
 - Control Center waits for worker startup acknowledgement before returning HTTP 202.
 - If Restart fails after stopping the runtime, the worker automatically attempts a typed Start recovery.
 - Windows CI simulates both restart success and restart-failure recovery.
+
+## Post-v0.68 web expansion - Social Publishing Phase 1
+
+- add an owner-controlled `social` OpenAI tool pack and reusable `web.social` capability for YouTube and TikTok rather than hard-coding one social site into generic browser tools;
+- replace the managed-browser production default-deny dead end with an injected hostname policy assembled from explicit owner allowlist entries plus owner-enabled, suffix-bounded YouTube/TikTok domain bundles; an enabled platform never permits arbitrary Internet navigation;
+- add dedicated persistent `social-youtube` and `social-tiktok` profiles while keeping login, passwords, 2FA, cookies and tokens outside the MCP surface;
+- add owner-configured social media roots so large video files can be selected from bounded libraries such as the owner's Videos folder without exposing arbitrary host paths;
+- make browser upload file/batch ceilings owner-configurable while retaining hard upper bounds, semantic file-input-only upload and typed video MIME handling;
+- add `social_capabilities`, `social_platform_status`, `social_publish_plan`, `social_session_open/status/close`, `social_ui_inspect` and `social_upload`;
+- bind each planned upload to the exact source relative path, byte size and SHA-256 plus requested metadata/schedule and return a deterministic plan SHA-256; source replacement invalidates execution;
+- stop Phase 1 after semantic upload handoff: it does not press final Publish/Post/Schedule until authenticated YouTube Studio and TikTok Studio controls are live-calibrated and acceptance-tested;
+- expose platform enablement, the primary video library root and bounded upload ceilings in the owner-local Control Center; browser/social changes require runtime restart;
+- advance Action Schema to 71; Engineering API remains 5.
+
+### Social Publishing next acceptance phase
+
+- authenticate each dedicated profile manually and verify that login/2FA handoff preserves credentials outside RWMCP;
+- inspect existing YouTube Shorts/TikTok posts to calibrate exact semantic title, description/caption, playlist, visibility, privacy and schedule controls in both English and Vietnamese UI variants;
+- add final typed `plan -> apply -> verify` publish/schedule state machines with duplicate-post protection and post-action evidence;
+- add bounded batch scheduling and a durable queue for platform scheduling horizons without silently broadening browser authority;
+- require real Windows acceptance on both platforms before claiming unattended social publishing support.

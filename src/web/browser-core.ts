@@ -16,6 +16,7 @@ import type {
 
 export type DomainPolicy = (hostname: string) => boolean;
 export type BrowserUploadFile = { absolutePath: string; name: string; bytes: number; mimeType: string };
+export interface BrowserUploadLimits { maxFileBytes: number; maxBatchBytes: number }
 type Owner = { principalId: string; workSessionId: string };
 type ElementRef = BrowserElementTarget & { id: string; generation: number };
 type Tab = { id: string; page: Page; generation: number; refs: Map<string, ElementRef>; nextRef: number };
@@ -100,8 +101,13 @@ export class BrowserCore {
     private readonly provider: BrowserProvider,
     private readonly allowedDomain: DomainPolicy = () => false,
     private readonly artifactRoot = path.join(setupConfigDir(), 'artifacts', 'browser'),
-    private readonly profileRoot = path.join(setupConfigDir(), 'profiles', 'browser')
-  ) {}
+    private readonly profileRoot = path.join(setupConfigDir(), 'profiles', 'browser'),
+    private readonly uploadLimits: BrowserUploadLimits = { maxFileBytes: 32 * 1024 * 1024, maxBatchBytes: 64 * 1024 * 1024 }
+  ) {
+    if (uploadLimits.maxFileBytes < 1 || uploadLimits.maxBatchBytes < uploadLimits.maxFileBytes) {
+      throw new Error('Invalid browser upload limits.');
+    }
+  }
 
   capabilities() {
     return {
@@ -110,6 +116,7 @@ export class BrowserCore {
       managedOnly: true,
       recoverable: false,
       actions: ['session', 'tabs', 'navigation', 'inspect', 'find', 'extract', 'screenshot', 'click', 'fill', 'type', 'press', 'select', 'check', 'wait', 'upload', 'download'],
+      uploadLimits: { ...this.uploadLimits },
       availability: this.provider.availability()
     };
   }
@@ -403,8 +410,8 @@ export class BrowserCore {
     if (ref.role !== 'file') throw new BrowserError('UPLOAD_FAILED', 'browser_upload requires a semantic file input reference.');
     if (files.length < 1 || files.length > 8) throw new BrowserError('UPLOAD_FAILED', 'browser_upload accepts 1 to 8 files.');
     const totalBytes = files.reduce((sum, file) => sum + file.bytes, 0);
-    if (files.some(file => file.bytes < 0 || file.bytes > 32 * 1024 * 1024) || totalBytes > 64 * 1024 * 1024) {
-      throw new BrowserError('UPLOAD_FAILED', 'Browser upload exceeds the bounded file size policy.');
+    if (files.some(file => file.bytes < 0 || file.bytes > this.uploadLimits.maxFileBytes) || totalBytes > this.uploadLimits.maxBatchBytes) {
+      throw new BrowserError('UPLOAD_FAILED', 'Browser upload exceeds the owner-configured bounded file size policy.');
     }
     try {
       await this.provider.upload(tab.page, ref, files.map(file => file.absolutePath));

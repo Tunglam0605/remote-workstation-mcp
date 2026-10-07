@@ -82,9 +82,10 @@ export class CapCutNativeExportAdapter {
     if (path.isAbsolute(output)) throw new Error('CapCut export output must be relative to the selected project root.');
     if (path.extname(output).toLowerCase() !== '.mp4') throw new Error('CapCut native export output must use .mp4.');
     const projectRoot = await this.paths.resolveExisting(workspace, projectPath);
+    const projectRootReal = await fs.realpath(projectRoot);
     const outputAbsolute = await this.paths.resolveForWrite(workspace, path.join(projectPath, output));
     const parentReal = await fs.realpath(path.dirname(outputAbsolute));
-    if (!inside(projectRoot, parentReal)) throw new Error('CapCut export output parent escapes the selected project.');
+    if (!inside(projectRootReal, parentReal)) throw new Error('CapCut export output parent escapes the selected project.');
     const existing = await fs.lstat(outputAbsolute).catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;

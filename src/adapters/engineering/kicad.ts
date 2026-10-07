@@ -20,6 +20,7 @@ import { planKicadSemanticPlacement, type KicadPlacementHint } from './kicad-sem
 import { applyKicadRouteBatch, type KicadRouteBatchOperation } from './kicad-route-batch.js';
 import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.js';
 import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-electrical-review.js';
+import { validateKicadElectronicDesignIntent, type KicadDevicePinPlan, type KicadElectronicDesignIntent } from './kicad-design-intent.js';
 import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
@@ -1590,6 +1591,8 @@ export class KicadAdapter {
         batchSize?: number;
       };
       electricalIntents?: KicadElectricalNetIntent[];
+      designIntent?: KicadElectronicDesignIntent;
+      pinPlans?: KicadDevicePinPlan[];
       reviewArtifacts?: boolean;
       manufacturing?: {
         enabled?: boolean;
@@ -1606,6 +1609,24 @@ export class KicadAdapter {
     this.policy.assertWrite(workspace);
     const stages: Array<{ stage: string; status: 'passed' | 'warning' | 'failed' | 'skipped'; detail?: string }> = [];
     const warnings: string[] = [];
+
+    const designIntentReview = request.designIntent
+      ? validateKicadElectronicDesignIntent(request.designIntent, request.pinPlans ?? [])
+      : undefined;
+    if (designIntentReview) {
+      const critical = designIntentReview.findings.filter(item => item.severity === 'error');
+      stages.push({
+        stage: 'design-intent-preflight',
+        status: designIntentReview.valid ? 'passed' : 'failed',
+        detail: `errors=${designIntentReview.counts.error} review=${designIntentReview.counts.review} pinPlanReady=${designIntentReview.gates.pinPlanReady}`
+      });
+      if (!designIntentReview.valid || !designIntentReview.gates.pinPlanReady) {
+        const detail = critical.slice(0, 8).map(item => `${item.code}: ${item.message}`).join(' | ');
+        throw new Error(`KICAD_DESIGN_INTENT_BLOCKED: professional design preflight failed before schematic synthesis. ${detail || 'Pin planning is incomplete.'}`);
+      }
+    } else {
+      stages.push({ stage: 'design-intent-preflight', status: 'skipped', detail: 'No designIntent supplied; legacy typed schematic flow retained for compatibility.' });
+    }
 
     const schematic = await this.schematicSynthesize(workspace, projectPath, {
       outputDir: request.outputDir,
@@ -1868,6 +1889,7 @@ export class KicadAdapter {
         finalBoardSha256: currentBoardSha
       } : { skipped: true, finalBoardSha256: currentBoardSha },
       validation: { clean, drcErrors, ercErrors, activeViolations, unconnected, schematicParity },
+      ...(designIntentReview ? { designIntent: designIntentReview } : {}),
       ...(electrical ? { electrical: electrical.analysis } : {}),
       constraints: constraints.analysis,
       designReview: designReview.analysis,

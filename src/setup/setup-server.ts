@@ -1812,9 +1812,14 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           cloudflaredManaged: body.cloudflaredManaged ?? false,
           controlPort: body.controlPort ?? currentSettings.controlPort,
           httpScopes: body.httpScopes ?? currentSettings.httpScopes,
-          openaiToolPacks: body.openaiToolPacks ?? currentSettings.openaiToolPacks
+          openaiToolPacks: body.openaiToolPacks ?? currentSettings.openaiToolPacks,
+          browser: body.browser ?? currentSettings.browser,
+          social: body.social ?? currentSettings.social
         });
         const toolPacksChanged = JSON.stringify(settings.openaiToolPacks) !== JSON.stringify(currentSettings.openaiToolPacks);
+        const browserSettingsChanged = JSON.stringify(settings.browser) !== JSON.stringify(currentSettings.browser);
+        const socialSettingsChanged = JSON.stringify(settings.social) !== JSON.stringify(currentSettings.social);
+        const runtimeSettingsChanged = toolPacksChanged || browserSettingsChanged || socialSettingsChanged;
         const mcpPortFree = await portAvailable(settings.mcpPort);
         let managedRuntimeOwnsPort = false;
         if (!mcpPortFree) {
@@ -1842,7 +1847,7 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
           ok: true,
           message: `${settingsPath}; ${policy.created ? 'created default policy' : 'existing policy preserved'} at ${policy.path}; ${hosts.created ? 'created hosts config' : 'existing hosts config preserved'} at ${hosts.path}.`,
           runtimeApiKeyStored: await runtimeKeyStored(),
-          restartRequired: toolPacksChanged
+          restartRequired: runtimeSettingsChanged
         });
         return;
       }

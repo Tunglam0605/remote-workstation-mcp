@@ -9,7 +9,8 @@ const expandedV067 = new Set([
   'domain.mqtt',
   'domain.industrial-profiles',
   'domain.opcua',
-  'domain.modbus-tcp'
+  'domain.modbus-tcp',
+  'app.social-publishing'
 ]);
 
 const expectedPacks = new Map([
@@ -19,7 +20,8 @@ const expectedPacks = new Map([
   ['domain.mqtt', 'industrial'],
   ['domain.industrial-profiles', 'industrial'],
   ['domain.opcua', 'industrial'],
-  ['domain.modbus-tcp', 'industrial']
+  ['domain.modbus-tcp', 'industrial'],
+  ['app.social-publishing', 'social']
 ]);
 
 test('v0.67 expansion families stay behind the expanded MCP tool surface', () => {

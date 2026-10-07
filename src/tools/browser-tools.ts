@@ -36,7 +36,11 @@ function mimeForUpload(filename: string): string {
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
-    '.webp': 'image/webp'
+    '.webp': 'image/webp',
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.m4v': 'video/x-m4v',
+    '.webm': 'video/webm'
   };
   return known[path.extname(filename).toLowerCase()] ?? 'application/octet-stream';
 }
@@ -125,9 +129,10 @@ export function registerBrowserTools(server: McpServer, ctx: AppContext) {
       const absolutePath = await ctx.paths.resolveExisting(file.workspace, file.path);
       const stat = await fs.stat(absolutePath);
       if (!stat.isFile()) throw new Error('Browser upload source must be a regular workspace file.');
-      if (stat.size > 32 * 1024 * 1024) throw new Error('Browser upload source exceeds 32 MiB.');
+      const limits = ctx.browser.capabilities().uploadLimits;
+      if (stat.size > limits.maxFileBytes) throw new Error(`Browser upload source exceeds owner-configured file limit of ${limits.maxFileBytes} bytes.`);
       totalBytes += stat.size;
-      if (totalBytes > 64 * 1024 * 1024) throw new Error('Browser upload batch exceeds 64 MiB.');
+      if (totalBytes > limits.maxBatchBytes) throw new Error(`Browser upload batch exceeds owner-configured batch limit of ${limits.maxBatchBytes} bytes.`);
       resolved.push({
         absolutePath,
         name: path.basename(absolutePath).slice(0, 256),

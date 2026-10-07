@@ -217,6 +217,25 @@ export const executionSettingsSchema = z.object({
   })
 });
 
+const browserSettingsSchema = z.object({
+  allowedDomains: z.array(z.string().trim().min(1).max(253)).max(128).default([])
+    .refine(values => new Set(values.map(value => value.toLowerCase())).size === values.length, { message: 'browser.allowedDomains must not contain duplicates.' }),
+  maxUploadFileBytes: z.number().int().min(1).max(2147483648).default(32 * 1024 * 1024),
+  maxUploadBatchBytes: z.number().int().min(1).max(4294967296).default(64 * 1024 * 1024)
+});
+
+const socialMediaRootSchema = z.object({
+  id: z.string().trim().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+  root: z.string().trim().min(1).max(4096)
+});
+
+const socialSettingsSchema = z.object({
+  enabledPlatforms: z.array(z.enum(['youtube', 'tiktok'])).max(2).default([])
+    .refine(values => new Set(values).size === values.length, { message: 'social.enabledPlatforms must not contain duplicates.' }),
+  mediaRoots: z.array(socialMediaRootSchema).max(16).default([])
+    .refine(values => new Set(values.map(value => value.id)).size === values.length, { message: 'social.mediaRoots ids must be unique.' })
+});
+
 const workstationScopeSchema = z.enum([
   'workstation.read',
   'workstation.write',
@@ -239,6 +258,15 @@ export const setupSettingsSchema = z.object({
     .refine(scopes => new Set(scopes).size === scopes.length, { message: 'httpScopes must not contain duplicates.' }),
   openaiToolPacks: z.array(z.enum(OPENAI_TOOL_PACK_IDS)).max(OPENAI_TOOL_PACK_IDS.length).default([])
     .refine(packs => new Set(packs).size === packs.length, { message: 'openaiToolPacks must not contain duplicates.' }),
+  browser: browserSettingsSchema.default({
+    allowedDomains: [],
+    maxUploadFileBytes: 32 * 1024 * 1024,
+    maxUploadBatchBytes: 64 * 1024 * 1024
+  }),
+  social: socialSettingsSchema.default({
+    enabledPlatforms: [],
+    mediaRoots: []
+  }),
   execution: executionSettingsSchema.default({
     codexEnabled: false,
     codexModel: 'gpt-6-sol',
@@ -322,6 +350,15 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
     controlPort: migratedControlPort,
     httpScopes: migratedScopes,
     openaiToolPacks: Array.isArray(raw.openaiToolPacks) ? raw.openaiToolPacks : [],
+    browser: raw.browser && typeof raw.browser === 'object' ? raw.browser : {
+      allowedDomains: [],
+      maxUploadFileBytes: 32 * 1024 * 1024,
+      maxUploadBatchBytes: 64 * 1024 * 1024
+    },
+    social: raw.social && typeof raw.social === 'object' ? raw.social : {
+      enabledPlatforms: [],
+      mediaRoots: []
+    },
     execution: raw.execution && typeof raw.execution === 'object' ? (() => {
       const legacy = raw.execution as Record<string, unknown>;
       const targetMode = inferExecutionTargetMode(legacy);
@@ -369,6 +406,12 @@ export function normalizeSetupSettings(input: unknown, options: SetupPathOptions
   }
   if (parsed.mcpPort === parsed.controlPort) {
     throw new Error('mcpPort and controlPort must use different loopback ports.');
+  }
+  if (parsed.browser.maxUploadBatchBytes < parsed.browser.maxUploadFileBytes) {
+    throw new Error('browser.maxUploadBatchBytes must be greater than or equal to browser.maxUploadFileBytes.');
+  }
+  for (const root of parsed.social.mediaRoots) {
+    if (!path.isAbsolute(root.root)) throw new Error(`social.mediaRoots root for '${root.id}' must be an absolute path.`);
   }
   if (parsed.tunnelId && !/^tunnel_[0-9a-f]{32}$/.test(parsed.tunnelId)) {
     throw new Error("tunnelId must be empty or match 'tunnel_' followed by 32 lowercase hexadecimal characters.");

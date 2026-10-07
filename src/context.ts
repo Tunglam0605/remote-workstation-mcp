@@ -56,6 +56,7 @@ import { CodexAccountBroker } from './workers/codex-account-broker.js';
 import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
 import { DesktopNotificationService } from './desktop-notification.js';
+import { SocialPublishingService } from './web/social-publishing.js';
 
 export async function createContext() {
   const actor = {
@@ -163,7 +164,8 @@ export async function createContext() {
     resources: engineeringResources,
     runner: engineeringRunner
   });
-  const web = createWebServices();
+  const web = createWebServices(setupSettings);
+  const social = new SocialPublishingService(setupSettings.social, setupSettings.browser, web.browser);
   const workSessionLifecycle = new WorkSessionLifecycleService(
     workSessions,
     worktreeManager,
@@ -223,6 +225,7 @@ export async function createContext() {
     browser: web.browser,
     existingChrome: web.existingChrome,
     notebooklm: web.notebooklm,
+    social,
     multiNodeAuthorization,
     workSessions,
     workSessionLifecycle,

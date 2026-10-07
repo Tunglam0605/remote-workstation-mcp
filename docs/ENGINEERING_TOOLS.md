@@ -515,3 +515,18 @@ The stable semantic contract lets ChatGPT ask for intent such as “build, flash
 Starting with action schema v2, `engineering_workflow_plan` and `engineering_workflow_run` accept a bounded semantic workflow ID plus a server-validated `parameters` object. `engineering_profile_init` also accepts a versioned server-validated `profile` object. This keeps the ChatGPT action surface stable while providers/workflow IDs evolve; only an `actionSchemaVersion` bump requires the custom-app action catalog to be refreshed.
 
 v0.13 proves this contract for engineering growth. v0.14.0 reuses the same generic workflow + `parameters` envelope for core `platform.transfer_*` workflow IDs, so `actionSchemaVersion` remains `2` and `engineeringApiVersion` remains `3` without adding a new top-level ChatGPT action.
+
+### Social publishing foundation (Phase 1)
+
+Social Publishing reuses the managed semantic browser but places external-account publishing behind a narrower typed extension instead of exposing unrestricted browser automation.
+
+- `social_capabilities` reports owner-enabled YouTube/TikTok providers, persistent profile names, configured media-root aliases, bounded upload limits and safety invariants.
+- `social_platform_status` inspects local browser/profile readiness without returning credentials, cookies, browser storage or tokens.
+- `social_publish_plan` resolves one video through an owner-configured media root, validates its type/size, hashes the exact bytes and binds metadata plus optional schedule intent into a deterministic plan SHA-256 without opening or mutating a social account.
+- `social_session_open` uses dedicated persistent `social-youtube` or `social-tiktok` profiles and navigates only through the owner-enabled suffix-bounded domain policy. Authentication and 2FA are completed by the owner in the visible browser.
+- `social_ui_inspect` returns bounded semantic controls/text and a login-needed indication; no raw DOM, selectors, JavaScript, screen coordinates or secret browser state is exposed.
+- `social_upload` requires the exact reviewed plan SHA-256, re-hashes the source, locates a semantic file input and uploads only the reviewed file. Phase 1 deliberately stops before Publish/Post/Schedule.
+- browser upload ceilings are owner-configurable but globally hard-bounded; social media roots provide explicit host-library containment instead of accepting arbitrary absolute paths from MCP.
+- YouTube/TikTok platform switches and the Social tool pack are owner-controlled in Control Center and require runtime restart so the effective domain policy cannot change underneath an active browser session.
+
+The next phase must live-calibrate authenticated YouTube Studio and TikTok Studio UI states before exposing final publish/schedule mutation. RWMCP must fail closed on CAPTCHA, re-authentication, ambiguous controls or unexpected product/UI changes rather than falling back to coordinates or guessed selectors.

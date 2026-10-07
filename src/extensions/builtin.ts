@@ -13,6 +13,7 @@ import { registerStm32Tools } from './stm32/register.js';
 import { registerEsp32Tools } from './esp32/register.js';
 import { registerKicadTools } from './kicad/register.js';
 import { registerIndustrialTools } from './industrial/register.js';
+import { registerSocialTools } from '../tools/social-tools.js';
 import { ExtensionRegistry } from './registry.js';
 
 export function createBuiltinExtensionRegistry(): ExtensionRegistry {
@@ -123,6 +124,14 @@ export function createBuiltinExtensionRegistry(): ExtensionRegistry {
       version: 1,
       kind: 'app',
       register: registerNotebookLmTools
+    })
+    .add({
+      id: 'app.social-publishing',
+      version: 1,
+      kind: 'app',
+      exposure: 'expanded',
+      toolPack: 'social',
+      register: registerSocialTools
     });
 }
 

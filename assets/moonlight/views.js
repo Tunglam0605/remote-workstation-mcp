@@ -187,11 +187,20 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       ['camera', 'Camera', 'RTSP/ONVIF camera diagnostics, stream metadata, bounded PTZ and fleet health.'],
       ['canopen', 'CANopen', 'EDS/DCF plus passive SDO/PDO/NMT/Heartbeat/EMCY analysis.'],
       ['media', 'Media / video', 'Media probing/transcoding plus typed Remotion and ComfyUI workflows.'],
+      ['social', 'Social publishing', 'Guarded YouTube/TikTok upload and scheduling workflows.'],
       ['industrial', 'Industrial protocols', 'Generic MQTT, industrial endpoint profiles, OPC UA and Modbus TCP diagnostics.']
     ];
     const toolPacks = new Set(settings.openaiToolPacks || []);
     const toolPackList = el('div', { class: 'moon-check-grid' });
     for (const [id, label, hint] of toolPackChoices) toolPackList.append(field(label, el('input', { type: 'checkbox', value: id, checked: toolPacks.has(id) }), hint));
+    const socialPlatformChoices = [['youtube', 'YouTube'], ['tiktok', 'TikTok']];
+    const socialPlatforms = new Set(settings.social?.enabledPlatforms || []);
+    const socialPlatformList = el('div', { class: 'moon-check-grid' });
+    for (const [id, label] of socialPlatformChoices) socialPlatformList.append(field(label, el('input', { type: 'checkbox', value: id, checked: socialPlatforms.has(id) })));
+    const videosRoot = el('input', { value: (settings.social?.mediaRoots || []).find((root) => root.id === 'videos')?.root || '' });
+    const allowedDomains = el('input', { value: (settings.browser?.allowedDomains || []).join(', '), placeholder: t('Optional extra domains, comma-separated') });
+    const maxUploadFileMiB = el('input', { type: 'number', min: 1, max: 2048, value: Math.round((settings.browser?.maxUploadFileBytes || 33554432) / 1048576) });
+    const maxUploadBatchMiB = el('input', { type: 'number', min: 1, max: 4096, value: Math.round((settings.browser?.maxUploadBatchBytes || 67108864) / 1048576) });
     const config = section('Runtime configuration', 'Runtime keys are submitted once to the local control center and are not retained by this view.');
     const configGrid = el('div', { class: 'moon-form-grid' },
       field('MCP port', mcpPort),
@@ -209,9 +218,18 @@ export function createViews({ api, store, openModal, openPage = (_page, title, c
       scopeList,
       el('h4', { class: 'moon-subheading', text: t('OpenAI tool packs') }),
       el('p', { class: 'moon-muted', text: t('Baseline tools stay available. ChatGPT may recommend a specialist pack for the current task, but packs are owner-controlled and are never enabled automatically. Changing packs requires a managed runtime restart.') }),
-      toolPackList
+      toolPackList,
+      el('h4', { class: 'moon-subheading', text: t('Social publishing') }),
+      el('p', { class: 'moon-muted', text: t('Enable only the platforms you want RWMCP to operate. Login and 2FA remain manual; cookies, passwords and tokens are never exposed. Social/browser changes require a runtime restart.') }),
+      socialPlatformList,
+      field('Video library root', videosRoot, 'Absolute owner-controlled folder used by Social Publishing, for example C:\\Users\\Admin\\Videos.'),
+      field('Extra browser domains', allowedDomains, 'Optional advanced allowlist. YouTube/TikTok domain bundles are enabled automatically with their platform switches.'),
+      el('div', { class: 'moon-form-grid' },
+        field('Max upload file (MiB)', maxUploadFileMiB),
+        field('Max upload batch (MiB)', maxUploadBatchMiB)
+      )
     );
-    config.append(actions(button('Save runtime settings', async () => { if (!confirm(t('Save runtime settings?'))) return; try { const runtimeApiKey = key.value || undefined; const result = await mutate('/api/save', { mcpPort: Number(mcpPort.value), controlPort: controlPort.value ? Number(controlPort.value) : undefined, workspaceRoot: workspaceRoot.value, tunnelId: tunnelId.value || undefined, organizationId: orgId.value || undefined, cloudflaredManaged: managedTunnel.checked, httpScopes: [...scopeList.querySelectorAll('input:checked')].map((input) => input.value), openaiToolPacks: [...toolPackList.querySelectorAll('input:checked')].map((input) => input.value), runtimeApiKey, ...(runtimeApiKey ? { storeRuntimeApiKey: true } : {}) }, ['status', 'runtime', 'permissions'], 'Runtime settings saved.'); if (result?.restartRequired) toast(t('Tool-pack changes were saved. Restart the managed runtime to activate them.')); } finally { key.value = ''; } }, 'primary-button'), button('Install tunnel client', async () => { if (!confirm(t('Install the secure tunnel client on this host?'))) return; await mutate('/api/install-tunnel-client', {}, ['status', 'runtime'], 'Tunnel client installation requested.'); }), button('Delete stored key', async () => { if (!confirm(t('Delete the stored runtime API key?'))) return; await mutate('/api/runtime-key', undefined, ['status'], 'Stored runtime key deleted.', 'DELETE'); }, 'secondary-button danger-button')));
+    config.append(actions(button('Save runtime settings', async () => { if (!confirm(t('Save runtime settings?'))) return; try { const runtimeApiKey = key.value || undefined; const result = await mutate('/api/save', { mcpPort: Number(mcpPort.value), controlPort: controlPort.value ? Number(controlPort.value) : undefined, workspaceRoot: workspaceRoot.value, tunnelId: tunnelId.value || undefined, organizationId: orgId.value || undefined, cloudflaredManaged: managedTunnel.checked, httpScopes: [...scopeList.querySelectorAll('input:checked')].map((input) => input.value), openaiToolPacks: [...toolPackList.querySelectorAll('input:checked')].map((input) => input.value), browser: { allowedDomains: allowedDomains.value.split(',').map((value) => value.trim()).filter(Boolean), maxUploadFileBytes: Math.max(1, Number(maxUploadFileMiB.value || 32)) * 1048576, maxUploadBatchBytes: Math.max(1, Number(maxUploadBatchMiB.value || 64)) * 1048576 }, social: { enabledPlatforms: [...socialPlatformList.querySelectorAll('input:checked')].map((input) => input.value), mediaRoots: [...(settings.social?.mediaRoots || []).filter((root) => root.id !== 'videos'), ...(videosRoot.value.trim() ? [{ id: 'videos', root: videosRoot.value.trim() }] : [])] }, runtimeApiKey, ...(runtimeApiKey ? { storeRuntimeApiKey: true } : {}) }, ['status', 'runtime', 'permissions'], 'Runtime settings saved.'); if (result?.restartRequired) toast(t('Runtime capability changes were saved. Restart the managed runtime to activate them.')); } finally { key.value = ''; } }, 'primary-button'), button('Install tunnel client', async () => { if (!confirm(t('Install the secure tunnel client on this host?'))) return; await mutate('/api/install-tunnel-client', {}, ['status', 'runtime'], 'Tunnel client installation requested.'); }), button('Delete stored key', async () => { if (!confirm(t('Delete the stored runtime API key?'))) return; await mutate('/api/runtime-key', undefined, ['status'], 'Stored runtime key deleted.', 'DELETE'); }, 'secondary-button danger-button')));
     content.append(config);
 
     const recoveryKey = el('input', { type: 'password', autocomplete: 'new-password', placeholder: t('Optional key for this probe only') });

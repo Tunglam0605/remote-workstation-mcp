@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { SetupSettings } from '../setup/settings.js';
 import type { BrowserCore, BrowserUploadFile } from './browser-core.js';
 import { SOCIAL_PLATFORM_DOMAINS, type SocialPlatform } from './domain-policy.js';
+import { SocialPublishTransactionStore, type SocialMutation, type SocialTransactionEvidence } from './social-publish-transaction.js';
 
 type Owner = { principalId: string; workSessionId: string };
 
@@ -76,7 +77,8 @@ export class SocialPublishingService {
   constructor(
     private readonly settings: SetupSettings['social'],
     private readonly browserSettings: SetupSettings['browser'],
-    private readonly browser: BrowserCore
+    private readonly browser: BrowserCore,
+    private readonly transactions = new SocialPublishTransactionStore()
   ) {}
 
   capabilities() {
@@ -268,6 +270,25 @@ export class SocialPublishingService {
     if (source.sha256 !== plan.source.sha256) {
       throw new Error('SOCIAL_SOURCE_CHANGED: source bytes changed after planning.');
     }
+    const ensured = await this.transactions.ensure({
+      platform: input.platform,
+      planSha256: plan.planSha256,
+      sourceSha256: source.sha256,
+      principalId: owner.principalId,
+      workSessionId: owner.workSessionId
+    });
+    const started = await this.transactions.startMutation(ensured.transaction.id, 'upload');
+    if (started.alreadyCompleted) {
+      return {
+        platform: input.platform,
+        planSha256: plan.planSha256,
+        source: plan.source,
+        transaction: started.transaction,
+        idempotent: true,
+        skipped: 'upload-already-completed',
+        next: 'Resume from the recorded transaction phase instead of uploading the same plan again.'
+      };
+    }
     const inputElement = await this.locateUploadInput(input.platform, sessionId, tabId, owner);
     const file: BrowserUploadFile = {
       absolutePath: source.absolutePath,
@@ -276,12 +297,37 @@ export class SocialPublishingService {
       mimeType: source.mimeType
     };
     const uploaded = await this.browser.upload(sessionId, tabId, owner, inputElement.elementId, [file]);
+    const transaction = await this.transactions.completeMutation(ensured.transaction.id, 'upload', {
+      observedAt: new Date().toISOString(),
+      note: `Semantic browser upload accepted ${uploaded.uploaded.length} file(s).`,
+      fields: uploaded.uploaded.map(item => item.name)
+    });
     return {
       platform: input.platform,
       planSha256: plan.planSha256,
       source: plan.source,
       uploaded,
-      next: 'Inspect the platform details/scheduling UI and complete semantic calibration before publishing.'
+      transaction,
+      idempotent: false,
+      next: 'Inspect the platform details/scheduling UI and continue the same transaction; do not create a new upload plan.'
     };
+  }
+
+  async transactionStatus(transactionId: string, owner: Owner) {
+    const transaction = await this.transactions.read(transactionId);
+    if (transaction.principalId !== owner.principalId) throw new Error('SOCIAL_TRANSACTION_OWNER_MISMATCH: transaction belongs to a different principal.');
+    return transaction;
+  }
+
+  async reconcileTransaction(
+    transactionId: string,
+    mutation: SocialMutation,
+    outcome: 'applied' | 'not-applied',
+    evidence: SocialTransactionEvidence,
+    owner: Owner
+  ) {
+    const transaction = await this.transactions.read(transactionId);
+    if (transaction.principalId !== owner.principalId) throw new Error('SOCIAL_TRANSACTION_OWNER_MISMATCH: transaction belongs to a different principal.');
+    return await this.transactions.reconcileMutation(transactionId, mutation, outcome, evidence);
   }
 }

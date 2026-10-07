@@ -93,6 +93,34 @@ export function registerSocialTools(server: McpServer, ctx: AppContext) {
   }, async ({ workSessionId, platform, sessionId, tabId }) =>
     inSession('social_ui_inspect', workSessionId, owner => ctx.social.inspect(platform, sessionId, tabId, owner)));
 
+  server.registerTool('social_transaction_status', {
+    description: 'Read one durable social publish transaction so a later chat/runtime can resume from the last verified phase without repeating cloud mutations.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), transactionId: z.string().regex(/^[a-f0-9]{64}$/) }),
+    annotations: read
+  }, async ({ workSessionId, transactionId }) =>
+    inSession('social_transaction_status', workSessionId, owner => ctx.social.transactionStatus(transactionId, owner)));
+
+  server.registerTool('social_transaction_reconcile', {
+    description: 'Resolve an interrupted social mutation after semantic/backend inspection. Explicitly record whether the remote mutation was applied before allowing a safe retry or continuation.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      transactionId: z.string().regex(/^[a-f0-9]{64}$/),
+      mutation: z.enum(['upload', 'metadata', 'schedule', 'publish', 'verify']),
+      outcome: z.enum(['applied', 'not-applied']),
+      evidence: z.object({
+        observedAt: z.string().datetime({ offset: true }),
+        remoteId: z.string().trim().min(1).max(256).optional(),
+        url: z.string().trim().min(1).max(2048).optional(),
+        note: z.string().trim().min(1).max(1024).optional(),
+        scheduleAt: z.string().trim().min(1).max(128).optional(),
+        fields: z.array(z.string().trim().min(1).max(128)).max(64).optional()
+      })
+    }),
+    annotations: write
+  }, async ({ workSessionId, transactionId, mutation, outcome, evidence }) =>
+    inSession('social_transaction_reconcile', workSessionId, owner =>
+      ctx.social.reconcileTransaction(transactionId, mutation, outcome, evidence, owner)));
+
   server.registerTool('social_upload', {
     description: 'Upload one SHA-bound planned video through a semantic file input. This does not press Publish/Post/Schedule and fails closed if login or the upload control is not ready.',
     inputSchema: z.object({

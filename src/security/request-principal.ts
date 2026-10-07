@@ -65,6 +65,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   social_session_status: 'workstation.read',
   social_session_close: 'workstation.execute',
   social_ui_inspect: 'workstation.read',
+  social_transaction_status: 'workstation.read',
+  social_transaction_reconcile: 'workstation.write',
   social_upload: 'workstation.write',
   notebooklm_session_open: 'workstation.execute',
   notebooklm_session_status: 'workstation.read',

@@ -29,6 +29,8 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
+**Development head: v0.69.0-dev.0 - channel=development - Action Schema 66 - Engineering API 5.** Adds guarded typed CapCut draft inspection/editing in Media/Video Phase 6; production remains on the latest stable release until a later acceptance and release promotion.
+
 **Stable release: v0.68.0 - channel=stable - Action Schema 65 - Engineering API 5.** This release promotes the reusable KiCad PCB Design Agent through Phases 7-17: design/visual review, layout optimization planning, constraints/DFM review, installed-library intelligence, schematic and PCB synthesis, STM32 pin planning, semantic pin-aware placement, bounded routing orchestration, electrical review and manufacturing-package gating. Fine-pitch STM32 routing now preserves no-connect parity, respects foreign-net pads and planned-route clearance, handles KiCad rotation semantics correctly, and includes an STM32F407 LQFP100 0.5 mm USB acceptance path. Controlled impedance, SI/EMI and other specialist claims remain explicitly deferred to KiCad/field-solver evidence rather than being guessed.
 
 **Previous stable release: v0.67.1 - channel=stable - Action Schema 51 - Engineering API 5.** Expanded the reusable Engineering Workbench with CANopen EDS/DCF semantics and passive capture analysis, project-agnostic MQTT JSON observation, industrial endpoint profiles, camera fleet diagnostics, typed Remotion/ComfyUI workflows, capability-readiness reporting, stricter architecture/security gates, dead-code enforcement and a smaller production package.

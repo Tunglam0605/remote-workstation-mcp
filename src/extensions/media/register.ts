@@ -4,6 +4,8 @@ import type { AppContext } from '../../context.js';
 import { WindowsSemanticUiAdapter } from '../../adapters/windows-semantic-ui.js';
 import { audited } from '../../security/audit.js';
 import { CapCutDraftAdapter, type CapCutEditOperation } from './capcut-draft.js';
+import { CapCutExportProfileStore } from './capcut-export-profile.js';
+import { CapCutNativeExportAdapter } from './capcut-native-export.js';
 import { CapCutUiAdapter } from './capcut-ui.js';
 import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
 import { ComfyUiPresetJobs } from './comfyui-jobs.js';
@@ -39,6 +41,7 @@ const capcutProjectId = z.string().min(1).max(160).refine(value =>
 );
 const capcutSegmentId = z.string().min(1).max(160).refine(value => !/[\\/\0]/.test(value), 'Invalid CapCut segmentId.');
 const capcutSha256 = z.string().regex(/^[a-f0-9]{64}$/i);
+const capcutExportProfileId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const capcutEditOperation = z.discriminatedUnion('op', [
   z.object({ op: z.literal('trim'), segmentId: capcutSegmentId, sourceStartMs: z.number().finite().min(0).max(604_800_000), sourceDurationMs: z.number().finite().gt(0).max(604_800_000) }).strict(),
   z.object({ op: z.literal('split'), segmentId: capcutSegmentId, offsetMs: z.number().finite().gt(0).max(604_800_000) }).strict(),
@@ -76,6 +79,8 @@ interface MediaServices {
   adapter: MediaVideoAdapter;
   capcut: CapCutDraftAdapter;
   capcutUi: CapCutUiAdapter;
+  capcutExport: CapCutNativeExportAdapter;
+  capcutExportProfiles: CapCutExportProfileStore;
   remotion: RemotionRenderAdapter;
   jobs: ComfyUiPresetJobs;
   artifacts: ComfyUiArtifactImporter;
@@ -88,12 +93,25 @@ function mediaServices(ctx: AppContext): MediaServices {
   if (existing) return existing;
   const profiles = new MediaProfileStore();
   const jobs = new ComfyUiPresetJobs(profiles, new ComfyUiPresetStore());
+  const adapter = new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles);
   const capcut = new CapCutDraftAdapter(ctx.engineering.runner, ctx.engineering.resources);
+  const capcutUiEngine = new WindowsSemanticUiAdapter();
+  const capcutUi = new CapCutUiAdapter(capcut, capcutUiEngine);
+  const capcutExportProfiles = new CapCutExportProfileStore();
   const services: MediaServices = {
     profiles,
-    adapter: new MediaVideoAdapter(ctx.paths, ctx.engineering.runner, profiles),
+    adapter,
     capcut,
-    capcutUi: new CapCutUiAdapter(capcut, new WindowsSemanticUiAdapter()),
+    capcutUi,
+    capcutExportProfiles,
+    capcutExport: new CapCutNativeExportAdapter(
+      ctx.paths,
+      ctx.engineering.resources,
+      capcut,
+      capcutUiEngine,
+      capcutExportProfiles,
+      adapter
+    ),
     remotion: new RemotionRenderAdapter(ctx.paths, ctx.engineering.runner, new RemotionPresetStore()),
     jobs,
     artifacts: new ComfyUiArtifactImporter(ctx.paths, profiles, jobs)
@@ -110,7 +128,7 @@ export function initializeMediaExtension(ctx: AppContext): void {
 }
 
 export function registerMediaTools(server: McpServer, ctx: AppContext): void {
-  const { adapter, capcut, capcutUi, remotion, jobs, artifacts } = mediaServices(ctx);
+  const { adapter, capcut, capcutUi, capcutExport, capcutExportProfiles, remotion, jobs, artifacts } = mediaServices(ctx);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',
@@ -138,6 +156,54 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
   }, async ({ maxDepth, maxNodes }) =>
     result(await audited(ctx.audit, 'media_capcut_ui_inspect', undefined, () =>
       capcutUi.inspect({ maxDepth, maxNodes })
+    )));
+
+  server.registerTool('media_capcut_export_profile_list', {
+    description: 'List owner-local version-bound CapCut native export profiles. Semantic locators remain local configuration and are not exposed through MCP.',
+    inputSchema: z.object({}).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () =>
+    result(await audited(ctx.audit, 'media_capcut_export_profile_list', undefined, () =>
+      capcutExportProfiles.publicList()
+    )));
+
+  server.registerTool('media_capcut_export_plan', {
+    description: 'Preflight a native CapCut Desktop MP4 export without clicking anything. Requires a configured version-bound semantic profile, exact active draft identity, project-scoped fail-if-exists output and a currently open matching CapCut project. Returns a deterministic plan SHA-256.',
+    inputSchema: project.extend({
+      capcutProjectId,
+      profileId: capcutExportProfileId,
+      output: relativeFile
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, capcutProjectId, profileId, output }) =>
+    result(await audited(ctx.audit, 'media_capcut_export_plan', workspace, () =>
+      capcutExport.plan(workspace, projectPath, capcutProjectId, profileId, output)
+    )));
+
+  server.registerTool('media_capcut_export', {
+    description: 'Execute one previously reviewed native CapCut Desktop export through version-bound Windows semantic UI Automation. Requires Work Session ownership and the exact export plan SHA-256, never overwrites output, refuses login/subscription/permission/update blockers, and accepts the artifact only after stable size, FFprobe video validation and SHA-256 evidence.',
+    inputSchema: project.extend({
+      workSessionId: z.string().uuid(),
+      capcutProjectId,
+      profileId: capcutExportProfileId,
+      output: relativeFile,
+      expectedPlanSha256: capcutSha256,
+      timeoutMs: z.number().int().min(10_000).max(900_000).default(600_000)
+    }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, capcutProjectId, profileId, output, expectedPlanSha256, timeoutMs }) =>
+    result(await audited(ctx.audit, 'media_capcut_export', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () =>
+        capcutExport.export(
+          workspace,
+          projectPath,
+          capcutProjectId,
+          profileId,
+          output,
+          expectedPlanSha256,
+          timeoutMs
+        )
+      )
     )));
 
   server.registerTool('media_capcut_project_list', {

@@ -458,7 +458,20 @@ Phase 7 introduces a reusable Windows UI Automation substrate for desktop applic
 - CapCut-specific code receives the verified CapCut executable internally; callers cannot retarget the helper to another arbitrary desktop process.
 - the helper script is included in packed Windows artifacts and parsed by Windows CI.
 
-This phase is intentionally **read-only calibration infrastructure** for native CapCut workflows. A future export state machine must use version-bound semantic locators, explicit Work Session ownership, fail-if-exists project-scoped output and FFprobe/SHA-256 acceptance. Until that state machine is calibrated and accepted against a safe disposable CapCut project, RWMCP does not claim native CapCut export completion.
+This phase is intentionally **read-only calibration infrastructure** for native CapCut workflows.
+
+### CapCut native export state machine (Phase 8)
+
+Phase 8 builds a guarded native export path on top of the Phase 7 semantic UI substrate without exposing generic desktop control.
+
+- `media_capcut_export_profile_list` lists owner-local, version-bound export profiles while keeping AutomationIds/names/locators private to the workstation.
+- `media_capcut_export_plan` performs a read-only preflight: exact installed CapCut version, exact active draft name, mirror consistency, semantic Export control readiness, configured blocker detection and fail-if-exists project-scoped MP4 destination. The entire reviewed state is bound into a deterministic plan SHA-256.
+- `media_capcut_export` requires explicit Work Session ownership and the exact reviewed plan SHA-256, revalidates draft/profile/version/project identity, invokes only profile-owned semantic controls, sets only the bounded export destination, and refuses login/subscription/permission/update blockers.
+- native export never overwrites an existing artifact. Failed or timed-out runs attempt semantic Cancel and remove partial output; incomplete cleanup is surfaced explicitly.
+- a completed file is not accepted merely because CapCut created it: size must stabilize, FFprobe must report a positive-duration video stream, and RWMCP computes SHA-256 evidence before success is returned.
+- export profiles are strict owner-local configuration and accept no screen coordinates, pixels, raw selectors, raw keyboard/mouse commands, credentials or arbitrary executable targets.
+
+Natural-language video ideas remain a ChatGPT planning concern: ChatGPT inspects the typed timeline, translates the brief into bounded Phase 6 edit operations, reviews the deterministic edit plan, applies it through the Work Session, and then uses the Phase 8 export plan/execution path. RWMCP intentionally keeps the workstation side deterministic instead of embedding a second free-form reasoning agent inside the media adapter.
 
 ## Safety model
 

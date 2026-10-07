@@ -786,6 +786,29 @@ export class CapCutDraftAdapter {
     };
   }
 
+  async projectIdentity(projectId: string) {
+    const loaded = await this.load(projectId);
+    const metaPath = path.join(loaded.projectDir, 'draft_meta_info.json');
+    let draftName = loaded.projectId;
+    let metaDraftId: string | undefined;
+    if (await existingFile(metaPath)) {
+      const metaRaw = await readBounded(metaPath);
+      const meta = parseJsonObject(metaRaw, 'draft_meta_info.json');
+      if (typeof meta.draft_name === 'string' && meta.draft_name.trim() && meta.draft_name.length <= 256) {
+        draftName = meta.draft_name.trim();
+      }
+      if (typeof meta.draft_id === 'string' && meta.draft_id.length <= 160) metaDraftId = meta.draft_id;
+    }
+    return {
+      projectId: loaded.projectId,
+      draftName,
+      draftId: metaDraftId,
+      sha256: loaded.sha256,
+      mirrorConsistent: loaded.mirrorConsistent,
+      durationMs: usToMs(loaded.draft.duration)
+    };
+  }
+
   async inspect(projectId: string) {
     const loaded = await this.load(projectId);
     return {

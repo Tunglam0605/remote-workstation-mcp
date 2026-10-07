@@ -863,6 +863,7 @@ export class KicadAdapter {
     const cli = await discoverKicadCli();
     const libraryPaths = defaultKicadLibraryPaths(cli.path);
     const resolvedComponents = [];
+    const resolvedFootprints = new Map<string, Awaited<ReturnType<typeof resolveKicadFootprint>>>();
     for (const component of request.components) {
       const symbol = await resolveKicadSymbol(libraryPaths, component.symbolId);
       const footprintId = component.footprintId ?? symbol.footprint;
@@ -871,6 +872,7 @@ export class KicadAdapter {
       }
       if (footprintId) {
         const footprint = await resolveKicadFootprint(libraryPaths, footprintId);
+        resolvedFootprints.set(component.reference, footprint);
         const compatible = footprintMatchesFilters(footprint.id, symbol.footprintFilters);
         if (compatible === false && request.allowFootprintFilterMismatch !== true) {
           throw new Error(`Footprint ${footprint.id} does not match filters for ${symbol.id}: ${symbol.footprintFilters.join(', ') || '<none>'}.`);
@@ -922,7 +924,11 @@ export class KicadAdapter {
       const netlistStat = await fs.stat(netlistOutput);
       if (!netlistStat.isFile() || netlistStat.size > 16 * 1024 * 1024) throw new Error('KiCad synthesized netlist is missing or exceeds 16 MiB.');
       const actualNets = parseKicadSexprNetlist(await fs.readFile(netlistOutput, 'utf8'));
-      const verification = verifyKicadSchematicNetlist(request.nets, actualNets);
+      const onBoardReferences = new Set(request.components.filter(component => component.onBoard !== false).map(component => component.reference));
+      const roundTripNets = request.nets
+        .map(net => ({ ...net, endpoints: net.endpoints.filter(endpoint => onBoardReferences.has(endpoint.reference)) }))
+        .filter(net => net.endpoints.length > 0);
+      const verification = verifyKicadSchematicNetlist(roundTripNets, actualNets);
       if (!verification.valid) {
         throw new Error(`KiCad synthesized netlist does not match requested connectivity: ${JSON.stringify(verification.missingEndpoints.slice(0, 16))}`);
       }
@@ -950,6 +956,7 @@ export class KicadAdapter {
         rootUuid: generated.rootUuid,
         components: generated.components.map(component => {
           const requested = request.components.find(item => item.reference === component.reference);
+          const footprint = resolvedFootprints.get(component.reference);
           return {
             reference: component.reference,
             symbolId: component.symbolId,
@@ -957,6 +964,17 @@ export class KicadAdapter {
             unit: component.unit,
             value: component.value,
             ...(component.footprintId ? { footprintId: component.footprintId } : {}),
+            ...(footprint ? {
+              footprintPadCount: footprint.pads.length,
+              footprintPadsTruncated: footprint.pads.length > 512,
+              footprintPads: footprint.pads.slice(0, 512).map(pad => ({
+                number: pad.number,
+                xMm: pad.xMm,
+                yMm: pad.yMm,
+                ...(pad.widthMm !== undefined ? { widthMm: pad.widthMm } : {}),
+                ...(pad.heightMm !== undefined ? { heightMm: pad.heightMm } : {})
+              }))
+            } : {}),
             inBom: requested?.inBom !== false,
             onBoard: requested?.onBoard !== false,
             dnp: requested?.dnp === true
@@ -989,7 +1007,7 @@ export class KicadAdapter {
         roundTrip: {
           valid: true,
           actualNetCount: actualNets.length,
-          expectedNetCount: request.nets.length,
+          expectedNetCount: roundTripNets.length,
           command: { program: cli.path, args: netlistArgs.map(arg => arg === netlistOutput ? '<temp-roundtrip.net>' : arg === schematicFile ? relativeSchematic : arg) }
         },
         ercRun: runErc,
@@ -1136,8 +1154,6 @@ export class KicadAdapter {
     if (noConnectNets.some(net => !net.name.startsWith('unconnected-(') || net.endpoints.length < 1 || net.endpoints.length > 128)) {
       throw new Error('KiCad design manifest contains invalid no-connect net evidence.');
     }
-    const boardNets = [...nets, ...noConnectNets];
-
     const boardComponents = [];
     for (const entry of rawComponents) {
       if (entry.onBoard === false) continue;
@@ -1157,6 +1173,10 @@ export class KicadAdapter {
       });
     }
     if (!boardComponents.length) throw new Error('KiCad board synthesis has no on-board components.');
+    const boardReferences = new Set(boardComponents.map(component => component.reference));
+    const boardNets = [...nets, ...noConnectNets]
+      .map(net => ({ ...net, endpoints: net.endpoints.filter(endpoint => boardReferences.has(endpoint.reference)) }))
+      .filter(net => net.endpoints.length > 0);
 
     const generated = synthesizeKicadBoard(boardComponents, boardNets, {
       projectName, widthMm: request.widthMm, heightMm: request.heightMm,
@@ -1669,7 +1689,7 @@ export class KicadAdapter {
     let routeApplyError: string | undefined;
     if (request.routing?.enabled !== false) {
       const semanticPriority: Record<KicadElectricalNetIntent['kind'], number> = {
-        power: 700, clock: 600, differential: 500, high_speed: 500, analog: 400,
+        ground: 800, power: 700, clock: 600, differential: 500, high_speed: 500, analog: 400,
         can: 300, rs485: 300, pwm: 200, encoder: 200, digital: 100
       };
       const normalizeRouteNet = (name: string) => canonicalKicadBoardNetName(name.trim());
@@ -1692,7 +1712,16 @@ export class KicadAdapter {
           ...(netClass.clearanceMm !== undefined ? { clearanceMm: netClass.clearanceMm } : {})
         });
       }
-      for (const intent of request.electricalIntents ?? []) mergeStyle(intent.netName, { priority: semanticPriority[intent.kind] });
+      for (const intent of request.electricalIntents ?? []) {
+        const layerPreference = request.board.copperLayers === 2
+          ? intent.kind === 'ground'
+            ? { preferredLayer: 'B.Cu' as const }
+            : intent.kind === 'power'
+              ? { preferredLayer: 'F.Cu' as const }
+              : {}
+          : {};
+        mergeStyle(intent.netName, { priority: semanticPriority[intent.kind], ...layerPreference });
+      }
       const routeOptions: KicadRoutePlanOptions = {
         ...(request.board.defaultRouting?.trackWidthMm !== undefined ? { defaultWidthMm: request.board.defaultRouting.trackWidthMm } : {}),
         ...(request.board.minimums?.clearanceMm !== undefined ? { defaultClearanceMm: request.board.minimums.clearanceMm } : {}),

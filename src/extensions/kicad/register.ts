@@ -524,7 +524,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
 
   const electricalIntent = z.object({
     netName: z.string().min(1).max(128),
-    kind: z.enum(['power', 'clock', 'differential', 'can', 'rs485', 'pwm', 'encoder', 'analog', 'digital', 'high_speed']),
+    kind: z.enum(['ground', 'power', 'clock', 'differential', 'can', 'rs485', 'pwm', 'encoder', 'analog', 'digital', 'high_speed']),
     currentA: z.number().finite().min(0).max(1000).optional(),
     voltageV: z.number().finite().gt(0).max(2000).optional(),
     maxVoltageDropPct: z.number().finite().min(0).max(100).optional(),

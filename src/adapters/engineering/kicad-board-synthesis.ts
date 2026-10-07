@@ -87,6 +87,16 @@ function replacePropertyValue(block:string,value:string):string {
   return block.replace(/^(\(property\s+"(?:\\.|[^"\\])*"\s+)"(?:\\.|[^"\\])*"/, `$1"${quote(value)}"`);
 }
 
+function rotateChildAt(block:string,footprintRotationDeg:number):string {
+  const normalizedFootprint=((footprintRotationDeg%360)+360)%360;
+  if(Math.abs(normalizedFootprint)<1e-9)return block;
+  return block.replace(/\(at\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)(?:\s+(-?\d+(?:\.\d+)?))?\)/,(_match,x,y,angle)=>{
+    const local=angle===undefined?0:Number(angle);
+    const rotated=((local+normalizedFootprint)%360+360)%360;
+    return `(at ${x} ${y} ${fmt(rotated)})`;
+  });
+}
+
 function stripImmediateTokens(block:string,tokens:Set<string>):string {
   let result=block;
   const children=immediateChildren(block).filter(child=>tokens.has(child.token)).sort((a,b)=>block.indexOf(b.block)-block.indexOf(a.block));
@@ -158,12 +168,13 @@ function boardFootprint(component:KicadBoardComponentSpec,netIds:Map<string,{id:
       let block=child.block;
       if(name==='Reference'){block=replacePropertyValue(block,component.reference);hadRef=true;}
       else if(name==='Value'){block=replacePropertyValue(block,component.value);hadValue=true;}
+      block=rotateChildAt(block,rotation);
       body.push(withUuid(block));
       continue;
     }
     if(child.token==='pad'){
       const padNumber=firstQuotedArg(child.block,'pad')??'';
-      let block=stripImmediateTokens(child.block,new Set(['net','pinfunction','pintype','uuid']));
+      let block=rotateChildAt(stripImmediateTokens(child.block,new Set(['net','pinfunction','pintype','uuid'])),rotation);
       const netName=pinNets.get(component.reference+'\u0000'+padNumber);
       const pin=component.symbol.pins.find(p=>p.number===padNumber);
       const lines:string[]=[];
@@ -174,18 +185,19 @@ function boardFootprint(component:KicadBoardComponentSpec,netIds:Map<string,{id:
       body.push(block);
       continue;
     }
-    if(['fp_line','fp_arc','fp_rect','fp_circle','fp_poly','fp_text','fp_text_box','zone','group'].includes(child.token)) body.push(withUuid(child.block));
+    if(['fp_text','fp_text_box'].includes(child.token)) body.push(withUuid(rotateChildAt(child.block,rotation)));
+    else if(['fp_line','fp_arc','fp_rect','fp_circle','fp_poly','zone','group'].includes(child.token)) body.push(withUuid(child.block));
     else body.push(child.block);
   }
-  if(!hadRef) body.unshift(`(property "Reference" "${quote(component.reference)}" (at 0 -2 0) (layer "F.SilkS") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
-  if(!hadValue) body.unshift(`(property "Value" "${quote(component.value)}" (at 0 2 0) (layer "F.Fab") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+  if(!hadRef) body.unshift(`(property "Reference" "${quote(component.reference)}" (at 0 -2 ${fmt(((rotation%360)+360)%360)}) (layer "F.SilkS") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+  if(!hadValue) body.unshift(`(property "Value" "${quote(component.value)}" (at 0 2 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   const datasheet=component.symbol.properties.Datasheet?.trim();
   if(datasheet && datasheet!=='~' && !body.some(block=>propertyName(block)==='Datasheet')) {
-    body.push(`(property "Datasheet" "${quote(datasheet)}" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+    body.push(`(property "Datasheet" "${quote(datasheet)}" (at 0 0 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   }
   const description=component.symbol.properties.Description?.trim();
   if(description && !body.some(block=>propertyName(block)==='Description')) {
-    body.push(`(property "Description" "${quote(description)}" (at 0 0 0) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+    body.push(`(property "Description" "${quote(description)}" (at 0 0 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   }
   const rendered=[`\t(footprint "${quote(component.footprint.id)}"`,`\t\t(layer "${layer}")`,`\t\t(uuid "${uuid}")`,`\t\t(at ${fmt(x)} ${fmt(y)} ${fmt(rotation)})`,`\t\t(path "/${component.symbolUuid}")`,'\t\t(sheetname "/")',`\t\t(sheetfile "${quote(projectName)}.kicad_sch")`,...body.map(block=>'\t\t'+block.replace(/\n/g,'\n\t\t')),'\t\t(embedded_fonts no)','\t)'].join('\n');
   return {source:rendered,uuid,position:{xMm:x,yMm:y,rotationDeg:rotation,side}};

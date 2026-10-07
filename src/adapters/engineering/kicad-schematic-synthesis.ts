@@ -132,7 +132,7 @@ export function synthesizeKicadSchematic(
       const component = componentByRef.get(endpoint.reference);
       if (!component) throw new Error(`Net ${net.name} references unknown component ${endpoint.reference}.`);
       const unit = component.unit ?? 1;
-      const pin = component.symbol.pins.find(item => item.unit === unit && item.number === endpoint.pinNumber);
+      const pin = component.symbol.pins.find(item => (item.unit === unit || item.unit === 0) && item.number === endpoint.pinNumber);
       if (!pin) throw new Error(`Net ${net.name} references missing pin ${endpoint.reference}.${endpoint.pinNumber} (unit ${unit}).`);
       if (endpoint.expectedPinName && endpoint.expectedPinName !== pin.name) {
         throw new Error(`Pin-name guard failed for ${endpoint.reference}.${endpoint.pinNumber}: expected ${endpoint.expectedPinName}, library reports ${pin.name}.`);
@@ -147,7 +147,7 @@ export function synthesizeKicadSchematic(
     const missing: string[] = [];
     for (const component of componentSpecs) {
       const unit = component.unit ?? 1;
-      for (const pin of component.symbol.pins.filter(item => item.unit === unit && item.electricalType === 'power_in')) {
+      for (const pin of component.symbol.pins.filter(item => (item.unit === unit || item.unit === 0) && item.electricalType === 'power_in')) {
         if (!endpointNet.has(`${component.reference}\u0000${pin.number}`)) missing.push(`${component.reference}.${pin.number}(${pin.name})`);
       }
     }
@@ -174,7 +174,7 @@ export function synthesizeKicadSchematic(
     const footprintId = component.footprintId ?? component.symbol.footprint;
     const pinManifest: Array<{ number: string; name: string; uuid: string; connectedNet?: string }> = [];
 
-    const pins = component.symbol.pins.filter(pin => pin.unit === unit);
+    const pins = component.symbol.pins.filter(pin => pin.unit === unit || pin.unit === 0);
     if (!pins.length) throw new Error(`Symbol ${component.symbol.id} has no pins for unit ${unit}.`);
     const pinBlocks: string[] = [];
     for (const pin of pins) {

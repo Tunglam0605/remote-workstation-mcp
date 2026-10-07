@@ -93,6 +93,18 @@ v0.68.0 is the current stable Engineering Workbench baseline. The v0.66 architec
 - do not claim native export complete until accepted on a safe disposable CapCut project;
 - advance Action Schema to 67; Engineering API remains 5.
 
+## Post-v0.68 tool expansion — Media/Video Phase 8: guarded CapCut native export
+
+- add owner-local strict `capcut-export-profiles.json` descriptors bound to an exact CapCut desktop version and semantic UIA locators; never expose the locators as MCP inputs;
+- add `media_capcut_export_profile_list`, read-only `media_capcut_export_plan`, and Work Session-owned `media_capcut_export`;
+- bind export plans to the exact draft folder identity, `draft_meta_info.json` draft name, draft SHA-256, export profile digest/version, blocker state and project-scoped fail-if-exists MP4 output;
+- reject stale plan SHA, version mismatch, mirror divergence, ambiguous active-project windows and configured login/subscription/permission/update blockers before export mutation;
+- drive only profile-owned semantic UIA controls; no coordinates, screenshots, raw keyboard/mouse, arbitrary selectors, UIAccess or generic desktop control are added;
+- after confirm, require a stable non-empty file, FFprobe positive-duration video evidence and SHA-256 before accepting the artifact;
+- on failure/timeout, attempt semantic Cancel and remove partial output; surface cleanup failure rather than claiming success;
+- keep natural-language creative planning in ChatGPT, which composes typed Phase 6 operations and Phase 8 export plans rather than embedding free-form reasoning inside RWMCP;
+- advance Action Schema to 68; Engineering API remains 5.
+
 ## Post-v0.66 tool expansion — Camera Diagnostics Phase 3
 
 - add `camera_fleet_probe` as a read-only fleet diagnostic over owner-local camera profiles;

@@ -11,6 +11,7 @@ import { CapCutUiAdapter } from './capcut-ui.js';
 import { ComfyUiArtifactImporter } from './comfyui-artifacts.js';
 import { ComfyUiPresetJobs } from './comfyui-jobs.js';
 import { MediaVideoAdapter, type MediaTranscodePreset } from './media-adapter.js';
+import { MediaVideoEditAdapter, type MediaVideoEditRecipe } from './video-edit.js';
 import { MediaProfileStore } from './profile-store.js';
 import { RemotionRenderAdapter } from './remotion-render.js';
 import { RemotionPresetStore } from './remotion-store.js';
@@ -67,6 +68,30 @@ const capcutEditOperation = z.discriminatedUnion('op', [
 ]);
 const capcutOperations = z.array(capcutEditOperation).min(1).max(64);
 
+const videoEditClip = z.object({
+  input: relativeFile,
+  sourceStartMs: z.number().finite().min(0).max(604_800_000).optional(),
+  sourceDurationMs: z.number().finite().gt(0).max(604_800_000).optional(),
+  speed: z.number().finite().min(0.05).max(20).optional(),
+  volume: z.number().finite().min(0).max(1).optional(),
+  opacity: z.number().finite().min(0).max(1).optional(),
+  scale: z.number().finite().min(0.1).max(4).optional(),
+  rotationDeg: z.number().finite().min(-360).max(360).optional(),
+  flipHorizontal: z.boolean().optional(),
+  flipVertical: z.boolean().optional()
+}).strict();
+const videoEditCaption = z.object({
+  text: z.string().min(1).max(10_000),
+  startMs: z.number().finite().min(0).max(604_800_000),
+  durationMs: z.number().finite().gt(0).max(604_800_000)
+}).strict();
+const videoEditRecipe = z.object({
+  canvas: z.enum(['source', 'vertical-1080x1920', 'landscape-1920x1080', 'square-1080']).default('source'),
+  fps: z.number().finite().min(1).max(60).optional(),
+  clips: z.array(videoEditClip).min(1).max(64),
+  captions: z.array(videoEditCaption).max(64).default([])
+}).strict();
+
 const remotionPresetId = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const remotionParameters = z.record(
   z.string().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/),
@@ -83,6 +108,7 @@ interface MediaServices {
   capcutExport: CapCutNativeExportAdapter;
   capcutExportProfiles: CapCutExportProfileStore;
   capcutHeadless: CapCutHeadlessRenderAdapter;
+  videoEdit: MediaVideoEditAdapter;
   remotion: RemotionRenderAdapter;
   jobs: ComfyUiPresetJobs;
   artifacts: ComfyUiArtifactImporter;
@@ -104,6 +130,7 @@ function mediaServices(ctx: AppContext): MediaServices {
     profiles,
     adapter,
     capcut,
+    videoEdit: new MediaVideoEditAdapter(ctx.paths, ctx.engineering.runner, ctx.engineering.resources, adapter),
     capcutUi,
     capcutExportProfiles,
     capcutHeadless: new CapCutHeadlessRenderAdapter(
@@ -137,7 +164,7 @@ export function initializeMediaExtension(ctx: AppContext): void {
 }
 
 export function registerMediaTools(server: McpServer, ctx: AppContext): void {
-  const { adapter, capcut, capcutUi, capcutExport, capcutExportProfiles, capcutHeadless, remotion, jobs, artifacts } = mediaServices(ctx);
+  const { adapter, videoEdit, capcut, capcutUi, capcutExport, capcutExportProfiles, capcutHeadless, remotion, jobs, artifacts } = mediaServices(ctx);
 
   server.registerTool('media_provider_status', {
     description: 'Inspect typed local media-provider readiness for FFmpeg, FFprobe, Remotion launcher availability and owner-local ComfyUI profiles. No media job is started.',
@@ -322,6 +349,42 @@ export function registerMediaTools(server: McpServer, ctx: AppContext): void {
   }, async ({ workspace, projectPath, workSessionId, input, output, preset, timeoutMs }) =>
     result(await audited(ctx.audit, 'media_transcode', workspace, () =>
       ctx.runInWorkSession(workSessionId, () => adapter.transcode(workspace, projectPath, input, output, preset as MediaTranscodePreset, timeoutMs))
+    )));
+
+  server.registerTool('media_video_edit_plan', {
+    description: 'Plan one generic project-scoped video edit recipe compiled by ChatGPT from a creative brief. Supports ordered source clips, trim ranges, speed, volume, opacity, uniform scale, rotation, flip, canvas presets and bounded captions. The executor accepts no raw FFmpeg/filter arguments, hashes source files, redacts caption text in the public plan and returns an exact plan SHA-256 without creating output.',
+    inputSchema: project.extend({
+      recipe: videoEditRecipe,
+      output: relativeFile
+    }).strict(),
+    annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, recipe, output }) =>
+    result(await audited(ctx.audit, 'media_video_edit_plan', workspace, () =>
+      videoEdit.plan(workspace, projectPath, recipe as MediaVideoEditRecipe, output)
+    )));
+
+  server.registerTool('media_video_edit', {
+    description: 'Execute one previously reviewed generic video edit recipe through the fixed typed media renderer. Requires explicit Work Session ownership and exact plan SHA-256, re-hashes project-scoped sources, never accepts raw FFmpeg/filter arguments, never overwrites output, cleans partial artifacts and returns FFprobe plus SHA-256 acceptance evidence.',
+    inputSchema: project.extend({
+      workSessionId: z.string().uuid(),
+      recipe: videoEditRecipe,
+      output: relativeFile,
+      expectedPlanSha256: capcutSha256,
+      timeoutMs: z.number().int().min(10_000).max(900_000).default(600_000)
+    }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workspace, projectPath, workSessionId, recipe, output, expectedPlanSha256, timeoutMs }) =>
+    result(await audited(ctx.audit, 'media_video_edit', workspace, () =>
+      ctx.runInWorkSession(workSessionId, () =>
+        videoEdit.render(
+          workspace,
+          projectPath,
+          recipe as MediaVideoEditRecipe,
+          output,
+          expectedPlanSha256,
+          timeoutMs
+        )
+      )
     )));
 
   server.registerTool('media_remotion_status', {

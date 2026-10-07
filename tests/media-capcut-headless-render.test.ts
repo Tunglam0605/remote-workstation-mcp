@@ -190,7 +190,7 @@ test('headless CapCut render builds fixed ffmpeg graph, uses textfile and return
     assert.equal(f.calls.length, 1);
     const call = f.calls[0]!;
     assert.equal(call.program, 'C:/Tools/ffmpeg.exe');
-    assert.equal(call.cwd, f.projectRoot);
+    assert.equal(call.cwd, await fs.realpath(f.projectRoot));
     assert.ok(call.args.includes('-filter_complex'));
     const filterGraph = call.args[call.args.indexOf('-filter_complex') + 1]!;
     assert.match(filterGraph, /concat=n=2:v=1:a=1/);

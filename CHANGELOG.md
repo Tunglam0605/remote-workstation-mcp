@@ -2,6 +2,14 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+## 0.68.0 — Reusable KiCad PCB Design Agent
+
+- Promotes KiCad PCB Design Agent Phases 7–17 into the stable release: typed design/visual review, geometry-based layout optimization planning, constraints/DFM review, installed-library intelligence, fail-if-exists schematic synthesis, manifest-SHA PCB synthesis, STM32 pin planning, semantic placement, bounded routing orchestration, electrical review and manufacturing-package gating.
+- Hardens dense-MCU/fine-pitch behavior with package-pin-aware placement, correct KiCad clockwise board rotation handling, preserved MCU no-connect parity, foreign-net-pad avoidance, route-to-route clearance accounting, deterministic route-operation de-duplication and typed ground-net routing precedence.
+- Adds a focused STM32F407VET6 LQFP100 0.5 mm USB_DM/USB_DP acceptance path that composes pin-aware placement → board synthesis → routing → route application → electrical review. The pair routes without vias or high/review findings; controlled-impedance verification remains correctly reported as requiring a specialized solver.
+- Preserves fail-closed authority boundaries: routing stays bounded and typed, manufacturing output is emitted only after clean validation gates, and the agent cannot claim SI/EMI/thermal or controlled-impedance certification without authoritative external evidence.
+- Release acceptance on 2026-10-07: local npm run verify passed with 879 tests passed, 0 failed and 2 environment-dependent skips; PR #221 passed Linux and Windows CI; the merge commit also passed Linux and Windows CI. No physical PCB or hardware was modified during framework acceptance.
+
 ## 0.67.1 — Secure Tunnel Extension Lifecycle Hotfix
 
 - Fixes the live ChatGPT `internal error` regression introduced by v0.67 extension-owned workflow contributions. Streamable HTTP may build a fresh MCP server for successive requests while reusing one `AppContext`; extension `initialize(ctx)` now runs once per context, while `register(server, ctx)` remains per-server. Media workflow contributions therefore bootstrap once and no longer fail later `tools/call` requests with duplicate workflow IDs.

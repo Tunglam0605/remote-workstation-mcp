@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { Browser, BrowserContext, Locator, Page } from 'playwright-core';
 
-export const SEMANTIC_ROLES = ['heading', 'link', 'button', 'textbox', 'checkbox', 'radio', 'combobox', 'file'] as const;
+export const SEMANTIC_ROLES = ['heading', 'textbox', 'checkbox', 'radio', 'combobox', 'file', 'link', 'button'] as const;
 export type SemanticRole = typeof SEMANTIC_ROLES[number];
 
 export interface ManagedBrowser {
@@ -260,6 +260,7 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
       context.setDefaultTimeout(10_000);
       const pages = context.pages();
       const page = pages[0] ?? await context.newPage();
+      if (mode === 'visible') await page.bringToFront().catch(() => {});
       return {
         browser,
         context,
@@ -278,6 +279,7 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
       const context = await browser.newContext({ acceptDownloads: true, serviceWorkers: 'block' });
       context.setDefaultTimeout(10_000);
       const page = await context.newPage();
+      if (mode === 'visible') await page.bringToFront().catch(() => {});
       return {
         browser,
         context,

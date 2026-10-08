@@ -265,6 +265,61 @@ test('design agent stops at specialized review for differential/high-speed inten
   }
 });
 
+test('design agent blocks professional schematic synthesis until programmable-device pin planning passes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-agent-intent-gate-'));
+  try {
+    const fixture = await adapterWithStages(root, {});
+    const request = {
+      ...baseRequest(),
+      components: [
+        ...baseRequest().components,
+        { reference: 'U1', symbolId: 'MCU_ST_STM32F4:STM32F407VGT6', footprintId: 'Package_QFP:LQFP-100_14x14mm_P0.5mm' }
+      ],
+      nets: [
+        ...baseRequest().nets,
+        { name: '3V3', endpoints: [] },
+        { name: 'GND', endpoints: [] },
+        { name: 'CAN1_TX', endpoints: [] },
+        { name: 'CAN1_RX', endpoints: [] }
+      ],
+      designIntent: {
+        schemaVersion: 1 as const,
+        name: 'MCU Controller',
+        rails: [
+          { name: 'GND', nominalVoltageV: 0, source: 'derived' as const, isGround: true },
+          { name: '3V3', nominalVoltageV: 3.3, source: 'regulator' as const }
+        ],
+        devices: [{
+          reference: 'U1', role: 'mcu' as const, partNumber: 'STM32F407VGT6', package: 'LQFP100',
+          supplyRails: ['3V3', 'GND'], requiredSignals: ['CAN1_TX', 'CAN1_RX']
+        }]
+      }
+    };
+    await assert.rejects(() => fixture.adapter.designAgentRun('w', '.', request), /KICAD_DESIGN_INTENT_BLOCKED/);
+    assert.equal(fixture.calls.includes('schematic'), false);
+
+    const accepted = await fixture.adapter.designAgentRun('w', '.', {
+      ...request,
+      pinPlans: [{
+        deviceRef: 'U1', partNumber: 'STM32F407VGT6', package: 'LQFP100', source: 'stm32-cubemx' as const,
+        assignments: [
+          { logicalSignal: 'CAN1_TX', peripheralSignal: 'CAN1_TX', physicalPin: 'PA12', packagePosition: '69' },
+          { logicalSignal: 'CAN1_RX', peripheralSignal: 'CAN1_RX', physicalPin: 'PA11', packagePosition: '68' }
+        ]
+      }]
+    });
+    assert.equal(accepted.designIntent?.gates.pinPlanReady, true);
+    assert.equal(accepted.routingPolicy?.ready, true);
+    assert.ok(accepted.routingPolicy?.netClasses.some((item: any) => item.name === 'POWER_3V3'));
+    assert.equal(accepted.stages.find((stage: any) => stage.stage === 'design-intent-preflight')?.status, 'passed');
+    assert.equal(accepted.stages.find((stage: any) => stage.stage === 'routing-policy-preflight')?.status, 'warning');
+    assert.ok(accepted.specializedReviewReasons.includes('3V3:power-ampacity-review-required'));
+    assert.equal(fixture.calls.includes('schematic'), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('design agent preserves accepted work and returns needs-review when routing regresses or validation remains unconnected', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-agent-review-'));
   try {

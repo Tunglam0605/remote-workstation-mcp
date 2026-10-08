@@ -1,10 +1,12 @@
 param(
   [string]$Base = '',
-  [string]$ExpectedVersion = ''
+  [string]$ExpectedVersion = '',
+  [string]$RequestedVersion = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($RequestedVersion -and $RequestedVersion -notmatch '^v[0-9]+[.][0-9]+[.][0-9]+-dev[.][0-9]+$') { throw "RequestedVersion is not an explicit development tag: $RequestedVersion" }
 
 if ([string]::IsNullOrWhiteSpace($Base)) {
   $localBase = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }
@@ -85,6 +87,7 @@ function Write-Transaction(
     fromVersion = $FromVersion
     toVersion = $ToVersion
     expectedVersion = if ($ExpectedVersion) { $ExpectedVersion.TrimStart('v') } else { $null }
+    requestedVersion = if ($RequestedVersion) { $RequestedVersion } else { $null }
     startedAt = $StartedAt
     updatedAt = [DateTimeOffset]::UtcNow.ToString('o')
     exitCode = $ExitCode
@@ -96,11 +99,12 @@ function Write-Transaction(
   Write-AtomicUtf8File $StatePath ($json + [Environment]::NewLine)
 }
 
-function Invoke-LauncherAction([string]$Action) {
+function Invoke-LauncherAction([string]$Action, [string]$Version = '') {
   $powershell = Get-Command powershell.exe -ErrorAction Stop
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $powershell.Source
-  $psi.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$Launcher`" -Action $Action"
+  $versionArg = if ($Version) { " -Version `"$Version`"" } else { '' }
+  $psi.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$Launcher`" -Action $Action$versionArg"
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
   $psi.RedirectStandardOutput = $true
@@ -144,7 +148,7 @@ try {
     throw "Stable launcher is missing: $Launcher"
   }
 
-  $updateExitCode = Invoke-LauncherAction 'Update'
+  $updateExitCode = Invoke-LauncherAction 'Update' $RequestedVersion
   if ($updateExitCode -ne 0) {
     throw "Stable launcher Update exited with code $updateExitCode."
   }
@@ -153,7 +157,12 @@ try {
   if (-not $toVersion) {
     throw 'Update completed without a readable current runtime version.'
   }
-  if ($ExpectedVersion) {
+  if ($RequestedVersion) {
+    $requestedNormalized = $RequestedVersion.TrimStart('v')
+    if (-not [string]::Equals($toVersion, $requestedNormalized, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "Activated version $toVersion does not exactly match requested prerelease $RequestedVersion."
+    }
+  } elseif ($ExpectedVersion) {
     try {
       if ([version]$toVersion -lt [version]$ExpectedVersion.TrimStart('v')) {
         throw "Activated version $toVersion is older than expected $ExpectedVersion."

@@ -750,6 +750,48 @@ async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode
 
 type UpdateAction = 'Status' | 'Check' | 'Enable' | 'Disable' | 'Install';
 
+const WINDOWS_EXPLICIT_DEV_RELEASE_RE = /^v\d+\.\d+\.\d+-dev\.\d+$/;
+
+async function preflightWindowsExplicitDevRelease(requestedVersion: string): Promise<{ tag: string; version: string; url: string }> {
+  const tag = requestedVersion.trim();
+  if (!WINDOWS_EXPLICIT_DEV_RELEASE_RE.test(tag)) {
+    throw new Error('Explicit Windows development install requires a tag matching vX.Y.Z-dev.N.');
+  }
+  const response = await fetch(
+    `https://api.github.com/repos/Tunglam0605/remote-workstation-mcp/releases/tags/${encodeURIComponent(tag)}`,
+    {
+      headers: {
+        'user-agent': 'remote-workstation-mcp-control-center',
+        accept: 'application/vnd.github+json'
+      },
+      signal: AbortSignal.timeout(15_000)
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Requested development release ${tag} is unavailable (GitHub HTTP ${response.status}).`);
+  }
+  const release = await response.json() as {
+    tag_name?: string;
+    html_url?: string;
+    draft?: boolean;
+    prerelease?: boolean;
+    assets?: Array<{ name?: string }>;
+  };
+  if (release.tag_name !== tag || release.draft === true || release.prerelease !== true) {
+    throw new Error(`Requested release ${tag} is not a published prerelease with an exact matching tag.`);
+  }
+  const assetNames = new Set((release.assets ?? []).map(asset => String(asset.name ?? '')));
+  const packageName = `remote-workstation-mcp-${tag}.tgz`;
+  if (!assetNames.has(packageName) || !assetNames.has('SHA256SUMS.txt')) {
+    throw new Error(`Requested development release ${tag} is missing its verified package/checksum assets.`);
+  }
+  return {
+    tag,
+    version: tag.slice(1),
+    url: String(release.html_url ?? '')
+  };
+}
+
 type WindowsUpdateTransaction = Record<string, unknown> & {
   state?: string;
   workerPid?: number;
@@ -794,7 +836,7 @@ function activeWindowsUpdateTransaction(transaction: WindowsUpdateTransaction | 
   return transaction.state === 'STARTING' || transaction.state === 'RUNNING';
 }
 
-async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: string): Promise<Record<string, unknown>> {
+async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: string, requestedVersion = ''): Promise<Record<string, unknown>> {
   if (process.platform !== 'win32') throw new Error('Windows update handoff is available on Windows only.');
   const existing = await readWindowsUpdateTransaction();
   if (activeWindowsUpdateTransaction(existing)) {
@@ -809,12 +851,14 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
   if (!(await pathExists(starter))) throw new Error(`Windows durable worker starter is missing: ${starter}`);
 
   const normalizedExpectedVersion = expectedVersion.replace(/^v/, '');
+  const normalizedRequestedVersion = requestedVersion.trim();
   const transactionPath = windowsUpdateTransactionPath();
   const transaction = {
     version: 1,
     state: 'STARTING',
     workerPid: null,
     expectedVersion: normalizedExpectedVersion || null,
+    requestedVersion: normalizedRequestedVersion || null,
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -828,6 +872,7 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
     '-RepoRoot', repoRoot,
     '-Base', base,
     '-ExpectedVersion', normalizedExpectedVersion,
+    ...(normalizedRequestedVersion ? ['-RequestedVersion', normalizedRequestedVersion] : []),
     '-AckTimeoutSeconds', '10'
   ];
 
@@ -868,10 +913,30 @@ async function scheduleWindowsUpdateInstall(repoRoot: string, expectedVersion: s
   };
 }
 
-async function windowsUpdateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
+async function windowsUpdateControl(repoRoot: string, action: UpdateAction, requestedVersion = ''): Promise<unknown> {
   if (action === 'Install') await assertNoActiveWorkSessionInterlocks('runtime update');
+  const explicitVersion = requestedVersion.trim();
+  if (explicitVersion && action !== 'Install') {
+    throw new Error('Explicit release selection is supported for manual Install only.');
+  }
   if (process.platform !== 'win32') {
+    if (explicitVersion) throw new Error('Explicit development release install is currently supported on Windows only.');
     return { supported: false, enabled: false, message: 'Windows update control is available on Windows only.' };
+  }
+
+  if (explicitVersion) {
+    const release = await preflightWindowsExplicitDevRelease(explicitVersion);
+    return {
+      supported: true,
+      channel: 'development-explicit',
+      automaticPolicy: 'manual-only',
+      requestedVersion: release.tag,
+      latestVersion: release.version,
+      releaseUrl: release.url,
+      updateAvailable: true,
+      automaticInstallAllowed: false,
+      ...(await scheduleWindowsUpdateInstall(repoRoot, release.version, release.tag))
+    };
   }
   const script = path.join(repoRoot, 'scripts', 'update-windows.ps1');
   if (!(await pathExists(script))) {
@@ -972,9 +1037,9 @@ async function linuxUpdateControl(repoRoot: string, action: UpdateAction): Promi
   };
 }
 
-async function updateControl(repoRoot: string, action: UpdateAction): Promise<unknown> {
+async function updateControl(repoRoot: string, action: UpdateAction, requestedVersion = ''): Promise<unknown> {
   return process.platform === 'win32'
-    ? await windowsUpdateControl(repoRoot, action)
+    ? await windowsUpdateControl(repoRoot, action, requestedVersion)
     : await linuxUpdateControl(repoRoot, action);
 }
 
@@ -1481,7 +1546,8 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
       }
 
       if (url.pathname === '/api/update/install' && req.method === 'POST') {
-        const result = await updateControl(repoRoot, 'Install') as Record<string, unknown>;
+        const body = await readJsonBody(req) as { version?: string };
+        const result = await updateControl(repoRoot, 'Install', body.version ?? '') as Record<string, unknown>;
         const accepted = result.accepted === true;
         json(res, accepted ? 202 : 200, result);
         return;

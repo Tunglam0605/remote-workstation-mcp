@@ -34,6 +34,17 @@ export interface AdminRequest {
 
 const REQUEST_TTL_MS = 5 * 60_000;
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WINDOWS_BLOCKED_ADMIN_HOSTS = new Set(['cmd.exe', 'powershell.exe', 'pwsh.exe', 'wscript.exe', 'cscript.exe', 'mshta.exe', 'rundll32.exe']);
+
+export function validateAdminRequestProgram(programValue: string, platform: NodeJS.Platform = process.platform): string {
+  const program = programValue.trim();
+  if (!program) throw new Error('program is required.');
+  if (/[\0\r\n]/.test(program)) throw new Error('program contains invalid control characters.');
+  if (platform === 'win32' && WINDOWS_BLOCKED_ADMIN_HOSTS.has(path.win32.basename(program).toLowerCase())) {
+    throw new Error('Windows Administrator requests must target a direct executable, not a generic shell/script host. Use a typed RWMCP action for update/restart/setup workflows.');
+  }
+  return program;
+}
 
 export function adminApprovalDir(): string {
   return path.resolve(process.env.RWMCP_ADMIN_APPROVAL_DIR?.trim() || path.join(setupConfigDir(), 'runtime', 'admin-approvals'));
@@ -82,12 +93,10 @@ export async function createAdminRequest(input: { program: string; args?: string
   const principal = currentPrincipal();
   const clientId = principal?.id ?? process.env.RWMCP_CLIENT_ID ?? 'local';
   const clientType = principal?.type ?? process.env.RWMCP_CLIENT_TYPE ?? 'mcp-client';
-  const program = input.program.trim();
+  const program = validateAdminRequestProgram(input.program);
   const args = [...(input.args ?? [])];
   const reason = input.reason.trim();
   const cwd = input.cwd?.trim();
-  if (!program) throw new Error('program is required.');
-  if (/[\0\r\n]/.test(program)) throw new Error('program contains invalid control characters.');
   if (!reason) throw new Error('reason is required.');
   if (args.length > 100) throw new Error('Admin request supports at most 100 arguments.');
   if (args.some(argument => argument.includes('\0'))) throw new Error('arguments may not contain NUL characters.');

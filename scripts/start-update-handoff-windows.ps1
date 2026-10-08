@@ -5,6 +5,7 @@ param(
   [string]$Base,
   [Parameter(Mandatory = $true)]
   [string]$ExpectedVersion,
+  [string]$RequestedVersion = '',
   [ValidateRange(1, 30)]
   [int]$AckTimeoutSeconds = 10
 )
@@ -32,6 +33,10 @@ if ($ExpectedVersion -notmatch '^[0-9]+[.][0-9]+[.][0-9]+(?:[-+][0-9A-Za-z.-]+)?
 }
 Assert-SafeCommandArg $RepoRoot 'RepoRoot'
 Assert-SafeCommandArg $Base 'Base'
+if ($RequestedVersion) {
+  if ($RequestedVersion -notmatch '^v[0-9]+[.][0-9]+[.][0-9]+-dev[.][0-9]+$') { throw "RequestedVersion is not an explicit development tag: $RequestedVersion" }
+  Assert-SafeCommandArg $RequestedVersion 'RequestedVersion'
+}
 
 $worker = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'scripts\update-handoff-windows.ps1'))
 if (-not (Test-Path -LiteralPath $worker)) {
@@ -57,6 +62,7 @@ $parts = @(
   '-Base', (Quote-CommandArg $Base),
   '-ExpectedVersion', (Quote-CommandArg $ExpectedVersion)
 )
+if ($RequestedVersion) { $parts += @('-RequestedVersion', (Quote-CommandArg $RequestedVersion)) }
 $commandLine = $parts -join ' '
 
 # Win32_Process.Create is intentionally used instead of child_process.spawn(detached=true).

@@ -1,9 +1,11 @@
 param(
   [ValidateSet('Setup','Start','StartOpenAI','Boot','Stop','Restart','Status','AutostartOn','AutostartOff','Update','UpdateCheck','AutoUpdateOn','AutoUpdateOff','Rollback')]
-  [string]$Action = 'Setup'
+  [string]$Action = 'Setup',
+  [string]$Version = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($Version -and $Action -ne 'Update') { throw '-Version is supported only with -Action Update.' }
 $Base = Split-Path -Parent $PSScriptRoot
 $CurrentFile = Join-Path $Base 'current.txt'
 $PreviousFile = Join-Path $Base 'previous.txt'
@@ -112,9 +114,10 @@ function Invoke-Runtime([string]$RuntimeAction, [string]$Mode = 'OpenAI', [strin
   if ($LASTEXITCODE -ne 0) { throw "Runtime action $RuntimeAction failed with exit code $LASTEXITCODE." }
 }
 
-function Invoke-Updater([string]$UpdateAction, [switch]$Quiet) {
+function Invoke-Updater([string]$UpdateAction, [string]$RequestedVersion = '', [switch]$Quiet) {
   if (-not (Test-Path $Updater)) { return }
   $args = @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$Updater,'-Action',$UpdateAction)
+  if ($RequestedVersion) { $args += @('-Version', $RequestedVersion) }
   if ($Quiet) { $args += '-Quiet' }
   & powershell.exe @args
   if ($LASTEXITCODE -ne 0) { throw "Updater action $UpdateAction failed with exit code $LASTEXITCODE." }
@@ -239,7 +242,7 @@ switch ($Action) {
       if ($null -eq $savedPreserve) { Remove-Item Env:RWMCP_RECOVERY_PRESERVE_DESIRED -ErrorAction SilentlyContinue }
       else { $env:RWMCP_RECOVERY_PRESERVE_DESIRED = $savedPreserve }
     }
-    Invoke-Updater 'Install'
+    Invoke-Updater 'Install' $Version
     $candidate = Get-CurrentRoot
     try {
       # Re-home the always-on recovery plane immediately after a slot switch.

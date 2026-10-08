@@ -117,6 +117,8 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   work_objective_summary: 'workstation.read',
   work_objective_attempts: 'workstation.read',
   work_objective_execution_timeline: 'workstation.read',
+  work_objective_dispatch_task: 'workstation.execute',
+  work_objective_dispatch_wave: 'workstation.execute',
   work_objective_execute_task: 'workstation.execute',
   work_objective_execute_wave: 'workstation.execute',
   work_objective_cancel_task: 'workstation.execute',

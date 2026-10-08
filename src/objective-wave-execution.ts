@@ -30,6 +30,7 @@ export interface ObjectiveWaveAwarenessSource {
 
 export interface ObjectiveWaveExecutor {
   execute(objectiveId: string, taskId: string): Promise<unknown>;
+  dispatch?(objectiveId: string, taskId: string): Promise<unknown>;
 }
 
 export interface ObjectiveWaveGraphSource {
@@ -84,6 +85,39 @@ export class ObjectiveWaveExecutionService {
     private readonly execution: ObjectiveWaveExecutor,
     private readonly taskGraphs: ObjectiveWaveGraphSource
   ) {}
+
+  async dispatchWave(objectiveId: string, input: ObjectiveWaveExecutionInput = {}) {
+    const limit = boundedInteger(input.limit, 16, 1, 64, 'limit');
+    const maxParallel = boundedInteger(input.maxParallel, 2, 1, 4, 'maxParallel');
+    const snapshot = await this.awareness.snapshot(objectiveId, limit);
+    const selected = selectWave(snapshot.plan, maxParallel);
+    const dispatches = await Promise.all(selected.map(async item => {
+      try {
+        if (!this.execution.dispatch) throw new Error('DETACHED_DISPATCH_UNAVAILABLE: objective executor does not provide detached dispatch.');
+        return {
+          taskId: item.task.id,
+          title: item.task.title,
+          result: await this.execution.dispatch(objectiveId, item.task.id)
+        };
+      } catch (error) {
+        return {
+          taskId: item.task.id,
+          title: item.task.title,
+          error: message(error)
+        };
+      }
+    }));
+    return {
+      objectiveId,
+      selectedTaskIds: selected.map(item => item.task.id),
+      serializedWorkerTask: selected.some(item => item.task.execution?.kind === 'worker-provider'),
+      dispatches,
+      authority: 'detached-wave-dispatch' as const,
+      note: selected.length === 0
+        ? 'No scheduler-ready task was dispatched. Inspect work_objective_schedule for blockers.'
+        : 'Selected tasks were detached from the MCP request. Use attempts/timeline/summary to observe durable progress and completion.'
+    };
+  }
 
   async executeWave(objectiveId: string, input: ObjectiveWaveExecutionInput = {}): Promise<ObjectiveWaveExecutionResult> {
     const limit = boundedInteger(input.limit, 16, 1, 64, 'limit');

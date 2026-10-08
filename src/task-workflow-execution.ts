@@ -59,6 +59,8 @@ function compactProviderTrace(attempts: TaskProviderAttemptRecord[]): string {
 }
 
 export class TaskWorkflowExecutionService {
+  private readonly detachedExecutions = new Map<string, Promise<void>>();
+
   constructor(
     private readonly taskGraphs: TaskGraphStore,
     private readonly taskExecutor: TaskExecutionCoordinator,
@@ -76,6 +78,61 @@ export class TaskWorkflowExecutionService {
     const task = objective.tasks.find(item => item.id === taskId);
     if (!task) throw new Error(`Unknown Work Task '${taskId}'.`);
     return task;
+  }
+
+  async dispatch(objectiveId: string, taskId: string) {
+    const task = await this.task(objectiveId, taskId);
+    const existing = await this.taskAttempts.getForGeneration(objectiveId, taskId, task.generation);
+    if (existing) {
+      return {
+        objectiveId,
+        taskId,
+        generation: task.generation,
+        accepted: false,
+        replayed: true,
+        attempt: existing,
+        authority: 'detached-task-dispatch' as const,
+        note: 'A durable attempt already exists for this task generation; inspect attempts/timeline instead of dispatching it again.'
+      };
+    }
+    if (!task.execution) {
+      throw new Error(`TASK_NOT_DISPATCHABLE: Work Task '${taskId}' has no persisted execution binding.`);
+    }
+    if (task.status !== 'ready') {
+      throw new Error(`TASK_NOT_READY: Work Task '${taskId}' has status '${task.status}'.`);
+    }
+
+    const key = `${objectiveId}:${taskId}:${task.generation}`;
+    if (this.detachedExecutions.has(key)) {
+      return {
+        objectiveId,
+        taskId,
+        generation: task.generation,
+        accepted: false,
+        replayed: false,
+        alreadyDispatched: true,
+        authority: 'detached-task-dispatch' as const,
+        note: 'This task generation is already executing in the background; inspect attempts/timeline for progress.'
+      };
+    }
+
+    const execution = Promise.resolve()
+      .then(() => this.execute(objectiveId, taskId))
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => this.detachedExecutions.delete(key));
+    this.detachedExecutions.set(key, execution);
+
+    return {
+      objectiveId,
+      taskId,
+      generation: task.generation,
+      accepted: true,
+      replayed: false,
+      executionKind: task.execution.kind,
+      authority: 'detached-task-dispatch' as const,
+      note: 'Execution was detached from the MCP request. Durable Task Attempt state and the execution timeline are authoritative for progress and completion.'
+    };
   }
 
   async execute(objectiveId: string, taskId: string) {

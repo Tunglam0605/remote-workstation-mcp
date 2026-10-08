@@ -574,6 +574,21 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
     }))
   )));
 
+  server.registerTool('work_objective_dispatch_wave', {
+    description: 'Dispatch one bounded scheduler-ready wave and return immediately. Execution continues under durable Task Attempts; use objective attempts/timeline/summary to observe progress. This avoids keeping one MCP/ChatGPT request open for long worker runs.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      limit: z.number().int().min(1).max(64).default(16),
+      maxParallel: z.number().int().min(1).max(4).default(2)
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, limit, maxParallel }) => result(await audited(ctx.audit, 'work_objective_dispatch_wave', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.objectiveWaveExecution.dispatchWave(objectiveId, { limit, maxParallel })
+    )
+  )));
+
   server.registerTool('work_objective_execute_wave', {
     description: 'Execute one bounded scheduler-ready wave from a caller-owned Work Objective. Worker-provider tasks are serialized within the Work Session shared worktree; compatible deterministic tasks may run in parallel. This call never loops until completion and never bypasses scheduler awareness, leases, node interlocks, target policy, cancellation, or Task Attempt persistence.',
     inputSchema: z.object({
@@ -586,6 +601,20 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
   }, async ({ workSessionId, objectiveId, limit, maxParallel }) => result(await audited(ctx.audit, 'work_objective_execute_wave', undefined, () =>
     ctx.runInWorkSession(workSessionId, () =>
       ctx.objectiveWaveExecution.executeWave(objectiveId, { limit, maxParallel })
+    )
+  )));
+
+  server.registerTool('work_objective_dispatch_task', {
+    description: 'Dispatch one READY task and return immediately. The task continues in the caller-owned Work Session with durable Task Attempt/timeline state; use this for long worker/workflow operations to avoid MCP/ChatGPT turn timeouts.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      objectiveId: z.string().uuid(),
+      taskId: z.string().uuid()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+  }, async ({ workSessionId, objectiveId, taskId }) => result(await audited(ctx.audit, 'work_objective_dispatch_task', undefined, () =>
+    ctx.runInWorkSession(workSessionId, () =>
+      ctx.taskWorkflowExecution.dispatch(objectiveId, taskId)
     )
   )));
 

@@ -23,6 +23,7 @@ import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-e
 import { validateKicadElectronicDesignIntent, type KicadDevicePinPlan, type KicadElectronicDesignIntent } from './kicad-design-intent.js';
 import { validateKicadSchematicArchitectureCoverage } from './kicad-schematic-architecture.js';
 import { deriveKicadRoutingPolicy } from './kicad-routing-policy.js';
+import { deriveKicadPlacementHints } from './kicad-placement-policy.js';
 import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
@@ -1670,6 +1671,33 @@ export class KicadAdapter {
       stages.push({ stage: 'routing-policy-preflight', status: 'skipped', detail: 'No designIntent supplied.' });
     }
 
+    const placementPolicy = request.designIntent ? deriveKicadPlacementHints(request.designIntent) : undefined;
+    if (placementPolicy) {
+      stages.push({
+        stage: 'placement-policy-preflight',
+        status: placementPolicy.ready ? (placementPolicy.counts.review > 0 ? 'warning' : 'passed') : 'failed',
+        detail: `hints=${placementPolicy.hints.length} errors=${placementPolicy.counts.error} review=${placementPolicy.counts.review}`
+      });
+      if (!placementPolicy.ready) {
+        const detail = placementPolicy.findings.filter(item => item.severity === 'error').slice(0, 8).map(item => `${item.code}: ${item.message}`).join(' | ');
+        throw new Error(`KICAD_PLACEMENT_POLICY_BLOCKED: design intent produced invalid placement hints. ${detail}`);
+      }
+      for (const finding of placementPolicy.findings.filter(item => item.severity === 'review').slice(0, 32)) {
+        warnings.push(`${finding.code}: ${finding.message}`);
+      }
+    } else {
+      stages.push({ stage: 'placement-policy-preflight', status: 'skipped', detail: 'No designIntent supplied.' });
+    }
+
+    const placementHintMap = new Map<string, KicadPlacementHint>();
+    for (const hint of placementPolicy?.hints ?? []) placementHintMap.set(hint.reference.toUpperCase(), hint);
+    for (const hint of request.placement?.hints ?? []) {
+      const key = hint.reference.toUpperCase();
+      const inherited = placementHintMap.get(key);
+      placementHintMap.set(key, { ...(inherited ?? {}), ...hint, reference: hint.reference });
+    }
+    const effectivePlacementHints = [...placementHintMap.values()];
+
     const derivedNetClasses = routingPolicy?.netClasses.map(item => ({
       name: item.name,
       nets: item.nets,
@@ -1720,7 +1748,7 @@ export class KicadAdapter {
         gridMm: request.placement?.gridMm ?? 0.5,
         minSpacingMm: placementBase * multiplier,
         edgeInsetMm: request.placement?.edgeInsetMm ?? 4,
-        ...(request.placement?.hints ? { hints: request.placement.hints } : {})
+        ...(effectivePlacementHints.length ? { hints: effectivePlacementHints } : {})
       });
       try {
         board = await this.boardSynthesize(workspace, projectPath, {

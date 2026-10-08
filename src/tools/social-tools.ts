@@ -151,6 +151,21 @@ export function registerSocialTools(server: McpServer, ctx: AppContext) {
     inSession('social_metadata_apply', workSessionId, owner =>
       ctx.social.applyMetadata(publish, expectedPlanSha256, transactionId, sessionId, tabId, owner)));
 
+  server.registerTool('social_schedule_apply', {
+    description: 'Apply an exact YouTube schedule time inside an existing SHA-bound social transaction when the target date is already selected. The mutation is semantic-only, fail-closed on date mismatch/ambiguous controls, saves through visible buttons, and advances only after exact date/time postcondition verification.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+      tabId: z.string().uuid(),
+      transactionId: z.string().regex(/^[a-f0-9]{64}$/),
+      expectedPlanSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      publish: publishInputSchema
+    }),
+    annotations: write
+  }, async ({ workSessionId, sessionId, tabId, transactionId, expectedPlanSha256, publish }) =>
+    inSession('social_schedule_apply', workSessionId, owner =>
+      ctx.social.applySchedule(publish, expectedPlanSha256, transactionId, sessionId, tabId, owner)));
+
   server.registerTool('social_upload', {
     description: 'Upload one SHA-bound planned video through a semantic file input. This does not press Publish/Post/Schedule and fails closed if login or the upload control is not ready.',
     inputSchema: z.object({

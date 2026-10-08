@@ -438,6 +438,139 @@ export class SocialPublishingService {
     };
   }
 
+
+  async applySchedule(
+    input: SocialPublishInput,
+    expectedPlanSha256: string,
+    transactionId: string,
+    sessionId: string,
+    tabId: string,
+    owner: Owner
+  ) {
+    if (input.platform !== 'youtube') {
+      throw new Error('SOCIAL_SCHEDULE_PLATFORM_REQUIRES_CALIBRATION: typed schedule mutation is currently calibrated for YouTube only.');
+    }
+    const plan = await this.publishPlan(input);
+    if (plan.planSha256 !== expectedPlanSha256) {
+      throw new Error('SOCIAL_PLAN_CHANGED: publish plan no longer matches expectedPlanSha256.');
+    }
+    if (!plan.schedule?.at || !plan.schedule.timezone) {
+      throw new Error('SOCIAL_SCHEDULE_REQUIRED: publish plan must include scheduleAt and timezone.');
+    }
+    const existing = await this.transactionStatus(transactionId, owner);
+    if (existing.planSha256 !== expectedPlanSha256 || existing.platform !== input.platform || existing.sourceSha256 !== plan.source.sha256) {
+      throw new Error('SOCIAL_TRANSACTION_PLAN_MISMATCH: transaction does not belong to this platform/plan/source.');
+    }
+
+    const inspectAndAudit = async () => {
+      const page = await this.inspect(input.platform, sessionId, tabId, owner);
+      if (page.loginNeeded) {
+        throw new Error('SOCIAL_AUTH_REQUIRED: complete login/consent in the persistent social profile before schedule mutation.');
+      }
+      const audit = auditSocialSchedule({
+        platform: input.platform,
+        scheduleAt: plan.schedule!.at,
+        timezone: plan.schedule!.timezone!,
+        text: page.text,
+        elements: page.elements
+      });
+      return { page, audit };
+    };
+
+    const buttonByAliases = (elements: Awaited<ReturnType<SocialPublishingService['inspect']>>['elements'], aliases: string[], label: string) => {
+      const normalizedAliases = aliases.map(normalizeLabel);
+      const matches = elements.filter(item =>
+        item.role === 'button' &&
+        item.visible &&
+        item.enabled &&
+        normalizedAliases.includes(normalizeLabel(item.name))
+      );
+      if (matches.length !== 1) {
+        throw new Error(`SOCIAL_SCHEDULE_CONTROL_${matches.length ? 'AMBIGUOUS' : 'NOT_READY'}: ${label} semantic button could not be resolved uniquely.`);
+      }
+      return matches[0]!;
+    };
+
+    const ensurePanelOpen = async () => {
+      let state = await inspectAndAudit();
+      const time = findSocialSemanticField(input.platform, state.page.elements, 'schedule-time');
+      if (time.element || time.ambiguous) return state;
+      const edit = buttonByAliases(
+        state.page.elements,
+        ['Chỉnh sửa trạng thái hiển thị của video', 'Edit video visibility'],
+        'visibility-editor'
+      );
+      await this.browser.interact(sessionId, tabId, owner, edit.elementId, { kind: 'click' });
+      state = await inspectAndAudit();
+      return state;
+    };
+
+    let state = await ensurePanelOpen();
+    if (state.audit.status.date !== 'match') {
+      throw new Error(`SOCIAL_SCHEDULE_DATE_REQUIRES_CALIBRATION: target date ${state.audit.expected.date} is not already selected; refusing calendar mutation.`);
+    }
+    if (state.audit.status.time === 'unknown') {
+      throw new Error(`SOCIAL_SCHEDULE_TIME_NOT_READY: ${state.audit.blockers.join(', ') || 'schedule time control unavailable'}.`);
+    }
+
+    const remoteAlreadyMatched = state.audit.status.verified;
+    const started = await this.transactions.startMutation(transactionId, 'schedule');
+    if (started.alreadyCompleted) {
+      if (!state.audit.status.verified) {
+        throw new Error(`SOCIAL_SCHEDULE_DRIFT: transaction is already scheduled but remote date/time no longer matches the SHA-bound plan: ${JSON.stringify(state.audit).slice(0, 1500)}`);
+      }
+      return {
+        platform: input.platform,
+        planSha256: expectedPlanSha256,
+        transaction: started.transaction,
+        idempotent: true,
+        skipped: 'schedule-already-completed',
+        audit: state.audit
+      };
+    }
+
+    try {
+      if (!state.audit.status.verified) {
+        const timeField = findSocialSemanticField(input.platform, state.page.elements, 'schedule-time');
+        if (timeField.ambiguous || !timeField.element) {
+          throw new Error('SOCIAL_SCHEDULE_TIME_STALE: schedule time control could not be uniquely resolved after mutation began.');
+        }
+        await this.browser.interact(sessionId, tabId, owner, timeField.element.elementId, {
+          kind: 'fill',
+          value: state.audit.expected.time
+        });
+
+        const afterFill = await this.inspect(input.platform, sessionId, tabId, owner);
+        const done = buttonByAliases(afterFill.elements, ['Xong', 'Done'], 'done');
+        await this.browser.interact(sessionId, tabId, owner, done.elementId, { kind: 'click' });
+
+        const afterDone = await this.inspect(input.platform, sessionId, tabId, owner);
+        const save = buttonByAliases(afterDone.elements, ['Lưu', 'Save'], 'save');
+        await this.browser.interact(sessionId, tabId, owner, save.elementId, { kind: 'click' });
+      }
+
+      state = await ensurePanelOpen();
+      if (!state.audit.status.verified) {
+        throw new Error(`SOCIAL_SCHEDULE_POSTCONDITION_FAILED: ${JSON.stringify(state.audit).slice(0, 1500)}`);
+      }
+      const transaction = await this.transactions.completeMutation(transactionId, 'schedule', {
+        observedAt: new Date().toISOString(),
+        note: 'YouTube schedule time mutation passed semantic date/time postcondition verification.',
+        scheduleAt: plan.schedule.at,
+        fields: ['schedule-date', 'schedule-time']
+      });
+      return {
+        platform: input.platform,
+        planSha256: expectedPlanSha256,
+        transaction,
+        audit: state.audit,
+        idempotent: remoteAlreadyMatched
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async transactionStatus(transactionId: string, owner: Owner) {
     const transaction = await this.transactions.read(transactionId);
     if (transaction.principalId !== owner.principalId) throw new Error('SOCIAL_TRANSACTION_OWNER_MISMATCH: transaction belongs to a different principal.');

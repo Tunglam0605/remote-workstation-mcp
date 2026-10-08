@@ -129,7 +129,7 @@ test('social settings validate bounded upload limits and absolute media roots', 
 test('social tools are advertised, pack-scoped and explicitly classified', () => {
   const capability = CAPABILITIES.find(item => item.id === 'web.social');
   assert.ok(capability);
-  assert.equal(capability.tools.length, 10);
+  assert.equal(capability.tools.length, 11);
   for (const tool of capability.tools) {
     assert.ok(['workstation.read', 'workstation.write', 'workstation.execute'].includes(requiredScopeForTool(tool)!));
   }

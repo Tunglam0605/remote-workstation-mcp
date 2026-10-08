@@ -93,6 +93,21 @@ export function registerSocialTools(server: McpServer, ctx: AppContext) {
   }, async ({ workSessionId, platform, sessionId, tabId }) =>
     inSession('social_ui_inspect', workSessionId, owner => ctx.social.inspect(platform, sessionId, tabId, owner)));
 
+  server.registerTool('social_schedule_audit', {
+    description: 'Read-only semantic verification of the currently visible YouTube/TikTok schedule date and exact local time against an offset-aware target timestamp. It never changes visibility, date, time or publish state.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      platform: platformSchema,
+      sessionId: z.string().uuid(),
+      tabId: z.string().uuid(),
+      scheduleAt: z.string().datetime({ offset: true }),
+      timezone: z.string().trim().min(1).max(128)
+    }),
+    annotations: read
+  }, async ({ workSessionId, platform, sessionId, tabId, scheduleAt, timezone }) =>
+    inSession('social_schedule_audit', workSessionId, owner =>
+      ctx.social.auditSchedule(platform, sessionId, tabId, scheduleAt, timezone, owner)));
+
   server.registerTool('social_transaction_status', {
     description: 'Read one durable social publish transaction so a later chat/runtime can resume from the last verified phase without repeating cloud mutations.',
     inputSchema: z.object({ workSessionId: z.string().uuid(), transactionId: z.string().regex(/^[a-f0-9]{64}$/) }),

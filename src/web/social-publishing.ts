@@ -5,6 +5,7 @@ import type { SetupSettings } from '../setup/settings.js';
 import type { BrowserCore, BrowserUploadFile } from './browser-core.js';
 import { SOCIAL_PLATFORM_DOMAINS, type SocialPlatform } from './domain-policy.js';
 import { SocialPublishTransactionStore, type SocialMutation, type SocialTransactionEvidence } from './social-publish-transaction.js';
+import { auditSocialSchedule } from './social-semantic.js';
 
 type Owner = { principalId: string; workSessionId: string };
 
@@ -227,6 +228,33 @@ export class SocialPublishingService {
       loginNeeded,
       fileInputs: page.elements.filter(item => item.role === 'file'),
       semanticOnly: true
+    };
+  }
+
+  async auditSchedule(
+    platform: SocialPlatform,
+    sessionId: string,
+    tabId: string,
+    scheduleAt: string,
+    timezone: string,
+    owner: Owner
+  ) {
+    const inspected = await this.inspect(platform, sessionId, tabId, owner);
+    if (inspected.loginNeeded) {
+      throw new Error('SOCIAL_AUTH_REQUIRED: complete login/consent in the persistent social profile before schedule audit.');
+    }
+    return {
+      sessionId,
+      tabId,
+      ...auditSocialSchedule({
+        platform,
+        scheduleAt,
+        timezone,
+        text: inspected.text,
+        elements: inspected.elements
+      }),
+      semanticOnly: true,
+      textTruncated: inspected.textTruncated
     };
   }
 

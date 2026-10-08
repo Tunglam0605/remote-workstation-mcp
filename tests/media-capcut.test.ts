@@ -129,7 +129,7 @@ async function fixture(options: { running?: boolean; divergentMirror?: boolean; 
 }
 
 test('CapCut tools are advertised through the media capability contract', () => {
-  assert.equal(ACTION_SCHEMA_VERSION, 71);
+  assert.equal(ACTION_SCHEMA_VERSION, 72);
   const media = CAPABILITIES.find(item => item.id === 'engineering.media');
   assert.ok(media);
   for (const tool of [

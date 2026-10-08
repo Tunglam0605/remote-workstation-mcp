@@ -387,7 +387,8 @@ $releaseUri = if ($Version -eq 'latest') {
 Write-Host "Resolving Remote Workstation MCP release ($Version)..." -ForegroundColor Cyan
 $release = Invoke-RestMethod -Uri $releaseUri -Headers $headers -UseBasicParsing
 $tagName = [string]$release.tag_name
-if ($tagName -notmatch '^v\d+\.\d+\.\d+$') { throw "Unexpected release tag: $tagName" }
+$tagPattern = if ($Version -eq 'latest') { '^v\d+\.\d+\.\d+$' } else { '^v\d+\.\d+\.\d+(?:-dev\.\d+)?$' }
+if ($tagName -notmatch $tagPattern) { throw "Unexpected release tag for '$Version': $tagName" }
 $assetName = "remote-workstation-mcp-$tagName.tgz"
 $packageAsset = @($release.assets | Where-Object { $_.name -eq $assetName }) | Select-Object -First 1
 $sumAsset = @($release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' }) | Select-Object -First 1

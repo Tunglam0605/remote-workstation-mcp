@@ -309,7 +309,11 @@ test('design agent blocks professional schematic synthesis until programmable-de
       }]
     });
     assert.equal(accepted.designIntent?.gates.pinPlanReady, true);
+    assert.equal(accepted.routingPolicy?.ready, true);
+    assert.ok(accepted.routingPolicy?.netClasses.some((item: any) => item.name === 'POWER_3V3'));
     assert.equal(accepted.stages.find((stage: any) => stage.stage === 'design-intent-preflight')?.status, 'passed');
+    assert.equal(accepted.stages.find((stage: any) => stage.stage === 'routing-policy-preflight')?.status, 'warning');
+    assert.ok(accepted.specializedReviewReasons.includes('3V3:power-ampacity-review-required'));
     assert.equal(fixture.calls.includes('schematic'), true);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

@@ -22,6 +22,7 @@ import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.
 import { analyzeKicadElectrical, type KicadElectricalNetIntent } from './kicad-electrical-review.js';
 import { validateKicadElectronicDesignIntent, type KicadDevicePinPlan, type KicadElectronicDesignIntent } from './kicad-design-intent.js';
 import { validateKicadSchematicArchitectureCoverage } from './kicad-schematic-architecture.js';
+import { deriveKicadRoutingPolicy } from './kicad-routing-policy.js';
 import { auditKicadManufacturing, parseKicadPositionCsv } from './kicad-manufacturing.js';
 import { atomicReplace, createKicadBackup, inspectKicadDocument, patchKicadDocument, sha256Text, type KicadEditOperation } from './kicad-edit.js';
 import { EngineeringResourceManager } from './resource-manager.js';
@@ -1651,6 +1652,36 @@ export class KicadAdapter {
       stages.push({ stage: 'schematic-architecture-preflight', status: 'skipped', detail: 'No designIntent supplied.' });
     }
 
+    const routingPolicy = request.designIntent ? deriveKicadRoutingPolicy(request.designIntent) : undefined;
+    if (routingPolicy) {
+      stages.push({
+        stage: 'routing-policy-preflight',
+        status: routingPolicy.ready ? (routingPolicy.counts.review > 0 ? 'warning' : 'passed') : 'failed',
+        detail: `classes=${routingPolicy.netClasses.length} styles=${routingPolicy.routeStyles.length} pairs=${routingPolicy.differentialPairs.length} errors=${routingPolicy.counts.error} review=${routingPolicy.counts.review}`
+      });
+      if (!routingPolicy.ready) {
+        const detail = routingPolicy.findings.filter(item => item.severity === 'error').slice(0, 8).map(item => `${item.code}: ${item.message}`).join(' | ');
+        throw new Error(`KICAD_ROUTING_POLICY_BLOCKED: design intent produced invalid routing policy. ${detail}`);
+      }
+      for (const finding of routingPolicy.findings.filter(item => item.severity === 'review').slice(0, 32)) {
+        warnings.push(`${finding.code}: ${finding.message}`);
+      }
+    } else {
+      stages.push({ stage: 'routing-policy-preflight', status: 'skipped', detail: 'No designIntent supplied.' });
+    }
+
+    const derivedNetClasses = routingPolicy?.netClasses.map(item => ({
+      name: item.name,
+      nets: item.nets,
+      ...(item.clearanceMm !== undefined ? { clearanceMm: item.clearanceMm } : {}),
+      ...(item.trackWidthMm !== undefined ? { trackWidthMm: item.trackWidthMm } : {}),
+      ...(item.viaDiameterMm !== undefined ? { viaDiameterMm: item.viaDiameterMm } : {}),
+      ...(item.viaDrillMm !== undefined ? { viaDrillMm: item.viaDrillMm } : {}),
+      ...(item.diffPairWidthMm !== undefined ? { diffPairWidthMm: item.diffPairWidthMm } : {}),
+      ...(item.diffPairGapMm !== undefined ? { diffPairGapMm: item.diffPairGapMm } : {})
+    })) ?? [];
+    const effectiveNetClasses = [...derivedNetClasses, ...(request.board.netClasses ?? [])];
+
     const schematic = await this.schematicSynthesize(workspace, projectPath, {
       outputDir: request.outputDir,
       projectName: request.projectName,
@@ -1711,7 +1742,7 @@ export class KicadAdapter {
           })),
           ...(request.board.minimums ? { minimums: request.board.minimums } : {}),
           ...(request.board.defaultRouting ? { defaultRouting: request.board.defaultRouting } : {}),
-          ...(request.board.netClasses ? { netClasses: request.board.netClasses } : {}),
+          ...(effectiveNetClasses.length ? { netClasses: effectiveNetClasses } : {}),
           runDrc: true,
           requireNoViolations: true
         });
@@ -1750,7 +1781,15 @@ export class KicadAdapter {
         const existing = routingStyles[index]!;
         routingStyles[index] = { ...inherited, ...existing, netName: existing.netName };
       };
-      for (const netClass of request.board.netClasses ?? []) {
+      for (const style of routingPolicy?.routeStyles ?? []) {
+        mergeStyle(style.netName, {
+          ...(style.widthMm !== undefined ? { widthMm: style.widthMm } : {}),
+          ...(style.clearanceMm !== undefined ? { clearanceMm: style.clearanceMm } : {}),
+          ...(style.preferredLayer !== undefined ? { preferredLayer: style.preferredLayer } : {}),
+          ...(style.priority !== undefined ? { priority: style.priority } : {})
+        });
+      }
+      for (const netClass of effectiveNetClasses) {
         for (const netName of netClass.nets) mergeStyle(netName, {
           ...(netClass.trackWidthMm !== undefined ? { widthMm: netClass.trackWidthMm } : {}),
           ...(netClass.clearanceMm !== undefined ? { clearanceMm: netClass.clearanceMm } : {})
@@ -1830,9 +1869,18 @@ export class KicadAdapter {
     const designReview = await this.designReview(workspace, projectPath, { schematic: schematic.schematicFile, board: board.boardFile }, { runRuleChecks: false, maxDetails: 50 });
     stages.push({ stage: 'design-review', status: designReview.analysis.recommendations.some(item => item.priority === 'high') ? 'warning' : 'passed' });
 
-    const specializedReviewReasons = (request.electricalIntents ?? []).filter(intent =>
-      intent.targetImpedanceOhm !== undefined || intent.kind === 'differential' || intent.kind === 'high_speed'
-    ).map(intent => `${intent.netName}:${intent.kind}${intent.targetImpedanceOhm !== undefined ? `:${intent.targetImpedanceOhm}ohm` : ''}`);
+    const specializedReviewReasons = [
+      ...(request.electricalIntents ?? []).filter(intent =>
+        intent.targetImpedanceOhm !== undefined || intent.kind === 'differential' || intent.kind === 'high_speed'
+      ).map(intent => `${intent.netName}:${intent.kind}${intent.targetImpedanceOhm !== undefined ? `:${intent.targetImpedanceOhm}ohm` : ''}`),
+      ...(routingPolicy?.findings ?? []).filter(item => [
+        'controlled-impedance-evidence-required',
+        'high-speed-impedance-intent-missing',
+        'high-speed-two-layer-return-path-review',
+        'isolation-clearance-review',
+        'power-ampacity-review-required'
+      ].includes(item.code)).map(item => `${item.subject}:${item.code}`)
+    ];
     const routeComplete = !routeApplyError && unconnected === 0 && (routePlanResult ? routePlanResult.plan.complete : true);
     const electricalHigh = electrical?.analysis.findings.high ?? 0;
     let status: 'complete' | 'needs-review' | 'needs-specialized-review' = !clean || !routeComplete || electricalHigh > 0
@@ -1914,6 +1962,7 @@ export class KicadAdapter {
       validation: { clean, drcErrors, ercErrors, activeViolations, unconnected, schematicParity },
       ...(designIntentReview ? { designIntent: designIntentReview } : {}),
       ...(schematicArchitecture ? { schematicArchitecture } : {}),
+      ...(routingPolicy ? { routingPolicy } : {}),
       ...(electrical ? { electrical: electrical.analysis } : {}),
       constraints: constraints.analysis,
       designReview: designReview.analysis,

@@ -513,3 +513,57 @@ test('Windows installer allows explicit dev prereleases without changing stable 
   assert.match(updater, /releases\/latest/);
   assert.match(updater, /channel = 'stable'/);
 });
+
+
+test('Windows Control Center supports explicit dev prerelease install through the durable verified update pipeline', async () => {
+  const setupServer = await read('src/setup/setup-server.ts');
+  const starter = await read('scripts/start-update-handoff-windows.ps1');
+  const worker = await read('scripts/update-handoff-windows.ps1');
+  const launcher = await read('scripts/rwmcp-launcher-windows.ps1');
+  const updater = await read('scripts/update-windows.ps1');
+
+  assert.match(setupServer, /WINDOWS_EXPLICIT_DEV_RELEASE_RE/);
+  assert.match(setupServer, /releases\/tags\/\$\{encodeURIComponent\(tag\)\}/);
+  assert.match(setupServer, /release\.prerelease !== true/);
+  assert.match(setupServer, /remote-workstation-mcp-\$\{tag\}\.tgz/);
+  assert.match(setupServer, /SHA256SUMS\.txt/);
+  assert.match(setupServer, /readJsonBody\(req\)[\s\S]*version\?: string/);
+  assert.match(setupServer, /scheduleWindowsUpdateInstall\(repoRoot, release\.version, release\.tag\)/);
+  assert.match(setupServer, /'-RequestedVersion', normalizedRequestedVersion/);
+
+  assert.match(starter, /RequestedVersion/);
+  assert.match(starter, /RequestedVersion -notmatch '\^v/);
+  assert.match(starter, /'-RequestedVersion'/);
+
+  assert.match(worker, /requestedVersion = if \(\$RequestedVersion\)/);
+  assert.match(worker, /Invoke-LauncherAction 'Update' \$RequestedVersion/);
+  assert.match(worker, /does not exactly match requested prerelease/);
+  assert.match(worker, /StringComparison\]::OrdinalIgnoreCase/);
+
+  assert.match(launcher, /\[string\]\$Version = ''/);
+  assert.match(launcher, /-Version is supported only with -Action Update/);
+  assert.match(launcher, /Invoke-Updater 'Install' \$Version/);
+
+  assert.match(updater, /Get-ExplicitDevelopmentRelease/);
+  assert.match(updater, /development-explicit/);
+  assert.match(updater, /manual-only/);
+  assert.match(updater, /InstallAuto never accepts an explicit release version/);
+  assert.match(updater, /releases\/tags\/\$tag/);
+  assert.match(updater, /\$InstallerPath -Version \(\[string\]\$latest\.tag\)/);
+
+  // Automatic/stable update behavior must remain on the stable GitHub Releases feed.
+  assert.match(updater, /releases\/latest/);
+  assert.match(updater, /channel = 'stable'/);
+  assert.match(updater, /automaticPolicy = 'patch'/);
+});
+
+test('explicit prerelease activation is exact-match and never parsed as System.Version', async () => {
+  const worker = await read('scripts/update-handoff-windows.ps1');
+  const requestedBranch = worker.slice(
+    worker.indexOf('if ($RequestedVersion) {', worker.indexOf("throw 'Update completed without a readable current runtime version.'")),
+    worker.indexOf('} elseif ($ExpectedVersion)')
+  );
+  assert.match(requestedBranch, /TrimStart\('v'\)/);
+  assert.match(requestedBranch, /StringComparison\]::OrdinalIgnoreCase/);
+  assert.doesNotMatch(requestedBranch, /\[version\]/);
+});

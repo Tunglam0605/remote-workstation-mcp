@@ -84,6 +84,54 @@ function Get-LatestStableRelease {
   }
 }
 
+
+function Get-ExplicitDevelopmentRelease([string]$RequestedVersion) {
+  $tag = $RequestedVersion.Trim()
+  if ($tag -notmatch '^v[0-9]+[.][0-9]+[.][0-9]+-dev[.][0-9]+$') {
+    throw "Explicit development install requires vX.Y.Z-dev.N, got '$RequestedVersion'."
+  }
+  $headers = @{ 'User-Agent' = 'remote-workstation-mcp-windows-updater'; 'Accept' = 'application/vnd.github+json' }
+  $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/tags/$tag" -Headers $headers -UseBasicParsing -TimeoutSec 15
+  if ([string]$release.tag_name -ne $tag -or [bool]$release.draft -or -not [bool]$release.prerelease) {
+    throw "Requested release $tag is not an exact published prerelease."
+  }
+  $assetName = "remote-workstation-mcp-$tag.tgz"
+  $assetNames = @($release.assets | ForEach-Object { [string]$_.name })
+  if ($assetNames -notcontains $assetName -or $assetNames -notcontains 'SHA256SUMS.txt') {
+    throw "Requested release $tag is missing required package/checksum assets."
+  }
+  return [pscustomobject]@{
+    tag = $tag
+    version = $tag.Substring(1)
+    url = [string]$release.html_url
+    prerelease = $true
+  }
+}
+
+function Get-ExplicitStatusObject($State, $Release) {
+  $installed = Get-InstalledVersion
+  return [pscustomobject]@{
+    enabled = [bool]$State.enabled
+    channel = 'development-explicit'
+    automaticPolicy = 'manual-only'
+    checkOnStartup = [bool]$State.checkOnStartup
+    checkIntervalHours = [int]$State.checkIntervalHours
+    installedVersion = $installed
+    latestVersion = [string]$Release.version
+    requestedVersion = [string]$Release.tag
+    updateAvailable = -not [string]::Equals([string]$installed, [string]$Release.version, [StringComparison]::OrdinalIgnoreCase)
+    updateKind = 'explicit'
+    automaticInstallAllowed = $false
+    lastCheckAt = $State.lastCheckAt
+    lastInstalledVersion = $State.lastInstalledVersion
+    failedVersion = $State.failedVersion
+    failedAt = $State.failedAt
+    retryAfter = $State.retryAfter
+    lastNotifiedVersion = $State.lastNotifiedVersion
+    settingsPath = $UpdatePath
+  }
+}
+
 function Compare-Version([string]$Left, [string]$Right) {
   try {
     $a = [version]$Left
@@ -259,15 +307,17 @@ try {
 }
 
 if ([string]$state.channel -ne 'stable') { throw "Unsupported Windows update channel '$($state.channel)'." }
+$explicitInstall = $Action -eq 'Install' -and -not [string]::IsNullOrWhiteSpace($Version)
+if ($Action -eq 'InstallAuto' -and -not [string]::IsNullOrWhiteSpace($Version)) { throw 'InstallAuto never accepts an explicit release version.' }
 if ($Action -eq 'InstallAuto' -and -not (Test-AutoCheckDue $state)) {
   Emit (Get-StatusObject $state)
   exit 0
 }
 
-$latest = Get-LatestStableRelease
+$latest = if ($explicitInstall) { Get-ExplicitDevelopmentRelease $Version } else { Get-LatestStableRelease }
 $state.lastCheckAt = [DateTimeOffset]::UtcNow.ToString('o')
 Write-State $state
-$status = Get-StatusObject $state $latest
+$status = if ($explicitInstall) { Get-ExplicitStatusObject $state $latest } else { Get-StatusObject $state $latest }
 if ($Action -eq 'InstallAuto') { Show-UpdateDesktopNotification $state $status }
 
 if ($Action -eq 'Check') {
@@ -296,13 +346,16 @@ if ($Action -eq 'InstallAuto') {
 
 if (Test-RetryBlocked $state ([string]$latest.version)) {
   if (-not $Quiet) { Write-Host "Skipping v$($latest.version) until $($state.retryAfter) because the previous activation failed." -ForegroundColor Yellow }
-  Emit (Get-StatusObject $state $latest)
+  if ($explicitInstall) { Emit (Get-ExplicitStatusObject $state $latest) } else { Emit (Get-StatusObject $state $latest) }
   exit 0
 }
 
 if (-not (Test-Path $InstallerPath)) { throw "Stable Windows installer is missing: $InstallerPath" }
-if (-not $Quiet) { Write-Host "Installing stable update v$($latest.version)..." -ForegroundColor Cyan }
-& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $InstallerPath -Version ([string]$latest.version) -NoSetup -SkipPrerequisites
+if (-not $Quiet) {
+  $label = if ($explicitInstall) { 'explicit development release' } else { 'stable update' }
+  Write-Host "Installing $label v$($latest.version)..." -ForegroundColor Cyan
+}
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $InstallerPath -Version ([string]$latest.tag) -NoSetup -SkipPrerequisites
 if ($LASTEXITCODE -ne 0) { throw "Windows release installer failed with exit code $LASTEXITCODE." }
 
 $state = Read-State
@@ -314,4 +367,4 @@ $state.failedVersion = $null
 $state.failedAt = $null
 $state.retryAfter = $null
 Write-State $state
-Emit (Get-StatusObject $state $latest)
+if ($explicitInstall) { Emit (Get-ExplicitStatusObject $state $latest) } else { Emit (Get-StatusObject $state $latest) }

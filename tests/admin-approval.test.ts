@@ -8,7 +8,8 @@ import {
   createAdminRequest,
   denyAdminRequest,
   listAdminRequests,
-  readAdminRequest
+  readAdminRequest,
+  validateAdminRequestProgram
 } from '../src/privileged/approval-store.js';
 import { runAsPrincipal } from '../src/security/request-principal.js';
 
@@ -66,4 +67,25 @@ test('admin requests can be denied without executing anything', async () => {
     else process.env.RWMCP_ADMIN_APPROVAL_DIR = previous;
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+
+test('Windows admin requests reject generic shell hosts before owner approval', () => {
+  for (const program of [
+    'powershell.exe',
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    'pwsh.exe',
+    'cmd.exe',
+    'wscript.exe',
+    'cscript.exe',
+    'mshta.exe',
+    'rundll32.exe'
+  ]) {
+    assert.throws(
+      () => validateAdminRequestProgram(program, 'win32'),
+      /direct executable, not a generic shell\/script host/
+    );
+  }
+  assert.equal(validateAdminRequestProgram('winget.exe', 'win32'), 'winget.exe');
+  assert.equal(validateAdminRequestProgram('powershell.exe', 'linux'), 'powershell.exe');
 });

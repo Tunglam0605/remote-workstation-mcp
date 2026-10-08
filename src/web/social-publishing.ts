@@ -4,6 +4,8 @@ import path from 'node:path';
 import type { SetupSettings } from '../setup/settings.js';
 import type { BrowserCore, BrowserUploadFile } from './browser-core.js';
 import { SOCIAL_PLATFORM_DOMAINS, type SocialPlatform } from './domain-policy.js';
+import { SocialPublishTransactionStore, type SocialMutation, type SocialTransactionEvidence } from './social-publish-transaction.js';
+import { auditSocialMetadata, auditSocialSchedule, composeSocialDescription, findSocialSemanticField } from './social-semantic.js';
 
 type Owner = { principalId: string; workSessionId: string };
 
@@ -76,7 +78,8 @@ export class SocialPublishingService {
   constructor(
     private readonly settings: SetupSettings['social'],
     private readonly browserSettings: SetupSettings['browser'],
-    private readonly browser: BrowserCore
+    private readonly browser: BrowserCore,
+    private readonly transactions = new SocialPublishTransactionStore()
   ) {}
 
   capabilities() {
@@ -228,6 +231,33 @@ export class SocialPublishingService {
     };
   }
 
+  async auditSchedule(
+    platform: SocialPlatform,
+    sessionId: string,
+    tabId: string,
+    scheduleAt: string,
+    timezone: string,
+    owner: Owner
+  ) {
+    const inspected = await this.inspect(platform, sessionId, tabId, owner);
+    if (inspected.loginNeeded) {
+      throw new Error('SOCIAL_AUTH_REQUIRED: complete login/consent in the persistent social profile before schedule audit.');
+    }
+    return {
+      sessionId,
+      tabId,
+      ...auditSocialSchedule({
+        platform,
+        scheduleAt,
+        timezone,
+        text: inspected.text,
+        elements: inspected.elements
+      }),
+      semanticOnly: true,
+      textTruncated: inspected.textTruncated
+    };
+  }
+
   private async locateUploadInput(platform: SocialPlatform, sessionId: string, tabId: string, owner: Owner) {
     const config = PLATFORM_CONFIG[platform];
     let page = await this.browser.inspect(sessionId, tabId, owner, 50);
@@ -268,6 +298,25 @@ export class SocialPublishingService {
     if (source.sha256 !== plan.source.sha256) {
       throw new Error('SOCIAL_SOURCE_CHANGED: source bytes changed after planning.');
     }
+    const ensured = await this.transactions.ensure({
+      platform: input.platform,
+      planSha256: plan.planSha256,
+      sourceSha256: source.sha256,
+      principalId: owner.principalId,
+      workSessionId: owner.workSessionId
+    });
+    const started = await this.transactions.startMutation(ensured.transaction.id, 'upload');
+    if (started.alreadyCompleted) {
+      return {
+        platform: input.platform,
+        planSha256: plan.planSha256,
+        source: plan.source,
+        transaction: started.transaction,
+        idempotent: true,
+        skipped: 'upload-already-completed',
+        next: 'Resume from the recorded transaction phase instead of uploading the same plan again.'
+      };
+    }
     const inputElement = await this.locateUploadInput(input.platform, sessionId, tabId, owner);
     const file: BrowserUploadFile = {
       absolutePath: source.absolutePath,
@@ -276,12 +325,267 @@ export class SocialPublishingService {
       mimeType: source.mimeType
     };
     const uploaded = await this.browser.upload(sessionId, tabId, owner, inputElement.elementId, [file]);
+    const transaction = await this.transactions.completeMutation(ensured.transaction.id, 'upload', {
+      observedAt: new Date().toISOString(),
+      note: `Semantic browser upload accepted ${uploaded.uploaded.length} file(s).`,
+      fields: uploaded.uploaded.map(item => item.name)
+    });
     return {
       platform: input.platform,
       planSha256: plan.planSha256,
       source: plan.source,
       uploaded,
-      next: 'Inspect the platform details/scheduling UI and complete semantic calibration before publishing.'
+      transaction,
+      idempotent: false,
+      next: 'Inspect the platform details/scheduling UI and continue the same transaction; do not create a new upload plan.'
     };
+  }
+
+  async applyMetadata(
+    input: SocialPublishInput,
+    expectedPlanSha256: string,
+    transactionId: string,
+    sessionId: string,
+    tabId: string,
+    owner: Owner
+  ) {
+    const plan = await this.publishPlan(input);
+    if (plan.planSha256 !== expectedPlanSha256) {
+      throw new Error('SOCIAL_PLAN_CHANGED: publish plan no longer matches expectedPlanSha256.');
+    }
+    const existing = await this.transactionStatus(transactionId, owner);
+    if (existing.planSha256 !== expectedPlanSha256 || existing.platform !== input.platform || existing.sourceSha256 !== plan.source.sha256) {
+      throw new Error('SOCIAL_TRANSACTION_PLAN_MISMATCH: transaction does not belong to this platform/plan/source.');
+    }
+
+    const expected = {
+      ...(plan.metadata.title ? { title: plan.metadata.title } : {}),
+      ...(composeSocialDescription(input.platform, plan.metadata.description, plan.metadata.hashtags) ? {
+        description: composeSocialDescription(input.platform, plan.metadata.description, plan.metadata.hashtags)!
+      } : {}),
+      ...(plan.metadata.playlist ? { playlist: plan.metadata.playlist } : {})
+    };
+
+    const preflight = await this.inspect(input.platform, sessionId, tabId, owner);
+    if (preflight.loginNeeded) {
+      throw new Error('SOCIAL_AUTH_REQUIRED: complete login/consent in the persistent social profile before metadata mutation.');
+    }
+    for (const field of ['title', 'description', 'playlist'] as const) {
+      const value = expected[field];
+      if (value === undefined) continue;
+      const found = findSocialSemanticField(input.platform, preflight.elements, field);
+      if (found.ambiguous) throw new Error(`SOCIAL_METADATA_CONTROL_AMBIGUOUS: ${field} resolved to multiple semantic controls.`);
+      if (!found.element) throw new Error(`SOCIAL_METADATA_CONTROL_NOT_READY: ${field} semantic control is unavailable.`);
+      if (field === 'playlist' && found.element.role !== 'combobox') {
+        throw new Error('SOCIAL_PLAYLIST_CONTROL_REQUIRES_CALIBRATION: playlist is not exposed as a standard semantic combobox; refusing a partial metadata mutation.');
+      }
+    }
+
+    const started = await this.transactions.startMutation(transactionId, 'metadata');
+    if (started.alreadyCompleted) {
+      return {
+        platform: input.platform,
+        planSha256: expectedPlanSha256,
+        transaction: started.transaction,
+        idempotent: true,
+        skipped: 'metadata-already-completed'
+      };
+    }
+
+    const freshField = async (field: 'title' | 'description' | 'playlist') => {
+      const page = await this.inspect(input.platform, sessionId, tabId, owner);
+      const found = findSocialSemanticField(input.platform, page.elements, field);
+      if (found.ambiguous || !found.element) {
+        throw new Error(`SOCIAL_METADATA_CONTROL_STALE: ${field} could not be uniquely resolved after mutation began; reconcile remote state before retrying.`);
+      }
+      return found.element;
+    };
+
+    if (expected.title !== undefined) {
+      const target = await freshField('title');
+      await this.browser.interact(sessionId, tabId, owner, target.elementId, { kind: 'fill', value: expected.title });
+    }
+    if (expected.description !== undefined) {
+      const target = await freshField('description');
+      await this.browser.interact(sessionId, tabId, owner, target.elementId, { kind: 'fill', value: expected.description });
+    }
+    if (expected.playlist !== undefined) {
+      const target = await freshField('playlist');
+      if (target.role !== 'combobox') {
+        throw new Error('SOCIAL_PLAYLIST_CONTROL_REQUIRES_CALIBRATION: playlist control changed shape after metadata mutation began; reconcile remote state before retrying.');
+      }
+      await this.browser.interact(sessionId, tabId, owner, target.elementId, { kind: 'select', value: expected.playlist });
+    }
+
+    const after = await this.inspect(input.platform, sessionId, tabId, owner);
+    const audit = Object.keys(expected).length === 0
+      ? { platform: input.platform, checks: [], verified: true, blockers: [] as string[] }
+      : auditSocialMetadata({ platform: input.platform, expected, elements: after.elements });
+    if (!audit.verified) {
+      throw new Error(`SOCIAL_METADATA_POSTCONDITION_FAILED: ${JSON.stringify(audit).slice(0, 1500)}`);
+    }
+    const transaction = await this.transactions.completeMutation(transactionId, 'metadata', {
+      observedAt: new Date().toISOString(),
+      note: 'Semantic metadata mutation passed postcondition verification.',
+      fields: audit.checks.map(item => item.field)
+    });
+    return {
+      platform: input.platform,
+      planSha256: expectedPlanSha256,
+      transaction,
+      audit,
+      idempotent: false
+    };
+  }
+
+
+  async applySchedule(
+    input: SocialPublishInput,
+    expectedPlanSha256: string,
+    transactionId: string,
+    sessionId: string,
+    tabId: string,
+    owner: Owner
+  ) {
+    if (input.platform !== 'youtube') {
+      throw new Error('SOCIAL_SCHEDULE_PLATFORM_REQUIRES_CALIBRATION: typed schedule mutation is currently calibrated for YouTube only.');
+    }
+    const plan = await this.publishPlan(input);
+    if (plan.planSha256 !== expectedPlanSha256) {
+      throw new Error('SOCIAL_PLAN_CHANGED: publish plan no longer matches expectedPlanSha256.');
+    }
+    if (!plan.schedule?.at || !plan.schedule.timezone) {
+      throw new Error('SOCIAL_SCHEDULE_REQUIRED: publish plan must include scheduleAt and timezone.');
+    }
+    const existing = await this.transactionStatus(transactionId, owner);
+    if (existing.planSha256 !== expectedPlanSha256 || existing.platform !== input.platform || existing.sourceSha256 !== plan.source.sha256) {
+      throw new Error('SOCIAL_TRANSACTION_PLAN_MISMATCH: transaction does not belong to this platform/plan/source.');
+    }
+
+    const inspectAndAudit = async () => {
+      const page = await this.inspect(input.platform, sessionId, tabId, owner);
+      if (page.loginNeeded) {
+        throw new Error('SOCIAL_AUTH_REQUIRED: complete login/consent in the persistent social profile before schedule mutation.');
+      }
+      const audit = auditSocialSchedule({
+        platform: input.platform,
+        scheduleAt: plan.schedule!.at,
+        timezone: plan.schedule!.timezone!,
+        text: page.text,
+        elements: page.elements
+      });
+      return { page, audit };
+    };
+
+    const buttonByAliases = (elements: Awaited<ReturnType<SocialPublishingService['inspect']>>['elements'], aliases: string[], label: string) => {
+      const normalizedAliases = aliases.map(normalizeLabel);
+      const matches = elements.filter(item =>
+        item.role === 'button' &&
+        item.visible &&
+        item.enabled &&
+        normalizedAliases.includes(normalizeLabel(item.name))
+      );
+      if (matches.length !== 1) {
+        throw new Error(`SOCIAL_SCHEDULE_CONTROL_${matches.length ? 'AMBIGUOUS' : 'NOT_READY'}: ${label} semantic button could not be resolved uniquely.`);
+      }
+      return matches[0]!;
+    };
+
+    const ensurePanelOpen = async () => {
+      let state = await inspectAndAudit();
+      const time = findSocialSemanticField(input.platform, state.page.elements, 'schedule-time');
+      if (time.element || time.ambiguous) return state;
+      const edit = buttonByAliases(
+        state.page.elements,
+        ['Chỉnh sửa trạng thái hiển thị của video', 'Edit video visibility'],
+        'visibility-editor'
+      );
+      await this.browser.interact(sessionId, tabId, owner, edit.elementId, { kind: 'click' });
+      state = await inspectAndAudit();
+      return state;
+    };
+
+    let state = await ensurePanelOpen();
+    if (state.audit.status.date !== 'match') {
+      throw new Error(`SOCIAL_SCHEDULE_DATE_REQUIRES_CALIBRATION: target date ${state.audit.expected.date} is not already selected; refusing calendar mutation.`);
+    }
+    if (state.audit.status.time === 'unknown') {
+      throw new Error(`SOCIAL_SCHEDULE_TIME_NOT_READY: ${state.audit.blockers.join(', ') || 'schedule time control unavailable'}.`);
+    }
+
+    const remoteAlreadyMatched = state.audit.status.verified;
+    const started = await this.transactions.startMutation(transactionId, 'schedule');
+    if (started.alreadyCompleted) {
+      if (!state.audit.status.verified) {
+        throw new Error(`SOCIAL_SCHEDULE_DRIFT: transaction is already scheduled but remote date/time no longer matches the SHA-bound plan: ${JSON.stringify(state.audit).slice(0, 1500)}`);
+      }
+      return {
+        platform: input.platform,
+        planSha256: expectedPlanSha256,
+        transaction: started.transaction,
+        idempotent: true,
+        skipped: 'schedule-already-completed',
+        audit: state.audit
+      };
+    }
+
+    try {
+      if (!state.audit.status.verified) {
+        const timeField = findSocialSemanticField(input.platform, state.page.elements, 'schedule-time');
+        if (timeField.ambiguous || !timeField.element) {
+          throw new Error('SOCIAL_SCHEDULE_TIME_STALE: schedule time control could not be uniquely resolved after mutation began.');
+        }
+        await this.browser.interact(sessionId, tabId, owner, timeField.element.elementId, {
+          kind: 'fill',
+          value: state.audit.expected.time
+        });
+
+        const afterFill = await this.inspect(input.platform, sessionId, tabId, owner);
+        const done = buttonByAliases(afterFill.elements, ['Xong', 'Done'], 'done');
+        await this.browser.interact(sessionId, tabId, owner, done.elementId, { kind: 'click' });
+
+        const afterDone = await this.inspect(input.platform, sessionId, tabId, owner);
+        const save = buttonByAliases(afterDone.elements, ['Lưu', 'Save'], 'save');
+        await this.browser.interact(sessionId, tabId, owner, save.elementId, { kind: 'click' });
+      }
+
+      state = await ensurePanelOpen();
+      if (!state.audit.status.verified) {
+        throw new Error(`SOCIAL_SCHEDULE_POSTCONDITION_FAILED: ${JSON.stringify(state.audit).slice(0, 1500)}`);
+      }
+      const transaction = await this.transactions.completeMutation(transactionId, 'schedule', {
+        observedAt: new Date().toISOString(),
+        note: 'YouTube schedule time mutation passed semantic date/time postcondition verification.',
+        scheduleAt: plan.schedule.at,
+        fields: ['schedule-date', 'schedule-time']
+      });
+      return {
+        platform: input.platform,
+        planSha256: expectedPlanSha256,
+        transaction,
+        audit: state.audit,
+        idempotent: remoteAlreadyMatched
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async transactionStatus(transactionId: string, owner: Owner) {
+    const transaction = await this.transactions.read(transactionId);
+    if (transaction.principalId !== owner.principalId) throw new Error('SOCIAL_TRANSACTION_OWNER_MISMATCH: transaction belongs to a different principal.');
+    return transaction;
+  }
+
+  async reconcileTransaction(
+    transactionId: string,
+    mutation: SocialMutation,
+    outcome: 'applied' | 'not-applied',
+    evidence: SocialTransactionEvidence,
+    owner: Owner
+  ) {
+    const transaction = await this.transactions.read(transactionId);
+    if (transaction.principalId !== owner.principalId) throw new Error('SOCIAL_TRANSACTION_OWNER_MISMATCH: transaction belongs to a different principal.');
+    return await this.transactions.reconcileMutation(transactionId, mutation, outcome, evidence);
   }
 }

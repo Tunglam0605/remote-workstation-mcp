@@ -93,6 +93,79 @@ export function registerSocialTools(server: McpServer, ctx: AppContext) {
   }, async ({ workSessionId, platform, sessionId, tabId }) =>
     inSession('social_ui_inspect', workSessionId, owner => ctx.social.inspect(platform, sessionId, tabId, owner)));
 
+  server.registerTool('social_schedule_audit', {
+    description: 'Read-only semantic verification of the currently visible YouTube/TikTok schedule date and exact local time against an offset-aware target timestamp. It never changes visibility, date, time or publish state.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      platform: platformSchema,
+      sessionId: z.string().uuid(),
+      tabId: z.string().uuid(),
+      scheduleAt: z.string().datetime({ offset: true }),
+      timezone: z.string().trim().min(1).max(128)
+    }),
+    annotations: read
+  }, async ({ workSessionId, platform, sessionId, tabId, scheduleAt, timezone }) =>
+    inSession('social_schedule_audit', workSessionId, owner =>
+      ctx.social.auditSchedule(platform, sessionId, tabId, scheduleAt, timezone, owner)));
+
+  server.registerTool('social_transaction_status', {
+    description: 'Read one durable social publish transaction so a later chat/runtime can resume from the last verified phase without repeating cloud mutations.',
+    inputSchema: z.object({ workSessionId: z.string().uuid(), transactionId: z.string().regex(/^[a-f0-9]{64}$/) }),
+    annotations: read
+  }, async ({ workSessionId, transactionId }) =>
+    inSession('social_transaction_status', workSessionId, owner => ctx.social.transactionStatus(transactionId, owner)));
+
+  server.registerTool('social_transaction_reconcile', {
+    description: 'Resolve an interrupted social mutation after semantic/backend inspection. Explicitly record whether the remote mutation was applied before allowing a safe retry or continuation.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      transactionId: z.string().regex(/^[a-f0-9]{64}$/),
+      mutation: z.enum(['upload', 'metadata', 'schedule', 'publish', 'verify']),
+      outcome: z.enum(['applied', 'not-applied']),
+      evidence: z.object({
+        observedAt: z.string().datetime({ offset: true }),
+        remoteId: z.string().trim().min(1).max(256).optional(),
+        url: z.string().trim().min(1).max(2048).optional(),
+        note: z.string().trim().min(1).max(1024).optional(),
+        scheduleAt: z.string().trim().min(1).max(128).optional(),
+        fields: z.array(z.string().trim().min(1).max(128)).max(64).optional()
+      })
+    }),
+    annotations: write
+  }, async ({ workSessionId, transactionId, mutation, outcome, evidence }) =>
+    inSession('social_transaction_reconcile', workSessionId, owner =>
+      ctx.social.reconcileTransaction(transactionId, mutation, outcome, evidence, owner)));
+
+  server.registerTool('social_metadata_apply', {
+    description: 'Apply SHA-bound title/description/hashtags and supported playlist metadata inside an existing social upload transaction. All semantic controls are preflighted before mutation and postconditions must match before the transaction advances.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+      tabId: z.string().uuid(),
+      transactionId: z.string().regex(/^[a-f0-9]{64}$/),
+      expectedPlanSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      publish: publishInputSchema
+    }),
+    annotations: write
+  }, async ({ workSessionId, sessionId, tabId, transactionId, expectedPlanSha256, publish }) =>
+    inSession('social_metadata_apply', workSessionId, owner =>
+      ctx.social.applyMetadata(publish, expectedPlanSha256, transactionId, sessionId, tabId, owner)));
+
+  server.registerTool('social_schedule_apply', {
+    description: 'Apply an exact YouTube schedule time inside an existing SHA-bound social transaction when the target date is already selected. The mutation is semantic-only, fail-closed on date mismatch/ambiguous controls, saves through visible buttons, and advances only after exact date/time postcondition verification.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+      tabId: z.string().uuid(),
+      transactionId: z.string().regex(/^[a-f0-9]{64}$/),
+      expectedPlanSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      publish: publishInputSchema
+    }),
+    annotations: write
+  }, async ({ workSessionId, sessionId, tabId, transactionId, expectedPlanSha256, publish }) =>
+    inSession('social_schedule_apply', workSessionId, owner =>
+      ctx.social.applySchedule(publish, expectedPlanSha256, transactionId, sessionId, tabId, owner)));
+
   server.registerTool('social_upload', {
     description: 'Upload one SHA-bound planned video through a semantic file input. This does not press Publish/Post/Schedule and fails closed if login or the upload control is not ready.',
     inputSchema: z.object({

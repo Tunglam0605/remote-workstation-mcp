@@ -179,6 +179,23 @@ test('semantic results are bounded and publish short-lived element references', 
   await core.closeAll();
 });
 
+test('semantic inspection preserves bounded non-sensitive form values', async () => {
+  const fake = fakeProvider();
+  fake.provider.inspect = async () => [{
+    role: 'textbox',
+    name: 'Schedule time',
+    ordinal: 0,
+    visible: true,
+    enabled: true,
+    value: '08:00'
+  }];
+  const core = new BrowserCore(fake.provider);
+  const { sessionId, tabId } = await core.create(owner);
+  const inspected = await core.inspect(sessionId, tabId, owner, 5);
+  assert.equal(inspected.elements[0]!.value, '08:00');
+  await core.closeAll();
+});
+
 test('semantic mutation invalidates the previous generation and stale refs fail closed', async () => {
   const fake = fakeProvider();
   fake.setCount(1);

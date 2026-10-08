@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid release tag: $RELEASE_TAG"; exit 1; }
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?$ ]] || { echo "Invalid release tag: $RELEASE_TAG"; exit 1; }
           VERSION="$(node -p "require('./package.json').version")"
           test "$RELEASE_TAG" = "v$VERSION" || { echo "Tag $RELEASE_TAG does not match package version v$VERSION"; exit 1; }
           git fetch --tags --force
@@ -86,9 +86,12 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "GitHub Release $RELEASE_TAG already exists; assets will be verified and refreshed."
           else
+            PRERELEASE_ARGS=()
+            if [[ "$RELEASE_TAG" =~ -dev\.[0-9]+$ ]]; then PRERELEASE_ARGS+=(--prerelease); fi
             gh release create "$RELEASE_TAG" \
               --title "$RELEASE_TAG" \
-              --generate-notes
+              --generate-notes \
+              "${PRERELEASE_ARGS[@]}"
           fi
       - name: Upload GitHub Release assets
         env:

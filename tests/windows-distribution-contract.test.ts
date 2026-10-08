@@ -502,3 +502,14 @@ test('Windows release installer stages the Chrome bridge from the installed slot
   assert.match(smoke, /dist\\web\\chrome-native-host\.js/);
   assert.match(smoke, /scripts\\chrome-native-host-launcher\.cs/);
 });
+
+
+test('Windows installer allows explicit dev prereleases without changing stable latest policy', async () => {
+  const installer = await read('scripts/install-windows-release.ps1');
+  const updater = await read('scripts/update-windows.ps1');
+
+  assert.match(installer, /\$tagPattern = if \(\$Version -eq 'latest'\) \{ '\^v\\d\+\\\.\\d\+\\\.\\d\+\$' \} else \{ '\^v\\d\+\\\.\\d\+\\\.\\d\+\(\?:-dev\\\.\\d\+\)\?\$' \}/);
+  assert.match(installer, /releases\/tags\/\$tag/);
+  assert.match(updater, /releases\/latest/);
+  assert.match(updater, /channel = 'stable'/);
+});

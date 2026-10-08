@@ -5,7 +5,7 @@ import type { SetupSettings } from '../setup/settings.js';
 import type { BrowserCore, BrowserUploadFile } from './browser-core.js';
 import { SOCIAL_PLATFORM_DOMAINS, type SocialPlatform } from './domain-policy.js';
 import { SocialPublishTransactionStore, type SocialMutation, type SocialTransactionEvidence } from './social-publish-transaction.js';
-import { auditSocialSchedule } from './social-semantic.js';
+import { auditSocialMetadata, auditSocialSchedule, composeSocialDescription, findSocialSemanticField } from './social-semantic.js';
 
 type Owner = { principalId: string; workSessionId: string };
 
@@ -338,6 +338,103 @@ export class SocialPublishingService {
       transaction,
       idempotent: false,
       next: 'Inspect the platform details/scheduling UI and continue the same transaction; do not create a new upload plan.'
+    };
+  }
+
+  async applyMetadata(
+    input: SocialPublishInput,
+    expectedPlanSha256: string,
+    transactionId: string,
+    sessionId: string,
+    tabId: string,
+    owner: Owner
+  ) {
+    const plan = await this.publishPlan(input);
+    if (plan.planSha256 !== expectedPlanSha256) {
+      throw new Error('SOCIAL_PLAN_CHANGED: publish plan no longer matches expectedPlanSha256.');
+    }
+    const existing = await this.transactionStatus(transactionId, owner);
+    if (existing.planSha256 !== expectedPlanSha256 || existing.platform !== input.platform || existing.sourceSha256 !== plan.source.sha256) {
+      throw new Error('SOCIAL_TRANSACTION_PLAN_MISMATCH: transaction does not belong to this platform/plan/source.');
+    }
+
+    const expected = {
+      ...(plan.metadata.title ? { title: plan.metadata.title } : {}),
+      ...(composeSocialDescription(input.platform, plan.metadata.description, plan.metadata.hashtags) ? {
+        description: composeSocialDescription(input.platform, plan.metadata.description, plan.metadata.hashtags)!
+      } : {}),
+      ...(plan.metadata.playlist ? { playlist: plan.metadata.playlist } : {})
+    };
+
+    const preflight = await this.inspect(input.platform, sessionId, tabId, owner);
+    if (preflight.loginNeeded) {
+      throw new Error('SOCIAL_AUTH_REQUIRED: complete login/consent in the persistent social profile before metadata mutation.');
+    }
+    for (const field of ['title', 'description', 'playlist'] as const) {
+      const value = expected[field];
+      if (value === undefined) continue;
+      const found = findSocialSemanticField(input.platform, preflight.elements, field);
+      if (found.ambiguous) throw new Error(`SOCIAL_METADATA_CONTROL_AMBIGUOUS: ${field} resolved to multiple semantic controls.`);
+      if (!found.element) throw new Error(`SOCIAL_METADATA_CONTROL_NOT_READY: ${field} semantic control is unavailable.`);
+      if (field === 'playlist' && found.element.role !== 'combobox') {
+        throw new Error('SOCIAL_PLAYLIST_CONTROL_REQUIRES_CALIBRATION: playlist is not exposed as a standard semantic combobox; refusing a partial metadata mutation.');
+      }
+    }
+
+    const started = await this.transactions.startMutation(transactionId, 'metadata');
+    if (started.alreadyCompleted) {
+      return {
+        platform: input.platform,
+        planSha256: expectedPlanSha256,
+        transaction: started.transaction,
+        idempotent: true,
+        skipped: 'metadata-already-completed'
+      };
+    }
+
+    const freshField = async (field: 'title' | 'description' | 'playlist') => {
+      const page = await this.inspect(input.platform, sessionId, tabId, owner);
+      const found = findSocialSemanticField(input.platform, page.elements, field);
+      if (found.ambiguous || !found.element) {
+        throw new Error(`SOCIAL_METADATA_CONTROL_STALE: ${field} could not be uniquely resolved after mutation began; reconcile remote state before retrying.`);
+      }
+      return found.element;
+    };
+
+    if (expected.title !== undefined) {
+      const target = await freshField('title');
+      await this.browser.interact(sessionId, tabId, owner, target.elementId, { kind: 'fill', value: expected.title });
+    }
+    if (expected.description !== undefined) {
+      const target = await freshField('description');
+      await this.browser.interact(sessionId, tabId, owner, target.elementId, { kind: 'fill', value: expected.description });
+    }
+    if (expected.playlist !== undefined) {
+      const target = await freshField('playlist');
+      if (target.role !== 'combobox') {
+        throw new Error('SOCIAL_PLAYLIST_CONTROL_REQUIRES_CALIBRATION: playlist control changed shape after metadata mutation began; reconcile remote state before retrying.');
+      }
+      await this.browser.interact(sessionId, tabId, owner, target.elementId, { kind: 'select', value: expected.playlist });
+    }
+
+    const after = await this.inspect(input.platform, sessionId, tabId, owner);
+    const audit = Object.keys(expected).length === 0
+      ? { platform: input.platform, checks: [], verified: true, blockers: [] as string[] }
+      : auditSocialMetadata({ platform: input.platform, expected, elements: after.elements });
+    if (!audit.verified) {
+      throw new Error(`SOCIAL_METADATA_POSTCONDITION_FAILED: ${JSON.stringify(audit).slice(0, 1500)}`);
+    }
+    const transaction = await this.transactions.completeMutation(transactionId, 'metadata', {
+      observedAt: new Date().toISOString(),
+      note: 'Semantic metadata mutation passed postcondition verification.',
+      fields: audit.checks.map(item => item.field)
+    });
+    return {
+      platform: input.platform,
+      planSha256: expectedPlanSha256,
+      transaction,
+      audit,
+      idempotent: false
     };
   }
 

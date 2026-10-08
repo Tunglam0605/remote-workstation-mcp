@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { auditSocialSchedule, findSocialSemanticField, type SocialSemanticElement } from '../src/web/social-semantic.js';
+import { auditSocialMetadata, auditSocialSchedule, composeSocialDescription, findSocialSemanticField, type SocialSemanticElement } from '../src/web/social-semantic.js';
 
 function element(partial: Partial<SocialSemanticElement> & Pick<SocialSemanticElement,'elementId'|'role'|'name'>): SocialSemanticElement {
   return { visible: true, enabled: true, ...partial };
@@ -80,4 +80,36 @@ test('unsupported timezone is rejected before any platform mutation', () => {
     text:'',
     elements:[]
   }), /Unsupported schedule timezone/);
+});
+
+
+test('metadata composition normalizes hashtags for YouTube and TikTok without duplicates', () => {
+  assert.equal(
+    composeSocialDescription('youtube', 'Bài 4 về CAN', ['CANBus', '#CANopen', 'CANBus']),
+    'Bài 4 về CAN\n\n#CANBus #CANopen'
+  );
+  assert.equal(
+    composeSocialDescription('tiktok', 'Bài 4 về CAN', ['CANBus', '#CANopen']),
+    'Bài 4 về CAN #CANBus #CANopen'
+  );
+});
+
+test('metadata audit requires exact semantic values and reports mismatch', () => {
+  const elements: SocialSemanticElement[] = [
+    element({ elementId:'title', role:'textbox', name:'Tiêu đề (bắt buộc)', value:'BÀI 4 — CAN' }),
+    element({ elementId:'desc', role:'textbox', name:'Mô tả', value:'Nội dung\n\n#CANBus' })
+  ];
+  const ok = auditSocialMetadata({
+    platform:'youtube',
+    expected:{ title:'BÀI 4 — CAN', description:'Nội dung\n\n#CANBus' },
+    elements
+  });
+  assert.equal(ok.verified, true);
+  const bad = auditSocialMetadata({
+    platform:'youtube',
+    expected:{ title:'BÀI 5 — Arbitration' },
+    elements
+  });
+  assert.equal(bad.verified, false);
+  assert.equal(bad.checks[0]?.status, 'mismatch');
 });

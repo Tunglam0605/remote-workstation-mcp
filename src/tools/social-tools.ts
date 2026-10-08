@@ -136,6 +136,21 @@ export function registerSocialTools(server: McpServer, ctx: AppContext) {
     inSession('social_transaction_reconcile', workSessionId, owner =>
       ctx.social.reconcileTransaction(transactionId, mutation, outcome, evidence, owner)));
 
+  server.registerTool('social_metadata_apply', {
+    description: 'Apply SHA-bound title/description/hashtags and supported playlist metadata inside an existing social upload transaction. All semantic controls are preflighted before mutation and postconditions must match before the transaction advances.',
+    inputSchema: z.object({
+      workSessionId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+      tabId: z.string().uuid(),
+      transactionId: z.string().regex(/^[a-f0-9]{64}$/),
+      expectedPlanSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      publish: publishInputSchema
+    }),
+    annotations: write
+  }, async ({ workSessionId, sessionId, tabId, transactionId, expectedPlanSha256, publish }) =>
+    inSession('social_metadata_apply', workSessionId, owner =>
+      ctx.social.applyMetadata(publish, expectedPlanSha256, transactionId, sessionId, tabId, owner)));
+
   server.registerTool('social_upload', {
     description: 'Upload one SHA-bound planned video through a semantic file input. This does not press Publish/Post/Schedule and fails closed if login or the upload control is not ready.',
     inputSchema: z.object({

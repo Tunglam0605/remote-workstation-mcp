@@ -153,3 +153,72 @@ export function auditSocialSchedule(input: {
     ]
   };
 }
+
+
+export function composeSocialDescription(platform: SocialPlatform, description: string | undefined, hashtags: string[] = []): string | undefined {
+  const body = description?.trim() ?? '';
+  const tags = [...new Set(hashtags.map(value => value.trim()).filter(Boolean).map(value => value.startsWith('#') ? value : `#${value}`))];
+  const tagText = tags.join(' ');
+  const combined = platform === 'youtube'
+    ? [body, tagText].filter(Boolean).join(body && tagText ? '\n\n' : '')
+    : [body, tagText].filter(Boolean).join(' ');
+  if (!combined) return undefined;
+  if (combined.length > 8_000) throw new Error('SOCIAL_METADATA_TOO_LONG: composed description/caption exceeds 8000 characters.');
+  return combined;
+}
+
+export function auditSocialMetadata(input: {
+  platform: SocialPlatform;
+  expected: { title?: string; description?: string; playlist?: string };
+  elements: SocialSemanticElement[];
+}) {
+  const checks: Array<{
+    field: 'title' | 'description' | 'playlist';
+    expected: string;
+    actual?: string;
+    status: 'match' | 'mismatch' | 'unknown';
+    elementId?: string;
+  }> = [];
+
+  const inspectField = (field: 'title' | 'description' | 'playlist', expected: string) => {
+    const found = findSocialSemanticField(input.platform, input.elements, field);
+    const actual = found.element?.value?.trim();
+    const normalizedExpected = normalize(expected);
+    const normalizedActual = actual === undefined ? undefined : normalize(actual);
+    const status: 'match' | 'mismatch' | 'unknown' = actual === undefined
+      ? 'unknown'
+      : normalizedActual === normalizedExpected
+        ? 'match'
+        : 'mismatch';
+    checks.push({
+      field,
+      expected,
+      ...(actual !== undefined ? { actual } : {}),
+      status,
+      ...(found.element ? { elementId: found.element.elementId } : {})
+    });
+    return {
+      ambiguous: found.ambiguous,
+      missing: !found.element,
+      status
+    };
+  };
+
+  const states = [
+    ...(input.expected.title !== undefined ? [{ field: 'title' as const, state: inspectField('title', input.expected.title) }] : []),
+    ...(input.expected.description !== undefined ? [{ field: 'description' as const, state: inspectField('description', input.expected.description) }] : []),
+    ...(input.expected.playlist !== undefined ? [{ field: 'playlist' as const, state: inspectField('playlist', input.expected.playlist) }] : [])
+  ];
+
+  const blockers = states.flatMap(({ field, state }) => [
+    ...(state.ambiguous ? [`${field}-control-ambiguous`] : []),
+    ...(state.missing ? [`${field}-value-unavailable`] : [])
+  ]);
+
+  return {
+    platform: input.platform,
+    checks,
+    verified: checks.length > 0 && checks.every(item => item.status === 'match'),
+    blockers
+  };
+}

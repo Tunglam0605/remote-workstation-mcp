@@ -79,6 +79,26 @@ test('wave execution runs compatible deterministic tasks in parallel but exclude
   assert.equal(state.tasks.find(item => item.id === 'task-3')?.status, 'ready');
 });
 
+test('detached wave dispatch returns selected tasks without waiting for completion', async () => {
+  const worker = task('task-1', 'Frontend', { kind: 'worker-provider', providerId: 'antigravity-local' }, 'source.edit', 'wt');
+  const inspect = task('task-2', 'Inspect', { kind: 'engineering-workflow', workspace: 'projects', projectPath: '.', workflow: 'project.inspect', parameters: {} }, 'project.inspect');
+  const state = objective([worker, inspect]);
+  const dispatched: string[] = [];
+  const service = new ObjectiveWaveExecutionService(
+    { snapshot: async () => ({ plan: [aware(worker, 'session-isolated'), aware(inspect, 'shared')], sessions: [], recentAttempts: [], resources: [], serialSessions: [], debugSessions: [], nodeInterlocks: [], workerProviders: [] }) },
+    {
+      execute: async () => undefined,
+      dispatch: async (_objectiveId, taskId) => { dispatched.push(taskId); return { accepted: true }; }
+    },
+    { get: async () => structuredClone(state) }
+  );
+  const result = await service.dispatchWave(state.id, { maxParallel: 4 });
+  assert.deepEqual(result.selectedTaskIds, ['task-1']);
+  assert.deepEqual(dispatched, ['task-1']);
+  assert.equal(result.serializedWorkerTask, true);
+  assert.match(result.note, /detached/i);
+});
+
 test('wave execution is a no-op when scheduler awareness has no READY task', async () => {
   const state = objective([]);
   const service = new ObjectiveWaveExecutionService(

@@ -164,6 +164,44 @@ test('typed task binding succeeds only after shared workflow execution succeeds'
   });
 });
 
+test('detached dispatch returns before workflow completion and deduplicates one task generation', async t => {
+  let release!: () => void;
+  let signalStarted!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { signalStarted = resolve; });
+  const fx = await fixture(t, async () => {
+    signalStarted();
+    await gate;
+    return { workflow: 'firmware.build', status: 'succeeded', plan: { steps: [] }, steps: [] };
+  });
+
+  await runWithWorkSession(SESSION, async () => {
+    const objective = await fx.taskGraphs.create({ name: 'Detached objective', objective: 'Return before workflow completion' });
+    const task = await fx.taskGraphs.addTask(objective.id, {
+      title: 'Long build', concurrency: { operation: 'project.inspect' }, execution: binding()
+    });
+
+    const first = await fx.taskWorkflowExecution.dispatch(objective.id, task.id);
+    assert.equal(first.accepted, true);
+    await started;
+
+    const second = await fx.taskWorkflowExecution.dispatch(objective.id, task.id);
+    assert.equal(second.accepted, false);
+    assert.equal(('alreadyDispatched' in second && second.alreadyDispatched) || second.replayed, true);
+
+    const running = await fx.taskAttempts.getForGeneration(objective.id, task.id, task.generation);
+    assert.equal(running?.status, 'running');
+    release();
+
+    let final = running;
+    for (let i = 0; i < 400 && final?.status === 'running'; i++) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      final = await fx.taskAttempts.getForGeneration(objective.id, task.id, task.generation);
+    }
+    assert.equal(final?.status, 'succeeded', final?.error);
+  });
+});
+
 test('blocked typed workflow fails the task instead of reporting fake task success', async t => {
   const fx = await fixture(t, async () => ({
     workflow: 'firmware.build',

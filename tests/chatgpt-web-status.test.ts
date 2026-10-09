@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AppContext } from '../src/context.js';
+import { SERVER_VERSION } from '../src/capabilities.js';
 import { requiredScopeForTool, runAsPrincipal } from '../src/security/request-principal.js';
 import { buildChatGptWebStatus } from '../src/tools/chatgpt-web-tools.js';
 
@@ -70,7 +71,7 @@ test('chatgpt_web_status is classified as read-only', () => {
 test('ChatGPT Web status does not claim an authenticated tunnel for local calls', () => {
   const status = buildChatGptWebStatus(fakeContext(), {}) as any;
   assert.equal(status.ok, true);
-  assert.equal(status.serverVersion, '0.70.0-dev.4');
+  assert.equal(status.serverVersion, SERVER_VERSION);
   assert.equal(status.channel, 'development');
   assert.equal(status.gitCommit, null);
   assert.equal(status.chatgptWeb.authenticated, false);

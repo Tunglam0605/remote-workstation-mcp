@@ -44,10 +44,61 @@ interface TaskAttemptFileV1 {
   attempts: TaskAttemptRecord[];
 }
 
+export const RETRYABLE_WINDOWS_FS_ERROR_CODES = Object.freeze(['EPERM', 'EBUSY', 'EACCES'] as const);
+export type RetryableWindowsFsErrorCode = typeof RETRYABLE_WINDOWS_FS_ERROR_CODES[number];
+export const DEFAULT_WINDOWS_RENAME_RETRY_DELAYS_MS = Object.freeze([5, 10, 20, 40, 80] as const);
+
+export function isRetryableWindowsFsError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return typeof code === 'string' && (code === 'EPERM' || code === 'EBUSY' || code === 'EACCES');
+}
+
+export interface AtomicRenameOptions {
+  platform?: NodeJS.Platform;
+  retryDelaysMs?: readonly number[] | number[];
+  sleep?: (ms: number) => Promise<void>;
+  renameFn?: (oldPath: string, newPath: string) => Promise<void>;
+}
+
+export async function atomicRenameWithRetry(
+  source: string,
+  destination: string,
+  options: AtomicRenameOptions = {}
+): Promise<void> {
+  const platform = options.platform ?? process.platform;
+  const renameFn = options.renameFn ?? (async (src, dst) => fs.rename(src, dst));
+  if (platform !== 'win32') {
+    await renameFn(source, destination);
+    return;
+  }
+
+  const delays = options.retryDelaysMs ?? DEFAULT_WINDOWS_RENAME_RETRY_DELAYS_MS;
+  const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+  let attempt = 0;
+  while (true) {
+    try {
+      await renameFn(source, destination);
+      return;
+    } catch (error) {
+      if (!isRetryableWindowsFsError(error) || attempt >= delays.length) {
+        throw error;
+      }
+      const delay = delays[attempt++];
+      if (delay > 0) {
+        await sleep(delay);
+      }
+    }
+  }
+}
+
 export interface TaskAttemptStoreOptions {
   file?: string;
   now?: () => Date;
   maxRecords?: number;
+  platform?: NodeJS.Platform;
+  renameRetryDelaysMs?: readonly number[] | number[];
+  renameSleep?: (ms: number) => Promise<void>;
+  renameFn?: (oldPath: string, newPath: string) => Promise<void>;
 }
 
 function bounded(value: string, field: string, max: number): string {
@@ -70,6 +121,10 @@ export class TaskAttemptStore {
   private readonly file: string;
   private readonly now: () => Date;
   private readonly maxRecords: number;
+  private readonly platform: NodeJS.Platform;
+  private readonly renameRetryDelaysMs: readonly number[];
+  private readonly renameSleep: (ms: number) => Promise<void>;
+  private readonly renameFn: (oldPath: string, newPath: string) => Promise<void>;
 
   constructor(
     private readonly ownerSource: ResourceOwnerSource = 'unknown',
@@ -78,6 +133,10 @@ export class TaskAttemptStore {
     this.file = options.file ?? path.join(setupConfigDir(), 'task-attempts.json');
     this.now = options.now ?? (() => new Date());
     this.maxRecords = Math.max(100, Math.min(options.maxRecords ?? 5000, 20_000));
+    this.platform = options.platform ?? process.platform;
+    this.renameRetryDelaysMs = options.renameRetryDelaysMs ?? DEFAULT_WINDOWS_RENAME_RETRY_DELAYS_MS;
+    this.renameSleep = options.renameSleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    this.renameFn = options.renameFn ?? (async (src, dst) => fs.rename(src, dst));
   }
 
   private owner() {
@@ -149,10 +208,26 @@ export class TaskAttemptStore {
       );
     }
     await fs.mkdir(path.dirname(this.file), { recursive: true });
-    const temp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await fs.rename(temp, this.file);
-    if (process.platform !== 'win32') await fs.chmod(this.file, 0o600);
+    const temp = `${this.file}.${process.pid}.${Date.now()}.${randomUUID().slice(0, 8)}.tmp`;
+    try {
+      await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      await atomicRenameWithRetry(temp, this.file, {
+        platform: this.platform,
+        retryDelaysMs: this.renameRetryDelaysMs,
+        sleep: this.renameSleep,
+        renameFn: this.renameFn
+      });
+    } catch (error) {
+      try {
+        await fs.rm(temp, { force: true });
+      } catch {
+        // preserve original error
+      }
+      throw error;
+    }
+    if (this.platform !== 'win32' && process.platform !== 'win32') {
+      await fs.chmod(this.file, 0o600);
+    }
   }
 
   private async mutate<T>(operation: () => Promise<T>): Promise<T> {

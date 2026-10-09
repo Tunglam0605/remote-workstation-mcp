@@ -4,7 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { runWithWorkSession } from '../src/security/execution-context.js';
-import { TaskAttemptStore } from '../src/task-attempt-store.js';
+import {
+  TaskAttemptStore,
+  atomicRenameWithRetry,
+  isRetryableWindowsFsError,
+  DEFAULT_WINDOWS_RENAME_RETRY_DELAYS_MS,
+  RETRYABLE_WINDOWS_FS_ERROR_CODES
+} from '../src/task-attempt-store.js';
 
 const SESSION_A = '66666666-6666-4666-8666-666666666666';
 const SESSION_B = '77777777-7777-4777-8777-777777777777';
@@ -114,3 +120,189 @@ test('Task Attempt store updates live provider stage and accepts a cancelled pro
     assert.deepEqual(finished.providerAttempts?.map(item => item.status), ['failed', 'cancelled']);
   });
 });
+
+test('Task Attempt store retries transient Windows rename failures (EPERM/EBUSY/EACCES) and persists state atomically', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-attempt-transient-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'task-attempts.json');
+  let renameCalls = 0;
+  const sleeps: number[] = [];
+
+  const store = new TaskAttemptStore('openai-tunnel', {
+    file,
+    platform: 'win32',
+    renameRetryDelaysMs: [2, 4, 8],
+    renameSleep: async ms => { sleeps.push(ms); },
+    renameFn: async (src, dst) => {
+      renameCalls += 1;
+      if (renameCalls === 1) {
+        throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      }
+      if (renameCalls === 2) {
+        throw Object.assign(new Error('EBUSY: resource busy or locked, rename'), { code: 'EBUSY' });
+      }
+      await fs.rename(src, dst);
+    }
+  });
+
+  const created = await runWithWorkSession(SESSION_A, () =>
+    store.begin(OBJECTIVE, TASK, 1)
+  );
+  assert.equal(created.created, true);
+  assert.equal(created.attempt.status, 'running');
+  assert.equal(renameCalls, 3);
+  assert.deepEqual(sleeps, [2, 4]);
+
+  // Verify no orphaned temporary files remain
+  const files = await fs.readdir(root);
+  assert.deepEqual(files, ['task-attempts.json']);
+
+  // Verify persistence and restart
+  const restarted = new TaskAttemptStore('openai-tunnel', { file });
+  const persisted = await runWithWorkSession(SESSION_A, () =>
+    restarted.getForGeneration(OBJECTIVE, TASK, 1)
+  );
+  assert.equal(persisted?.id, created.attempt.id);
+  assert.equal(persisted?.status, 'running');
+});
+
+test('Task Attempt store surfaces persistent Windows rename failure after exhausting bounded retries, cleans up temp, and never deletes destination', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-attempt-permanent-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'task-attempts.json');
+
+  // Step 1: Seed a valid destination file
+  const initialStore = new TaskAttemptStore('openai-tunnel', { file });
+  const initial = await runWithWorkSession(SESSION_A, () =>
+    initialStore.begin(OBJECTIVE, TASK, 1)
+  );
+  assert.equal(initial.created, true);
+
+  // Verify initial file exists and contains valid JSON
+  const initialContent = await fs.readFile(file, 'utf8');
+  assert.ok(initialContent.includes(initial.attempt.id));
+
+  // Step 2: Attempt save with failing rename on Windows
+  let renameCalls = 0;
+  const sleeps: number[] = [];
+  const failingStore = new TaskAttemptStore('openai-tunnel', {
+    file,
+    platform: 'win32',
+    renameRetryDelaysMs: [1, 2, 3],
+    renameSleep: async ms => { sleeps.push(ms); },
+    renameFn: async () => {
+      renameCalls += 1;
+      throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+    }
+  });
+
+  await assert.rejects(
+    runWithWorkSession(SESSION_A, () => failingStore.begin(OBJECTIVE, TASK, 2)),
+    (err: any) => err?.code === 'EPERM'
+  );
+
+  // 1 initial attempt + 3 retries = 4 total attempts
+  assert.equal(renameCalls, 4);
+  assert.deepEqual(sleeps, [1, 2, 3]);
+
+  // Destination file MUST still exist with original content (never silently deleted)
+  const contentAfterFailure = await fs.readFile(file, 'utf8');
+  assert.equal(contentAfterFailure, initialContent);
+
+  // Temporary files must have been cleaned up
+  const files = await fs.readdir(root);
+  assert.deepEqual(files, ['task-attempts.json']);
+});
+
+test('Task Attempt store does not retry non-retryable filesystem errors on Windows', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-attempt-nonretryable-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'task-attempts.json');
+  let renameCalls = 0;
+
+  const store = new TaskAttemptStore('openai-tunnel', {
+    file,
+    platform: 'win32',
+    renameRetryDelaysMs: [5, 10, 20],
+    renameFn: async () => {
+      renameCalls += 1;
+      throw Object.assign(new Error('ENOSPC: no space left on device, rename'), { code: 'ENOSPC' });
+    }
+  });
+
+  await assert.rejects(
+    runWithWorkSession(SESSION_A, () => store.begin(OBJECTIVE, TASK, 1)),
+    (err: any) => err?.code === 'ENOSPC'
+  );
+  assert.equal(renameCalls, 1);
+
+  // Temporary files must be cleaned up
+  const files = await fs.readdir(root);
+  assert.deepEqual(files, []);
+});
+
+test('Task Attempt store preserves unaffected Linux behavior and does not retry on Linux', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-task-attempt-linux-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'task-attempts.json');
+  let renameCalls = 0;
+
+  const store = new TaskAttemptStore('openai-tunnel', {
+    file,
+    platform: 'linux',
+    renameRetryDelaysMs: [5, 10, 20],
+    renameFn: async () => {
+      renameCalls += 1;
+      throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+    }
+  });
+
+  await assert.rejects(
+    runWithWorkSession(SESSION_A, () => store.begin(OBJECTIVE, TASK, 1)),
+    (err: any) => err?.code === 'EPERM'
+  );
+  assert.equal(renameCalls, 1);
+
+  // Temporary files must be cleaned up
+  const files = await fs.readdir(root);
+  assert.deepEqual(files, []);
+});
+
+test('isRetryableWindowsFsError and atomicRenameWithRetry helpers validate codes and retry bounds', async t => {
+  assert.deepEqual([...RETRYABLE_WINDOWS_FS_ERROR_CODES], ['EPERM', 'EBUSY', 'EACCES']);
+  assert.deepEqual([...DEFAULT_WINDOWS_RENAME_RETRY_DELAYS_MS], [5, 10, 20, 40, 80]);
+
+  assert.equal(isRetryableWindowsFsError({ code: 'EPERM' }), true);
+  assert.equal(isRetryableWindowsFsError({ code: 'EBUSY' }), true);
+  assert.equal(isRetryableWindowsFsError({ code: 'EACCES' }), true);
+  assert.equal(isRetryableWindowsFsError({ code: 'ENOENT' }), false);
+  assert.equal(isRetryableWindowsFsError({ code: 'ENOSPC' }), false);
+  assert.equal(isRetryableWindowsFsError(new Error('generic error')), false);
+  assert.equal(isRetryableWindowsFsError(null), false);
+  assert.equal(isRetryableWindowsFsError(undefined), false);
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-atomic-rename-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const src = path.join(root, 'source.tmp');
+  const dst = path.join(root, 'destination.json');
+  await fs.writeFile(src, 'content', 'utf8');
+
+  let attempts = 0;
+  const sleeps: number[] = [];
+  await atomicRenameWithRetry(src, dst, {
+    platform: 'win32',
+    retryDelaysMs: [1, 2],
+    sleep: async ms => { sleeps.push(ms); },
+    renameFn: async (s, d) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      }
+      await fs.rename(s, d);
+    }
+  });
+  assert.equal(attempts, 2);
+  assert.deepEqual(sleeps, [1]);
+  assert.equal(await fs.readFile(dst, 'utf8'), 'content');
+});
+

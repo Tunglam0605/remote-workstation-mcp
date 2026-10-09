@@ -29,7 +29,7 @@ The project has evolved from a secure remote-control bridge into a production-or
 
 ## Current release
 
-**Development head: v0.70.0-dev.4 - channel=development - Action Schema 72 - Engineering API 5.** Adds a typed, fail-closed Windows explicit-prerelease update path through the existing durable lifecycle/rollback pipeline, and rejects impossible shell-host Administrator requests before owner approval. Social verified mutation, KiCad Design Intent policies, and detached objective dispatch remain included.
+**Development head: v0.70.0-dev.5 - channel=development - Action Schema 72 - Engineering API 5.** Hardens Windows detached-dispatch persistence with bounded retries for transient atomic rename errors, while retaining the fail-closed explicit-prerelease updater and rollback path. Social verified mutation, KiCad Design Intent policies, and detached objective dispatch remain included.
 
 **Stable release: v0.68.0 - channel=stable - Action Schema 65 - Engineering API 5.** This release promotes the reusable KiCad PCB Design Agent through Phases 7-17: design/visual review, layout optimization planning, constraints/DFM review, installed-library intelligence, schematic and PCB synthesis, STM32 pin planning, semantic pin-aware placement, bounded routing orchestration, electrical review and manufacturing-package gating. Fine-pitch STM32 routing now preserves no-connect parity, respects foreign-net pads and planned-route clearance, handles KiCad rotation semantics correctly, and includes an STM32F407 LQFP100 0.5 mm USB acceptance path. Controlled impedance, SI/EMI and other specialist claims remain explicitly deferred to KiCad/field-solver evidence rather than being guessed.
 

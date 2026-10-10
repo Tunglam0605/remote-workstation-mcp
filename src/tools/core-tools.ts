@@ -148,6 +148,24 @@ export function registerCoreTools(server: McpServer, ctx: AppContext, registered
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true }
   }, async () => result(await audited(ctx.audit, 'update_check', undefined, () => ctx.updates.check())));
 
+  server.registerTool('update_install', {
+    description: 'Request a version-pinned official RWMCP Windows prerelease update through the persistent owner Control Center. Requires active Full Control grant, exact vX.Y.Z-dev.N, GitHub release preflight and verified package SHA-256. Asynchronous durable worker; never arbitrary shell execution or permission escalation.',
+    inputSchema: z.object({ version: z.string().regex(/^v\d+\.\d+\.\d+-dev\.\d+$/) }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ version }) => result(await audited(ctx.audit, 'update_install', undefined, () => ctx.ownerUpdates.install(version))));
+
+  server.registerTool('update_install_status', {
+    description: 'Read the owner-managed Windows update transaction, current installed version and rollback version without exposing secrets.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () => result(await audited(ctx.audit, 'update_install_status', undefined, () => ctx.ownerUpdates.status())));
+
+  server.registerTool('update_restart', {
+    description: 'Request a guarded asynchronous OpenAI runtime restart after an official update, only when current managed version exactly matches the owner-selected vX.Y.Z-dev.N. Uses CSRF-protected durable Control Center handoff; never directly kills the running MCP process.',
+    inputSchema: z.object({ version: z.string().regex(/^v\d+\.\d+\.\d+-dev\.\d+$/) }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+  }, async ({ version }) => result(await audited(ctx.audit, 'update_restart', undefined, () => ctx.ownerUpdates.restart(version))));
+
   server.registerTool('workspace_list', {
     description: 'List workspace roots authorized by the local owner policy.',
     inputSchema: z.object({}),

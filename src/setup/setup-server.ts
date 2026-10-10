@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { resolveWindowsManagedRestartRoot } from './windows-managed-restart-root.js';
 import { setupHtml } from './ui.js';
 import { OwnerExecutionBridge } from './owner-execution.js';
 import { ExecutionPolicyService } from '../execution-policy.js';
@@ -683,8 +684,9 @@ async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode
 
   const base = windowsManagedBase();
   if (!base) throw new Error('LOCALAPPDATA is unavailable; durable Windows restart handoff cannot be scheduled.');
-  const worker = path.join(repoRoot, 'scripts', 'runtime-restart-handoff-windows.ps1');
-  const starter = path.join(repoRoot, 'scripts', 'start-restart-handoff-windows.ps1');
+  const launchRoot = await resolveWindowsManagedRestartRoot(repoRoot, base);
+  const worker = path.join(launchRoot, 'scripts', 'runtime-restart-handoff-windows.ps1');
+  const starter = path.join(launchRoot, 'scripts', 'start-restart-handoff-windows.ps1');
   if (!(await pathExists(worker))) throw new Error(`Windows restart handoff helper is missing: ${worker}`);
   if (!(await pathExists(starter))) throw new Error(`Windows durable restart starter is missing: ${starter}`);
 
@@ -693,7 +695,7 @@ async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode
     version: 1,
     state: 'STARTING',
     workerPid: null,
-    root: repoRoot,
+    root: launchRoot,
     mode,
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -705,12 +707,12 @@ async function scheduleWindowsRuntimeRestart(repoRoot: string, mode: RuntimeMode
 
   const started = await runProcess('powershell.exe', [
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', starter,
-    '-Root', repoRoot,
+    '-Root', launchRoot,
     '-Base', base,
     '-Mode', mode,
     '-AckTimeoutSeconds', '10'
   ], {
-    cwd: repoRoot,
+    cwd: launchRoot,
     maxBytes: 64 * 1024,
     timeoutMs: 15_000
   });

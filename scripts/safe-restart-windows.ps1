@@ -59,9 +59,11 @@ function Invoke-ControlCenterRestart {
   $base = "http://127.0.0.1:$port"
   $page = Invoke-WebRequest -Uri "$base/" -UseBasicParsing -TimeoutSec 3
   if ($page.StatusCode -ne 200) { throw "Control Center returned HTTP $($page.StatusCode)." }
-  $match = [regex]::Match([string]$page.Content, 'const token = ("[^"\r\n]+");')
-  if (-not $match.Success) { throw 'Control Center CSRF token was not found.' }
-  $token = $match.Groups[1].Value | ConvertFrom-Json
+  # Moonlight serves the owner CSRF token in a meta element; inline JS
+  # token injection was removed under CSP, so do not use the legacy regex.
+  $match = [regex]::Match([string]$page.Content, '<meta name="rwmcp-setup-token" content="([A-Za-z0-9_-]{32,})">')
+  if (-not $match.Success) { throw 'Control Center CSRF meta token was not found.' }
+  $token = $match.Groups[1].Value
   $headers = @{ 'x-rwmcp-setup-token' = $token; 'Origin' = $base }
   $body = @{ action = 'Restart'; mode = $Mode } | ConvertTo-Json -Compress
   $response = Invoke-RestMethod -Uri "$base/api/runtime/action" -Method Post -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 10

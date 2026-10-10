@@ -18,6 +18,7 @@ import { SshAdapter } from './adapters/ssh.js';
 import { TaskAdapter } from './adapters/tasks.js';
 import { ToolDiscoveryAdapter } from './adapters/tool-discovery.js';
 import { UpdateAdapter } from './adapters/update.js';
+import { OwnerUpdateControl } from './adapters/owner-update-control.js';
 import { SERVER_VERSION } from './capabilities.js';
 import { ConcurrencyPolicy } from './concurrency-policy.js';
 import { loadPolicy } from './config.js';
@@ -281,7 +282,8 @@ export async function createContext() {
       ...engineering,
       execution: engineeringWorkflowExecution
     },
-    updates: new UpdateAdapter(SERVER_VERSION)
+    updates: new UpdateAdapter(SERVER_VERSION),
+    ownerUpdates: new OwnerUpdateControl(policy, setupSettings.controlPort)
   };
 }
 

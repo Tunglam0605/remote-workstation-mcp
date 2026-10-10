@@ -81,7 +81,9 @@ async function readRaw(id: string): Promise<AdminRequest> {
 }
 
 async function expireIfNeeded(request: AdminRequest): Promise<AdminRequest> {
-  if (request.state !== 'pending') return request;
+  // Approved requests never started by the privileged helper also expire.
+  // Running and terminal requests must not change state during inspection.
+  if (request.state !== 'pending' && request.state !== 'approved') return request;
   const expiry = Date.parse(request.expiresAt);
   if (Number.isFinite(expiry) && expiry > Date.now()) return request;
   const expired: AdminRequest = { ...request, state: 'expired' };

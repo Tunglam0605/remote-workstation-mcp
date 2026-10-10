@@ -140,7 +140,7 @@ function segmentCrossesObstacle(op: { start:{x:number;y:number}; end:{x:number;y
   return false;
 }
 
-test('route planner detours around courtyard obstacles and emits batch-applicable operations', () => {
+test('courtyards do not block electrically legal routing through an unpopulated footprint', () => {
   const planned = planKicadRoutes(BOARD, {
     gridMm: 0.5,
     edgeInsetMm: 0.5,
@@ -154,12 +154,11 @@ test('route planner detours around courtyard obstacles and emits batch-applicabl
 
   assert.equal(planned.nets.routedCount, 1);
   assert.equal(planned.routed[0]?.netName, '/SIG');
-  assert.ok(planned.operations.length >= 2);
+  assert.ok(planned.operations.length >= 1);
   assert.equal(planned.execution.tool, 'kicad_route_batch_apply');
   assert.equal(planned.execution.requiresExactBoardSha, true);
-  for (const op of planned.operations) {
-    if (op.kind === 'segment') assert.equal(segmentCrossesObstacle(op), false, JSON.stringify(op));
-  }
+  assert.ok(planned.operations.some(op => op.kind === 'segment' && segmentCrossesObstacle(op)),
+    'A courtyard with no copper is not a track keepout or routing obstacle.');
 
   const applied = applyKicadRouteBatch(BOARD, planned.operations);
   assert.ok(applied.summary.segments > 0);
@@ -488,4 +487,72 @@ test('auto-selects 0.25 mm grid for fine-pitch pads without exceeding the bounde
   assert.equal(planKicadRoutes(source, { selectedNets: ['/NONE_IN_THIS_FIXTURE'], gridMm: 0.5 }).board.gridMm, 0.5);
   const largerBoard = source.replace('(end 40 30)', '(end 250 180)');
   assert.equal(planKicadRoutes(largerBoard, { selectedNets: ['/NONE_IN_THIS_FIXTURE'] }).board.gridMm, 0.5);
+});
+
+test('route planner fails closed for KiCad rule-area copper keepouts instead of inventing clearance', () => {
+  const area = [
+    '  (zone (net 0) (net_name "") (layer "F.Cu")',
+    '    (rule_area yes)',
+    '    (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour allowed) (footprints allowed))',
+    '    (polygon (pts (xy 11 10) (xy 20 10) (xy 20 19) (xy 11 19))))'
+  ].join('\n');
+  const board = BOARD.replace('  (gr_rect\n', area + '\n  (gr_rect\n');
+  assert.throws(
+    () => planKicadRoutes(board, { selectedNets: ['/SIG'] }),
+    /does not yet model track\/via copper keepout rule areas/
+  );
+});
+
+test('via near source pad cannot bypass clearance to foreign existing copper on destination layer', () => {
+  const obstructed = BOARD.replace('  (gr_rect\n',
+    '  (segment (start 5 15) (end 5 17) (width 0.5) (layer "B.Cu") (net 2))\n  (gr_rect\n');
+  const planned = planKicadRoutes(obstructed, {
+    gridMm: 0.5,
+    defaultWidthMm: 0.2,
+    defaultClearanceMm: 0.2,
+    viaDiameterMm: 0.6,
+    viaDrillMm: 0.3,
+    viaCostMm: 0.01,
+    selectedNets: ['/SIG'],
+    styles: [{ netName: '/SIG', preferredLayer: 'B.Cu' }]
+  });
+  assert.equal(planned.routed.length, 1);
+  const vias=planned.operations.filter(op => op.kind === 'via');
+  assert.ok(vias.length > 0, 'Case should exercise a layer transition near a foreign-net segment');
+  for(const op of vias){
+    const p=op.position, a={x:5,y:15}, b={x:5,y:17};
+    const dy=Math.max(0,Math.min(2,p.y-15));
+    const gap=Math.hypot(p.x-5,p.y-(15+dy));
+    assert.ok(gap >= (0.6/2+0.5/2+0.2)-1e-6,
+      'Via must keep clearance from foreign B.Cu segment: '+JSON.stringify(op));
+  }
+});
+
+test('route planner recognizes completed existing-net track and via chains without retracing the net', () => {
+  const options = {
+    gridMm: 0.5,
+    defaultWidthMm: 0.2,
+    defaultClearanceMm: 0.2,
+    viaDiameterMm: 0.6,
+    viaDrillMm: 0.3,
+    viaCostMm: 0.01,
+    selectedNets: ['/SIG'],
+    styles: [{ netName: 'SIG', preferredLayer: 'B.Cu' }]
+  };
+  const initial = planKicadRoutes(BOARD, options);
+  assert.equal(initial.routed.length, 1);
+  assert.ok(initial.operations.some(op => op.kind === 'via'), 'fixture must include a via transition');
+  const applied = applyKicadRouteBatch(BOARD, initial.operations);
+  const planned = planKicadRoutes(applied.source, options);
+  assert.equal(planned.routed.length, 0, 'previously connected net should not be routed twice');
+  assert.equal(planned.operations.length, 0);
+  assert.equal(planned.complete, true);
+  assert.ok(planned.skipped.some(item => item.netName === '/SIG' && item.reason === 'already-connected'));
+});
+
+test('a partial existing same-net track cannot be mistaken for fully connected pads', () => {
+  const partial = BOARD.replace('  (gr_rect\n',
+    '  (segment (start 5 15) (end 20 15) (width 0.25) (layer "F.Cu") (net 1))\n  (gr_rect\n');
+  const planned = planKicadRoutes(partial, { gridMm: 0.5, selectedNets: ['/SIG'] });
+  assert.equal(planned.skipped.some(item => item.netName === '/SIG' && item.reason === 'already-connected'), false);
 });

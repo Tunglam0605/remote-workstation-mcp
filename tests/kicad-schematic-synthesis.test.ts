@@ -47,3 +47,27 @@ test('schematic synthesis treats KiCad unit-0 pins as common pins for power/help
   assert.equal(result.components[0]?.pins.some(pin=>pin.number==='1'&&pin.connectedNet==='+3V3'),true);
   assert.equal(result.unusedPins.length,0);
 });
+
+
+test('automatic symbol origins and pin connections use the 50-mil KiCad schematic grid', () => {
+  const result = synthesizeKicadSchematic([
+    { reference: 'R1', symbol },
+    { reference: 'R2', symbol }
+  ], [
+    { name: 'A', endpoints: [{ reference: 'R1', pinNumber: '1' }, { reference: 'R2', pinNumber: '1' }] },
+    { name: 'B', endpoints: [{ reference: 'R1', pinNumber: '2' }, { reference: 'R2', pinNumber: '2' }] }
+  ]);
+  const step = 1.27;
+  const gridAligned = (value: number) => Math.abs(value / step - Math.round(value / step)) < 1e-8;
+  for (const component of result.components) {
+    assert.ok(gridAligned(component.position.xMm), component.reference + ' x origin off-grid');
+    assert.ok(gridAligned(component.position.yMm), component.reference + ' y origin off-grid');
+    const sourceSymbol = symbol;
+    for (const pin of sourceSymbol.pins) {
+      assert.ok(gridAligned(component.position.xMm + pin.xMm), component.reference + ' pin x off-grid');
+      assert.ok(gridAligned(component.position.yMm - pin.yMm), component.reference + ' pin y off-grid');
+    }
+  }
+  assert.match(result.source, /\(label "A"\s+\(at 69\.85 50\.8 0\)/);
+  assert.match(result.source, /\(label "A"\s+\(at 133\.35 50\.8 0\)/);
+});

@@ -2,6 +2,14 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+## 0.70.0-dev.7 — KiCad fine-pitch routing and MCP attachment hardening
+
+- Adds an offline MCP registration ledger and attachment reconciliation tooling, with platform-accurate capability filtering for Linux-only SocketCAN tools on Windows; does not bypass tool permissions, tunnel authentication or client connector attachment.
+- Fixes KiCad schematic default placement to the 50-mil grid and preserves authoritative Datasheet/Description parity fields in generated PCB footprints.
+- Improves two-layer KiCad route planning with net-aware existing-copper clearance, bounded A* search, corridor-first routing, fine-pitch adaptive grid selection and same-priority short-net ordering. Applied routes remain typed, SHA-bound, KiCad-DRC-gated and rollback-on-regression.
+- Acceptance: Windows/Linux CI, KiCad 10.0.6 clean synthetic manufacturing package (including BOM/positions/STEP), and fail-closed rejection of an incomplete STM32F103 fixture. **Not** a claim of automatically completing a complex STM32 PCB; that fixture still has unconnected items and cannot be fabricated.
+- Development prerelease only. No automatic workstation rollout or hardware/social account mutation.
+
 ## 0.70.0-dev.6 — Windows Administrator approval expiry hardening
 
 - Fixes a real Windows Control Center failure mode: an Administrator request accepted by the owner but never started by the privileged helper no longer remains in `approved` forever. The existing five-minute TTL also expires unstarted approved requests.

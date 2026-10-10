@@ -1,4 +1,4 @@
-export const SERVER_VERSION = '0.70.0-dev.6';
+export const SERVER_VERSION = '0.70.0-dev.7';
 export const BUILD_CHANNEL = 'development' as const;
 export const BUILD_COMMIT = process.env.RWMCP_GIT_COMMIT?.trim() || undefined;
 export const ACTION_SCHEMA_VERSION = 72;
@@ -91,5 +91,8 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
 ];
 
 export function capabilitiesForPlatform(platform: NodeJS.Platform | string = process.platform): CapabilityDescriptor[] {
-  return platform === 'win32' ? CAPABILITIES : CAPABILITIES.filter(capability => !capability.id.startsWith('office.'));
+  return CAPABILITIES.filter(capability =>
+    (platform === 'win32' || !capability.id.startsWith('office.')) &&
+    (platform === 'linux' || capability.id !== 'engineering.can')
+  );
 }

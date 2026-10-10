@@ -12,6 +12,7 @@ import { registerPrivilegedTools } from './tools/privileged-tools.js';
 import { registerSshTools } from './tools/ssh-tools.js';
 import { registerBrowserTools } from './tools/browser-tools.js';
 import { registerBuiltinExtensions } from './extensions/builtin.js';
+import { trackRegisteredMcpTools } from './mcp-registration-ledger.js';
 
 export function buildServer(ctx: AppContext): McpServer {
   const server = new McpServer(
@@ -31,9 +32,10 @@ export function buildServer(ctx: AppContext): McpServer {
     }
   );
 
+  const registeredToolNames = trackRegisteredMcpTools(server);
   registerChatGptWebTools(server, ctx);
   registerDeviceTools(server, ctx);
-  registerCoreTools(server, ctx);
+  registerCoreTools(server, ctx, registeredToolNames);
   registerBrowserTools(server, ctx);
   registerEngineeringTools(server, ctx);
   registerInteractiveProcessTools(server, ctx);

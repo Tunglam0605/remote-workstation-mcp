@@ -80,7 +80,7 @@ const projectSessionGroupMutation = z.discriminatedUnion('action', [
   z.object({ action: z.literal('close') })
 ]);
 
-export function registerCoreTools(server: McpServer, ctx: AppContext): void {
+export function registerCoreTools(server: McpServer, ctx: AppContext, registeredToolNames?: () => readonly string[]): void {
   server.registerTool('capabilities_list', {
     description: 'Discover workstation capabilities, provider readiness and current OpenAI tool-pack exposure, including specialist capability families that are installed but not exposed in the active tool surface.',
     inputSchema: z.object({}),
@@ -104,6 +104,16 @@ export function registerCoreTools(server: McpServer, ctx: AppContext): void {
       toolExposure: describeOpenAiToolExposure(clientType),
       toolPackPolicy: OPENAI_TOOL_PACK_SELECTION_POLICY,
       toolPacks: describeOpenAiToolPackCatalog(staticCapabilities, clientType),
+      // This is per-server registration evidence, NOT an authenticated raw MCP tools/list
+      // capture and NOT a guarantee that a client connector attached these actions.
+      ...(registeredToolNames ? {
+        registeredToolSurface: {
+          source: 'server.registerTool',
+          scope: 'this MCP server instance only',
+          count: registeredToolNames().length,
+          names: [...registeredToolNames()]
+        }
+      } : {}),
       capabilities: runtimeCapabilities.map(capability => ({
         ...capability,
         exposure: describeCapabilityToolExposure(capability.id, clientType)

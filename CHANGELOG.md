@@ -2,6 +2,13 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+## 0.70.0-dev.6 — Windows Administrator approval expiry hardening
+
+- Fixes a real Windows Control Center failure mode: an Administrator request accepted by the owner but never started by the privileged helper no longer remains in `approved` forever. The existing five-minute TTL also expires unstarted approved requests.
+- Preserves running and terminal states, blocks late execution of expired approvals, and adds three isolated regression cases (approved-stalled, already-running, unapproved-pending).
+- Windows source validation before release: 970 tests (968 passed, 0 failed, 2 skipped); TypeScript typecheck passed; PR #243 passed Linux and Windows CI, including PTY soak and packaged runtime smoke. This release does not claim live KiCad/Gerber or Social scheduling acceptance.
+- Maintains the owner-only Control Center explicit development release installer, checksum checks and rollback; does not bypass UAC or allow generic privileged shell execution.
+
 ## 0.68.0 — Reusable KiCad PCB Design Agent
 
 - Promotes KiCad PCB Design Agent Phases 7–17 into the stable release: typed design/visual review, geometry-based layout optimization planning, constraints/DFM review, installed-library intelligence, fail-if-exists schematic synthesis, manifest-SHA PCB synthesis, STM32 pin planning, semantic placement, bounded routing orchestration, electrical review and manufacturing-package gating.

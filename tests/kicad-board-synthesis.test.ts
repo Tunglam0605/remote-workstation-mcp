@@ -123,3 +123,24 @@ test('board synthesis preserves KiCad no-connect nets and symbol parity fields',
   assert.match(result.source,/\(property "Datasheet" "https:\/\/example\.com\/mcu\.pdf"/);
   assert.match(result.source,/\(property "Description" "Synthetic MCU"/);
 });
+
+test('board synthesis replaces stale footprint Datasheet/Description with the schematic symbol fields', () => {
+  const fields = [
+    '(property "Datasheet" "OLD" (at 0 0 0) (layer "F.Fab") (effects (font (size 1 1))))',
+    '(property "Description" "" (at 0 0 0) (layer "F.Fab") (effects (font (size 1 1))))'
+  ].join('\n    ');
+  const withStaleFields = { ...footprint, source: footprint.source.replace('(generator pcbnew)', '(generator pcbnew)\n    ' + fields) };
+  const symbolWithFields: KicadResolvedSymbol = {
+    ...symbol,
+    description: 'Real part description',
+    properties: { ...symbol.properties, Datasheet: 'https://example.com/stm32.pdf' }
+  };
+  const result = synthesizeKicadBoard([
+    { reference: 'R1', value: '10k', symbol: symbolWithFields, footprint: withStaleFields,
+      symbolUuid: '66666666-6666-4666-8666-666666666666', xMm: 40, yMm: 35 }
+  ], [], { projectName: 'parity', widthMm: 60, heightMm: 40 });
+  assert.match(result.source, /\(property "Datasheet" "https:\/\/example\.com\/stm32\.pdf"/);
+  assert.match(result.source, /\(property "Description" "Real part description"/);
+  assert.doesNotMatch(result.source, /\(property "Datasheet" "OLD"/);
+  assert.doesNotMatch(result.source, /\(property "Description" ""/);
+});

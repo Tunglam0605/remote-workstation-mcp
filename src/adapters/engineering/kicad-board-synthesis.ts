@@ -160,7 +160,9 @@ function boardFootprint(component:KicadBoardComponentSpec,netIds:Map<string,{id:
   const layer=side==='front'?'F.Cu':'B.Cu';
   const children=immediateChildren(component.footprint.source);
   const body:string[]=[];
-  let hadRef=false,hadValue=false;
+  const schematicDatasheet = component.symbol.properties.Datasheet?.trim() ?? '';
+  const schematicDescription = component.symbol.description ?? component.symbol.properties.Description ?? '';
+  let hadRef=false,hadValue=false,hadDatasheet=false,hadDescription=false;
   for(const child of children){
     if(['version','generator','generator_version','layer','uuid','at','embedded_fonts'].includes(child.token)) continue;
     if(child.token==='property'){
@@ -168,6 +170,8 @@ function boardFootprint(component:KicadBoardComponentSpec,netIds:Map<string,{id:
       let block=child.block;
       if(name==='Reference'){block=replacePropertyValue(block,component.reference);hadRef=true;}
       else if(name==='Value'){block=replacePropertyValue(block,component.value);hadValue=true;}
+      else if(name==='Datasheet'){block=replacePropertyValue(block,schematicDatasheet === '~' ? '' : schematicDatasheet);hadDatasheet=true;}
+      else if(name==='Description'){block=replacePropertyValue(block,schematicDescription);hadDescription=true;}
       block=rotateChildAt(block,rotation);
       body.push(withUuid(block));
       continue;
@@ -191,13 +195,13 @@ function boardFootprint(component:KicadBoardComponentSpec,netIds:Map<string,{id:
   }
   if(!hadRef) body.unshift(`(property "Reference" "${quote(component.reference)}" (at 0 -2 ${fmt(((rotation%360)+360)%360)}) (layer "F.SilkS") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   if(!hadValue) body.unshift(`(property "Value" "${quote(component.value)}" (at 0 2 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
-  const datasheet=component.symbol.properties.Datasheet?.trim();
-  if(datasheet && datasheet!=='~' && !body.some(block=>propertyName(block)==='Datasheet')) {
-    body.push(`(property "Datasheet" "${quote(datasheet)}" (at 0 0 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+  // Preserve the schematic's authoritative symbol fields, replacing any
+  // blank/stale footprint-library fields that would fail KiCad schematic parity.
+  if(!hadDatasheet && schematicDatasheet && schematicDatasheet !== '~') {
+    body.push(`(property "Datasheet" "${quote(schematicDatasheet)}" (at 0 0 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   }
-  const description=component.symbol.properties.Description?.trim();
-  if(description && !body.some(block=>propertyName(block)==='Description')) {
-    body.push(`(property "Description" "${quote(description)}" (at 0 0 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
+  if(!hadDescription && schematicDescription) {
+    body.push(`(property "Description" "${quote(schematicDescription)}" (at 0 0 ${fmt(((rotation%360)+360)%360)}) (layer "F.Fab") (hide yes) (uuid "${randomUUID()}") (effects (font (size 1 1) (thickness 0.15))))`);
   }
   const rendered=[`\t(footprint "${quote(component.footprint.id)}"`,`\t\t(layer "${layer}")`,`\t\t(uuid "${uuid}")`,`\t\t(at ${fmt(x)} ${fmt(y)} ${fmt(rotation)})`,`\t\t(path "/${component.symbolUuid}")`,'\t\t(sheetname "/")',`\t\t(sheetfile "${quote(projectName)}.kicad_sch")`,...body.map(block=>'\t\t'+block.replace(/\n/g,'\n\t\t')),'\t\t(embedded_fonts no)','\t)'].join('\n');
   return {source:rendered,uuid,position:{xMm:x,yMm:y,rotationDeg:rotation,side}};

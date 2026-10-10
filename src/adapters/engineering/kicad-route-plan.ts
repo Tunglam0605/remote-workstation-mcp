@@ -13,7 +13,7 @@ const MAX_PLAN_ELAPSED_MS = 20_000;
 type Point = { x: number; y: number };
 type Rect = { minX: number; minY: number; maxX: number; maxY: number; reference?: string };
 type Pad = { reference: string; number: string; netId: number; netName: string; position: Point; layers: string[]; obstacle: Rect };
-type Footprint = { reference: string; at: Point; rotationDeg: number; pads: Pad[]; obstacle?: Rect };
+type Footprint = { reference: string; at: Point; rotationDeg: number; pads: Pad[] };
 type RouteStyle = { netName: string; widthMm?: number; clearanceMm?: number; preferredLayer?: string; priority?: number };
 
 export interface KicadRoutePlanOptions {
@@ -106,13 +106,6 @@ function padSize(block:string):{x:number;y:number}{
   const m=block.match(/\(size\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\)/);
   return {x:Number(m?.[1]??1),y:Number(m?.[2]??1)};
 }
-function rectUnion(rects:Rect[]):Rect|undefined{
-  if(!rects.length)return undefined;
-  return {
-    minX:Math.min(...rects.map(r=>r.minX)),minY:Math.min(...rects.map(r=>r.minY)),
-    maxX:Math.max(...rects.map(r=>r.maxX)),maxY:Math.max(...rects.map(r=>r.maxY))
-  };
-}
 function normalizeRect(a:Point,b:Point):Rect{return{minX:Math.min(a.x,b.x),minY:Math.min(a.y,b.y),maxX:Math.max(a.x,b.x),maxY:Math.max(a.y,b.y)};}
 
 function parseBoardBounds(source:string):Rect{
@@ -136,7 +129,7 @@ function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
   for(const block of blocks(source,'footprint',MAX_FOOTPRINTS)){
     const origin=at(block);if(!origin)continue;
     const reference=property(block,'Reference')??'<unknown>';
-    const pads:Pad[]=[];const localObstacles:Rect[]=[];
+    const pads:Pad[]=[];
     for(const pblock of blocks(block,'pad',4096)){
       const pAt=at(pblock)??{x:0,y:0,rotationDeg:0};
       const position=transform({x:pAt.x,y:pAt.y},{x:origin.x,y:origin.y},origin.rotationDeg);
@@ -157,27 +150,9 @@ function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
       const pad:Pad={reference,number:padNumber(pblock),netId:net.id,netName:net.name,position,layers,obstacle:padObstacle};
       pads.push(pad);allPads.push(pad);
       if(allPads.length>MAX_PADS)throw new Error(`KiCad route planner exceeds ${MAX_PADS} connected pads.`);
-      localObstacles.push({minX:pAt.x-halfX,minY:pAt.y-halfY,maxX:pAt.x+halfX,maxY:pAt.y+halfY});
     }
-    for(const token of ['fp_rect','fp_line']){
-      for(const item of blocks(block,token,4096)){
-        if(!/\(layer\s+"(?:F|B)\.CrtYd"\)/.test(item))continue;
-        const a=pointToken(item,'start'),b=pointToken(item,'end');
-        if(a&&b)localObstacles.push(normalizeRect(a,b));
-      }
-    }
-    const local=rectUnion(localObstacles);
-    let obstacle:Rect|undefined;
-    if(local){
-      const corners=[
-        transform({x:local.minX,y:local.minY},{x:origin.x,y:origin.y},origin.rotationDeg),
-        transform({x:local.minX,y:local.maxY},{x:origin.x,y:origin.y},origin.rotationDeg),
-        transform({x:local.maxX,y:local.minY},{x:origin.x,y:origin.y},origin.rotationDeg),
-        transform({x:local.maxX,y:local.maxY},{x:origin.x,y:origin.y},origin.rotationDeg)
-      ];
-      obstacle={reference,minX:Math.min(...corners.map(p=>p.x)),minY:Math.min(...corners.map(p=>p.y)),maxX:Math.max(...corners.map(p=>p.x)),maxY:Math.max(...corners.map(p=>p.y))};
-    }
-    footprints.push({reference,at:{x:origin.x,y:origin.y},rotationDeg:origin.rotationDeg,pads,obstacle});
+    // Courtyards are assembly spacing, not copper obstacles.
+    footprints.push({reference,at:{x:origin.x,y:origin.y},rotationDeg:origin.rotationDeg,pads});
   }
   return {footprints,pads:allPads};
 }
@@ -189,7 +164,13 @@ function parseCopperLayers(source:string):string[]{
 }
 
 type ExistingCopper = { netName: string; start: Point; end: Point; radiusMm: number };
-type ExistingCopperIndex = { buckets: Array<Map<string, ExistingCopper[]>>; maxRadiusMm: number[] };
+type ExistingConnection = { layer: number; start: Point; end: Point };
+type ExistingCopperIndex = {
+  buckets: Array<Map<string, ExistingCopper[]>>;
+  maxRadiusMm: number[];
+  connections: Map<string, ExistingConnection[]>;
+  throughVias: Map<string, Point[]>;
+};
 
 function pointSegmentDistance(point: Point, start: Point, end: Point): number {
   const dx = end.x - start.x, dy = end.y - start.y;
@@ -204,6 +185,8 @@ function parseExistingTracks(source: string, grid: { originX: number; originY: n
   // The old 3x3 occupancy dilation at 0.25 mm grid could block legal 0.5 mm-pitch escapes.
   const buckets = layers.map(() => new Map<string, ExistingCopper[]>());
   const maxRadiusMm = layers.map(() => 0);
+  const connections = new Map<string, ExistingConnection[]>();
+  const throughVias = new Map<string, Point[]>();
   const indexOf = new Map(layers.map((layer, index) => [layer, index]));
   const netNames = new Map<number, string>();
   for (const match of source.matchAll(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/g)) {
@@ -217,6 +200,9 @@ function parseExistingTracks(source: string, grid: { originX: number; originY: n
     const li = indexOf.get(layer);
     if (li === undefined) return;
     const copper: ExistingCopper = { netName, start, end, radiusMm };
+    const segments = connections.get(netName) ?? [];
+    segments.push({ layer: li, start, end });
+    connections.set(netName, segments);
     maxRadiusMm[li] = Math.max(maxRadiusMm[li]!, radiusMm);
     const length = Math.hypot(end.x - start.x, end.y - start.y);
     const steps = Math.max(1, Math.ceil(length / (grid.step / 2)));
@@ -249,10 +235,53 @@ function parseExistingTracks(source: string, grid: { originX: number; originY: n
     if (!pos) continue;
     const radiusMm = (numberToken(block, 'size') ?? 0.6) / 2;
     const netName = netNameOf(block);
-    for (const layer of layers) mark(layer, pos, pos, radiusMm, netName);
+    // Only through-vias spanning both selected copper layers prove a connection.
+    const span = layersOf(block);
+    if (layers.every(layer => span.includes(layer))) {
+      const pads = throughVias.get(netName) ?? [];
+      pads.push({ x: pos.x, y: pos.y });
+      throughVias.set(netName, pads);
+    }
+    for (const layer of span.filter(layer => layers.includes(layer))) mark(layer, pos, pos, radiusMm, netName);
   }
-  return { buckets, maxRadiusMm };
+  return { buckets, maxRadiusMm, connections, throughVias };
 }
+// Conservative proof of pre-existing connectivity: exact track endpoints,
+// through-via positions, and pad centers. Unknown mid-segment contacts are
+// intentionally not inferred, so an uncertain net is not skipped.
+function alreadyConnectedByExistingCopper(pads: Pad[], netName: string, existing: ExistingCopperIndex, layers: string[]): boolean {
+  if (pads.length < 2 || !(existing.connections.get(netName)?.length)) return false;
+  const parents = new Map<string,string>(), sizes = new Map<string,number>();
+  const key = (layer: number, point: Point) => layer + ':' + point.x.toFixed(4) + ':' + point.y.toFixed(4);
+  const root = (name: string): string => {
+    if(!parents.has(name)){parents.set(name,name);sizes.set(name,1);return name;}
+    let cur=name;
+    while(parents.get(cur)!==cur)cur=parents.get(cur)!;
+    // Iterative compression avoids stack exhaustion on very large routed nets.
+    while(parents.get(name)!==cur){const next=parents.get(name)!;parents.set(name,cur);name=next;}
+    return cur;
+  };
+  const union = (a: string, b: string): void => {
+    let ar = root(a),br = root(b);
+    if(ar===br)return;
+    if((sizes.get(ar)??1)<(sizes.get(br)??1)){const tmp=ar;ar=br;br=tmp;}
+    parents.set(br,ar);
+    sizes.set(ar,(sizes.get(ar)??1)+(sizes.get(br)??1));
+  };
+  for(const seg of existing.connections.get(netName) ?? []) union(key(seg.layer,seg.start),key(seg.layer,seg.end));
+  for(const via of existing.throughVias.get(netName) ?? []) union(key(0,via),key(1,via));
+  const representatives: string[]=[];
+  for(const pad of pads){
+    const access=layers.map((layer,index)=>({layer,index}))
+      .filter(({layer})=>pad.layers.includes(layer)||pad.layers.includes('*.Cu')||pad.layers.includes('F&B.Cu'))
+      .map(x=>x.index);
+    if(!access.length)return false;
+    for(let i=1;i<access.length;i++)union(key(access[0]!,pad.position),key(access[i]!,pad.position));
+    representatives.push(root(key(access[0]!,pad.position)));
+  }
+  return representatives.every(item=>root(item)===root(representatives[0]!));
+}
+
 function mstEdges(pads:Pad[]):Array<[Pad,Pad]>{
   if(pads.length<2)return[];
   const used=new Set<number>([0]);const edges:Array<[Pad,Pad]>=[];
@@ -281,6 +310,15 @@ function cellKey(x:number,y:number):string{return x+','+y;}
 
 export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   if(!source||Buffer.byteLength(source,'utf8')>MAX_BOARD_BYTES)throw new Error('KiCad route planner board must be 1..128 MiB.');
+  // KiCad rule areas can forbid tracks and/or vias without any pad geometry.
+  // Refuse planning until their geometry is modeled rather than silently
+  // routing through a manufacturing keepout and relying on late DRC rollback.
+  for(const area of blocks(source,'zone',8192)){
+    if(!/\(keepout\b/.test(area))continue;
+    const hasTrackBan=/\(tracks\s+not_allowed\)/.test(area);
+    const hasViaBan=/\(vias\s+not_allowed\)/.test(area);
+    if(hasTrackBan||hasViaBan)throw new Error('KiCad route planner does not yet model track/via copper keepout rule areas; refuse unsafe candidate routing.');
+  }
   const board=parseBoardBounds(source);
   const parsed=parseFootprints(source);
   const availableLayers=parseCopperLayers(source);
@@ -322,7 +360,6 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   let lastSearchBudgetExceeded = false;
   const planned=layers.map(()=>new Map<string,PlannedOccupancy[]>());
   const plannedMaxEnvelope=layers.map(()=>0);
-  const obstacles=parsed.footprints.flatMap(fp=>fp.obstacle?[fp.obstacle]:[]);
   const byNet=new Map<string,Pad[]>();
   for(const pad of parsed.pads){const list=byNet.get(pad.netName)??[];list.push(pad);byNet.set(pad.netName,list);}
   if(byNet.size>MAX_NETS)throw new Error(`KiCad route planner exceeds ${MAX_NETS} named nets.`);
@@ -338,10 +375,6 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   const toGrid=(p:Point)=>({x:Math.max(0,Math.min(nx-1,Math.round((p.x-minX)/gridMm))),y:Math.max(0,Math.min(ny-1,Math.round((p.y-minY)/gridMm)))});
   const toPoint=(x:number,y:number):Point=>({x:Number((minX+x*gridMm).toFixed(4)),y:Number((minY+y*gridMm).toFixed(4))});
   const layerAccess=(pad:Pad,layer:string)=>pad.layers.includes(layer)||pad.layers.includes('*.Cu')||pad.layers.includes('F&B.Cu');
-  const insideObstacle=(x:number,y:number,inflate:number,exempt:Set<string>)=>{
-    const p=toPoint(x,y);
-    return obstacles.some(o=>!exempt.has(o.reference??'')&&p.x>=o.minX-inflate&&p.x<=o.maxX+inflate&&p.y>=o.minY-inflate&&p.y<=o.maxY+inflate);
-  };
   const padBuckets=layers.map(()=>new Map<string,Pad[]>());
   for(const pad of parsed.pads)for(let li=0;li<layers.length;li++){
     if(!layerAccess(pad,layers[li]!))continue;
@@ -410,7 +443,6 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const startLayers=layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(start,x.layer)).map(x=>x.index);
     const endLayers=new Set(layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(end,x.layer)).map(x=>x.index));
     if(!startLayers.length||!endLayers.size)return undefined;
-    const exempt=new Set([start.reference,end.reference]);
     const inflate=clearance+width/2;
     const dirs=[[1,0],[-1,0],[0,1],[0,-1]] as const;
     let expandedTotal=0;
@@ -441,7 +473,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
           if(x<left||y<top||x>right||y>bottom)continue;
           const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
           if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
-          if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)||insideObstacle(x,y,inflate,exempt)))continue;
+          if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)))continue;
           const horizontal=dy===0,layerName=layers[cur.layer]!;
           const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
           const step=gridMm+(preferred?0:wrongWayPenalty)+(cur.dir<4&&cur.dir!==di?turnPenalty:0);
@@ -449,11 +481,11 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
           if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(x,y),next);}
         }
         const other=cur.layer===0?1:0;
-        const endpoint=(cur.x===s.x&&cur.y===s.y)||(cur.x===e.x&&cur.y===e.y);
         const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
         const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
-        const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
-        if(!viaForeignPadBlocked&&(endpoint||!viaBlocked)){
+        const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName));
+        // Endpoint vias must meet foreign-net copper clearance too.
+        if(!viaForeignPadBlocked&&!viaBlocked){
           const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
           if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(cur.x,cur.y),next);}
         }
@@ -518,6 +550,10 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     .sort((a,b)=>priorityFor(b[0])-priorityFor(a[0])||a[1].length-b[1].length||hpwl(a[1])-hpwl(b[1])||a[0].localeCompare(b[0]));
 
   for(const [netName,pads] of candidateNets){
+    if(alreadyConnectedByExistingCopper(pads,netName,existing,layers)){
+      skipped.push({netName,reason:'already-connected',padCount:pads.length});
+      continue;
+    }
     if (Date.now() - searchStartedAt > MAX_PLAN_ELAPSED_MS || searchExpansionsRemaining <= 0) {
       skipped.push({ netName, reason: 'search-budget-exhausted', padCount: pads.length });
       continue;
@@ -587,7 +623,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     operations,
     operationCount:operations.length,
     searchBudget:{ maximumPerPath:MAX_EXPANSIONS_PER_PATH, maximumPerPlan:MAX_EXPANSIONS_PER_PLAN, maxElapsedMs:MAX_PLAN_ELAPSED_MS, remaining:Math.max(0,searchExpansionsRemaining) },
-    complete:skipped.filter(item=>!['not-selected','explicitly-skipped'].includes(item.reason)).length===0,
+    complete:skipped.filter(item=>!['not-selected','explicitly-skipped','already-connected'].includes(item.reason)).length===0,
     execution:{
       tool:'kicad_route_batch_apply',
       requiresExactBoardSha:true,
@@ -595,7 +631,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     },
     limitations:[
       'Planner uses priority-ordered grid-based orthogonal routing on two selected copper layers with through-via transitions.',
-      'Footprint courtyards/pad envelopes and existing copper are treated as obstacles, but KiCad DRC remains authoritative.',
+      'Assembly courtyards are not copper keepouts; foreign pads and copper constrain routing. KiCad DRC remains authoritative.',
       'Existing tracks and vias use net-aware width/clearance geometry; search-budget-exhausted means no solution was proven within the bounded search, not that no valid route exists.',
       'Controlled impedance, differential-pair coupling, RF, DDR, length tuning, return-path quality and thermal/EMI behavior require explicit engineering review or specialized solvers.'
     ]

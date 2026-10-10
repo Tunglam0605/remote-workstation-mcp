@@ -104,8 +104,13 @@ function titleBlock(options: KicadSchematicSynthesisOptions): string | undefined
 }
 
 function autoPosition(index: number): { x: number; y: number } {
+  // Default schematic positions must land on KiCad's standard 50-mil grid.
+  // Off-grid auto-placement otherwise triggers endpoint_off_grid ERC warnings.
+  const gridMm = 1.27;
   const columns = 3;
-  return { x: 70 + (index % columns) * 65, y: 55 + Math.floor(index / columns) * 65 };
+  const xGrid = 55 + (index % columns) * 50;
+  const yGrid = 43 + Math.floor(index / columns) * 50;
+  return { x: Number((xGrid * gridMm).toFixed(4)), y: Number((yGrid * gridMm).toFixed(4)) };
 }
 
 export function synthesizeKicadSchematic(

@@ -25,7 +25,10 @@ test('Office capability pack is exposed only on Windows hosts', () => {
 
   const nonOffice = CAPABILITIES.filter(capability => !capability.id.startsWith('office.'));
   assert.deepEqual(linux, nonOffice);
-  assert.deepEqual(darwin, nonOffice);
+  assert.deepEqual(darwin, nonOffice.filter(capability => capability.id !== 'engineering.can'));
+  assert.equal(windows.some(capability => capability.id === 'engineering.can'), false);
+  assert.equal(linux.some(capability => capability.id === 'engineering.can'), true);
+  assert.equal(darwin.some(capability => capability.id === 'engineering.can'), false);
 });
 
 test('server registration fail-closes Office tools behind the Windows extension gate', async () => {
@@ -37,4 +40,15 @@ test('server registration fail-closes Office tools behind the Windows extension 
   assert.match(extensionSource, /id: 'productivity\.office'/);
   assert.match(extensionSource, /platforms: \['win32'\]/);
   assert.match(extensionSource, /register: registerOfficeTools/);
+});
+
+test('SocketCAN tools are listed only where the extension is registered', async () => {
+  const extensionSource = await fs.readFile(path.resolve('src/extensions/builtin.ts'), 'utf8');
+  assert.match(extensionSource, /id: 'domain\.can'/);
+  assert.match(extensionSource, /platforms: \['linux'\]/);
+  const names = ['can_provider_status', 'can_interface_list', 'can_interface_status', 'can_capture'];
+  for (const name of names) {
+    assert.equal(capabilitiesForPlatform('win32').some(capability => capability.tools.includes(name)), false);
+    assert.equal(capabilitiesForPlatform('linux').some(capability => capability.tools.includes(name)), true);
+  }
 });

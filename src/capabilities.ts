@@ -91,5 +91,8 @@ export const CAPABILITIES: CapabilityDescriptor[] = [
 ];
 
 export function capabilitiesForPlatform(platform: NodeJS.Platform | string = process.platform): CapabilityDescriptor[] {
-  return platform === 'win32' ? CAPABILITIES : CAPABILITIES.filter(capability => !capability.id.startsWith('office.'));
+  return CAPABILITIES.filter(capability =>
+    (platform === 'win32' || !capability.id.startsWith('office.')) &&
+    (platform === 'linux' || capability.id !== 'engineering.can')
+  );
 }

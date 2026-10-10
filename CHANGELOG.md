@@ -2,6 +2,14 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+## 0.70.0-dev.8 — Owner Full Control managed updates and safe runtime handoff
+
+- Adds dedicated authenticated MCP actions `update_install`, `update_install_status`, `update_restart`: only effective owner Full Control can stage a version-pinned official Windows development prerelease, review a durable update/rollback transaction and request a guarded runtime restart. No arbitrary shell, script-host or external update URL is introduced.
+- Uses the existing persistent owner Control Center, exact CSRF + Origin checks, official GitHub release preflight and package SHA-256 verification, versioned slots and durable worker handoffs.
+- Fixes the Windows safe-restart helper to read Moonlight's current CSRF meta tag rather than removed legacy inline JavaScript, and chooses the manifest-verified managed current slot instead of a stale old Control Center root.
+- Validation: full Windows `npm run verify` passed (994 passing / 2 skipped / 0 failed of 996 tests); cross-platform CI and official tagged package acceptance still required before deployment.
+- Development prerelease, opt-in per exact version. Full Control does not grant blanket automatic self-update or bypass owner lease, local CSRF, verified release/package, work-session interlocks or rollback gates.
+
 ## 0.70.0-dev.7 — KiCad fine-pitch routing and MCP attachment hardening
 
 - Adds an offline MCP registration ledger and attachment reconciliation tooling, with platform-accurate capability filtering for Linux-only SocketCAN tools on Windows; does not bypass tool permissions, tunnel authentication or client connector attachment.

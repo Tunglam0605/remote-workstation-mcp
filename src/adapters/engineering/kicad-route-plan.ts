@@ -287,7 +287,20 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   const layers=options.layers??(['F.Cu','B.Cu'] as [string,string]);
   for(const layer of layers)if(!availableLayers.includes(layer))throw new Error(`KiCad route planner layer ${layer} is not present on the board.`);
   if(layers[0]===layers[1])throw new Error('KiCad route planner requires two distinct routing layers.');
-  const gridMm=options.gridMm??0.5,edgeInset=options.edgeInsetMm??0.5,defaultWidth=options.defaultWidthMm??0.25,defaultClearance=options.defaultClearanceMm??0.2;
+  const edgeInset=options.edgeInsetMm??0.5,defaultWidth=options.defaultWidthMm??0.25,defaultClearance=options.defaultClearanceMm??0.2;
+  // Fine-pitch packages (for example STM32 LQFP, 0.5 mm pad pitch) need a
+  // finer route grid for reliable breakout. Do not exceed the bounded grid size.
+  const hasFinePitch=parsed.footprints.some(fp=>fp.pads.some((pad,index)=>fp.pads.slice(index+1).some(other=>{
+    const distance=Math.hypot(pad.position.x-other.position.x,pad.position.y-other.position.y);
+    return distance>=0.38&&distance<=0.65;
+  })));
+  const fitsFineGrid=(() => {
+    const grid=0.25;
+    const x=Math.floor(Math.max(0,board.maxX-board.minX-edgeInset*2)/grid)+1;
+    const y=Math.floor(Math.max(0,board.maxY-board.minY-edgeInset*2)/grid)+1;
+    return x*y*layers.length<=MAX_GRID_STATES;
+  })();
+  const gridMm=options.gridMm??(hasFinePitch&&fitsFineGrid?0.25:0.5);
   const viaDiameter=options.viaDiameterMm??0.6,viaDrill=options.viaDrillMm??0.3,viaCost=options.viaCostMm??8,turnPenalty=options.turnPenaltyMm??0.25,wrongWayPenalty=options.wrongWayPenaltyMm??0.15;
   const maxPads=options.maxPadsPerNet??32,maxOperations=options.maxOperations??4096;
   if(!(gridMm>=0.1&&gridMm<=5))throw new Error('KiCad route planner gridMm must be 0.1..5.');
@@ -392,56 +405,70 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   };
 
   const findPath=(netName:string,start:Pad,end:Pad,width:number,clearance:number,preferredLayer?:string)=>{
-    lastSearchBudgetExceeded = false;
+    lastSearchBudgetExceeded=false;
     const s=toGrid(start.position),e=toGrid(end.position);
     const startLayers=layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(start,x.layer)).map(x=>x.index);
     const endLayers=new Set(layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(end,x.layer)).map(x=>x.index));
     if(!startLayers.length||!endLayers.size)return undefined;
     const exempt=new Set([start.reference,end.reference]);
     const inflate=clearance+width/2;
-    const open=new MinHeap<GridState>(),g=new Map<string,number>(),parent=new Map<string,string>(),states=new Map<string,GridState>();
-    for(const li of startLayers){const state={x:s.x,y:s.y,layer:li,dir:4};const key=stateKey(state);g.set(key,0);states.set(key,state);open.push(Math.hypot(e.x-s.x,e.y-s.y)*gridMm,state);}
-    let expanded=0,goalKey:string|undefined;
     const dirs=[[1,0],[-1,0],[0,1],[0,-1]] as const;
-    while(open.size){
-      const item=open.pop()!,cur=item.value,curKey=stateKey(cur),curG=g.get(curKey);
-      if(curG===undefined)continue;
-      if(cur.x===e.x&&cur.y===e.y&&endLayers.has(cur.layer)){goalKey=curKey;break;}
-      // A geometrically blocked full-board search must not monopolize the workstation.
-      if (++expanded > MAX_EXPANSIONS_PER_PATH || --searchExpansionsRemaining < 0
-        || (expanded % 512 === 0 && Date.now() - searchStartedAt > MAX_PLAN_ELAPSED_MS)) {
-        lastSearchBudgetExceeded = true;
-        break;
+    let expandedTotal=0;
+    // First search a short corridor around the pad pair; progressively widen to
+    // the entire board. Each retry uses the same global per-path/plan budget.
+    // This avoids flooding unrelated board regions for short, local connections.
+    for(const marginMm of [4,12,32,Infinity]){
+      const margin=Number.isFinite(marginMm)?Math.ceil(marginMm/gridMm):Math.max(nx,ny);
+      const left=Math.max(0,Math.min(s.x,e.x)-margin),right=Math.min(nx-1,Math.max(s.x,e.x)+margin);
+      const top=Math.max(0,Math.min(s.y,e.y)-margin),bottom=Math.min(ny-1,Math.max(s.y,e.y)+margin);
+      const open=new MinHeap<GridState>(),g=new Map<string,number>(),parent=new Map<string,string>(),states=new Map<string,GridState>();
+      const heuristic=(x:number,y:number)=>Math.hypot(e.x-x,e.y-y)*gridMm;
+      for(const li of startLayers){const state:GridState={x:s.x,y:s.y,layer:li,dir:4};const key=stateKey(state);g.set(key,0);states.set(key,state);open.push(heuristic(s.x,s.y),state);}
+      let goalKey:string|undefined;
+      while(open.size){
+        const item=open.pop()!,cur=item.value,curKey=stateKey(cur),curG=g.get(curKey);
+        if(curG===undefined)continue;
+        // Discard stale heap entries after a cheaper route to this state was queued.
+        if(item.score>curG+heuristic(cur.x,cur.y)+1e-8)continue;
+        if(cur.x===e.x&&cur.y===e.y&&endLayers.has(cur.layer)){goalKey=curKey;break;}
+        if(++expandedTotal>MAX_EXPANSIONS_PER_PATH||--searchExpansionsRemaining<0
+           ||(expandedTotal%512===0&&Date.now()-searchStartedAt>MAX_PLAN_ELAPSED_MS)){
+          lastSearchBudgetExceeded=true;
+          break;
+        }
+        for(let di=0;di<dirs.length;di++){
+          const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
+          if(x<left||y<top||x>right||y>bottom)continue;
+          const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
+          if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
+          if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)||insideObstacle(x,y,inflate,exempt)))continue;
+          const horizontal=dy===0,layerName=layers[cur.layer]!;
+          const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
+          const step=gridMm+(preferred?0:wrongWayPenalty)+(cur.dir<4&&cur.dir!==di?turnPenalty:0);
+          const next:GridState={x,y,layer:cur.layer,dir:di},key=stateKey(next),ng=curG+step;
+          if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(x,y),next);}
+        }
+        const other=cur.layer===0?1:0;
+        const endpoint=(cur.x===s.x&&cur.y===s.y)||(cur.x===e.x&&cur.y===e.y);
+        const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
+        const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
+        const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
+        if(!viaForeignPadBlocked&&(endpoint||!viaBlocked)){
+          const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
+          if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(cur.x,cur.y),next);}
+        }
       }
-      for(let di=0;di<dirs.length;di++){
-        const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
-        if(x<0||y<0||x>=nx||y>=ny)continue;
-        const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
-        if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
-        if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)||insideObstacle(x,y,inflate,exempt)))continue;
-        const horizontal=dy===0,layerName=layers[cur.layer]!;
-        const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
-        const step=gridMm+(preferred?0:wrongWayPenalty)+(cur.dir<4&&cur.dir!==di?turnPenalty:0);
-        const next:GridState={x,y,layer:cur.layer,dir:di},key=stateKey(next),ng=curG+step;
-        if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+Math.hypot(e.x-x,e.y-y)*gridMm,next);}
+      if(goalKey){
+        const path:GridState[]=[];let key:string|undefined=goalKey;
+        while(key){const state=states.get(key);if(!state)break;path.push(state);key=parent.get(key);}
+        path.reverse();
+        return path;
       }
-      const other=cur.layer===0?1:0;
-      const endpoint=(cur.x===s.x&&cur.y===s.y)||(cur.x===e.x&&cur.y===e.y);
-      const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
-      const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
-      const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
-      if(!viaForeignPadBlocked&&(endpoint||!viaBlocked)){
-        const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
-        if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+Math.hypot(e.x-cur.x,e.y-cur.y)*gridMm,next);}
-      }
+      if(lastSearchBudgetExceeded)break;
+      if(left===0&&right===nx-1&&top===0&&bottom===ny-1)break;
     }
-    if(!goalKey)return undefined;
-    const path:GridState[]=[];let key:string|undefined=goalKey;
-    while(key){const state=states.get(key);if(!state)break;path.push(state);key=parent.get(key);}
-    path.reverse();
-    return path;
+    return undefined;
   };
-
   const pathToOperations=(netName:string,path:GridState[],start:Pad,end:Pad,width:number)=>{
     const out:KicadRouteBatchOperation[]=[];
     if(path.length<1)return out;
@@ -479,9 +506,16 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   };
 
   const priorityFor=(name:string)=>styleMap.get(name)?.priority??0;
+  // Group priorities win. Within the same priority/fanout, try short connections
+  // first so a hard long route cannot consume the entire bounded plan before
+  // simpler local nets get a chance. HPWL is only a geometric ordering proxy.
+  const hpwl=(pads:Pad[])=>{
+    const xs=pads.map(p=>p.position.x),ys=pads.map(p=>p.position.y);
+    return Math.max(...xs)-Math.min(...xs)+Math.max(...ys)-Math.min(...ys);
+  };
   const candidateNets=[...byNet.entries()]
     .filter(([name,pads])=>!name.startsWith('unconnected-(')&&pads.length>=2&&(!selected||selected.has(name))&&!skippedExplicit.has(name))
-    .sort((a,b)=>priorityFor(b[0])-priorityFor(a[0])||a[1].length-b[1].length||a[0].localeCompare(b[0]));
+    .sort((a,b)=>priorityFor(b[0])-priorityFor(a[0])||a[1].length-b[1].length||hpwl(a[1])-hpwl(b[1])||a[0].localeCompare(b[0]));
 
   for(const [netName,pads] of candidateNets){
     if (Date.now() - searchStartedAt > MAX_PLAN_ELAPSED_MS || searchExpansionsRemaining <= 0) {

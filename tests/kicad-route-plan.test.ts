@@ -469,3 +469,23 @@ test('route planner can reuse existing same-net copper without treating it as fo
   assert.equal(result.routed[0]?.netName, '/SIG');
 });
 
+
+test('route planner prioritizes shorter same-priority nets before longer lexically earlier nets', () => {
+  const source = BOARD.replaceAll('/SIG', '/A_LONG').replaceAll('/AUX', '/Z_SHORT');
+  const plan = planKicadRoutes(source, { gridMm: 0.5 });
+  assert.equal(plan.complete, true);
+  assert.equal(plan.nets.routedCount, 2);
+  assert.deepEqual(plan.routed.map(x => x.netName), ['/Z_SHORT', '/A_LONG']);
+});
+
+test('auto-selects 0.25 mm grid for fine-pitch pads without exceeding the bounded board grid', () => {
+  const source = BOARD.replace(
+    '(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))',
+    '(pad "1" smd rect (at 0 0) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))\n' +
+    '    (pad "2" smd rect (at 0 0.5) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 2 "/AUX"))'
+  );
+  assert.equal(planKicadRoutes(source, { selectedNets: ['/NONE_IN_THIS_FIXTURE'] }).board.gridMm, 0.25);
+  assert.equal(planKicadRoutes(source, { selectedNets: ['/NONE_IN_THIS_FIXTURE'], gridMm: 0.5 }).board.gridMm, 0.5);
+  const largerBoard = source.replace('(end 40 30)', '(end 250 180)');
+  assert.equal(planKicadRoutes(largerBoard, { selectedNets: ['/NONE_IN_THIS_FIXTURE'] }).board.gridMm, 0.5);
+});

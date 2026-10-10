@@ -5,6 +5,10 @@ const MAX_FOOTPRINTS = 512;
 const MAX_PADS = 8192;
 const MAX_NETS = 2048;
 const MAX_GRID_STATES = 650_000;
+// Bound CPU/memory work even when an obstacle search cannot prove a route exists.
+const MAX_EXPANSIONS_PER_PATH = 120_000;
+const MAX_EXPANSIONS_PER_PLAN = 250_000;
+const MAX_PLAN_ELAPSED_MS = 20_000;
 
 type Point = { x: number; y: number };
 type Rect = { minX: number; minY: number; maxX: number; maxY: number; reference?: string };
@@ -184,37 +188,71 @@ function parseCopperLayers(source:string):string[]{
   return found.length?found:['F.Cu','B.Cu'];
 }
 
-function parseExistingTracks(source:string,grid:{originX:number;originY:number;step:number},layers:string[]):Array<Set<string>>{
-  const occupied=layers.map(()=>new Set<string>());
-  const indexOf=new Map(layers.map((layer,index)=>[layer,index]));
-  const mark=(layer:string,a:Point,b:Point,width:number)=>{
-    const li=indexOf.get(layer);if(li===undefined)return;
-    const length=Math.hypot(b.x-a.x,b.y-a.y),steps=Math.max(1,Math.ceil(length/(grid.step/2)));
-    const radius=Math.max(grid.step,width/2)/grid.step;
-    for(let i=0;i<=steps;i++){
-      const t=i/steps,x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t;
-      const ix=Math.round((x-grid.originX)/grid.step),iy=Math.round((y-grid.originY)/grid.step);
-      const r=Math.ceil(radius);
-      for(let dx=-r;dx<=r;dx++)for(let dy=-r;dy<=r;dy++)occupied[li]!.add((ix+dx)+','+(iy+dy));
-    }
-  };
-  for(const block of blocks(source,'segment',250000)){
-    const layer=block.match(/\(layer\s+"([^"]+)"\)/)?.[1],a=pointToken(block,'start'),b=pointToken(block,'end'),width=numberToken(block,'width')??0.25;
-    if(layer&&a&&b)mark(layer,a,b,width);
-  }
-  for(const block of blocks(source,'arc',250000)){
-    const layer=block.match(/\(layer\s+"([^"]+)"\)/)?.[1],a=pointToken(block,'start'),b=pointToken(block,'end'),mid=pointToken(block,'mid'),width=numberToken(block,'width')??0.25;
-    if(layer&&a&&b&&mid){mark(layer,a,mid,width);mark(layer,mid,b,width);}
-  }
-  for(const block of blocks(source,'via',250000)){
-    const p=at(block);if(!p)continue;
-    const size=numberToken(block,'size')??0.6,r=Math.ceil((size/2)/grid.step);
-    const ix=Math.round((p.x-grid.originX)/grid.step),iy=Math.round((p.y-grid.originY)/grid.step);
-    for(const set of occupied)for(let dx=-r;dx<=r;dx++)for(let dy=-r;dy<=r;dy++)set.add((ix+dx)+','+(iy+dy));
-  }
-  return occupied;
+type ExistingCopper = { netName: string; start: Point; end: Point; radiusMm: number };
+type ExistingCopperIndex = { buckets: Array<Map<string, ExistingCopper[]>>; maxRadiusMm: number[] };
+
+function pointSegmentDistance(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq < 1e-12) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq));
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
 }
 
+function parseExistingTracks(source: string, grid: { originX: number; originY: number; step: number }, layers: string[]): ExistingCopperIndex {
+  // Store copper centerlines and true radius, not inflated square grid cells.
+  // The old 3x3 occupancy dilation at 0.25 mm grid could block legal 0.5 mm-pitch escapes.
+  const buckets = layers.map(() => new Map<string, ExistingCopper[]>());
+  const maxRadiusMm = layers.map(() => 0);
+  const indexOf = new Map(layers.map((layer, index) => [layer, index]));
+  const netNames = new Map<number, string>();
+  for (const match of source.matchAll(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/g)) {
+    netNames.set(Number(match[1]), unquote(match[2]!));
+  }
+  const netNameOf = (block: string) => {
+    const match = block.match(/\(net\s+(\d+)(?:\s+"[^"]*")?\)/);
+    return match ? (netNames.get(Number(match[1])) ?? '<unknown-net>') : '<unknown-net>';
+  };
+  const mark = (layer: string, start: Point, end: Point, radiusMm: number, netName: string) => {
+    const li = indexOf.get(layer);
+    if (li === undefined) return;
+    const copper: ExistingCopper = { netName, start, end, radiusMm };
+    maxRadiusMm[li] = Math.max(maxRadiusMm[li]!, radiusMm);
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    const steps = Math.max(1, Math.ceil(length / (grid.step / 2)));
+    const visited = new Set<string>();
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps, x = start.x + (end.x - start.x) * t, y = start.y + (end.y - start.y) * t;
+      const key = cellKey(Math.round((x - grid.originX) / grid.step), Math.round((y - grid.originY) / grid.step));
+      if (visited.has(key)) continue;
+      visited.add(key);
+      const bucket = buckets[li]!.get(key) ?? [];
+      bucket.push(copper);
+      buckets[li]!.set(key, bucket);
+    }
+  };
+  for (const block of blocks(source, 'segment', 250000)) {
+    const layer = block.match(/\(layer\s+"([^"]+)"\)/)?.[1];
+    const a = pointToken(block, 'start'), b = pointToken(block, 'end');
+    const width = numberToken(block, 'width') ?? 0.25;
+    if (layer && a && b) mark(layer, a, b, width / 2, netNameOf(block));
+  }
+  for (const block of blocks(source, 'arc', 250000)) {
+    const layer = block.match(/\(layer\s+"([^"]+)"\)/)?.[1];
+    const a = pointToken(block, 'start'), b = pointToken(block, 'end'), mid = pointToken(block, 'mid');
+    const width = numberToken(block, 'width') ?? 0.25;
+    // Piecewise-linear conservative arc approximation; KiCad DRC remains authoritative.
+    if (layer && a && b && mid) { mark(layer, a, mid, width / 2, netNameOf(block)); mark(layer, mid, b, width / 2, netNameOf(block)); }
+  }
+  for (const block of blocks(source, 'via', 250000)) {
+    const pos = at(block);
+    if (!pos) continue;
+    const radiusMm = (numberToken(block, 'size') ?? 0.6) / 2;
+    const netName = netNameOf(block);
+    for (const layer of layers) mark(layer, pos, pos, radiusMm, netName);
+  }
+  return { buckets, maxRadiusMm };
+}
 function mstEdges(pads:Pad[]):Array<[Pad,Pad]>{
   if(pads.length<2)return[];
   const used=new Set<number>([0]);const edges:Array<[Pad,Pad]>=[];
@@ -266,6 +304,9 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   if(nx*ny*layers.length>MAX_GRID_STATES)throw new Error(`KiCad route planner grid exceeds ${MAX_GRID_STATES} states; increase gridMm or reduce board area.`);
   const grid={originX:minX,originY:minY,step:gridMm,nx,ny};
   const existing=parseExistingTracks(source,grid,layers);
+  let searchExpansionsRemaining = MAX_EXPANSIONS_PER_PLAN;
+  const searchStartedAt = Date.now();
+  let lastSearchBudgetExceeded = false;
   const planned=layers.map(()=>new Map<string,PlannedOccupancy[]>());
   const plannedMaxEnvelope=layers.map(()=>0);
   const obstacles=parsed.footprints.flatMap(fp=>fp.obstacle?[fp.obstacle]:[]);
@@ -316,11 +357,20 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     }
     return false;
   };
-  const nearOccupied=(set:Set<string>,x:number,y:number,radiusMm:number)=>{
-    const radiusCells=Math.ceil(Math.max(0,radiusMm)/gridMm);
-    for(let dx=-radiusCells;dx<=radiusCells;dx++)for(let dy=-radiusCells;dy<=radiusCells;dy++){
-      if(Math.hypot(dx*gridMm,dy*gridMm)>radiusMm+gridMm*0.75)continue;
-      if(set.has(cellKey(x+dx,y+dy)))return true;
+  const nearExistingCopper = (layer: number, x: number, y: number, radiusMm: number, clearanceMm: number, netName: string) => {
+    const searchRadius = radiusMm + clearanceMm + existing.maxRadiusMm[layer]! + gridMm;
+    const radiusCells = Math.ceil(searchRadius / gridMm) + 1;
+    const point = toPoint(x, y), seen = new Set<ExistingCopper>();
+    for (let dx = -radiusCells; dx <= radiusCells; dx++) for (let dy = -radiusCells; dy <= radiusCells; dy++) {
+      const bucket = existing.buckets[layer]!.get(cellKey(x + dx, y + dy));
+      if (!bucket) continue;
+      for (const copper of bucket) {
+        if (seen.has(copper)) continue;
+        seen.add(copper);
+        if (copper.netName === netName) continue;
+        const required = radiusMm + clearanceMm + copper.radiusMm;
+        if (pointSegmentDistance(point, copper.start, copper.end) < required - 1e-9) return true;
+      }
     }
     return false;
   };
@@ -342,6 +392,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   };
 
   const findPath=(netName:string,start:Pad,end:Pad,width:number,clearance:number,preferredLayer?:string)=>{
+    lastSearchBudgetExceeded = false;
     const s=toGrid(start.position),e=toGrid(end.position);
     const startLayers=layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(start,x.layer)).map(x=>x.index);
     const endLayers=new Set(layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(end,x.layer)).map(x=>x.index));
@@ -356,13 +407,18 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       const item=open.pop()!,cur=item.value,curKey=stateKey(cur),curG=g.get(curKey);
       if(curG===undefined)continue;
       if(cur.x===e.x&&cur.y===e.y&&endLayers.has(cur.layer)){goalKey=curKey;break;}
-      if(++expanded>MAX_GRID_STATES)break;
+      // A geometrically blocked full-board search must not monopolize the workstation.
+      if (++expanded > MAX_EXPANSIONS_PER_PATH || --searchExpansionsRemaining < 0
+        || (expanded % 512 === 0 && Date.now() - searchStartedAt > MAX_PLAN_ELAPSED_MS)) {
+        lastSearchBudgetExceeded = true;
+        break;
+      }
       for(let di=0;di<dirs.length;di++){
         const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
         if(x<0||y<0||x>=nx||y>=ny)continue;
         const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
         if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
-        if(!endpoint&&(nearOccupied(existing[cur.layer]!,x,y,inflate)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)||insideObstacle(x,y,inflate,exempt)))continue;
+        if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)||insideObstacle(x,y,inflate,exempt)))continue;
         const horizontal=dy===0,layerName=layers[cur.layer]!;
         const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
         const step=gridMm+(preferred?0:wrongWayPenalty)+(cur.dir<4&&cur.dir!==di?turnPenalty:0);
@@ -373,7 +429,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       const endpoint=(cur.x===s.x&&cur.y===s.y)||(cur.x===e.x&&cur.y===e.y);
       const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
       const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
-      const viaBlocked=[cur.layer,other].some(li=>nearOccupied(existing[li]!,cur.x,cur.y,viaInflate)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
+      const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||insideObstacle(cur.x,cur.y,viaInflate,exempt));
       if(!viaForeignPadBlocked&&(endpoint||!viaBlocked)){
         const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
         if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+Math.hypot(e.x-cur.x,e.y-cur.y)*gridMm,next);}
@@ -428,10 +484,15 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     .sort((a,b)=>priorityFor(b[0])-priorityFor(a[0])||a[1].length-b[1].length||a[0].localeCompare(b[0]));
 
   for(const [netName,pads] of candidateNets){
+    if (Date.now() - searchStartedAt > MAX_PLAN_ELAPSED_MS || searchExpansionsRemaining <= 0) {
+      skipped.push({ netName, reason: 'search-budget-exhausted', padCount: pads.length });
+      continue;
+    }
     if(pads.length>maxPads){skipped.push({netName,reason:`pad-count-exceeds-${maxPads}`,padCount:pads.length});continue;}
     const style=styleMap.get(netName),width=style?.widthMm??defaultWidth,clearance=style?.clearanceMm??defaultClearance,priority=style?.priority??0;
     if(width<0.05||width>20||clearance<0||clearance>10||!Number.isInteger(priority)||priority<-1000||priority>1000){skipped.push({netName,reason:'invalid-style',padCount:pads.length});continue;}
     const edges=mstEdges(pads),netOps:KicadRouteBatchOperation[]=[],netOpKeys=new Set<string>();const added:Array<{layer:number;cell:string;entry:PlannedOccupancy}>=[];let failed=false,length=0,vias=0;
+    let failureReason = 'no-obstacle-safe-grid-path';
     const reserve=(state:GridState,radiusMm:number)=>{
       const cell=cellKey(state.x,state.y),entry:PlannedOccupancy={netName,radiusMm,clearanceMm:clearance};
       const bucket=planned[state.layer]!.get(cell)??[];
@@ -440,7 +501,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     };
     for(const [a,b] of edges){
       const path=findPath(netName,a,b,width,clearance,style?.preferredLayer);
-      if(!path){failed=true;break;}
+      if(!path){failed=true;failureReason = lastSearchBudgetExceeded ? 'search-budget-exhausted' : 'no-obstacle-safe-grid-path';break;}
       const edgeOps=pathToOperations(netName,path,a,b,width);
       for(const op of edgeOps){
         const key=routeOperationKey(op);
@@ -471,7 +532,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         for(const bucket of planned[layer]!.values())for(const entry of bucket)maxEnvelope=Math.max(maxEnvelope,entry.radiusMm+entry.clearanceMm);
         plannedMaxEnvelope[layer]=maxEnvelope;
       }
-      skipped.push({netName,reason:operations.length+netOps.length>=maxOperations?'operation-limit':'no-obstacle-safe-grid-path',padCount:pads.length});continue;
+      skipped.push({netName,reason:operations.length+netOps.length>=maxOperations?'operation-limit':failureReason,padCount:pads.length});continue;
     }
     operations.push(...netOps);routed.push({netName,priority,padCount:pads.length,edges:edges.length,operations:netOps.length,estimatedLengthMm:Number(length.toFixed(4)),viaCount:vias});
   }
@@ -491,6 +552,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     skipped:skipped.slice(0,512),
     operations,
     operationCount:operations.length,
+    searchBudget:{ maximumPerPath:MAX_EXPANSIONS_PER_PATH, maximumPerPlan:MAX_EXPANSIONS_PER_PLAN, maxElapsedMs:MAX_PLAN_ELAPSED_MS, remaining:Math.max(0,searchExpansionsRemaining) },
     complete:skipped.filter(item=>!['not-selected','explicitly-skipped'].includes(item.reason)).length===0,
     execution:{
       tool:'kicad_route_batch_apply',
@@ -500,6 +562,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     limitations:[
       'Planner uses priority-ordered grid-based orthogonal routing on two selected copper layers with through-via transitions.',
       'Footprint courtyards/pad envelopes and existing copper are treated as obstacles, but KiCad DRC remains authoritative.',
+      'Existing tracks and vias use net-aware width/clearance geometry; search-budget-exhausted means no solution was proven within the bounded search, not that no valid route exists.',
       'Controlled impedance, differential-pair coupling, RF, DDR, length tuning, return-path quality and thermal/EMI behavior require explicit engineering review or specialized solvers.'
     ]
   };

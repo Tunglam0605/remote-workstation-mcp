@@ -415,3 +415,57 @@ test('route planner transforms rotated footprint pad coordinates using KiCad clo
   const endpoints=[segment.start,segment.end];
   assert.ok(endpoints.some(point=>Math.abs(point.x-10)<1e-6&&Math.abs(point.y-11)<1e-6));
 });
+
+test('route planner respects exact foreign copper clearance and permits 0.5 mm adjacent routing', () => {
+  const board = `(kicad_pcb
+    (version 20241229)
+    (generator "rwmcp-test")
+    (general (thickness 1.6))
+    (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (44 "Edge.Cuts" user))
+    (setup (pad_to_mask_clearance 0))
+    (net 0 "")
+    (net 1 "/EXISTING")
+    (net 2 "/NEW")
+    (footprint "Test:Header1"
+      (layer "F.Cu") (at 5 15)
+      (property "Reference" "J1")
+      (property "Value" "HEADER1")
+      (pad "1" smd rect (at 0 0) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 1 "/EXISTING"))
+      (pad "2" smd rect (at 0 0.5) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 2 "/NEW"))
+    )
+    (footprint "Test:Header2"
+      (layer "F.Cu") (at 35 15)
+      (property "Reference" "J2")
+      (property "Value" "HEADER2")
+      (pad "1" smd rect (at 0 0) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 1 "/EXISTING"))
+      (pad "2" smd rect (at 0 0.5) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 2 "/NEW"))
+    )
+    (segment (start 5 15) (end 35 15) (width 0.2) (layer "F.Cu") (net 1))
+    (gr_rect (start 0 0) (end 40 30) (stroke (width 0.05) (type default)) (fill none) (layer "Edge.Cuts"))
+  )`;
+  const result = planKicadRoutes(board, {
+    gridMm: 0.25, edgeInsetMm: 1, defaultWidthMm: 0.2, defaultClearanceMm: 0.2,
+    selectedNets: ['/NEW'], maxOperations: 256
+  });
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.routed.map(route => route.netName), ['/NEW']);
+  const routedSegments = result.operations.filter(op => op.kind === 'segment' && op.layer === 'F.Cu');
+  assert.ok(routedSegments.length > 0, 'must not incorrectly reserve 3x3 grid cells around existing copper');
+  // Existing 0.20 mm track at y=15 has its own 0.10 mm radius;
+  // new 0.20 mm track at y=15.5 keeps 0.30 mm copper gap >= 0.20 mm.
+  for (const op of routedSegments) {
+    const midY = (op.start.y + op.end.y) / 2;
+    assert.ok(midY >= 15.3, 'routed track must stay clear of foreign copper: ' + JSON.stringify(op));
+  }
+});
+
+test('route planner can reuse existing same-net copper without treating it as foreign', () => {
+  const board = BOARD.replace(
+    '  (gr_rect',
+    '  (segment (start 5 15) (end 20 15) (width 0.25) (layer "F.Cu") (net 1))\n  (gr_rect'
+  );
+  const result = planKicadRoutes(board, { gridMm: 0.5, selectedNets: ['/SIG'] });
+  assert.equal(result.complete, true);
+  assert.equal(result.routed[0]?.netName, '/SIG');
+});
+

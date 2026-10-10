@@ -74,6 +74,11 @@ export function reconcile(catalog, clientSnapshot, rawMcpSnapshot) {
     throw new Error('Raw MCP tools/list is paginated: supply a complete merged snapshot of all pages.');
   }
   const mcp = rawMcpSnapshot === undefined ? null : namesFrom(rawMcpSnapshot, 'Raw MCP tools/list');
+  // Optional per-server registration ledger is NOT a protocol tools/list snapshot.
+  const registered = catalog.registeredToolSurface === undefined ? null
+    : namesFrom(catalog.registeredToolSurface, 'MCP server registration ledger');
+  const advertisedNotRegistered = registered === null ? null : missing(declared.names, registered);
+  const registeredNotAttached = registered === null ? null : missing(registered, attached);
   const advertisedNotClient = missing(declared.names, attached);
   const clientNotAdvertised = missing(attached, declared.names);
   const serverMissing = mcp === null ? null : missing(declared.names, mcp);
@@ -94,6 +99,8 @@ export function reconcile(catalog, clientSnapshot, rawMcpSnapshot) {
       advertised: declared.names.length,
       chatgptAttached: attached.length,
       rawMcp: mcp === null ? null : mcp.length,
+      serverRegistered: registered === null ? null : registered.length,
+      advertisedNotRegistered: advertisedNotRegistered === null ? null : advertisedNotRegistered.length,
       advertisedNotClient: advertisedNotClient.length,
       advertisedNotMcp: serverMissing === null ? null : serverMissing.length,
       rawMcpNotClient: clientMissing === null ? null : clientMissing.length
@@ -101,13 +108,17 @@ export function reconcile(catalog, clientSnapshot, rawMcpSnapshot) {
     evidence: {
       advertisedNotClient,
       clientNotAdvertised,
+      advertisedNotRegistered,
+      registeredNotClient: registeredNotAttached,
       advertisedNotMcp: serverMissing,
       rawMcpNotClient: clientMissing,
       clientNotRawMcp: staleClient,
       groups: groupedMissing(declared.groups, attached)
     },
     diagnosis: mcp === null
-      ? 'Raw authenticated MCP tools/list not supplied: do not attribute missing actions to server or ChatGPT.'
+      ? (advertisedNotRegistered?.length
+        ? 'Server registration ledger is missing advertised names; verify the registration actor and extension filtering. Raw authenticated MCP tools/list is still required.'
+        : 'Raw authenticated MCP tools/list not supplied: do not attribute missing actions to server or ChatGPT.')
       : serverMissing.length > 0
         ? 'Some advertised tools are absent from MCP tools/list: investigate server registration/filtering first.'
         : clientMissing.length > 0 || staleClient.length > 0

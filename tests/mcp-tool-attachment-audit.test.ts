@@ -37,7 +37,7 @@ test('all three surfaces match even with unselected packs and capability overlap
   const result = audit(['beta', 'alpha', 'media_probe'], { tools: [{ name: 'media_probe' }, { name: 'alpha' }, { name: 'beta' }] });
   assert.equal(result.code, 0);
   assert.equal(result.report.status, 'PASS');
-  assert.deepEqual(result.report.counts, { advertised: 3, chatgptAttached: 3, rawMcp: 3, advertisedNotClient: 0, advertisedNotMcp: 0, rawMcpNotClient: 0 });
+  assert.deepEqual(result.report.counts, { advertised: 3, chatgptAttached: 3, rawMcp: 3, serverRegistered: null, advertisedNotRegistered: null, advertisedNotClient: 0, advertisedNotMcp: 0, rawMcpNotClient: 0 });
 });
 
 test('server registration gap is distinguished from client attachment gap', () => {
@@ -77,4 +77,28 @@ test('duplicate or malformed tool names fail closed without exposing snapshot va
   assert.equal(malformed.code, 1);
   assert.match(malformed.stderr, /invalid tool name/);
   assert.doesNotMatch(malformed.stderr, /secret:abc/);
+});
+
+test('server registration ledger is independent of authenticated protocol tools/list', () => {
+  const source = {
+    ...catalog,
+    registeredToolSurface: { source: 'server.registerTool', scope: 'this MCP server instance only', count: 2, names: ['alpha', 'beta'] }
+  };
+  const result = audit(['alpha', 'beta'], undefined, source);
+  assert.equal(result.code, 3);
+  assert.equal(result.report.status, 'UNVERIFIED_RAW_MCP');
+  assert.equal(result.report.counts.rawMcp, null);
+  assert.equal(result.report.counts.serverRegistered, 2);
+  assert.deepEqual(result.report.evidence.advertisedNotRegistered, ['media_probe']);
+  assert.deepEqual(result.report.evidence.registeredNotClient, []);
+  assert.match(result.report.diagnosis, /registration actor/);
+});
+
+test('a complete registration ledger does not falsely prove client attachment', () => {
+  const source = { ...catalog, registeredToolSurface: { names: ['alpha', 'beta', 'media_probe'] } };
+  const result = audit(['alpha', 'beta'], undefined, source);
+  assert.equal(result.code, 3);
+  assert.deepEqual(result.report.evidence.advertisedNotRegistered, []);
+  assert.deepEqual(result.report.evidence.registeredNotClient, ['media_probe']);
+  assert.match(result.report.diagnosis, /Raw authenticated MCP/);
 });

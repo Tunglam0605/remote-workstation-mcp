@@ -334,12 +334,12 @@ export function registerCoreTools(server: McpServer, ctx: AppContext, registered
   ));
 
   server.registerTool('work_session_worktree_cleanup', {
-    description: 'Safely remove a clean caller-owned Work Session worktree. Dirty worktrees are never force-removed and return NEEDS_OWNER_OR_EXPLICIT_ACTION.',
+    description: 'Safely remove a clean caller-owned Work Session worktree ONLY after CLOSED/EXPIRED and when no owned runtime resources remain. Active/blocked/recovering/dirty worktrees are never removed; blocked attempts return NEEDS_OWNER_OR_EXPLICIT_ACTION.',
     inputSchema: z.object({ sessionId: z.string().uuid() }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ sessionId }) => result(
     await audited(ctx.audit, 'work_session_worktree_cleanup', undefined, () =>
-      ctx.worktreeManager.cleanup(sessionId)
+      ctx.workSessionLifecycle.cleanup(sessionId)
     )
   ));
 

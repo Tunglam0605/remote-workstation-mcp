@@ -77,6 +77,11 @@ test('two writable Work Sessions on the same repo receive isolated sibling workt
   assert.equal(aAgain.worktreePath, a.worktreePath);
   assert.equal(aAgain.commit, liveCommit);
 
+  const activeClean = await manager.cleanup(sessionA.id);
+  assert.equal(activeClean.cleanupState, 'needs-owner-or-explicit-action');
+  assert.match(activeClean.reason ?? '', /close or expire this Work Session/);
+  assert.equal(await fs.stat(path.join(root, a.worktreePath!)).then(() => true, () => false), true);
+
   await fs.writeFile(path.join(root, a.worktreePath!, 'README.md'), 'dirty\n', 'utf8');
   const blocked = await manager.cleanup(sessionA.id);
   assert.equal(blocked.cleanupState, 'needs-owner-or-explicit-action');

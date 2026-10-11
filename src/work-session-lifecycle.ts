@@ -28,6 +28,7 @@ export type WorkSessionLifecycleBlocker =
   | 'WORKTREE_DIRTY'
   | 'SESSION_CLOSING'
   | 'SESSION_TERMINAL'
+  | 'SESSION_NOT_TERMINAL'
   | 'WORKTREE_NOT_CONFIGURED';
 
 export interface WorkSessionLifecyclePreview {
@@ -95,6 +96,7 @@ export class WorkSessionLifecycleService {
     if (terminal) closeBlockers.push('SESSION_TERMINAL');
 
     const cleanupBlockers: WorkSessionLifecycleBlocker[] = [];
+    if (!terminal) cleanupBlockers.push('SESSION_NOT_TERMINAL');
     if (!worktreeConfigured) cleanupBlockers.push('WORKTREE_NOT_CONFIGURED');
     if (resourcesActive) cleanupBlockers.push('RUNTIME_RESOURCES_ACTIVE');
     if (dirty) cleanupBlockers.push('WORKTREE_DIRTY');
@@ -115,6 +117,19 @@ export class WorkSessionLifecycleService {
       authority: 'read-only-preview',
       executionActive: false
     };
+  }
+
+  async cleanup(sessionId: string): Promise<WorktreeState> {
+    const preview = await this.preview(sessionId);
+    if (preview.cleanup.blockers.includes('WORKTREE_NOT_CONFIGURED')) return preview.worktree;
+    if (!preview.cleanup.eligible) {
+      return {
+        ...preview.worktree,
+        cleanupState: 'needs-owner-or-explicit-action',
+        reason: 'NEEDS_OWNER_OR_EXPLICIT_ACTION: Work Session cleanup blocked: ' + preview.cleanup.blockers.join(', ')
+      };
+    }
+    return await this.worktrees.cleanup(sessionId);
   }
 
   async close(sessionId: string): Promise<WorkSessionCloseResult> {

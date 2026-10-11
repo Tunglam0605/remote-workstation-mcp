@@ -188,6 +188,16 @@ export class WorktreeManager {
       };
     }
 
+    // A clean worktree may still be in use by an active Codex/Antigravity task.
+    // Cleanup is only legal after terminal Work Session transition.
+    if (session.status !== 'closed' && session.status !== 'expired') {
+      return {
+        sessionId, workspace: project.workspace, repoPath,
+        worktreePath: project.worktreePath, branch: project.branch, buildDir: project.buildDir,
+        cleanupState: 'needs-owner-or-explicit-action',
+        reason: 'NEEDS_OWNER_OR_EXPLICIT_ACTION: close or expire this Work Session before removing its worktree.'
+      };
+    }
     await this.git.removeWorktree(project.workspace, project.worktreePath, false, repoPath);
     await this.sessions.updateProject(sessionId, {
       worktreePath: undefined,

@@ -2,6 +2,18 @@
 
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
+
+## 0.70.0-dev.9 — Windows-only consolidation, guarded releases and KiCad correctness
+
+- Windows is the only actively developed and newly published platform. Ubuntu Personal v0.66.0 remains the frozen historical baseline; intentionally powered-off Ubuntu Vision and SSD nodes are not availability incidents. Historical Ubuntu installer assets/tags are preserved without modification.
+- Consolidates growth budgets and read-only Work Session worktree footprint reporting; avoids extending giant source modules without measured acceptance.
+- Corrects KiCad 10 copper parsing diagnostics: reject unsupported segment/arc/via data rather than returning a false empty routed board. Verifies 452 segments, 29 vias and 69 routed nets on the real Mega2560 V11 source.
+- Groups KiCad .kicad_pro/.kicad_sch/.kicad_pcb by shared stem; rejects ambiguous multi-revision projects instead of cross-wiring files from different versions.
+- Windows CI is the sole active development gate. New releases use a draft → upload → verify → publish pipeline and never overwrite already published release assets. No new install-linux.sh distribution from development HEAD.
+- Integrated engineering acceptance: 1,021 passing tests / 2 skipped / 0 failed in 1,023 total; separate Windows CI and isolated package smoke required on the final release branch before publication.
+- No implicit runtime deployment or elevation. Existing Windows v0.70.0-dev.8 slots remain usable until an owner-approved version-pinned install.
+
+
 ## 0.70.0-dev.8 — Owner Full Control managed updates and safe runtime handoff
 
 - Adds dedicated authenticated MCP actions `update_install`, `update_install_status`, `update_restart`: only effective owner Full Control can stage a version-pinned official Windows development prerelease, review a durable update/rollback transaction and request a guarded runtime restart. No arbitrary shell, script-host or external update URL is introduced.

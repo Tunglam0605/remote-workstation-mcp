@@ -1,0 +1,21 @@
+{
+  "_comment": "Review limits in PRs; never automatically rebaseline. Includes git-tracked and nonignored candidate files.",
+  "groups": {
+    "src/": {"files": 285, "bytes": 3450000},
+    "tests/": {"files": 240, "bytes": 1850000},
+    "scripts/": {"files": 110, "bytes": 630000},
+    "docs/": {"files": 97, "bytes": 4450000},
+    "assets/": {"files": 55, "bytes": 26700000},
+    "plugins/": {"files": 15, "bytes": 150000},
+    "config/": {"files": 14, "bytes": 110000}
+  },
+  "maxSourceFileBytes": 65000,
+  "monitoredSourceFileBytes": 50000,
+  "maxAssetFileBytes": 3000000,
+  "legacySourceExceptions": {
+    "src/adapters/engineering/kicad.ts": 143000,
+    "src/adapters/engineering/workflow-engine.ts": 124000,
+    "src/setup/setup-server.ts": 99000,
+    "src/adapters/engineering/firmware.ts": 78000
+  }
+}

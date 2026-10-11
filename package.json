@@ -47,7 +47,7 @@
     "test:pty-soak": "node --expose-gc --import tsx tests/fixtures/pty-soak.ts",
     "plugin:validate": "node scripts/validate-plugin.mjs",
     "supply-chain:validate": "node scripts/validate-install-scripts.mjs",
-    "prepack": "npm run security:scan && npm run supply-chain:validate && npm run architecture:growth && npm run build && npm run plugin:validate",
+    "prepack": "npm run security:scan && npm run supply-chain:validate && node scripts/check-project-growth.mjs --quiet && npm run build && npm run plugin:validate",
     "install:user": "bash scripts/install-user.sh",
     "doctor": "node scripts/doctor-user.mjs",
     "uninstall:user": "bash scripts/uninstall-user.sh",

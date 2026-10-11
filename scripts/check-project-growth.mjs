@@ -91,7 +91,7 @@ function main() {
   const result = evaluateInventory(collectInventory(), configuration);
   if (process.argv.includes('--json')) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-  } else {
+  } else if (!process.argv.includes('--quiet')) {
     console.log('Project growth: ' + (result.ok ? 'OK' : 'FAILED') + ' (' +
       result.totalFiles + ' files, ' + (result.totalBytes / 1024 / 1024).toFixed(2) +
       ' MiB; tracked and nonignored candidates)');
@@ -105,6 +105,11 @@ function main() {
     for (const issue of result.issues) console.error('  FAIL ' + issue);
     if (!result.ok) console.error('Growth requires reviewed changes; see docs/PROJECT_GROWTH_POLICY.md');
   }
-  if (!result.ok) process.exitCode = 1;
+  if (!result.ok) {
+    if (process.argv.includes('--quiet')) {
+      for (const issue of result.issues) console.error('Project growth: FAIL ' + issue);
+    }
+    process.exitCode = 1;
+  }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

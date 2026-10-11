@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { evaluateInventory } from '../scripts/check-project-growth.mjs';
 
@@ -11,6 +13,11 @@ const budget = {
 };
 
 describe('project growth boundaries', () => {
+  it('quiet CLI mode leaves npm pack stdout available for the tarball filename', () => {
+    const command = spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/check-project-growth.mjs', import.meta.url)), '--quiet'], { encoding: 'utf8', timeout: 15000 });
+    assert.equal(command.status, 0, command.stderr);
+    assert.equal(command.stdout, '');
+  });
   it('permits small modules and grandfathered code within budget', () => {
     const result = evaluateInventory([
       { path: 'src/new.ts', bytes: 350 },

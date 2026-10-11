@@ -38,11 +38,15 @@ test('Release workflow is the single reusable and tag-triggered publisher with c
   assert.doesNotMatch(workflow, /install-linux\.sh/);
   assert.match(workflow, /smoke-package-windows\.ps1 -Archive/);
 
-  assert.match(workflow, /Create GitHub Release if absent/);
+  assert.match(workflow, /Create a new draft GitHub Release \(existing releases are immutable\)/);
+  assert.match(workflow, /Refusing to modify existing release/);
+  assert.match(workflow, /gh release create "\$RELEASE_TAG"/);
+  assert.match(workflow, /--draft/);
+  assert.match(workflow, /gh release edit "\$RELEASE_TAG" --draft=false/);
   assert.match(workflow, /gh release view "\$RELEASE_TAG"/);
   assert.match(workflow, /gh release create "\$RELEASE_TAG"/);
   assert.match(workflow, /gh release upload "\$RELEASE_TAG"/);
-  assert.match(workflow, /--clobber/);
+  assert.doesNotMatch(workflow, /--clobber/);
   assert.match(workflow, /Missing required release asset/);
 
   for (const asset of [

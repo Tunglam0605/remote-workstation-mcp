@@ -79,22 +79,23 @@ jobs:
         run: |
           $archive = Join-Path 'release' ("remote-workstation-mcp-" + $env:RELEASE_TAG + ".tgz")
           .\scripts\smoke-package-windows.ps1 -Archive $archive
-      - name: Create GitHub Release if absent
+      - name: Create a new draft GitHub Release (existing releases are immutable)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "GitHub Release $RELEASE_TAG already exists; assets will be verified and refreshed."
-          else
-            PRERELEASE_ARGS=()
-            if [[ "$RELEASE_TAG" =~ -dev\.[0-9]+$ ]]; then PRERELEASE_ARGS+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" \
-              --title "$RELEASE_TAG" \
-              --generate-notes \
-              "${PRERELEASE_ARGS[@]}"
+            echo "Refusing to modify existing release $RELEASE_TAG; historical assets are immutable." >&2
+            exit 1
           fi
+          PRERELEASE_ARGS=()
+          if [[ "$RELEASE_TAG" =~ -dev\.[0-9]+$ ]]; then PRERELEASE_ARGS+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" \
+            --draft \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            "${PRERELEASE_ARGS[@]}"
       - name: Upload GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -106,8 +107,7 @@ jobs:
             "release/install-windows.ps1" \
             "release/install-windows.cmd" \
             "release/rwmcp-sbom.cdx.json" \
-            "release/SHA256SUMS.txt" \
-            --clobber
+            "release/SHA256SUMS.txt"
       - name: Verify published release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -124,3 +124,11 @@ jobs:
               exit 1
             }
           done
+
+      - name: Publish only after Windows release assets are verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" --draft=false

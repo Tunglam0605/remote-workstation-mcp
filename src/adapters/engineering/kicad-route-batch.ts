@@ -14,9 +14,33 @@ export function inspectKicadRoutingContext(source:string){
     const name=match[2].replace(/\\(["\\])/g,'$1');
     if(!nets.has(name))nets.set(name,Number(match[1]));
   }
+  // KiCad 10 pcbnew serializes nets by name inside pad/segment blocks,
+  // without legacy numbered top-level net declarations. Negative sentinel
+  // selects its exact named-net serialization, never guessed numeric IDs.
+  for(const match of source.matchAll(/\(net\s+"((?:\\.|[^"\\])*)"\)/g)){
+    const name=match[1]?.replace(/\\(["\\])/g,'$1');
+    if(name&&!nets.has(name))nets.set(name,-1);
+  }
   const copperLayers=new Set<string>();
-  const layersBlock=source.match(/\(layers([\s\S]*?)\n\s*\)\n\s*\(setup/ )?.[1]??'';
-  for(const match of layersBlock.matchAll(/\(\d+\s+"([^"]+\.Cu)"/g)) if(match[1]) copperLayers.add(match[1]);
+  // KiCad 10 also numbers F.Cu=0, B.Cu=2 and changes indentation.
+  // Parse the balanced top-level layer list, not a regex hardcoding the
+  // legacy "\\n)\\n(setup" sequence, which dropped B.Cu silently.
+  const layerStart=source.indexOf('(layers');
+  if(layerStart>=0){
+    let depth=0,quoted=false,escaped=false,end=-1;
+    for(let i=layerStart;i<source.length;i++){
+      const ch=source[i]!;
+      if(quoted){if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')quoted=false;continue;}
+      if(ch==='"'){quoted=true;continue;}
+      if(ch==='(')depth++;
+      else if(ch===')'){depth--;if(depth===0){end=i+1;break;}}
+    }
+    if(end<0)throw new Error('KiCad board has malformed copper layer table.');
+    const layerTable=source.slice(layerStart,end);
+    for(const match of layerTable.matchAll(/\(\d+\s+"([^"]+\.Cu)"\s+(?:signal|power|mixed)\b/g)){
+      if(match[1])copperLayers.add(match[1]);
+    }
+  }
   if(!copperLayers.size){
     for(const match of source.matchAll(/\(layer\s+"([^"]+\.Cu)"\)/g)) if(match[1])copperLayers.add(match[1]);
   }
@@ -36,12 +60,13 @@ export function applyKicadRouteBatch(source:string,operations:KicadRouteBatchOpe
     const netId=nets.get(op.netName);
     if(netId===undefined)throw new Error(`Route operation ${index+1} references unknown net ${op.netName}.`);
     summary.nets.add(op.netName);
+    const netField=netId<0?`(net "${quote(op.netName)}")`:`(net ${netId})`;
     if(op.kind==='segment'){
       if(!copperLayers.has(op.layer))throw new Error(`Route operation ${index+1} references non-copper/unknown layer ${op.layer}.`);
       if(!validPoint(op.start)||!validPoint(op.end))throw new Error(`Route operation ${index+1} has invalid coordinates.`);
       if(Math.hypot(op.end.x-op.start.x,op.end.y-op.start.y)<1e-6)throw new Error(`Route operation ${index+1} segment length must be non-zero.`);
       if(!Number.isFinite(op.widthMm)||op.widthMm<0.05||op.widthMm>20)throw new Error(`Route operation ${index+1} widthMm must be 0.05..20.`);
-      rendered.push(`\t(segment\n\t\t(start ${fmt(op.start.x)} ${fmt(op.start.y)})\n\t\t(end ${fmt(op.end.x)} ${fmt(op.end.y)})\n\t\t(width ${fmt(op.widthMm)})\n\t\t(layer "${quote(op.layer)}")\n\t\t(net ${netId})${op.locked?'\n\t\t(locked yes)':''}\n\t\t(uuid "${randomUUID()}")\n\t)`);
+      rendered.push(`\t(segment\n\t\t(start ${fmt(op.start.x)} ${fmt(op.start.y)})\n\t\t(end ${fmt(op.end.x)} ${fmt(op.end.y)})\n\t\t(width ${fmt(op.widthMm)})\n\t\t(layer "${quote(op.layer)}")\n\t\t${netField}${op.locked?'\n\t\t(locked yes)':''}\n\t\t(uuid "${randomUUID()}")\n\t)`);
       summary.segments+=1;summary.layers.add(op.layer);summary.totalStraightLengthMm+=Math.hypot(op.end.x-op.start.x,op.end.y-op.start.y);
     }else{
       if(!validPoint(op.position))throw new Error(`Route operation ${index+1} has invalid via position.`);
@@ -49,7 +74,7 @@ export function applyKicadRouteBatch(source:string,operations:KicadRouteBatchOpe
       if(!Number.isFinite(op.drillMm)||op.drillMm<0.05||op.drillMm>=op.diameterMm)throw new Error(`Route operation ${index+1} drillMm must be >=0.05 and smaller than diameterMm.`);
       const layers=op.layers??['F.Cu','B.Cu'];
       if(!copperLayers.has(layers[0])||!copperLayers.has(layers[1])||layers[0]===layers[1])throw new Error(`Route operation ${index+1} via layers must be two distinct existing copper layers.`);
-      rendered.push(`\t(via${op.locked?' locked':''}\n\t\t(at ${fmt(op.position.x)} ${fmt(op.position.y)})\n\t\t(size ${fmt(op.diameterMm)})\n\t\t(drill ${fmt(op.drillMm)})\n\t\t(layers "${quote(layers[0])}" "${quote(layers[1])}")\n\t\t(net ${netId})\n\t\t(uuid "${randomUUID()}")\n\t)`);
+      rendered.push(`\t(via${op.locked?' locked':''}\n\t\t(at ${fmt(op.position.x)} ${fmt(op.position.y)})\n\t\t(size ${fmt(op.diameterMm)})\n\t\t(drill ${fmt(op.drillMm)})\n\t\t(layers "${quote(layers[0])}" "${quote(layers[1])}")\n\t\t${netField}\n\t\t(uuid "${randomUUID()}")\n\t)`);
       summary.vias+=1;summary.layers.add(layers[0]);summary.layers.add(layers[1]);
     }
   }

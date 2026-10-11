@@ -96,8 +96,13 @@ function layersOf(block:string):string[]{
   return [...raw.matchAll(/"([^"]+)"/g)].map(m=>m[1]!).slice(0,32);
 }
 function netOf(block:string):{id:number;name:string}|undefined{
-  const m=block.match(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/);
-  return m?.[1]&&m[2]!==undefined?{id:Number(m[1]),name:unquote(m[2])}:undefined;
+  // KiCad PCB files exist in two valid dialects. kicad-cli/pcbnew can serialize
+  // pad nets directly by name: (net "/MISO"), with no global net-ID table.
+  const numbered=block.match(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/);
+  if(numbered?.[1]&&numbered[2]!==undefined)return{id:Number(numbered[1]),name:unquote(numbered[2])};
+  const named=block.match(/\(net\s+"((?:\\.|[^"\\])*)"\)/);
+  if(named?.[1])return{id:1,name:unquote(named[1])};
+  return undefined;
 }
 function padNumber(block:string):string{
   return unquote(block.match(/^\(pad\s+"((?:\\.|[^"\\])*)"/)?.[1]??'');
@@ -193,6 +198,8 @@ function parseExistingTracks(source: string, grid: { originX: number; originY: n
     netNames.set(Number(match[1]), unquote(match[2]!));
   }
   const netNameOf = (block: string) => {
+    const named=block.match(/\(net\s+"((?:\\.|[^"\\])*)"\)/);
+    if(named?.[1])return unquote(named[1]);
     const match = block.match(/\(net\s+(\d+)(?:\s+"[^"]*")?\)/);
     return match ? (netNames.get(Number(match[1])) ?? '<unknown-net>') : '<unknown-net>';
   };
@@ -363,6 +370,12 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
   const byNet=new Map<string,Pad[]>();
   for(const pad of parsed.pads){const list=byNet.get(pad.netName)??[];list.push(pad);byNet.set(pad.netName,list);}
   if(byNet.size>MAX_NETS)throw new Error(`KiCad route planner exceeds ${MAX_NETS} named nets.`);
+  if(parsed.pads.length===0 && /\(net\s+(?:\d+\s+)?"[^"\r\n]+"\)/.test(source)){
+    throw new Error('KiCad route planner found named copper nets but could not parse any connected pads; refusing false complete result.');
+  }
+  if(options.selectedNets?.length && !options.selectedNets.some(name=>byNet.has(name.startsWith('/')?name:'/'+name))){
+    throw new Error('KiCad route planner selected net not found in parsed connected pads; refusing false complete result.');
+  }
 
   const normalize=(name:string)=>name.startsWith('/')?name:'/'+name;
   const selected=options.selectedNets?.length?new Set(options.selectedNets.map(normalize)):undefined;

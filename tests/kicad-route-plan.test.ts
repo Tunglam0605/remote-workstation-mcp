@@ -483,10 +483,10 @@ test('auto-selects 0.25 mm grid for fine-pitch pads without exceeding the bounde
     '(pad "1" smd rect (at 0 0) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 1 "/SIG"))\n' +
     '    (pad "2" smd rect (at 0 0.5) (size 0.3 0.3) (layers "F.Cu" "F.Mask") (net 2 "/AUX"))'
   );
-  assert.equal(planKicadRoutes(source, { selectedNets: ['/NONE_IN_THIS_FIXTURE'] }).board.gridMm, 0.25);
-  assert.equal(planKicadRoutes(source, { selectedNets: ['/NONE_IN_THIS_FIXTURE'], gridMm: 0.5 }).board.gridMm, 0.5);
+  assert.equal(planKicadRoutes(source, { selectedNets: ['/SIG'] }).board.gridMm, 0.25);
+  assert.equal(planKicadRoutes(source, { selectedNets: ['/SIG'], gridMm: 0.5 }).board.gridMm, 0.5);
   const largerBoard = source.replace('(end 40 30)', '(end 250 180)');
-  assert.equal(planKicadRoutes(largerBoard, { selectedNets: ['/NONE_IN_THIS_FIXTURE'] }).board.gridMm, 0.5);
+  assert.equal(planKicadRoutes(largerBoard, { selectedNets: ['/SIG'] }).board.gridMm, 0.5);
 });
 
 test('route planner fails closed for KiCad rule-area copper keepouts instead of inventing clearance', () => {
@@ -555,4 +555,23 @@ test('a partial existing same-net track cannot be mistaken for fully connected p
     '  (segment (start 5 15) (end 20 15) (width 0.25) (layer "F.Cu") (net 1))\n  (gr_rect\n');
   const planned = planKicadRoutes(partial, { gridMm: 0.5, selectedNets: ['/SIG'] });
   assert.equal(planned.skipped.some(item => item.netName === '/SIG' && item.reason === 'already-connected'), false);
+});
+
+test('KiCad 10 pcbnew named-net-only pad serialization remains routable without global numeric net table', () => {
+  // pcbnew BOARD.SaveBoard writes (net "/SIG") within pads rather than
+  // legacy (net 1 "/SIG") plus a top-level (net 1 "/SIG") table.
+  const modern = BOARD
+    .replace(/^\s*\(net\s+\d+\s+"[^"]*"\)\s*$/gm, '')
+    .replace(/\(net\s+\d+\s+"((?:\\.|[^"\\])*)"\)/g, '(\u006eet "$1")');
+  const plan = planKicadRoutes(modern, { gridMm: 0.5, selectedNets: ['/SIG'], maxOperations: 256 });
+  assert.ok(plan.nets.totalNamed >= 2);
+  assert.equal(plan.nets.routedCount, 1);
+  assert.ok(plan.operations.some(item => item.kind === 'segment'));
+  assert.equal(plan.routed[0]?.netName, '/SIG');
+});
+
+test('route planner must never report complete for an explicitly selected unparseable or nonexistent net', () => {
+  assert.throws(() => planKicadRoutes(BOARD, { selectedNets: ['/NOT_IN_BOARD'] }), /selected net not found/);
+  const unknown = BOARD.replace(/\(net\s+\d+\s+"((?:\\.|[^"\\])*)"\)/g, '(net $1)');
+  assert.throws(() => planKicadRoutes(unknown, { selectedNets: ['/SIG'] }), /selected net not found/);
 });

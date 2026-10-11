@@ -34,3 +34,15 @@
 - **P3:** Add controlled specialist intent packs (USB, CAN/RS485, motor power, analog) with manufacturer datasheets and solver/review flags; do not invent signal-integrity compliance.
 
 **Decision:** RWMCP dev.7 is a useful typed, guarded KiCad engineering assistant for constrained/sample boards. It is not yet a professional, fully automatic schematic-to-manufacturing system for a dense STM32 robot controller. Continue in development branch; no deployment or touch of real board/hardware during framework work.
+
+## 2026-10-11 — KiCad 10 Mega2560 R3 Robot Shield regression
+
+**Isolated authoring evidence**: Windows KiCad 10.0.6, 101.52×67.3 mm Arduino Mega2560 shield fixture, 16 board footprints, 20 schematic symbols, 40 functional nets and 2×L298N control connectors. Official schematic ERC: 0, board geometric DRC: 0, schematic parity: 0, board original 72 unconnected. Schematic PDF and KiCad 3D PNG rendered on host. Fixture is not manufacturable and is outside any user production board.
+
+**P0 input dialect bug in released dev8**: KiCad `pcbnew.SaveBoard` serializes named pads as `(net "/GPIO30")` without legacy `(net 1 "/GPIO30")` table. Prior dev7/dev8 route planner returned `nets.totalNamed=0, complete=true` (false completion) on a real board with 72 unconnected; the typed route-batch tool rejected `no routable named nets`. Code now accepts both valid net forms, rejects selected nonexistent nets and fails closed on unparseable named copper instead of declaring completion.
+
+**P0 layer table bug**: KiCad10 saves copper B.Cu as id 2 with CRLF/indentation. Prior route-batch parser required an exact old newline pattern before `(setup` and did not see B.Cu, rejecting safe through-via/F.Cu+B.Cu candidates. Replaced with balanced top-level layers parser; preserved legacy numeric net IDs and current named net references.
+
+**Actual DRC-gated acceptance**: first `/GPIO30` route generated 3 typed segments; after local patched batch application to an isolated copy and official KiCad 10 ERC/DRC, unconnected **72→71** with geometric DRC=0, parity=0 and ERC=0. Other candidates are independently validated and rejected/rolled back on regressions. Never treat candidate A* geometry alone as fabrication-ready.
+
+**Regression and release gates**: 24/24 focused routing tests after KiCad10 dialect and B.Cu layer updates, typecheck PASS. Full Windows `npm run verify` previously PASS (993 passed, 2 skipped, 0 failed, 995 total) before last B.Cu parser regression, so rerun after final edits. PR remains Draft until full CI Windows/Linux and actual tool installation acceptance. Do not merge/update running dev8 only because unit tests pass.

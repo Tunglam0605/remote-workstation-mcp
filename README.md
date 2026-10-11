@@ -4,6 +4,12 @@
 
 Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux engineering workstations. Each machine can run as an independent Direct Node with its own outbound OpenAI Secure MCP Tunnel. The local owner decides what ChatGPT may read, modify, or execute, while the workstation MCP itself stays bound to loopback instead of being exposed directly to the Internet.
 
+## Platform support (from 2026-10-11)
+
+**Windows is the only actively developed and newly released target.** Ubuntu/Linux is **legacy and frozen**: the verified Ubuntu Personal PC remains on `v0.66.0`, while Ubuntu Vision and SSD nodes are intentionally powered off and do not need recovery. Historical Ubuntu releases remain downloadable; no new Linux-target features, Ubuntu upgrades, or Ubuntu-specific CI certification will be produced.
+
+For the exact pinned Ubuntu legacy installer, frozen-version safeguards, and Windows-only release rules, see [Platform support policy](docs/PLATFORM_SUPPORT_POLICY.md). An offline Ubuntu node is **not** an RWMCP outage when the owner intentionally turned it off.
+
 ## Project direction
 
 The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs/PROJECT_CHARTER.md). It defines the mission, North Star, platform/extension boundary, architectural invariants and feature decision gate.

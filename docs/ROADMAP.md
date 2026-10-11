@@ -1,5 +1,9 @@
 # Roadmap
 
+## Platform freeze decision — 2026-10-11
+
+Development and new releases target **Windows only**. Ubuntu/Linux is a frozen legacy product line; the verified Ubuntu Personal PC remains at **v0.66.0**, and owner-powered-off Vision/SSD nodes are exempt from uptime/reconnect requirements. Historical Ubuntu binaries/installers remain immutable. Older Linux-specific roadmap entries below are archival history, not future planned work. See [PLATFORM_SUPPORT_POLICY.md](PLATFORM_SUPPORT_POLICY.md).
+
 ## Stable baseline — v0.68.0
 
 v0.68.0 is the current stable Engineering Workbench baseline. The v0.66 architecture-consolidation contracts remain the foundation, while v0.67 adds reusable domain diagnostics/workflows and project-wide hardening:

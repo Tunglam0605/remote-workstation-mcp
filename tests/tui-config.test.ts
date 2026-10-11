@@ -111,7 +111,9 @@ test('first-run UX keeps new-machine setup to tunnel ID + runtime key and automa
   assert.match(bootstrap, /sha256sum -c/);
   assert.match(bootstrap, /export PATH=\"\$BIN_DIR:\$PATH\"/);
   assert.match(bootstrap, /scripts\/install-user\.sh/);
-  assert.match(release, /install-linux\.sh/);
+  assert.doesNotMatch(release, /install-linux\.sh/);
+  const platformPolicy = await fs.readFile('docs/PLATFORM_SUPPORT_POLICY.md', 'utf8');
+  assert.match(platformPolicy, /v0\.66\.0/);
 });
 
 test('Linux updater reconstructs the user-systemd bus for non-interactive restart', async () => {

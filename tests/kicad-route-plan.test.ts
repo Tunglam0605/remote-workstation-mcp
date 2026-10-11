@@ -599,3 +599,30 @@ test('planner preserves NPTH mounting hole track and via clearance on real mecha
     }
   }
 });
+
+
+test('optional 45-degree routing shortens a diagonal net without cutting foreign copper', () => {
+  const source = BOARD.replace('(at 35 15 0)', '(at 35 5 0)');
+  const common = {
+    gridMm: 0.5,
+    selectedNets: ['/SIG'],
+    defaultWidthMm: 0.2,
+    defaultClearanceMm: 0.2,
+    maxOperations: 128
+  };
+  const diagonal = planKicadRoutes(source, { ...common, allowDiagonal45: true });
+  const orthogonal = planKicadRoutes(source, { ...common, allowDiagonal45: false });
+  assert.equal(diagonal.routed.length, 1);
+  assert.equal(orthogonal.routed.length, 1);
+  const diagonalSegments = diagonal.operations.filter(
+    (operation): operation is Extract<(typeof diagonal.operations)[number], {kind:'segment'}> =>
+      operation.kind === 'segment'
+  );
+  assert.ok(diagonalSegments.some(segment => {
+    const dx = Math.abs(segment.end.x - segment.start.x);
+    const dy = Math.abs(segment.end.y - segment.start.y);
+    return dx > 0.1 && Math.abs(dx - dy) < 1e-8;
+  }), 'A free diagonal should use a true 45-degree segment.');
+  assert.ok(diagonal.routed[0]!.estimatedLengthMm <= orthogonal.routed[0]!.estimatedLengthMm + 1e-6);
+  assert.ok(diagonal.operations.length <= 128);
+});

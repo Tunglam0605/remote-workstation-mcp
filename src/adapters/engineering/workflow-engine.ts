@@ -13,6 +13,7 @@ import { FirmwareAdapter } from './firmware.js';
 import { stm32OpenOcdTargetConfig } from './project-inspector.js';
 import { HardwareDiscoveryAdapter } from './hardware-discovery.js';
 import { KicadAdapter } from './kicad.js';
+import { evaluateKicadDesignAcceptance } from './kicad-acceptance.js';
 import { PlatformioAdapter } from './platformio.js';
 import {
   EngineeringProjectProfileStore,
@@ -466,7 +467,7 @@ export class EngineeringWorkflowEngine {
       ids.push('ros2.build', 'ros2.health', 'ros2.diagnostics', 'ros2.doctor', 'ros2.test', 'ros2.bag_info', 'ros2.build_health');
     }
     if (state.project.docker && this.docker) ids.push('docker.diagnostics', 'docker.stats_snapshot', 'docker.container_inspect', 'docker.container_logs');
-    if (state.project.kicad && this.kicad) ids.push('kicad.diagnostics', 'kicad.validate', ...(state.project.kicad.board ? ['kicad.fabrication_export' as EngineeringWorkflowId] : []));
+    if (state.project.kicad && this.kicad) ids.push('kicad.diagnostics', 'kicad.validate', ...(state.project.kicad.board && state.project.kicad.schematic ? ['kicad.design_acceptance' as EngineeringWorkflowId] : []), ...(state.project.kicad.board ? ['kicad.fabrication_export' as EngineeringWorkflowId] : []));
     if (os.platform() === 'linux' && this.systemd) {
       ids.push('systemd.service_diagnostics', 'systemd.service_restart');
     }
@@ -544,6 +545,7 @@ export class EngineeringWorkflowEngine {
           'docker.container_logs': 'Read a bounded tail from one explicit container without lifecycle or exec mutation.',
           'kicad.diagnostics': 'Inspect KiCad CLI/version, project file inventory and board statistics through JSON output without modifying design sources.',
           'kicad.validate': 'Run KiCad ERC/DRC into temporary JSON reports outside the project and return bounded validation findings without saving or upgrading design sources.',
+          'kicad.design_acceptance': 'Review KiCad ERC/DRC, schematic/PCB parity, routed copper and 3D with source SHA-256; physical sign-off remains mandatory.',
           'kicad.fabrication_export': 'Run ERC/DRC preflight, then export Gerbers, drill files and optional BOM into a new project-local output directory with a SHA-256 manifest; source design files are never saved or upgraded.',
           'systemd.service_diagnostics': 'Read one explicit systemd unit state and bounded journal tail on Linux.',
           'systemd.service_restart': 'Restart one exact owner-allowlisted systemd unit, then collect post-restart diagnostics.'
@@ -978,7 +980,7 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate' || workflow === 'kicad.fabrication_export') {
+    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate' || workflow === 'kicad.design_acceptance' || workflow === 'kicad.fabrication_export') {
       const kicad = state.project.kicad;
       if (!kicad) throw new Error(`${workflow} requires a detected KiCad project.`);
       let kicadOutputDir: string | undefined;
@@ -988,7 +990,10 @@ export class EngineeringWorkflowEngine {
         projectChild(projectPath, kicadOutputDir);
         if (kicadOutputDir.split(/[\\/]+/).includes('.git')) throw new Error('kicadOutputDir must not target .git.');
       }
-      const steps = workflow === 'kicad.validate'
+      if (workflow === 'kicad.design_acceptance' && (!kicad.schematic || !kicad.board)) throw new Error('kicad.design_acceptance requires schematic and PCB.');
+      const steps = workflow === 'kicad.design_acceptance'
+        ? ['kicad.source.sha256', 'kicad.design.review', 'kicad.erc.json', 'kicad.drc.json', 'kicad.electrical.acceptance', 'kicad.physical.hold']
+        : workflow === 'kicad.validate'
         ? [...(kicad.schematic ? ['kicad.erc.json'] : []), ...(kicad.board ? ['kicad.drc.json'] : [])]
         : workflow === 'kicad.fabrication_export'
           ? [...(kicad.schematic ? ['kicad.erc.json'] : []), 'kicad.drc.json', 'kicad.export.gerbers', 'kicad.export.drill', ...(kicad.schematic ? ['kicad.export.bom'] : []), 'kicad.fabrication.manifest.sha256']
@@ -1806,10 +1811,45 @@ export class EngineeringWorkflowEngine {
       };
     }
 
-    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate' || workflow === 'kicad.fabrication_export') {
+    if (workflow === 'kicad.diagnostics' || workflow === 'kicad.validate' || workflow === 'kicad.design_acceptance' || workflow === 'kicad.fabrication_export') {
       if (!this.kicad) throw new Error('KiCad adapter is unavailable.');
       const kicad = state.project.kicad;
       if (!kicad) throw new Error(`${workflow} requires a detected KiCad project.`);
+      if (workflow === 'kicad.design_acceptance') {
+        if (!kicad.schematic || !kicad.board) throw new Error('KiCad design acceptance requires schematic and PCB.');
+        const reviewed = await capture('kicad.design.review', () => this.kicad!.designReview(
+          workspace, projectPath, { schematic: kicad.schematic, board: kicad.board },
+          { runRuleChecks: true, maxDetails: 20 }
+        ));
+        if (!reviewed.ok) return { workflow, status: 'failed', plan, steps };
+        // Keep durable workflow evidence bounded; the full KiCad review can be very large.
+        const lastReviewStep = steps[steps.length - 1];
+        if (lastReviewStep) lastReviewStep.result = { checked: true, officialErcDrc: true };
+        const verified = await capture('kicad.electrical.acceptance', async () =>
+          evaluateKicadDesignAcceptance(reviewed.value)
+        );
+        if (!verified.ok) return { workflow, status: 'failed', plan, steps };
+        const acceptance = verified.value;
+        const reviewEvidenceStep = steps[0]!;
+        const electricalDecisionStep = steps[1]!;
+        steps.splice(0, steps.length,
+          { id: 'kicad.source.sha256', status: 'succeeded', durationMs: 0, result: acceptance.source },
+          reviewEvidenceStep,
+          { id: 'kicad.erc.json', status: 'succeeded', durationMs: 0,
+            result: { errors: acceptance.metrics.ercErrors, warnings: acceptance.metrics.ercWarnings } },
+          { id: 'kicad.drc.json', status: 'succeeded', durationMs: 0,
+            result: { errors: acceptance.metrics.drcErrors, warnings: acceptance.metrics.drcWarnings,
+              unconnected: acceptance.metrics.unconnected, schematicParity: acceptance.metrics.schematicParity,
+              ignoredChecks: acceptance.metrics.ignoredChecks } },
+          electricalDecisionStep
+        );
+        steps.push({
+          id: 'kicad.physical.hold', status: 'succeeded', durationMs: 0,
+          result: { manufacturingAccepted: false, requiresPhysicalReview: true, holds: acceptance.reviewHolds }
+        });
+        return { workflow, status: acceptance.electricallyAccepted ? 'succeeded' : 'blocked',
+          plan, steps, outputs: { acceptance } };
+      }
       const result = await capture<unknown>(
         workflow,
         () => workflow === 'kicad.validate'

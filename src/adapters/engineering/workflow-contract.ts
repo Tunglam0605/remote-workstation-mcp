@@ -51,6 +51,7 @@ export const BUILTIN_ENGINEERING_WORKFLOW_IDS = [
   'docker.container_logs',
   'kicad.diagnostics',
   'kicad.validate',
+  'kicad.design_acceptance',
   'kicad.fabrication_export',
   'systemd.service_diagnostics',
   'systemd.service_restart'

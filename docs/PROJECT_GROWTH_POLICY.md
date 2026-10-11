@@ -39,6 +39,12 @@ Config source: **config/project-growth-budget.json**. Budget increases must be r
 
 The existing architecture:check enforces dependency direction and vendor-neutrality. This growth guard complements it; it is not a substitute for architectural review.
 
+## Work Session disk footprint
+
+Use **npm run worktree:footprint** (or append -- --json) to inspect session-owned Git worktree counts and cumulative disk usage. The diagnostic is read-only; it does not infer eligibility from age or a clean Git status alone. Always consult the authorized **work_session_lifecycle_preview** and use **work_session_worktree_cleanup** only when it reports the session is terminal and the worktree clean. Never run global Git prune or a force-delete on active, blocked or recovering sessions.
+
+Each independent RWMCP Work Session may materialize a full source tree and node_modules. Keep their count bounded after terminal acceptance; runtime ownership, Git changes and rollback artifacts take precedence over space reclamation.
+
 ## Release workflow
 
 Store build tarballs in an external artifacts directory, e.g. the Windows folder:

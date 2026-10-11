@@ -347,6 +347,90 @@ test('PlatformIO projects expose typed diagnostics/build/upload without falling 
   }
 });
 
+test('KiCad design acceptance is read-only, SHA-bound and physically held even when electrical review passes', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'unknown', framework: 'unknown',
+    markers: ['robot.kicad_pcb', 'robot.kicad_sch'], ros2: false, docker: false,
+    kicad: { board: 'robot.kicad_pcb', schematic: 'robot.kicad_sch', jobsets: [] }
+  };
+  let calls = 0;
+  const review: any = {
+    analysis: {
+      sources: {
+        schematic: { sha256: 'a'.repeat(64), bytes: 512 },
+        board: { sha256: 'b'.repeat(64), bytes: 2048 }
+      },
+      schematic: { duplicateReferences: [], missingFootprintAssignments: [] },
+      consistency: {
+        missingOnBoard: [], boardOnlyDeclared: [], unexpectedOnBoard: [],
+        valueMismatches: [], footprintMismatches: [],
+        duplicateSchematicReferences: [], duplicateBoardReferences: []
+      },
+      routing: { netCount: 7, segmentCount: 14, viaCount: 2 },
+      models3d: { footprintWithoutModelCount: 1 }
+    },
+    validation: {
+      erc: { report: { counts: { active: { bySeverity: {} } } } },
+      drc: { report: { counts: { active: { bySeverity: {}, unconnected: 0, schematicParity: 0 }, ignoredChecks: 1 } } }
+    }
+  };
+  const f = await fixture(project, {
+    kicad: {
+      async designReview(_w: string, _p: string, files: any, options: any) {
+        calls++;
+        assert.equal(files.schematic, 'robot.kicad_sch');
+        assert.equal(files.board, 'robot.kicad_pcb');
+        assert.equal(options.runRuleChecks, true);
+        return review;
+      }
+    }
+  });
+  try {
+    const available = await f.engine.list('w', 'project');
+    assert.equal(available.workflows.find(x => x.id === 'kicad.design_acceptance')?.destructive, false);
+    const plan = await f.engine.plan('w', 'project', 'kicad.design_acceptance');
+    assert.ok(plan.steps.includes('kicad.physical.hold'));
+    const accepted = await f.engine.run('w', 'project', 'kicad.design_acceptance');
+    assert.equal(accepted.status, 'succeeded');
+    assert.deepEqual(accepted.steps.map(x => x.id), plan.steps);
+    assert.equal(accepted.steps.find(x => x.id === 'kicad.drc.json')?.status, 'succeeded');
+    assert.equal((accepted.outputs as any)?.acceptance?.electricallyAccepted, true);
+    assert.equal((accepted.outputs as any)?.acceptance?.manufacturingAccepted, false);
+    assert.equal((accepted.outputs as any)?.acceptance?.source?.boardSha256, 'b'.repeat(64));
+    assert.equal(accepted.steps.find(x => x.id === 'kicad.physical.hold')?.status, 'succeeded');
+    assert.deepEqual(accepted.steps.find(x => x.id === 'kicad.design.review')?.result, {
+      checked: true, officialErcDrc: true
+    });
+    review.validation.drc.report.counts.active.unconnected = 3;
+    const blocked = await f.engine.run('w', 'project', 'kicad.design_acceptance');
+    assert.equal(blocked.status, 'blocked');
+    assert.equal((blocked.outputs as any)?.acceptance?.decision, 'ELECTRICAL_BLOCKED');
+    assert.equal(calls, 2);
+    delete review.validation;
+    const invalid = await f.engine.run('w', 'project', 'kicad.design_acceptance');
+    assert.equal(invalid.status, 'failed');
+    assert.equal(calls, 3);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('KiCad design acceptance is absent without an explicit schematic+PCB pair', async () => {
+  const project: FirmwareProjectInfo = {
+    workspace: 'w', projectPath: 'project', family: 'unknown', framework: 'unknown',
+    markers: ['robot.kicad_pcb'], ros2: false, docker: false,
+    kicad: { board: 'robot.kicad_pcb', jobsets: [] }
+  };
+  const f = await fixture(project, { kicad: { async validate() { return {}; } } });
+  try {
+    const listed = await f.engine.list('w', 'project');
+    assert.equal(listed.workflows.some(x => x.id === 'kicad.design_acceptance'), false);
+    await assert.rejects(() => f.engine.plan('w', 'project', 'kicad.design_acceptance'), /not available for this project/);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
 test('KiCad fabrication workflow is explicit, write-classified and rejects unsafe output paths at plan time', async () => {
   const project: FirmwareProjectInfo = {
     workspace: 'w', projectPath: 'project', family: 'unknown', framework: 'unknown',

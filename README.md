@@ -10,6 +10,8 @@ Remote Workstation MCP (RWMCP) securely connects ChatGPT to Windows and Linux en
 
 For the exact pinned Ubuntu legacy installer, frozen-version safeguards, and Windows-only release rules, see [Platform support policy](docs/PLATFORM_SUPPORT_POLICY.md). An offline Ubuntu node is **not** an RWMCP outage when the owner intentionally turned it off.
 
+For the reusable Windows PCB design workflow, electrical acceptance contract, physical manufacturing holds and Work Session/Codex/Antigravity handoff rules, see [Windows engineering workflow acceptance](docs/WINDOWS_ENGINEERING_WORKFLOW_ACCEPTANCE.md).
+
 ## Project direction
 
 The authoritative product-direction document is [`docs/PROJECT_CHARTER.md`](docs/PROJECT_CHARTER.md). It defines the mission, North Star, platform/extension boundary, architectural invariants and feature decision gate.

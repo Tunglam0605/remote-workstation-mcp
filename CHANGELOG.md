@@ -3,6 +3,14 @@
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
 
+## 0.70.0-dev.10 — Windows KiCad design acceptance and Work Session cleanup interlocks
+
+- Adds kicad.design_acceptance as a read-only typed Engineering Workflow: coherent schematic+PCB sources, SHA-256 fingerprints, official ERC/DRC, schematic parity, copper/via evidence, model declarations, and explicit physical/manufacturing holds. A clean electrical result never implies fabrication approval.
+- Fixes a real Work Session lifecycle risk: even a clean Git worktree cannot be removed while its owning session is active, idle, blocked or recovering. Terminal-only cleanup also respects active runtime ownership and dirty-file guards.
+- Preserves the existing Codex/Antigravity worker routing and fallback rules; no new MCP tools, no automatic worktree deletion and no privilege expansion.
+- KiCad 10 Mega V11 read-only fixture proves 69 routed nets, 452 segments, 29 vias, ERC/DRC zero, with 5 ignored DRC check types and one missing 3D model declaration properly reported as review holds.
+- Windows-only prerelease; Ubuntu legacy releases remain frozen and untouched. Requires GitHub Windows CI and packaged runtime smoke before release or owner-approved installation.
+
 ## 0.70.0-dev.9 — Windows-only consolidation, guarded releases and KiCad correctness
 
 - Windows is the only actively developed and newly published platform. Ubuntu Personal v0.66.0 remains the frozen historical baseline; intentionally powered-off Ubuntu Vision and SSD nodes are not availability incidents. Historical Ubuntu installer assets/tags are preserved without modification.

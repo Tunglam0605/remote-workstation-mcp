@@ -193,9 +193,13 @@ test('detached dispatch returns before workflow completion and deduplicates one 
     assert.equal(running?.status, 'running');
     release();
 
+    // Detached attempts persist asynchronously. Under parallel Windows CI load,
+    // 400 rapid filesystem polls may exhaust the poll budget before the worker
+    // finishes; use a wall-clock deadline and bounded polling instead.
     let final = running;
-    for (let i = 0; i < 400 && final?.status === 'running'; i++) {
-      await new Promise(resolve => setTimeout(resolve, 5));
+    const deadline = Date.now() + 15_000;
+    while (final?.status === 'running' && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 25));
       final = await fx.taskAttempts.getForGeneration(objective.id, task.id, task.generation);
     }
     assert.equal(final?.status, 'succeeded', final?.error);

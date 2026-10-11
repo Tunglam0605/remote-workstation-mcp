@@ -39,6 +39,9 @@ test('future release jobs only publish Windows installer artifacts', () => {
 
 test('legacy Ubuntu release is deliberately version-pinned and kept immutable', () => {
   const policy = read('docs/PLATFORM_SUPPORT_POLICY.md');
+  const charter = read('docs/PROJECT_CHARTER.md');
+  assert.match(charter, /Windows is the sole active product-development/);
+  assert.match(charter, /PLATFORM_SUPPORT_POLICY\.md/);
   assert.match(policy, /v0[.]66[.]0/);
   assert.match(policy, /RWMCP_VERSION=0[.]66[.]0/);
   assert.match(policy, /Ubuntu Vision PC/);

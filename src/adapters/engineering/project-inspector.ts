@@ -20,19 +20,59 @@ async function firstBySuffix(root: string, suffix: string): Promise<string | und
 }
 
 async function discoverKicadProject(root: string): Promise<KicadProjectFiles | undefined> {
+  // A project must be selected as a coherent *same-basename* KiCad source set.
+  // An alphabetical first-match mixes temporary .pro files with unrelated .sch/.pcb.
   const entries = (await fs.readdir(root, { withFileTypes: true }))
     .filter(entry => entry.isFile())
     .map(entry => entry.name)
     .sort((a, b) => a.localeCompare(b));
-  const project = entries.find(name => name.toLowerCase().endsWith('.kicad_pro'));
-  const schematic = entries.find(name => name.toLowerCase().endsWith('.kicad_sch'));
-  const board = entries.find(name => name.toLowerCase().endsWith('.kicad_pcb'));
+  type SourceGroup = {
+    name: string;
+    project?: string;
+    schematic?: string;
+    board?: string;
+  };
+  const groups = new Map<string, SourceGroup>();
+  for (const name of entries) {
+    const suffix = /\.(kicad_pro|kicad_sch|kicad_pcb)$/i.exec(name)?.[1]?.toLowerCase();
+    if (!suffix) continue;
+    const stem = name.slice(0, name.length - suffix.length - 1);
+    const key = stem.toLowerCase();
+    let group = groups.get(key);
+    if (!group) {
+      group = { name: stem };
+      groups.set(key, group);
+    }
+    if (suffix === 'kicad_pro') group.project = name;
+    else if (suffix === 'kicad_sch') group.schematic = name;
+    else group.board = name;
+  }
   const jobsets = entries.filter(name => name.toLowerCase().endsWith('.kicad_jobset')).slice(0, 16);
-  if (!project && !schematic && !board && jobsets.length === 0) return undefined;
+  if (groups.size === 0) return jobsets.length ? { jobsets } : undefined;
+
+  // Favor the most complete, cross-linked sources. A .sch/.pcb pair outranks
+  // a stray .pro, even when the stray project sorts first alphabetically.
+  const scored = [...groups.values()].map(group => ({
+    group,
+    score: Number(Boolean(group.project)) + Number(Boolean(group.schematic)) +
+      Number(Boolean(group.board)) + (group.schematic && group.board ? 1 : 0)
+  }));
+  const bestScore = Math.max(...scored.map(item => item.score));
+  const best = scored.filter(item => item.score === bestScore);
+  const directoryName = path.basename(root).toLowerCase();
+  const preferred = best.find(item => item.group.name.toLowerCase() === directoryName);
+  if (best.length > 1 && !preferred) {
+    const candidates = best.map(item => item.group.name).slice(0, 12).join(', ');
+    throw new Error(
+      `Ambiguous KiCad project in ${path.basename(root)}: ${candidates}. ` +
+      'Select the intended subproject/workspace explicitly; source sets must not be mixed.'
+    );
+  }
+  const selected = (preferred ?? best[0])!.group;
   return {
-    ...(project ? { project } : {}),
-    ...(schematic ? { schematic } : {}),
-    ...(board ? { board } : {}),
+    ...(selected.project ? { project: selected.project } : {}),
+    ...(selected.schematic ? { schematic: selected.schematic } : {}),
+    ...(selected.board ? { board: selected.board } : {}),
     jobsets
   };
 }

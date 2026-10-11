@@ -273,6 +273,21 @@ function segmentAngleBucket(start: Point, end: Point): 'orthogonal' | 'diagonal4
 function parseRouting(source: string, shortSegmentMm: number) {
   const names = netNames(source);
   const nets = new Map<number, RoutedNet>();
+  // KiCad 10 pcbnew also emits (net "/NAME") without numeric net IDs.
+  // Allocate deterministic negative internal IDs only for inspection; never
+  // write these synthetic IDs into a PCB or treat them as KiCad net codes.
+  const namedIds = new Map<string,number>();
+  const resolveNetId = (block:string):number|undefined => {
+    const numeric = firstNumberToken(block,'net');
+    if(numeric!==undefined)return numeric;
+    const match=block.match(/\(net\s+"((?:\\.|[^"\\])*)"\)/);
+    if(!match?.[1])return undefined;
+    const name=unquote(match[1]);
+    if(!name)return undefined;
+    let id=namedIds.get(name);
+    if(id===undefined){id=-(namedIds.size+1);namedIds.set(name,id);names.set(id,name);}
+    return id;
+  };
   let segmentCount = 0;
   let arcCount = 0;
   let viaCount = 0;
@@ -283,7 +298,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
   for (const block of blocks(source, 'segment')) {
     const start = pointToken(block, 'start');
     const end = pointToken(block, 'end');
-    const netId = firstNumberToken(block, 'net');
+    const netId = resolveNetId(block);
     const layer = layerName(block);
     const width = firstNumberToken(block, 'width');
     if (!start || !end || netId === undefined || !layer?.endsWith('.Cu')) continue;
@@ -303,7 +318,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
     const start = pointToken(block, 'start');
     const mid = pointToken(block, 'mid');
     const end = pointToken(block, 'end');
-    const netId = firstNumberToken(block, 'net');
+    const netId = resolveNetId(block);
     const layer = layerName(block);
     const width = firstNumberToken(block, 'width');
     if (!start || !mid || !end || netId === undefined || !layer?.endsWith('.Cu')) continue;
@@ -318,7 +333,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
   }
 
   for (const block of blocks(source, 'via')) {
-    const netId = firstNumberToken(block, 'net');
+    const netId = resolveNetId(block);
     if (netId === undefined) continue;
     const item = routeNet(nets, netId, names);
     item.viaCount += 1;

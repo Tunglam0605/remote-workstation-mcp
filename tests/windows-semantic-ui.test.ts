@@ -134,10 +134,25 @@ test('Windows UI Automation helper source excludes pixel, raw keyboard and UIAcc
 });
 
 test('Windows native UI Automation helper loads on Windows without enabling UIAccess', {
-  skip: process.platform !== 'win32'
+  skip: process.platform !== 'win32',
+  timeout: 40_000
 }, async () => {
-  const adapter = new WindowsSemanticUiAdapter();
-  const status = await adapter.status();
+  // PowerShell MTA + UIAutomationClient cold startup may exceed the regular
+  // production request timeout when the Windows CI runner is saturated by
+  // parallel test processes. Keep native verification mandatory, with just
+  // one bounded retry for that exact transient startup timeout.
+  // Do not change the production adapter's 10-second default.
+  const adapter = new WindowsSemanticUiAdapter({ timeoutMs: 15_000 });
+  let status;
+  try {
+    status = await adapter.status();
+  } catch (error) {
+    if (!(error instanceof Error) ||
+        error.message !== 'WINDOWS_UIA_TIMEOUT: helper exceeded 15000 ms.') {
+      throw error;
+    }
+    status = await adapter.status();
+  }
   assert.equal(status.supported, true);
   if (status.supported) {
     assert.equal(status.rootAvailable, true);

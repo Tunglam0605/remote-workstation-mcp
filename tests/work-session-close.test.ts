@@ -16,9 +16,10 @@ const emptyRuntime = (): WorkSessionRuntimeResourceState => ({
   nodeInterlocks: 0
 });
 
-function fakeWorktrees(state: WorktreeState): WorktreeManager {
+function fakeWorktrees(state: WorktreeState, onCleanup?: () => void): WorktreeManager {
   return {
-    status: async () => state
+    status: async () => state,
+    cleanup: async () => { onCleanup?.(); return { ...state, cleanupState: 'removed' }; }
   } as unknown as WorktreeManager;
 }
 
@@ -120,7 +121,7 @@ test('lifecycle preview is read-only and exposes mechanical close and cleanup bl
   assert.equal(preview.close.eligible, false);
   assert.deepEqual(preview.close.blockers, ['RUNTIME_RESOURCES_ACTIVE', 'WORKTREE_DIRTY']);
   assert.equal(preview.cleanup.eligible, false);
-  assert.deepEqual(preview.cleanup.blockers, ['RUNTIME_RESOURCES_ACTIVE', 'WORKTREE_DIRTY']);
+  assert.deepEqual(preview.cleanup.blockers, ['SESSION_NOT_TERMINAL', 'RUNTIME_RESOURCES_ACTIVE', 'WORKTREE_DIRTY']);
   assert.equal(preview.authority, 'read-only-preview');
   assert.equal(preview.executionActive, false);
 
@@ -161,7 +162,8 @@ test('lifecycle preview classifies idle and recovering sessions as stale without
   assert.equal(preview.session.status, 'idle');
   assert.equal(preview.lifecycleClass, 'stale');
   assert.equal(preview.close.eligible, true);
-  assert.equal(preview.cleanup.eligible, true);
+  assert.equal(preview.cleanup.eligible, false);
+  assert.deepEqual(preview.cleanup.blockers, ['SESSION_NOT_TERMINAL']);
 });
 
 test('lifecycle preview marks terminal sessions without attempting to close them again', async t => {
@@ -186,4 +188,46 @@ test('lifecycle preview marks terminal sessions without attempting to close them
   assert.equal(preview.close.eligible, false);
   assert.deepEqual(preview.close.blockers, ['SESSION_TERMINAL']);
   assert.equal(preview.cleanup.eligible, true);
+});
+
+
+test('worktree cleanup requires terminal Work Session, no runtime resources, and an explicit action', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-terminal-cleanup-'));
+  t.after(async () => fs.rm(root, { recursive: true, force: true }));
+  const store = new WorkSessionStore('openai-tunnel', { file: path.join(root, 'sessions.json') });
+  const session = await store.create({ workspace: 'demo', projectPath: 'repo' });
+  await store.touch(session.id);
+  let removed = 0;
+  let runtime = emptyRuntime();
+  const wt: WorktreeState = {
+    sessionId: session.id, workspace: 'demo', repoPath: 'repo',
+    worktreePath: 'repo.rwmcp-active', dirty: false
+  };
+  const service = new WorkSessionLifecycleService(
+    store, fakeWorktrees(wt, () => { removed++; }), async () => runtime
+  );
+
+  const livePreview = await service.preview(session.id);
+  assert.deepEqual(livePreview.cleanup.blockers, ['SESSION_NOT_TERMINAL']);
+  assert.equal(livePreview.cleanup.eligible, false);
+  const active = await service.cleanup(session.id);
+  assert.equal(active.cleanupState, 'needs-owner-or-explicit-action');
+  assert.match(active.reason ?? '', /SESSION_NOT_TERMINAL/);
+  assert.equal(removed, 0);
+  assert.equal((await store.inspect(session.id, true)).status, 'active');
+
+  await store.beginClose(session.id);
+  await store.completeClose(session.id);
+  runtime = { ...emptyRuntime(), processes: 1 };
+  const busy = await service.cleanup(session.id);
+  assert.equal(busy.cleanupState, 'needs-owner-or-explicit-action');
+  assert.match(busy.reason ?? '', /RUNTIME_RESOURCES_ACTIVE/);
+  assert.equal(removed, 0);
+
+  runtime = emptyRuntime();
+  const approved = await service.preview(session.id);
+  assert.equal(approved.cleanup.eligible, true);
+  const cleaned = await service.cleanup(session.id);
+  assert.equal(cleaned.cleanupState, 'removed');
+  assert.equal(removed, 1);
 });

@@ -4,6 +4,14 @@
 >
 > This charter defines **why Remote Workstation MCP exists, what belongs in the platform, what belongs in extensions, and how new work is evaluated**. If a roadmap item, release note, implementation shortcut, or domain-specific feature conflicts with this charter, **this charter wins until it is deliberately amended**.
 
+## Active platform policy (owner decision, 2026-10-11)
+
+**Windows is the sole active product-development and future-release target.** Windows feature design, KiCad/PCB tooling, automation, Control Center, Work Session lifecycle and release validation remain in scope.
+
+**Ubuntu/Linux is a frozen legacy platform:** no new features, updates, Ubuntu-specific CI, release artifacts or mandatory availability. The verified Ubuntu Personal PC stays on its observed `v0.66.0`. The owner intentionally powered off the Ubuntu Vision and external SSD machines; their offline status is expected, and their software versions must not be guessed. Previous GitHub Linux releases remain available **unchanged**.
+
+The detailed platform-support and version-pinning rules are binding in [PLATFORM_SUPPORT_POLICY.md](PLATFORM_SUPPORT_POLICY.md). General Direct Node and multi-node architecture below remains technology-neutral as a design principle; it **does not** authorize restarting Ubuntu development or updating dormant Linux nodes. Reopening Linux development needs a new explicit owner decision.
+
 ## 1. Mission
 
 Remote Workstation MCP (RWMCP) exists to let an **authorized AI client securely operate one or many owner-controlled workstations** through independent Direct Nodes and typed, policy-enforced tools.

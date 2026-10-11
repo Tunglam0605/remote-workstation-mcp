@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -66,33 +66,36 @@ jobs:
           mv "release/$PACK" "release/remote-workstation-mcp-${RELEASE_TAG}.tgz"
           cp scripts/install-windows-release.ps1 release/install-windows.ps1
           cp scripts/install-windows-bootstrap.cmd release/install-windows.cmd
-          cp scripts/install-linux.sh release/install-linux.sh
           npm sbom --sbom-format cyclonedx > release/rwmcp-sbom.cdx.json
           (
             cd release
             sha256sum \
               "remote-workstation-mcp-${RELEASE_TAG}.tgz" \
-              install-windows.ps1 install-windows.cmd install-linux.sh \
+              install-windows.ps1 install-windows.cmd \
               rwmcp-sbom.cdx.json > SHA256SUMS.txt
           )
-      - name: Smoke-test packed release
-        run: bash scripts/smoke-package.sh "release/remote-workstation-mcp-${RELEASE_TAG}.tgz"
-      - name: Create GitHub Release if absent
+      - name: Smoke-test packed Windows release
+        shell: pwsh
+        run: |
+          $archive = Join-Path 'release' ("remote-workstation-mcp-" + $env:RELEASE_TAG + ".tgz")
+          .\scripts\smoke-package-windows.ps1 -Archive $archive
+      - name: Create a new draft GitHub Release (existing releases are immutable)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "GitHub Release $RELEASE_TAG already exists; assets will be verified and refreshed."
-          else
-            PRERELEASE_ARGS=()
-            if [[ "$RELEASE_TAG" =~ -dev\.[0-9]+$ ]]; then PRERELEASE_ARGS+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" \
-              --title "$RELEASE_TAG" \
-              --generate-notes \
-              "${PRERELEASE_ARGS[@]}"
+            echo "Refusing to modify existing release $RELEASE_TAG; historical assets are immutable." >&2
+            exit 1
           fi
+          PRERELEASE_ARGS=()
+          if [[ "$RELEASE_TAG" =~ -dev\.[0-9]+$ ]]; then PRERELEASE_ARGS+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" \
+            --draft \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            "${PRERELEASE_ARGS[@]}"
       - name: Upload GitHub Release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,10 +106,8 @@ jobs:
             "release/remote-workstation-mcp-${RELEASE_TAG}.tgz" \
             "release/install-windows.ps1" \
             "release/install-windows.cmd" \
-            "release/install-linux.sh" \
             "release/rwmcp-sbom.cdx.json" \
-            "release/SHA256SUMS.txt" \
-            --clobber
+            "release/SHA256SUMS.txt"
       - name: Verify published release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -116,10 +117,18 @@ jobs:
           ASSETS="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
           for REQUIRED in \
             "remote-workstation-mcp-${RELEASE_TAG}.tgz" \
-            install-windows.ps1 install-windows.cmd install-linux.sh \
+            install-windows.ps1 install-windows.cmd \
             rwmcp-sbom.cdx.json SHA256SUMS.txt; do
             printf '%s\n' "$ASSETS" | grep -Fx -- "$REQUIRED" >/dev/null || {
               echo "Missing required release asset: $REQUIRED"
               exit 1
             }
           done
+
+      - name: Publish only after Windows release assets are verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" --draft=false

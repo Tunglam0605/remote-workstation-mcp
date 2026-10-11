@@ -34,20 +34,24 @@ test('Release workflow is the single reusable and tag-triggered publisher with c
   assert.match(workflow, /npm run build/);
   assert.match(workflow, /npm run plugin:validate/);
   assert.match(workflow, /npm sbom --sbom-format cyclonedx > release\/rwmcp-sbom\.cdx\.json/);
-  assert.match(workflow, /Smoke-test packed release/);
-  assert.match(workflow, /bash scripts\/smoke-package\.sh "release\/remote-workstation-mcp-\$\{RELEASE_TAG\}\.tgz"/);
+  assert.match(workflow, /Smoke-test packed Windows release/);
+  assert.doesNotMatch(workflow, /install-linux\.sh/);
+  assert.match(workflow, /smoke-package-windows\.ps1 -Archive/);
 
-  assert.match(workflow, /Create GitHub Release if absent/);
+  assert.match(workflow, /Create a new draft GitHub Release \(existing releases are immutable\)/);
+  assert.match(workflow, /Refusing to modify existing release/);
+  assert.match(workflow, /gh release create "\$RELEASE_TAG"/);
+  assert.match(workflow, /--draft/);
+  assert.match(workflow, /gh release edit "\$RELEASE_TAG" --draft=false/);
   assert.match(workflow, /gh release view "\$RELEASE_TAG"/);
   assert.match(workflow, /gh release create "\$RELEASE_TAG"/);
   assert.match(workflow, /gh release upload "\$RELEASE_TAG"/);
-  assert.match(workflow, /--clobber/);
+  assert.doesNotMatch(workflow, /--clobber/);
   assert.match(workflow, /Missing required release asset/);
 
   for (const asset of [
     'install-windows.ps1',
     'install-windows.cmd',
-    'install-linux.sh',
     'rwmcp-sbom.cdx.json',
     'SHA256SUMS.txt'
   ]) {

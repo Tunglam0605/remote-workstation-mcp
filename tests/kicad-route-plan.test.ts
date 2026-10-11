@@ -575,3 +575,27 @@ test('route planner must never report complete for an explicitly selected unpars
   const unknown = BOARD.replace(/\(net\s+\d+\s+"((?:\\.|[^"\\])*)"\)/g, '(net $1)');
   assert.throws(() => planKicadRoutes(unknown, { selectedNets: ['/SIG'] }), /selected net not found/);
 });
+
+test('planner preserves NPTH mounting hole track and via clearance on real mechanical footprint', () => {
+  const withDrill = BOARD.replace('  (gr_rect\n',
+    '  (footprint "Mechanical:MountingHole" (layer "F.Cu") (at 20 15)\n' +
+    '    (property "Reference" "H1")\n' +
+    '    (pad "" np_thru_hole circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers "*.Cu" "*.Mask")))\n' +
+    '  (gr_rect\n');
+  const plan=planKicadRoutes(withDrill,{selectedNets:['/SIG'],gridMm:0.5,defaultWidthMm:0.25,defaultClearanceMm:0.2,maxOperations:256});
+  assert.equal(plan.nets.routedCount,1);
+  // KiCad's default hole_clearance=0.25 mm, NPTH diameter=3.2 mm,
+  // track width=0.25 mm => minimum centerline offset 1.975 mm.
+  const distance=(p:{x:number;y:number},a:{x:number;y:number},b:{x:number;y:number})=>{
+    const dx=b.x-a.x,dy=b.y-a.y,lenSq=dx*dx+dy*dy;
+    const t=lenSq<1e-12?0:Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/lenSq));
+    return Math.hypot(p.x-(a.x+t*dx),p.y-(a.y+t*dy));
+  };
+  for(const op of plan.operations){
+    if(op.kind==='segment'){
+      assert.ok(distance({x:20,y:15},op.start,op.end)>=1.975-1e-5,'Copper track violates NPTH drilled clearance');
+    }else{
+      assert.ok(Math.hypot(op.position.x-20,op.position.y-15)>=1.6+op.drillMm/2+0.25-1e-5,'Via-to-NPTH clearance violation');
+    }
+  }
+});

@@ -14,6 +14,7 @@ type Point = { x: number; y: number };
 type Rect = { minX: number; minY: number; maxX: number; maxY: number; reference?: string };
 type Pad = { reference: string; number: string; netId: number; netName: string; position: Point; layers: string[]; obstacle: Rect };
 type Footprint = { reference: string; at: Point; rotationDeg: number; pads: Pad[] };
+type DrillHole = { position: Point; radiusMm: number; netName?: string };
 type RouteStyle = { netName: string; widthMm?: number; clearanceMm?: number; preferredLayer?: string; priority?: number };
 
 export interface KicadRoutePlanOptions {
@@ -129,8 +130,8 @@ function parseBoardBounds(source:string):Rect{
   return {minX:Math.min(...points.map(p=>p.x)),minY:Math.min(...points.map(p=>p.y)),maxX:Math.max(...points.map(p=>p.x)),maxY:Math.max(...points.map(p=>p.y))};
 }
 
-function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
-  const footprints:Footprint[]=[];const allPads:Pad[]=[];
+function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[];holes:DrillHole[]}{
+  const footprints:Footprint[]=[];const allPads:Pad[]=[];const holes:DrillHole[]=[];
   for(const block of blocks(source,'footprint',MAX_FOOTPRINTS)){
     const origin=at(block);if(!origin)continue;
     const reference=property(block,'Reference')??'<unknown>';
@@ -138,7 +139,16 @@ function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
     for(const pblock of blocks(block,'pad',4096)){
       const pAt=at(pblock)??{x:0,y:0,rotationDeg:0};
       const position=transform({x:pAt.x,y:pAt.y},{x:origin.x,y:origin.y},origin.rotationDeg);
-      const net=netOf(pblock);if(!net||net.id===0)continue;
+      const net=netOf(pblock);
+      // Mounting NPTH and PTH drill clearances are not captured by
+      // foreign-net pad-copper collision tests. Track and via-to-hole checks
+      // must include mechanical holes, including pads without copper nets.
+      const drill=pblock.match(/\(drill(?:\s+oval)?\s+(\d+(?:\.\d+)?)(?:\s+(\d+(?:\.\d+)?))?/);
+      if(drill?.[1]){
+        const radius=Math.max(Number(drill[1]),Number(drill[2]??drill[1]))/2;
+        if(Number.isFinite(radius)&&radius>0)holes.push({position,radiusMm:radius,...(net?{netName:net.name}:{})});
+      }
+      if(!net||net.id===0)continue;
       const layers=layersOf(pblock);
       const size=padSize(pblock),halfX=size.x/2,halfY=size.y/2;
       // KiCad board files store pad orientation as an absolute board angle.
@@ -159,7 +169,7 @@ function parseFootprints(source:string):{footprints:Footprint[];pads:Pad[]}{
     // Courtyards are assembly spacing, not copper obstacles.
     footprints.push({reference,at:{x:origin.x,y:origin.y},rotationDeg:origin.rotationDeg,pads});
   }
-  return {footprints,pads:allPads};
+  return {footprints,pads:allPads,holes};
 }
 
 function parseCopperLayers(source:string):string[]{
@@ -450,6 +460,20 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     return false;
   };
 
+  const nearDrilledHole=(x:number,y:number,radiusMm:number,netName:string,isVia:boolean)=>{
+    const position=toPoint(x,y);
+    // KiCad default hole clearance is 0.25 mm; never silently assume that
+    // NPTH/PTH holes can be crossed just because they have no copper net.
+    // Tracks may join their own plated pad; a new via must still clear
+    // existing drill holes regardless of net.
+    for(const hole of parsed.holes){
+      if(!isVia&&hole.netName===netName)continue;
+      const required=hole.radiusMm+radiusMm+0.25;
+      if(Math.hypot(position.x-hole.position.x,position.y-hole.position.y)<required-1e-9)return true;
+    }
+    return false;
+  };
+
   const findPath=(netName:string,start:Pad,end:Pad,width:number,clearance:number,preferredLayer?:string)=>{
     lastSearchBudgetExceeded=false;
     const s=toGrid(start.position),e=toGrid(end.position);
@@ -485,7 +509,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
           const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
           if(x<left||y<top||x>right||y>bottom)continue;
           const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
-          if(nearForeignPad(cur.layer,x,y,inflate,netName))continue;
+          if(nearDrilledHole(x,y,width/2,netName,false)||nearForeignPad(cur.layer,x,y,inflate,netName))continue;
           if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)))continue;
           const horizontal=dy===0,layerName=layers[cur.layer]!;
           const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
@@ -495,7 +519,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         }
         const other=cur.layer===0?1:0;
         const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
-        const viaForeignPadBlocked=[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
+        const viaForeignPadBlocked=nearDrilledHole(cur.x,cur.y,viaDrill/2,netName,true)||[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
         const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName));
         // Endpoint vias must meet foreign-net copper clearance too.
         if(!viaForeignPadBlocked&&!viaBlocked){

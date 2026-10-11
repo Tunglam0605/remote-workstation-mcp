@@ -194,3 +194,15 @@ test('KiCad adapter design review optionally combines ERC/DRC without mutating s
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('KiCad 10 named-only copper nets are counted in design review, not silently reported as empty', () => {
+  const namedOnly = PCB
+    .replace(/^\s*\(net \d+ "[^"]*"\)\s*$/gm,'')
+    .replace(/\(net 1\)/g,'(net "/SIG")');
+  const report=analyzeKicadDesign({board:namedOnly},{shortSegmentMm:0.25});
+  assert.equal(report.routing?.segmentCount,2);
+  assert.equal(report.routing?.arcCount,1);
+  assert.equal(report.routing?.viaCount,1);
+  assert.equal(report.routing?.netCount,1);
+  assert.equal(report.routing?.topLongestNets[0]?.name,'/SIG');
+});

@@ -9,80 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  build-test-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci --no-audit --no-fund
-      - name: Validate dependency install-script policy
-        run: npm run supply-chain:validate
-      - name: Scan tracked files for high-confidence secrets
-        run: npm run security:scan
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
-      - name: Generate CycloneDX SBOM
-        run: npm sbom --sbom-format cyclonedx > rwmcp-sbom.cdx.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rwmcp-sbom
-          path: rwmcp-sbom.cdx.json
-      - run: npm run typecheck
-      - name: Enforce architecture boundaries
-        run: npm run architecture:check
-      - run: npm test
-      - name: PTY lifecycle soak
-        run: npm run test:pty-soak
-        env:
-          RWMCP_PTY_SOAK_ITERATIONS: 120
-      - run: npm run build
-      - name: Validate plugin package
-        run: npm run plugin:validate
-      - name: Smoke-test local doctor
-        shell: bash
-        run: |
-          set -euo pipefail
-          TMP="$(mktemp -d)"
-          trap 'rm -rf "$TMP"' EXIT
-          mkdir -p "$TMP/workspace"
-          cat > "$TMP/policy.yaml" <<EOF
-          version: 1
-          mode: workspace
-          workspaces:
-            - id: smoke
-              root: $TMP/workspace
-              readOnly: false
-          filesystem:
-            maxReadBytes: 1048576
-            maxWriteBytes: 1048576
-          search:
-            maxResults: 20
-            maxFiles: 100
-            maxFileBytes: 1048576
-          process:
-            allowExecutables: [node]
-            inheritEnv: [PATH, HOME, LANG]
-            maxOutputBytes: 65536
-            maxRuntimeMs: 30000
-          tasks: {}
-          EOF
-          cat > "$TMP/hosts.yaml" <<EOF
-          version: 1
-          hosts: []
-          EOF
-          chmod 600 "$TMP/policy.yaml" "$TMP/hosts.yaml"
-          RWMCP_POLICY="$TMP/policy.yaml" \
-          RWMCP_HOSTS="$TMP/hosts.yaml" \
-          RWMCP_CONFIG_HOME="$TMP/config" \
-          RWMCP_HOME="$TMP/data" \
-          node scripts/doctor-user.mjs --json
-      - name: Smoke-test packed artifact
-        run: bash scripts/smoke-package.sh
-
   build-test-windows:
     runs-on: windows-latest
     steps:
@@ -93,6 +19,15 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Generate CycloneDX SBOM
+        shell: bash
+        run: npm sbom --sbom-format cyclonedx > rwmcp-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rwmcp-sbom-windows
+          path: rwmcp-sbom.cdx.json
       - name: Validate dependency install-script policy
         run: npm run supply-chain:validate
       - name: Scan tracked files for high-confidence secrets

@@ -295,7 +295,8 @@ function parseRouting(source: string, shortSegmentMm: number) {
   let shortSegments = 0;
   const angleBuckets = { orthogonal: 0, diagonal45: 0, other: 0 };
 
-  for (const block of blocks(source, 'segment')) {
+  const segmentBlocks = blocks(source, 'segment');
+  for (const block of segmentBlocks) {
     const start = pointToken(block, 'start');
     const end = pointToken(block, 'end');
     const netId = resolveNetId(block);
@@ -314,7 +315,8 @@ function parseRouting(source: string, shortSegmentMm: number) {
     totalTrackLengthMm += length;
   }
 
-  for (const block of blocks(source, 'arc')) {
+  const arcBlocks = blocks(source, 'arc');
+  for (const block of arcBlocks) {
     const start = pointToken(block, 'start');
     const mid = pointToken(block, 'mid');
     const end = pointToken(block, 'end');
@@ -332,7 +334,8 @@ function parseRouting(source: string, shortSegmentMm: number) {
     totalTrackLengthMm += length;
   }
 
-  for (const block of blocks(source, 'via')) {
+  const viaBlocks = blocks(source, 'via');
+  for (const block of viaBlocks) {
     const netId = resolveNetId(block);
     if (netId === undefined) continue;
     const item = routeNet(nets, netId, names);
@@ -341,6 +344,16 @@ function parseRouting(source: string, shortSegmentMm: number) {
       if (layer[1]) item.layers.add(layer[1]);
     }
     viaCount += 1;
+  }
+
+  // Fail closed if a KiCad PCB contains copper objects that this parser cannot
+  // decode. A false zero-via/zero-track report is worse than a clear error.
+  if (segmentCount !== segmentBlocks.length || arcCount !== arcBlocks.length || viaCount !== viaBlocks.length) {
+    throw new Error(
+      `KiCad routing parser coverage failed: recognized ${segmentCount}/${segmentBlocks.length} segments, ` +
+      `${arcCount}/${arcBlocks.length} arcs, ${viaCount}/${viaBlocks.length} vias. ` +
+      'Use native KiCad inspection; do not assert zero routed nets.'
+    );
   }
 
   return {

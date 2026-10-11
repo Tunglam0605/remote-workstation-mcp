@@ -140,3 +140,64 @@ test('project inspector detects Keil MDK multi-target STM32 projects without gue
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('KiCad inspection chooses matching .pro/.sch/.pcb rather than alphabetical leftover .pro', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-canonical-'));
+  try {
+    await fs.writeFile(path.join(root, '_candidate_ground.kicad_pro'), '{}');
+    await fs.writeFile(path.join(root, 'mega_v11.kicad_pro'), '{}');
+    await fs.writeFile(path.join(root, 'mega_v11.kicad_sch'), '(kicad_sch)');
+    await fs.writeFile(path.join(root, 'mega_v11.kicad_pcb'), '(kicad_pcb)');
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(root))));
+    const result = await inspector.inspect('w');
+    assert.deepEqual(result.kicad, {
+      project: 'mega_v11.kicad_pro',
+      schematic: 'mega_v11.kicad_sch',
+      board: 'mega_v11.kicad_pcb',
+      jobsets: []
+    });
+    assert.ok(!result.markers.includes('_candidate_ground.kicad_pro'));
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('KiCad inspection rejects multiple complete projects with equal authority', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-ambiguous-'));
+  try {
+    for (const stem of ['old', 'new']) {
+      for (const ext of ['pro', 'sch', 'pcb']) {
+        await fs.writeFile(path.join(root, stem + '.kicad_' + ext), 'fixture');
+      }
+    }
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(root))));
+    await assert.rejects(() => inspector.inspect('w'), /Ambiguous KiCad project.*old.*Select the intended/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('KiCad inspection selects a same-name project folder among complete revisions', async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-folder-'));
+  const root = path.join(parent, 'current');
+  await fs.mkdir(root);
+  try {
+    for (const stem of ['current', 'legacy']) {
+      for (const ext of ['pro', 'sch', 'pcb']) {
+        await fs.writeFile(path.join(root, stem + '.kicad_' + ext), 'fixture');
+      }
+    }
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(parent))));
+    const result = await inspector.inspect('w', 'current');
+    assert.equal(result.kicad?.project, 'current.kicad_pro');
+    assert.equal(result.kicad?.schematic, 'current.kicad_sch');
+    assert.equal(result.kicad?.board, 'current.kicad_pcb');
+  } finally { await fs.rm(parent, { recursive: true, force: true }); }
+});
+
+test('KiCad inspection does not combine mismatched lone .sch with unrelated .pro', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-partial-'));
+  try {
+    await fs.writeFile(path.join(root, 'first.kicad_pro'), '{}');
+    await fs.writeFile(path.join(root, 'second.kicad_sch'), '(kicad_sch)');
+    const inspector = new FirmwareProjectInspector(new PathGuard(new PolicyEngine(policy(root))));
+    await assert.rejects(() => inspector.inspect('w'), /Ambiguous KiCad project/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

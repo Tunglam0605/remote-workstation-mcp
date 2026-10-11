@@ -206,3 +206,27 @@ test('KiCad 10 named-only copper nets are counted in design review, not silently
   assert.equal(report.routing?.netCount,1);
   assert.equal(report.routing?.topLongestNets[0]?.name,'/SIG');
 });
+
+
+test('KiCad review refuses to report false zero when a via net encoding is unsupported', () => {
+  const unreadable = PCB.replace(
+    '(via (at 20 10) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1))',
+    '(via (at 20 10) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net custom-unknown))'
+  );
+  assert.throws(
+    () => analyzeKicadDesign({ board: unreadable }),
+    /routing parser coverage failed.*2\/2 segments.*1\/1 arcs.*0\/1 vias/
+  );
+});
+
+test('KiCad review supports mixed numeric and KiCad 10 named copper net declarations', () => {
+  const mixed = PCB.replace(
+    '(via (at 20 10) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1))',
+    '(via (at 20 10) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net "/SPI_CLK"))'
+  );
+  const result = analyzeKicadDesign({ board: mixed });
+  assert.equal(result.routing?.segmentCount, 2);
+  assert.equal(result.routing?.viaCount, 1);
+  assert.equal(result.routing?.netCount, 2);
+  assert.equal(result.routing?.topViaNets[0]?.name, '/SPI_CLK');
+});

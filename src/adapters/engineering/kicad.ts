@@ -12,8 +12,9 @@ import { resolveExistingProjectPath } from './project-path.js';
 import { parseKicadBomCsv } from './kicad-bom.js';
 import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
-import { runKicadCopyExperiments, type KicadExperimentDrc } from './kicad-autoexperiment.js';
+import { runKicadCopyExperiments, defaultKicadRoutingTrials, type KicadExperimentDrc } from './kicad-autoexperiment.js';
 import { copyKicadProjectSupport } from './kicad-autoexperiment-support.js';
+import { stageVerifiedKiCadCandidate } from './kicad-autoexperiment-acceptance.js';
 import { listUnconnectedNetsFromKiCadReport, type IterativeRoutePolicy } from './kicad-route-iterations.js';
 import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './kicad-constraints-review.js';
 import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprint, resolveKicadSymbol, searchKicadFootprints, searchKicadSymbols } from './kicad-library.js';
@@ -1409,14 +1410,7 @@ export class KicadAdapter {
       : undefined;
     const trials = request.routingTrials ?? 1;
     if (![1, 2, 3].includes(trials)) throw new Error('routingTrials must be 1, 2 or 3.');
-    const grid = request.routing?.gridMm ?? 0.5;
-    const routeVariants = [
-      { id: 'routing-only', status: 'review-only' as const, score: 0, proposals: [] },
-      { id: 'routing-fine', status: 'review-only' as const, score: 0, proposals: [],
-        routing: { gridMm: Math.max(0.1, Number((grid / 2).toFixed(3))) } },
-      { id: 'routing-low-via', status: 'review-only' as const, score: 0, proposals: [],
-        routing: { viaCostMm: Math.min(1000, (request.routing?.viaCostMm ?? 8) * 2) } }
-    ];
+    const routeVariants = defaultKicadRoutingTrials(request.routing);
     const scenarios = ranked?.rankedScenarios.map(x => ({
       id: x.id, status: x.status, score: x.score,
       proposals: x.proposals.map(p => ({ reference: p.reference, from: p.from, to: p.to }))
@@ -1426,15 +1420,19 @@ export class KicadAdapter {
     const name = path.basename(pcb);
     const outcome = await runKicadCopyExperiments(original, {
       scenarios, routing: request.routing ?? {}, iterations: request.iterations, baseline,
-      validate: async (id, candidate, round) => {
-        const folder = path.join(output, id, ...(round ? ['round-' + String(round).padStart(2, '0')] : []));
+      validate: async (id, candidate, round, trialId) => {
+        const runFolder = [
+          ...(round ? ['round-' + String(round).padStart(2, '0')] : []),
+          ...(trialId ? [trialId] : [])
+        ];
+        const folder = path.join(output, id, ...runFolder);
         await fs.mkdir(folder, { recursive: true });
         await fs.writeFile(path.join(folder, name), candidate, 'utf8');
         if (hasPro) await fs.copyFile(pro, path.join(folder, path.basename(pro)));
         if (sch) await fs.copyFile(sch, path.join(folder, path.basename(sch)));
         await copyKicadProjectSupport(path.dirname(pcb), folder);
         const validation = await this.drc(workspace, projectPath,
-          path.join(relativeOutput, id, ...(round ? ['round-' + String(round).padStart(2, '0')] : []), name), Boolean(sch));
+          path.join(relativeOutput, id, ...runFolder, name), Boolean(sch));
         return counts(validation.report);
       }
     });
@@ -1453,6 +1451,31 @@ export class KicadAdapter {
       })),
       limitations: outcome.limitations
     };
+    // A successful isolation may finish in an intermediate trial directory.
+    // Materialize and independently re-validate the EXACT accepted board bytes
+    // before linking it in the candidate manifest. Rejected copper stays isolated.
+    if (request.iterations?.recoverRejectedBatches === true) {
+      for (const accepted of outcome.candidates.filter(item => item.status === 'candidate-accepted' && item.source)) {
+        const validatedPath = path.join(relativeOutput, accepted.id, 'accepted', name);
+        if (!accepted.candidateDrc) throw new Error('KiCad accepted candidate is missing DRC proof.');
+        await stageVerifiedKiCadCandidate({
+          targetFolder: path.join(output, accepted.id, 'accepted'),
+          sourceProjectFolder: path.dirname(pcb),
+          pcbFileName: name,
+          candidateSource: accepted.source!,
+          ...(hasPro ? { projectFile: pro } : {}),
+          ...(sch ? { schematicFile: sch } : {}),
+          expectedDrc: accepted.candidateDrc,
+          validate: async () => counts((await this.drc(workspace, projectPath,
+            validatedPath, Boolean(sch))).report)
+        });
+        const recorded = report.candidates.find(item => item.id === accepted.id);
+        if (recorded) Object.assign(recorded, {
+          candidateBoard: validatedPath.split(path.sep).join('/'),
+          candidateSha256: sha256Text(accepted.source!)
+        });
+      }
+    }
     await fs.writeFile(path.join(output, 'experiment-manifest.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
     if (sha256Text(await fs.readFile(pcb, 'utf8')) !== sourceSha256) {
       throw new Error('Source PCB changed during autoexperiment. Refuse results.');

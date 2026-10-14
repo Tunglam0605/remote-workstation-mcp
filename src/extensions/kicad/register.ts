@@ -733,7 +733,9 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
         maxRounds: z.number().int().min(1).max(4).default(1),
         maxNetsPerRound: z.number().int().min(1).max(24).default(6),
         autoSelectUnconnected: z.boolean().default(false),
-        includePowerNets: z.boolean().default(false)
+        includePowerNets: z.boolean().default(false),
+        recoverRejectedBatches: z.boolean().default(false),
+        maxRecoveryChecks: z.number().int().min(1).max(8).default(6)
       }).strict().optional(),
       placement: z.object({
         fixedReferences: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).max(256).default([]),

@@ -145,6 +145,41 @@ test('KiCad layout optimizer derives pad geometry, routing efficiency, affinity 
   assert.equal(codes.has('net-weighted-placement-candidates'), true);
 });
 
+test('KiCad 10 named-only nets remain connected for layout and routing optimization', () => {
+  const namedBoard = BOARD
+    .replaceAll('(net 0 "")', '(net "")')
+    .replaceAll('(net 1 "VCC")', '(net "VCC")')
+    .replaceAll('(net 2 "SIG")', '(net "SIG")')
+    .replaceAll('(net 1)', '(net "VCC")')
+    .replaceAll('(net 2)', '(net "SIG")');
+  const out = analyzeKicadLayoutOptimization(
+    { board: namedBoard, schematicNetlist: NETLIST },
+    { maxDetails: 20, maxPlacementNetPads: 8 }
+  );
+  assert.equal(out.boardConnectivity.footprintCount, 3);
+  assert.equal(out.boardConnectivity.connectedPadCount, 5);
+  assert.equal(out.boardConnectivity.netCount, 2);
+  assert.ok(out.routingEfficiency.topDetourNets.some(item => item.name === 'VCC' && item.viaCount === 1));
+  assert.ok(out.placementOptimization.candidates.length > 0);
+  assert.equal(out.schematicConnectivity?.matchingPins, 4);
+  assert.deepEqual(out.schematicConnectivity?.netMismatches, [{
+    reference: 'C1', pin: '1', schematicNet: 'GND', boardNet: 'VCC'
+  }]);
+});
+
+test('KiCad 10 mixed numeric and named-only nets use one coherent connection graph', () => {
+  const mixedBoard = BOARD
+    // Keep numeric global net declarations and numeric tracks/vias;
+    // only pad declarations switch to KiCad 10 named-only notation.
+    .replaceAll('(net 1 "VCC"))', '(net "VCC"))')
+    .replaceAll('(net 2 "SIG"))', '(net "SIG"))');
+  const out = analyzeKicadLayoutOptimization({ board: mixedBoard, schematicNetlist: NETLIST });
+  assert.equal(out.boardConnectivity.connectedPadCount, 5);
+  assert.equal(out.boardConnectivity.netCount, 2);
+  assert.ok(out.routingEfficiency.topViaNets.some(item => item.name === 'VCC'));
+  assert.equal(out.schematicConnectivity?.matchingPins, 4);
+});
+
 test('KiCad layout optimizer suppresses high-fanout nets from placement pressure without dropping routing evidence', () => {
   const analysis = analyzeKicadLayoutOptimization(
     { board: BOARD },

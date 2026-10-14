@@ -99,12 +99,6 @@ function quotedToken(block: string, token: string): string | undefined {
   return match?.[1] !== undefined ? unquote(match[1]) : undefined;
 }
 
-function numberToken(block: string, token: string): number | undefined {
-  const escaped = token.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
-  const match = block.match(new RegExp('\\(' + escaped + '\\s+(-?\\d+(?:\\.\\d+)?)\\)', 'i'));
-  return match?.[1] !== undefined ? Number(match[1]) : undefined;
-}
-
 function pointToken(block: string, token: string): Point | undefined {
   const escaped = token.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
   const match = block.match(new RegExp('\\(' + escaped + '\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)', 'i'));
@@ -142,10 +136,41 @@ function boardNetNames(source: string): Map<number, string> {
   return names;
 }
 
-function padNet(block: string): { id?: number; name?: string } {
-  const match = block.match(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/);
-  if (!match?.[1]) return {};
-  return { id: Number(match[1]), ...(match[2] !== undefined ? { name: unquote(match[2]) } : {}) };
+// KiCad 10 can store net identity as (net "/NAME") without numeric codes.
+// Synthetic negative IDs are analysis-only and MUST NEVER be written to CAD files.
+function boardNetResolver(source: string): {
+  names: Map<number, string>;
+  resolve: (block: string) => { id?: number; name?: string };
+} {
+  const names = boardNetNames(source);
+  const idByName = new Map<string, number>();
+  for (const [id, name] of names) {
+    if (id !== 0 && name && !idByName.has(name)) idByName.set(name, id);
+  }
+  let nextSyntheticId = -1;
+  const resolve = (block: string): { id?: number; name?: string } => {
+    const numbered = block.match(/\(net\s+(\d+)(?:\s+"((?:\\.|[^"\\])*)")?\)/);
+    if (numbered?.[1]) {
+      const id = Number(numbered[1]);
+      if (!Number.isSafeInteger(id)) return {};
+      const name = numbered[2] !== undefined ? unquote(numbered[2]) : names.get(id);
+      if (name && !names.has(id)) names.set(id, name);
+      if (name && id !== 0 && !idByName.has(name)) idByName.set(name, id);
+      return { id, ...(name !== undefined ? { name } : {}) };
+    }
+    const named = block.match(/\(net\s+"((?:\\.|[^"\\])*)"\)/);
+    if (!named) return {};
+    const name = unquote(named[1] ?? '');
+    if (!name) return {};
+    let id = idByName.get(name);
+    if (id === undefined) {
+      id = nextSyntheticId--;
+      idByName.set(name, id);
+      names.set(id, name);
+    }
+    return { id, name };
+  };
+  return { names, resolve };
 }
 
 function padLayers(block: string): string[] {
@@ -154,7 +179,7 @@ function padLayers(block: string): string[] {
   return [...match[1].matchAll(/"([^"]+)"/g)].map(item => item[1]!).slice(0, 32);
 }
 
-function parseBoardFootprints(source: string): BoardFootprint[] {
+function parseBoardFootprints(source: string, resolveNet: (block: string) => { id?: number; name?: string }): BoardFootprint[] {
   const result: BoardFootprint[] = [];
   for (const footprintBlock of blocks(source, 'footprint', 20_000)) {
     const at = atToken(footprintBlock);
@@ -166,7 +191,7 @@ function parseBoardFootprints(source: string): BoardFootprint[] {
       if (number === undefined) continue;
       const local = atToken(padBlock) ?? { x: 0, y: 0, rotationDeg: 0 };
       const rotated = rotate({ x: local.x, y: local.y }, at.rotationDeg);
-      const net = padNet(padBlock);
+      const net = resolveNet(padBlock);
       pads.push({
         number,
         ...(net.id !== undefined ? { netId: net.id } : {}),
@@ -222,10 +247,10 @@ function routeEvidenceForNet(map: Map<number, RouteEvidence>, id: number): Route
   return value;
 }
 
-function parseRouteEvidence(source: string): Map<number, RouteEvidence> {
+function parseRouteEvidence(source: string, resolveNet: (block: string) => { id?: number; name?: string }): Map<number, RouteEvidence> {
   const map = new Map<number, RouteEvidence>();
   for (const block of blocks(source, 'segment')) {
-    const net = numberToken(block, 'net');
+    const net = resolveNet(block).id;
     const start = pointToken(block, 'start');
     const end = pointToken(block, 'end');
     const layer = block.match(/\(layer\s+"([^"]+)"\)/)?.[1];
@@ -236,7 +261,7 @@ function parseRouteEvidence(source: string): Map<number, RouteEvidence> {
     evidence.layers.add(layer);
   }
   for (const block of blocks(source, 'arc')) {
-    const net = numberToken(block, 'net');
+    const net = resolveNet(block).id;
     const start = pointToken(block, 'start');
     const mid = pointToken(block, 'mid');
     const end = pointToken(block, 'end');
@@ -248,7 +273,7 @@ function parseRouteEvidence(source: string): Map<number, RouteEvidence> {
     evidence.layers.add(layer);
   }
   for (const block of blocks(source, 'via')) {
-    const net = numberToken(block, 'net');
+    const net = resolveNet(block).id;
     if (net === undefined) continue;
     const evidence = routeEvidenceForNet(map, net);
     evidence.viaCount += 1;
@@ -343,9 +368,9 @@ export function analyzeKicadLayoutOptimization(
     throw new Error('placementGridMm must be in range >0..10 mm.');
   }
 
-  const netNames = boardNetNames(input.board);
-  const footprints = parseBoardFootprints(input.board);
-  const routes = parseRouteEvidence(input.board);
+  const { names: netNames, resolve: resolveNet } = boardNetResolver(input.board);
+  const footprints = parseBoardFootprints(input.board, resolveNet);
+  const routes = parseRouteEvidence(input.board, resolveNet);
   const netPads = new Map<number, Array<{ reference?: string; pad: BoardPad }>>();
   for (const footprint of footprints) {
     for (const pad of footprint.pads) {

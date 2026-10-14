@@ -768,6 +768,21 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       ))
     )));
 
+  server.registerTool('kicad_zone_refill_copy', {
+    description: 'Native KiCad 10+ copper zone refill on a fresh SHA-bound project-local PCB copy. Preserves pad/net/footprint/track/zone-boundary/Edge.Cuts identity, opens candidate again, enforces official KiCad DRC/parity non-regression, and never changes source board or approves manufacturing.',
+    inputSchema:kicadProject.extend({
+      workSessionId:z.string().uuid(),
+      board:z.string().min(1).max(1024),
+      schematic:z.string().min(1).max(1024).optional(),
+      outputDir:z.string().min(1).max(600),
+      expectedBoardSha256:z.string().regex(/^[a-fA-F0-9]{64}$/)
+    }),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+  },async({workSessionId,...request})=>result(await audited(ctx.audit,
+    'kicad_zone_refill_copy',request.workspace,()=>ctx.runInWorkSession(workSessionId,
+      ()=>ctx.engineering.kicadZoneRefill.refillCopy(request.workspace,request.projectPath,request)
+    ))));
+
   server.registerTool('kicad_specctra_import', {
     description: 'Windows KiCad 10+ owner-authorized Specctra SES import, strictly bound to original board SHA, original native DSN export manifest/DSN SHA, supplied SES SHA. Native KiCad imports onto a fresh isolated PCB copy, compares all footprints/pads/net names/board Edge.Cuts/zones, then requires strict unconnected improvement with no official DRC/parity/error regression. Original PCB never modified; candidate is review-only, NOT manufacturing approval.',
     inputSchema:kicadProject.extend({

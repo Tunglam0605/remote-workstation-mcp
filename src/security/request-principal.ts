@@ -341,6 +341,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   kicad_validate: 'workstation.read',
   kicad_design_review: 'workstation.read',
   kicad_layout_optimize_plan: 'workstation.read',
+  kicad_autoexperiment_run: 'workstation.write',
   kicad_constraints_review: 'workstation.read',
   kicad_visual_export: 'workstation.write',
   kicad_bom_report: 'workstation.read',

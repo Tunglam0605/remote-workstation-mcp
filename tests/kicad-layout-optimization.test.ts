@@ -145,6 +145,22 @@ test('KiCad layout optimizer derives pad geometry, routing efficiency, affinity 
   assert.equal(codes.has('net-weighted-placement-candidates'), true);
 });
 
+test('rotated KiCad PCB pad positions use clockwise-positive board coordinates', () => {
+  const source = `(kicad_pcb
+    (net 1 "/SIGNAL")
+    (footprint "Conn:A" (at 30 25 0)
+      (property "Reference" "J1")
+      (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net 1 "/SIGNAL")))
+    (footprint "Conn:B" (at 30 30 90)
+      (property "Reference" "J2")
+      (pad "1" smd rect (at 5 0) (size 1 1) (layers "F.Cu") (net 1 "/SIGNAL")))
+  )`;
+  const output = analyzeKicadLayoutOptimization({ board: source });
+  assert.equal(output.boardConnectivity.netCount, 1);
+  assert.equal(output.routingEfficiency.noExplicitCopper[0]?.euclideanMstMm, 0);
+  assert.equal(output.routingEfficiency.noExplicitCopper[0]?.hpwlMm, 0);
+});
+
 test('KiCad 10 named-only nets remain connected for layout and routing optimization', () => {
   const namedBoard = BOARD
     .replaceAll('(net 0 "")', '(net "")')

@@ -720,6 +720,42 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }
     ))));
 
+  server.registerTool('kicad_autoexperiment_run', {
+    description: 'Run bounded KiCad PCB layout/autoroute hypotheses strictly on NEW project-local board copies, preserving source SHA, applying optional typed alignment/keepout/connector constraints, then routing with the built-in A* planner. Official KiCad DRC with optional schematic parity validates each copy. Only candidates that strictly reduce unconnected copper without increasing active DRC/parity violations are eligible for recommendation. Never edits the original PCB, merges a candidate, authorizes Gerbers or claims impedance/thermal signoff. Requires Work Session ownership.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      schematic: z.string().min(1).max(1024).optional(),
+      outputDir: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      routingTrials: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+      placement: z.object({
+        fixedReferences: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).max(256).default([]),
+        alignmentGroups: z.array(alignmentGroupSchema).min(1).max(32),
+        keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
+        boardBounds: placementRectSchema.optional(),
+        minCourtyardGapMm: z.number().finite().min(0).max(20).default(0.2),
+        maxSuggestedStepMm: z.number().finite().gt(0).max(50).default(5),
+        placementGridMm: z.number().finite().gt(0).max(10).default(0.5),
+        maxHpwlRegressionMm: z.number().finite().min(0).max(1000).default(0),
+        connectorAccess: z.array(z.object({
+          reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+          direction: z.enum(['left', 'right', 'top', 'bottom']),
+          depthMm: z.number().finite().gt(0).max(100),
+          widthMm: z.number().finite().gt(0).max(100).optional(),
+          allowOutsideBoard: z.boolean().optional()
+        })).max(128).default([])
+      }).strict().optional(),
+      routing: routePlanOptions.optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_autoexperiment_run', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.autoexperimentRun(
+        request.workspace, request.projectPath, request
+      ))
+    )));
+
   server.registerTool('kicad_constraints_review', {
     description: 'Review KiCad Board Setup and routing constraints without source mutation. Reads explicit .kicad_pro + .kicad_pcb and optional .kicad_dru, summarizes hard manufacturing/routing minimums, net classes/defaults, stackup, zones, differential-pair evidence and custom-rule catalog, then compares explicit routing against hard minimums. Net-class defaults are never mislabeled as DRC violations and custom-rule expressions are not re-evaluated by RWMCP; KiCad DRC remains authoritative.',
     inputSchema: kicadProject.extend({

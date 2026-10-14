@@ -126,10 +126,12 @@ function firstQuotedArg(block: string, token: string): string | undefined {
 }
 
 function rotate(point: Point, degrees: number): Point {
+  // KiCad PCB Y increases downward: positive footprint rotation is clockwise.
+  // Match route-plan's coordinate transform, including rectangular courtyards.
   const radians = degrees * Math.PI / 180;
   const c = Math.cos(radians);
   const s = Math.sin(radians);
-  return { x: point.x * c - point.y * s, y: point.x * s + point.y * c };
+  return { x: point.x * c + point.y * s, y: -point.x * s + point.y * c };
 }
 
 function boardNetNames(source: string): Map<number, string> {

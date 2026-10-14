@@ -703,6 +703,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
       boardBounds: placementRectSchema.optional(),
       minCourtyardGapMm: z.number().finite().min(0).max(20).default(0),
+      minEdgeClearanceMm: z.number().finite().min(0).max(20).default(0),
       connectorAccess: z.array(z.object({
         reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
         direction: z.enum(['left', 'right', 'top', 'bottom']),
@@ -714,14 +715,14 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       maxHpwlRegressionMm: z.number().finite().min(0).max(1000).default(0)
     }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, boardBounds, minCourtyardGapMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }) =>
+  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, boardBounds, minCourtyardGapMm, minEdgeClearanceMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }) =>
     result(await audited(ctx.audit, 'kicad_layout_optimize_plan', workspace, () => ctx.engineering.kicad.layoutOptimizePlan(
       workspace, projectPath, board, schematic,
-      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }
+      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm, minEdgeClearanceMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }
     ))));
 
   server.registerTool('kicad_autoexperiment_run', {
-    description: 'Run bounded KiCad PCB layout/autoroute hypotheses strictly on NEW project-local board copies, preserving source SHA, applying optional typed alignment/keepout/connector constraints, then routing with the built-in A* planner. Official KiCad DRC with optional schematic parity validates each copy. Only candidates that strictly reduce unconnected copper without increasing active DRC/parity violations are eligible for recommendation. Never edits the original PCB, merges a candidate, authorizes Gerbers or claims impedance/thermal signoff. Requires Work Session ownership.',
+    description: 'Run bounded KiCad PCB layout/autoroute hypotheses strictly on NEW project-local board copies, preserving source SHA, applying optional typed alignment/keepout/connector constraints, then routing with the built-in A* planner. Official KiCad DRC with optional schematic parity validates each copy. Routed candidates must reduce unconnected copper; opt-in previewPlacementOnly writes layout-only PCB copies after exact native Edge.Cuts clearance checks and accepts only non-regressing official KiCad DRC/parity. Never edits the original PCB, merges a candidate, authorizes Gerbers or claims impedance/thermal signoff. Requires Work Session ownership.',
     inputSchema: kicadProject.extend({
       workSessionId: z.string().uuid(),
       board: z.string().min(1).max(1024),
@@ -729,6 +730,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       outputDir: z.string().min(1).max(1024),
       expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
       routingTrials: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+      previewPlacementOnly: z.boolean().default(false),
       iterations: z.object({
         maxRounds: z.number().int().min(1).max(4).default(1),
         maxNetsPerRound: z.number().int().min(1).max(24).default(6),
@@ -743,6 +745,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
         keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
         boardBounds: placementRectSchema.optional(),
         minCourtyardGapMm: z.number().finite().min(0).max(20).default(0.2),
+        minEdgeClearanceMm: z.number().finite().min(0).max(20).default(0),
         maxSuggestedStepMm: z.number().finite().gt(0).max(50).default(5),
         placementGridMm: z.number().finite().gt(0).max(10).default(0.5),
         maxHpwlRegressionMm: z.number().finite().min(0).max(1000).default(0),

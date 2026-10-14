@@ -76,7 +76,7 @@ test('v0.54 adds typed SocketCAN diagnostics and advances Action Schema v26 whil
   for (const tool of ['excel_inspect', 'excel_edit', 'powerpoint_inspect', 'powerpoint_edit']) {
     assert.match(officeTools, new RegExp(`server\\.registerTool\\('${tool}'`));
   }
-  assert.match(capabilities, /export const BUILD_CHANNEL = 'development'/);
+  assert.match(capabilities, /export const BUILD_CHANNEL = 'stable'/);
   assert.match(capabilities, /RWMCP_GIT_COMMIT/);
   assert.match(capabilities, /multi_device\.data_plane/);
   assert.match(capabilities, /multi_device\.control_plane_relay/);

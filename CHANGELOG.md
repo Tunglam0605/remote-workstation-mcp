@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.71.0 — Windows-only KiCad Agent engineering tools (release candidate; not yet published)
+## 0.71.0 — Windows-only KiCad Agent engineering tools (release candidate, stable channel; not yet published)
 
 - Enhances the KiCad 10 agent with source-aware net parsing, ranked functional placement scenarios and revision-locked, project-local PCB autoexperiments; rejects any routing/placement attempt that regresses official KiCad DRC, unconnected counts or schematic parity.
 - Adds bounded multi-round A* routing and DRC-guided failure isolation, preserving previously validated copper while keeping the original PCB immutable.

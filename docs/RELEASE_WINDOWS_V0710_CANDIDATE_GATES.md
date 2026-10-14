@@ -51,7 +51,7 @@ Date: 2026-10-14 | Candidate source branch: `release/windows-v0.71.0-candidate-2
 
 1. Review aggregate draft PR and resolve stack/CI changes.
 2. Validate candidate commit in Windows GitHub Actions and on the real machine: package smoke, Work Session authority, KiCad10 native DRC, update state and rollback.
-3. Update `BUILD_CHANNEL` from `development` to `stable` at the final release commit (and adjust the engineering contract test accordingly) once all checks pass.
+3. Verify `BUILD_CHANNEL='stable'` on the final candidate and use the same commit for GitHub Windows CI, packaging and tagged release. Any change after the verified commit must restart the gates.
 4. Merge reviewed candidate into the approved release branch, create exact annotated tag `v0.71.0` and verify commit identity; use official release workflow to create draft release and assets/SBOM/SHA256SUMS.
 5. Verify the immutable release assets, publish only after explicit owner decision, then separately install on the owner's machine using its SHA-verified version-pinned updater.
 6. Verify OpenAI Secure MCP Tunnel, direct control, Work Session and rollback. Abort/rollback immediately if active runtime health degrades.

@@ -193,6 +193,33 @@ test('layout planner honors explicitly fixed mechanical footprint references', (
   assert.throws(() => analyzeKicadLayoutOptimization({ board: BOARD }, { fixedReferences: ['../../bad'] }), /Invalid fixedReferences/);
 });
 
+test('KiCad board optimizer exposes an explicit courtyard-aware constrained group plan', () => {
+  const pcb = `(kicad_pcb
+    (footprint "Connector:J1" (layer "F.Cu") (at 10 10)
+      (property "Reference" "J1")
+      (fp_rect (start -2 -2) (end 2 2) (layer "F.CrtYd")))
+    (footprint "Connector:J2" (layer "F.Cu") (at 30 14)
+      (property "Reference" "J2")
+      (fp_rect (start -2 -2) (end 2 2) (layer "F.CrtYd")))
+    (footprint "Connector:J3" (layer "F.Cu") (at 50 18)
+      (property "Reference" "J3")
+      (fp_rect (start -2 -2) (end 2 2) (layer "F.CrtYd")))
+  )`;
+  const result = analyzeKicadLayoutOptimization({ board: pcb }, {
+    fixedReferences: ['J1'],
+    alignmentGroups: [{ id: 'UART', axis: 'row', anchorReference: 'J1', references: ['J1', 'J2', 'J3'] }],
+    keepouts: [{ id: 'USB', bounds: { minX: 90, minY: 90, maxX: 95, maxY: 95 } }],
+    boardBounds: { minX: 0, minY: 0, maxX: 60, maxY: 60 }
+  });
+  assert.equal(result.placementOptimization.legacyGeometricProposalsSuppressed, true);
+  assert.deepEqual(result.placementOptimization.candidates, []);
+  assert.equal(result.constraintPlacement?.counts.proposals, 2);
+  assert.equal(result.constraintPlacement?.counts.blocked, 0);
+  assert.deepEqual(result.constraintPlacement?.candidates[0]?.proposedPositionMm, { x: 30, y: 10 });
+  assert.equal(result.constraintPlacement?.candidates[0]?.status, 'review');
+  assert.equal(result.constraintPlacement?.candidates.some(item => item.reference === 'J1'), false);
+});
+
 test('KiCad layout optimizer suppresses high-fanout nets from placement pressure without dropping routing evidence', () => {
   const analysis = analyzeKicadLayoutOptimization(
     { board: BOARD },

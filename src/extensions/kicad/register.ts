@@ -674,8 +674,22 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       { runRuleChecks, maxDetails, shortSegmentMm }
     ))));
 
+  const placementRectSchema = z.object({
+    minX: z.number().finite(),
+    minY: z.number().finite(),
+    maxX: z.number().finite(),
+    maxY: z.number().finite()
+  });
+  const alignmentGroupSchema = z.object({
+    id: z.string().min(1).max(64),
+    references: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).min(2).max(64),
+    axis: z.enum(['row', 'column']),
+    anchorReference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+    pitchMm: z.number().finite().gt(0).max(100).optional()
+  });
+
   server.registerTool('kicad_layout_optimize_plan', {
-    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Explicit fixedReferences protect mechanical anchors from movement suggestions; other moves are geometry-only review candidates and never bypass the existing typed IPC/DRC mutation gates.',
+    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Explicit fixedReferences protect mechanical anchors. Optional alignment groups, courtyard-gap checks, rectangular keepouts and declared board bounds generate bounded read-only placement candidates or blockers; no PCB changes or automatic DRC certification and never bypass the existing typed IPC/DRC mutation gates.',
     inputSchema: kicadProject.extend({
       board: z.string().min(1).max(1024),
       schematic: z.string().min(1).max(1024).optional(),
@@ -684,13 +698,17 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       maxPlacementNetPads: z.number().int().min(2).max(128).default(24),
       maxSuggestedStepMm: z.number().finite().gt(0).max(50).default(5),
       placementGridMm: z.number().finite().gt(0).max(10).default(0.5),
-      fixedReferences: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).max(256).default([])
+      fixedReferences: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).max(256).default([]),
+      alignmentGroups: z.array(alignmentGroupSchema).max(32).default([]),
+      keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
+      boardBounds: placementRectSchema.optional(),
+      minCourtyardGapMm: z.number().finite().min(0).max(20).default(0)
     }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences }) =>
+  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, boardBounds, minCourtyardGapMm }) =>
     result(await audited(ctx.audit, 'kicad_layout_optimize_plan', workspace, () => ctx.engineering.kicad.layoutOptimizePlan(
       workspace, projectPath, board, schematic,
-      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences }
+      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm }
     ))));
 
   server.registerTool('kicad_constraints_review', {

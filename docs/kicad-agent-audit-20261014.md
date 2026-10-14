@@ -40,3 +40,46 @@
 - Real V19 netlist parity and no source mutation; unchanged KiCad ERC/DRC baseline.
 - No stale QA reuse, no unapproved Gerber, no automatic release of PCB for manufacturing.
 - Keep deployed `release/windows-v0.70.0-dev.10` unchanged until independent test/PR review; Ubuntu frozen.
+
+## Implementation milestone: constraint-first grouped placement (2026-10-14)
+
+A read-only `kicad_layout_optimize_plan` upgrade implements the first Windows-only P1 constraint layer:
+- `alignmentGroups`: 2..64 footprint references per group, explicit `axis` row/column, optional `anchorReference`, optional center-to-center `pitchMm`. Anchor remains unmoved and group members are processed deterministically.
+- `fixedReferences`: protect mechanical references from proposed moves (pre-existing feature).
+- `keepouts`: up to 64 user-declared rectangular no-placement regions in absolute PCB millimeters.
+- `boardBounds`: optional explicit rectangular review envelope. **This does not represent a precise rounded Edge.Cuts polygon.**
+- `minCourtyardGapMm`: conservative spacing against parsed KiCad F/B.CrtYd footprints, circles, lines and rectangles; unknown arc/poly courtyard geometry causes a blocked candidate.
+- Read-only result `constraintPlacement`: groups, current/target/bounded intermediate coordinates, blockers, review notes and proposal counts.
+- Legacy connectivity-only centroid moves are suppressed if constraints are provided; never confuse centroid suggestions with collision-legal movements.
+- A candidate marked `review` is NOT a verified legal placement: moving a component invalidates current copper. Any real mutation requires fresh routing, KiCad DRC, ERC, schematic parity, electrical and connector/assembly review.
+- Fixed anchors and group topology are advisory through this typed tool; no IPC/live PCB or file edits occur.
+
+Example request payload (use board path relative to the selected project):
+```json
+{
+  "workspace": "projects",
+  "projectPath": "Mega2560-Jack-Shield-V12/design/V12_2L/review/V19_FUNCTIONAL_COMPACT_WIP_20261014",
+  "board": "Mega2560_Robotics_Jack_Shield_V12_2L.kicad_pcb",
+  "fixedReferences": ["A1"],
+  "alignmentGroups": [
+    {
+      "id": "output-connector-row",
+      "axis": "row",
+      "anchorReference": "J13",
+      "references": ["J13", "J14", "J15"]
+    }
+  ],
+  "minCourtyardGapMm": 0.2,
+  "maxSuggestedStepMm": 5,
+  "runRuleChecks": true
+}
+```
+
+Real PCB V19 dry run (SHA-256 f7a5e1ba82b0c43b553c0bdac674b47735be46dffd88cc11b2f75c48d7cd1def): 37 footprints, 251 pads, 235 connected pads, 97 nets. J15 currently (59.5,86.75), target y=102 matching J13; bounded candidate y=91.75 at exactly 5 mm. Group produces 1 review-only suggestion, 0 allowed writes. The SHA-256 was unchanged before/after. Other footprint(s) lack court yards: professional mechanical verification remains mandatory.
+
+Acceptance evidence:
+- 47/47 focused KiCad tests passing across acceptance, design review, routing, layout optimizer and placement constraints.
+- TypeScript typecheck and architecture boundary validation passing.
+- All new code is in the isolated worktree `remote-workstation-mcp.kicad10-layout-parser-20261014`.
+- Remaining P1 work: physical mating-envelope checks beyond footprint courtyard (Mega USB/DC, ICSP, cable bend and header orientation), connector-edge alignment legalizer, continuous DRC-gated copy-based experiments, and curved exact Edge.Cuts containment.
+- Current runtime stays v0.70.0-dev.10 until feature is reviewed/merged/released. No automated manufacturing approval.

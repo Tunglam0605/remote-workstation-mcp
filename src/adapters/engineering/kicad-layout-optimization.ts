@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { planConstrainedPlacement } from './kicad-placement-constraints.js';
+import type { PlacementConstraintOptions, PlacementRect } from './kicad-placement-constraints.js';
 
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 const MAX_BLOCKS = 200_000;
@@ -19,6 +21,7 @@ type BoardFootprint = {
   rotationDeg: number;
   locked: boolean;
   pads: BoardPad[];
+  courtyard?: PlacementRect;
 };
 
 type RouteEvidence = {
@@ -29,7 +32,7 @@ type RouteEvidence = {
   layers: Set<string>;
 };
 
-export interface KicadLayoutOptimizationOptions {
+export interface KicadLayoutOptimizationOptions extends PlacementConstraintOptions {
   maxDetails?: number;
   maxPlacementNetPads?: number;
   maxSuggestedStepMm?: number;
@@ -180,6 +183,47 @@ function padLayers(block: string): string[] {
   return [...match[1].matchAll(/"([^"]+)"/g)].map(item => item[1]!).slice(0, 32);
 }
 
+/** Extract a conservative AABB from the native footprint courtyard lines,
+ * rectangles and circles. Unknown courtyard primitives fail closed.
+ */
+function footprintCourtyard(source: string, origin: Point, angleDeg: number): PlacementRect | undefined {
+  const localPoints: Point[] = [];
+  let unknown = false;
+  for (const token of ['fp_rect', 'fp_line', 'fp_circle', 'fp_arc', 'fp_poly']) {
+    for (const shape of blocks(source, token, 2048)) {
+      if (!/\(layer\s+"(?:F|B)\.CrtYd"\)/.test(shape)) continue;
+      if (token === 'fp_arc' || token === 'fp_poly') { unknown = true; continue; }
+      if (token === 'fp_circle') {
+        const center = pointToken(shape, 'center');
+        const end = pointToken(shape, 'end');
+        if (!center || !end) { unknown = true; continue; }
+        const radius = Math.hypot(center.x - end.x, center.y - end.y);
+        const rotatedCenter = rotate(center, angleDeg);
+        // Circle stays circular under footprint rotation.
+        localPoints.push(
+          { x: rotatedCenter.x - radius, y: rotatedCenter.y - radius },
+          { x: rotatedCenter.x + radius, y: rotatedCenter.y + radius }
+        );
+        continue;
+      }
+      const start = pointToken(shape, 'start');
+      const end = pointToken(shape, 'end');
+      if (!start || !end) { unknown = true; continue; }
+      const corners = token === 'fp_rect'
+        ? [start, end, { x: start.x, y: end.y }, { x: end.x, y: start.y }]
+        : [start, end];
+      for (const point of corners) localPoints.push(rotate(point, angleDeg));
+    }
+  }
+  if (unknown || localPoints.length === 0) return undefined;
+  return {
+    minX: Math.min(...localPoints.map(item => item.x)) + origin.x,
+    minY: Math.min(...localPoints.map(item => item.y)) + origin.y,
+    maxX: Math.max(...localPoints.map(item => item.x)) + origin.x,
+    maxY: Math.max(...localPoints.map(item => item.y)) + origin.y
+  };
+}
+
 function parseBoardFootprints(source: string, resolveNet: (block: string) => { id?: number; name?: string }): BoardFootprint[] {
   const result: BoardFootprint[] = [];
   for (const footprintBlock of blocks(source, 'footprint', 20_000)) {
@@ -202,12 +246,14 @@ function parseBoardFootprints(source: string, resolveNet: (block: string) => { i
       });
       if (pads.length > 4096) throw new Error('KiCad footprint exceeds the 4096-pad optimization bound.');
     }
+    const courtyard = footprintCourtyard(footprintBlock, { x: at.x, y: at.y }, at.rotationDeg);
     result.push({
       reference,
       position: { x: at.x, y: at.y },
       rotationDeg: at.rotationDeg,
       locked: /\(locked\b/.test(footprintBlock),
-      pads
+      pads,
+      ...(courtyard ? { courtyard } : {})
     });
   }
   return result;
@@ -477,6 +523,20 @@ export function analyzeKicadLayoutOptimization(
     }
   }
 
+  const constraintMode = Boolean(options.alignmentGroups?.length || options.keepouts?.length || options.boardBounds);
+  const constraintPlan = constraintMode ? planConstrainedPlacement(
+    footprints.filter((item): item is BoardFootprint & { reference: string } => Boolean(item.reference)).map(item => ({
+      reference: item.reference,
+      position: item.position,
+      locked: item.locked,
+      ...(item.courtyard ? { courtyard: item.courtyard } : {})
+    })),
+    options,
+    fixedReferences,
+    maxSuggestedStepMm,
+    placementGridMm
+  ) : undefined;
+
   const placementCandidates = [...placementVectors.entries()]
     .map(([reference, vector]) => {
       const footprint = footprintByReference.get(reference);
@@ -499,7 +559,7 @@ export function analyzeKicadLayoutOptimization(
         } : {})
       };
     })
-    .filter(item => !item.locked && !fixedReferences.has(item.reference.toUpperCase()) && item.pullDistanceMm > placementGridMm / 2)
+    .filter(item => !constraintMode && !item.locked && !fixedReferences.has(item.reference.toUpperCase()) && item.pullDistanceMm > placementGridMm / 2)
     .sort((a, b) => b.pullDistanceMm - a.pullDistanceMm || b.incidentNetCount - a.incidentNetCount)
     .slice(0, maxDetails);
 
@@ -640,12 +700,14 @@ export function analyzeKicadLayoutOptimization(
       method: 'net-weighted-centroid-pull',
       geometryOnly: true,
       fixedReferences: [...fixedReferences].sort(),
+      legacyGeometricProposalsSuppressed: constraintMode,
       highFanoutThresholdPads: maxPlacementNetPads,
       maxSuggestedStepMm,
       gridMm: placementGridMm,
       candidates: placementCandidates,
       affinityPairs
     },
+    ...(constraintPlan ? { constraintPlacement: constraintPlan } : {}),
     ...(schematicConnectivity ? { schematicConnectivity } : {}),
     recommendations
   };

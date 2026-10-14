@@ -159,6 +159,7 @@ const KICAD_TOOLS = [
   'kicad_design_review',
   'kicad_layout_optimize_plan',
   'kicad_autoexperiment_run',
+  'kicad_specctra_import',
   'kicad_specctra_export',
   'kicad_constraints_review',
   'kicad_visual_export',

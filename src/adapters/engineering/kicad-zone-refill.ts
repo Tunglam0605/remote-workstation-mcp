@@ -98,7 +98,8 @@ function relative(root:string,file:string){
 }
 export class KicadZoneRefillAdapter {
   constructor(private readonly policy:PolicyEngine,private readonly paths:PathGuard,
-    private readonly runner:EngineeringCommandRunner,private readonly kicad:KicadAdapter){}
+    private readonly runner:EngineeringCommandRunner,private readonly kicad:KicadAdapter,
+    private readonly pythonResolver:()=>Promise<string>=bundledPython){}
   async refillCopy(workspace:string,projectPath:string,request:{
     board:string;schematic?:string;outputDir:string;expectedBoardSha256:string;
   }){
@@ -119,7 +120,7 @@ export class KicadZoneRefillAdapter {
     await fs.realpath(path.dirname(destination)).then(parent=>relative(root,parent));
     if(await fs.stat(destination).catch(()=>undefined))throw Error('Zone refill output directory exists.');
     const baseline=getCounts((await this.kicad.drc(workspace,projectPath,request.board,Boolean(sch))).report);
-    const py=await bundledPython();
+    const py=await this.pythonResolver();
     const version=await this.runner.run(py,['-c','import pcbnew; print(pcbnew.Version())'],root,10000);
     if(version.timedOut||version.exitCode!==0||!/^(10|1[1-9])\./.test(version.stdout.trim()))
       throw Error('Zone refill needs bundled KiCad 10+ pcbnew Python.');

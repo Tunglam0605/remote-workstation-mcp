@@ -45,7 +45,8 @@ async function fixture(fn:(data:{root:string;adapter:KicadZoneRefillAdapter;
      unconnected:u,violations:0,schematicParity:0,bySeverity:{error:u}
    }}}};
   }};
-  const adapter=new KicadZoneRefillAdapter(policy,paths,runner as never,kicad as never);
+  const adapter=new KicadZoneRefillAdapter(policy,paths,runner as never,kicad as never,
+    async()=>process.execPath);
   await fn({root,adapter,request:{
     board:'board.kicad_pcb',outputDir:'refilled',expectedBoardSha256:sha(PCB)
   },nativeCalls});

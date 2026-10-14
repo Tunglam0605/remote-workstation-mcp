@@ -180,6 +180,19 @@ test('KiCad 10 mixed numeric and named-only nets use one coherent connection gra
   assert.equal(out.schematicConnectivity?.matchingPins, 4);
 });
 
+test('layout planner honors explicitly fixed mechanical footprint references', () => {
+  const out = analyzeKicadLayoutOptimization(
+    { board: BOARD }, { maxDetails: 20, fixedReferences: ['u1', 'C1'] }
+  );
+  assert.deepEqual(out.placementOptimization.fixedReferences, ['C1', 'U1']);
+  assert.deepEqual(out.options.fixedReferences, ['C1', 'U1']);
+  assert.equal(out.placementOptimization.candidates.some(item => item.reference === 'U1'), false);
+  assert.equal(out.placementOptimization.candidates.some(item => item.reference === 'C1'), false);
+  assert.equal(out.placementOptimization.candidates.some(item => item.reference === 'U2'), true);
+  assert.throws(() => analyzeKicadLayoutOptimization({ board: BOARD }, { fixedReferences: ['J404'] }), /Unknown fixedReferences/);
+  assert.throws(() => analyzeKicadLayoutOptimization({ board: BOARD }, { fixedReferences: ['../../bad'] }), /Invalid fixedReferences/);
+});
+
 test('KiCad layout optimizer suppresses high-fanout nets from placement pressure without dropping routing evidence', () => {
   const analysis = analyzeKicadLayoutOptimization(
     { board: BOARD },

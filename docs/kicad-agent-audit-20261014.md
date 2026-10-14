@@ -18,8 +18,8 @@
 - Named pad declarations, segments, arcs, and vias share one resolver.
 - Regression tests for named-only and mixed encoding. Existing numeric tests remain passing.
 - Real V19 smoke result after fix: 235/251 connected pads; 97 nets; 48 routed-net efficiency comparisons; 234/234 schematic netlist pins match board pad nets, 0 missing, 0 mismatches.
-- Automated bounded geometric placement candidates and detour rankings now work; do not apply them without physical constraints.
-- Focused test suite: 36/36 passing; TypeScript typecheck PASS; architecture boundary check PASS.
+- Automated bounded geometric placement candidates and detour rankings now work. The read-only MCP tool now supports an explicit `fixedReferences` list to exclude named footprint anchors from movement suggestions; this does NOT lock PCB geometry or replace mechanical DRC. Example for the Mega shield: `["A1"]`.
+- Focused test suite: 37/37 passing after the follow-up constraint change; TypeScript typecheck PASS; architecture boundary check PASS.
 - No new tool installation, release, runtime restart or user PCB modification.
 
 ## Lessons applied from external agents (architecture, not unreviewed code copying)
@@ -30,7 +30,7 @@
 
 ## Proposed Windows-only implementation gates
 - **P0 — parsing and evidence [this branch]**: Merge KiCad 10 parser regression with real-file smoke; add round-trip SHA-bound report generation and refuse historical mismatched acceptance.
-- **P1 — semantic placement [not implemented]**: Add project-scoped typed constraint manifest: `fixedReferences`, `functionalGroups`, `edgePreferred`, `keepouts`, `clearanceEnvelopes`. Never move Mega shield anchor or header mating geometry unless explicitly released. Add legalizer with orientation/courtyard and mounting-holes verification; keep old plan in read-only mode by default.
+- **P1 — semantic placement [partial: explicit fixedReferences implemented; full legalizer not implemented]**: Add project-scoped typed constraint manifest: `fixedReferences`, `functionalGroups`, `edgePreferred`, `keepouts`, `clearanceEnvelopes`. Never move Mega shield anchor or header mating geometry unless explicitly released. Add legalizer with orientation/courtyard and mounting-holes verification; keep old plan in read-only mode by default.
 - **P1 — buck/industrial DFM [not implemented]**: Source-backed checklist for switching hot loop, return current, RTN isolation, input/output bypass, thermal EP/stencil and derating. Datasheet pin mapping and 3D mating are separate acceptance gates from KiCad DRC. Electrical topology changes require source and netlist review.
 - **P2 — ranking and routing [not implemented]**: Add deterministic score components and experiment ledger with board SHA, route length, via count, unconnected, congestion, violations, board area and physical-rule holds. Add Freerouting as optional isolated provider with validated DSN/SES parity.
 - **P2 — interactive visual review [not implemented]**: Restore/verify official KiCad IPC with an open PCB Editor, then publish before/after 3D, top/bottom, placement delta and a human acceptance checklist. Do not silently enable live writes.

@@ -34,6 +34,7 @@ export interface KicadLayoutOptimizationOptions {
   maxPlacementNetPads?: number;
   maxSuggestedStepMm?: number;
   placementGridMm?: number;
+  fixedReferences?: string[];
 }
 
 function sha256Text(value: string): string {
@@ -370,6 +371,19 @@ export function analyzeKicadLayoutOptimization(
 
   const { names: netNames, resolve: resolveNet } = boardNetResolver(input.board);
   const footprints = parseBoardFootprints(input.board, resolveNet);
+  const fixedRefsInput = options.fixedReferences ?? [];
+  if (fixedRefsInput.length > 256) throw new Error('fixedReferences exceeds the 256-reference limit.');
+  const fixedReferences = new Set<string>();
+  for (const value of fixedRefsInput) {
+    if (!/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/.test(value)) {
+      throw new Error('Invalid fixedReferences footprint reference: ' + value);
+    }
+    fixedReferences.add(value.toUpperCase());
+  }
+  const knownRefs = new Set(footprints.map(item => item.reference?.toUpperCase()).filter((item): item is string => Boolean(item)));
+  for (const reference of fixedReferences) {
+    if (!knownRefs.has(reference)) throw new Error('Unknown fixedReferences footprint reference: ' + reference);
+  }
   const routes = parseRouteEvidence(input.board, resolveNet);
   const netPads = new Map<number, Array<{ reference?: string; pad: BoardPad }>>();
   for (const footprint of footprints) {
@@ -485,7 +499,7 @@ export function analyzeKicadLayoutOptimization(
         } : {})
       };
     })
-    .filter(item => !item.locked && item.pullDistanceMm > placementGridMm / 2)
+    .filter(item => !item.locked && !fixedReferences.has(item.reference.toUpperCase()) && item.pullDistanceMm > placementGridMm / 2)
     .sort((a, b) => b.pullDistanceMm - a.pullDistanceMm || b.incidentNetCount - a.incidentNetCount)
     .slice(0, maxDetails);
 
@@ -609,7 +623,7 @@ export function analyzeKicadLayoutOptimization(
       board: { sha256: sha256Text(input.board), bytes: Buffer.byteLength(input.board, 'utf8') },
       ...(input.schematicNetlist ? { schematicNetlist: { sha256: sha256Text(input.schematicNetlist), bytes: Buffer.byteLength(input.schematicNetlist, 'utf8') } } : {})
     },
-    options: { maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm },
+    options: { maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences: [...fixedReferences].sort() },
     boardConnectivity: {
       footprintCount: footprints.length,
       padCount: footprints.reduce((sum, footprint) => sum + footprint.pads.length, 0),
@@ -625,6 +639,7 @@ export function analyzeKicadLayoutOptimization(
     placementOptimization: {
       method: 'net-weighted-centroid-pull',
       geometryOnly: true,
+      fixedReferences: [...fixedReferences].sort(),
       highFanoutThresholdPads: maxPlacementNetPads,
       maxSuggestedStepMm,
       gridMm: placementGridMm,

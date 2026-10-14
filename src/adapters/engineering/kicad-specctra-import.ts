@@ -27,21 +27,21 @@ def sig(board):
         pads=[]
         for pad in fp.Pads():
             point=pad.GetPosition()
-            pads.append([str(pad.m_Uuid),str(pad.GetNumber()),str(pad.GetNetname()),
+            pads.append([str(pad.m_Uuid.AsString()),str(pad.GetNumber()),str(pad.GetNetname()),
               int(point.x),int(point.y),str(pad.GetLayerSet().FmtBin())])
         pos=fp.GetPosition()
-        footprints.append([str(fp.m_Uuid),str(fp.GetReference()),str(fp.GetValue()),
+        footprints.append([str(fp.m_Uuid.AsString()),str(fp.GetReference()),str(fp.GetValue()),
           int(pos.x),int(pos.y),int(fp.GetOrientationDegrees()),sorted(pads)])
     drawings=[]
     for obj in board.GetDrawings():
         if obj.GetLayerName() == "Edge.Cuts":
             box=obj.GetBoundingBox()
-            drawings.append([str(obj.m_Uuid),str(obj.GetClass()),
+            drawings.append([str(obj.m_Uuid.AsString()),str(obj.GetClass()),
                int(box.GetX()),int(box.GetY()),int(box.GetWidth()),int(box.GetHeight())])
     zones=[]
     for zone in board.Zones():
         box=zone.GetBoundingBox()
-        zones.append([str(zone.m_Uuid),str(zone.GetNetname()),str(zone.GetLayerSet().FmtBin()),
+        zones.append([str(zone.m_Uuid.AsString()),str(zone.GetNetname()),str(zone.GetLayerSet().FmtBin()),
           int(box.GetX()),int(box.GetY()),int(box.GetWidth()),int(box.GetHeight())])
     nets=sorted([str(net.GetNetname()) for net in board.GetNetInfo().NetsByNetcode().values()])
     return {"footprints":sorted(footprints),"edgeDrawings":sorted(drawings),

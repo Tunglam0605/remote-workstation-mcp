@@ -4,6 +4,7 @@
  * Deliberately conservative: even an unblocked proposal needs live KiCad
  * courtyard, copper, schematic parity and DRC acceptance before application.
  */
+import { rectWithinBoardOutline, type BoardOutline } from './kicad-board-outline.js';
 export type PlacementPoint = { x: number; y: number };
 export type PlacementRect = { minX: number; minY: number; maxX: number; maxY: number };
 
@@ -43,6 +44,9 @@ export interface PlacementConstraintOptions {
   boardBounds?: PlacementRect;
   minCourtyardGapMm?: number;
   connectorAccess?: PlacementConnectorAccess[];
+  /** Internal authoritative contour populated from the actual PCB; not a client-declared rectangle. */
+  nativeOutline?: BoardOutline;
+  minEdgeClearanceMm?: number;
 }
 
 export interface PlacementCandidate {
@@ -117,6 +121,8 @@ export function planConstrainedPlacement(
   const keepouts = opts.keepouts ?? [];
   const connectorAccess = opts.connectorAccess ?? [];
   const minGap = opts.minCourtyardGapMm ?? 0;
+  const edgeGap = opts.minEdgeClearanceMm ?? 0;
+  if (!Number.isFinite(edgeGap) || edgeGap < 0 || edgeGap > 20) throw new Error('Invalid minEdgeClearanceMm.');
   if (groups.length > 32 || keepouts.length > 64 || connectorAccess.length > 128) throw new Error('Too many placement constraints.');
   if (!Number.isFinite(minGap) || minGap < 0 || minGap > 20) throw new Error('Invalid minCourtyardGapMm.');
   if (!Number.isFinite(maxStepMm) || maxStepMm <= 0 || !Number.isFinite(gridMm) || gridMm <= 0) {
@@ -206,12 +212,21 @@ export function planConstrainedPlacement(
       } else {
         const footprintBox = translated(part.courtyard, proposed.x - part.position.x, proposed.y - part.position.y);
         if (opts.boardBounds && !inside(footprintBox, opts.boardBounds)) blockers.push('outside-declared-board-bounds');
+        if (opts.nativeOutline?.status === 'unsupported') blockers.push('unverified-native-edgecuts');
+        if (opts.nativeOutline?.status === 'verified-contour' &&
+            !rectWithinBoardOutline(footprintBox, opts.nativeOutline, edgeGap)) {
+          blockers.push('outside-native-edgecuts');
+        }
         for (const keepout of keepouts) {
           if (overlap(footprintBox, keepout.bounds, minGap)) blockers.push('keepout:' + keepout.id);
         }
         const ownAccess = accesses.get(ref);
         const ownEnvelope = ownAccess ? connectorAccessEnvelope(footprintBox, ownAccess) : undefined;
         if (ownEnvelope) {
+          if (opts.nativeOutline?.status === 'verified-contour' && !ownAccess!.allowOutsideBoard &&
+            !rectWithinBoardOutline(ownEnvelope, opts.nativeOutline, 0)) {
+            blockers.push('connector-access-outside-native-edgecuts:' + ref);
+          }
           if (opts.boardBounds && !ownAccess!.allowOutsideBoard && !inside(ownEnvelope, opts.boardBounds)) {
             blockers.push('connector-access-outside-board:' + ref);
           }
@@ -266,7 +281,8 @@ export function planConstrainedPlacement(
   return {
     mode: 'read-only-constraint-first' as const,
     requiresFreshCopperAndMechanicalReview: true,
-    constraints: { alignmentGroups: groups, keepouts, connectorAccess, boardBounds: opts.boardBounds ?? null, minCourtyardGapMm: minGap },
+    constraints: { alignmentGroups: groups, keepouts, connectorAccess, boardBounds: opts.boardBounds ?? null, minCourtyardGapMm: minGap,
+      minEdgeClearanceMm: edgeGap, nativeContourStatus: opts.nativeOutline?.status ?? 'not-provided' },
     groups: groupReports,
     candidates,
     counts: {

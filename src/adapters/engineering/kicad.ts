@@ -1377,6 +1377,7 @@ export class KicadAdapter {
     request: {
       board: string; schematic?: string; outputDir: string; expectedBoardSha256: string;
       routingTrials?: 1 | 2 | 3;
+      previewPlacementOnly?: boolean;
       iterations?: IterativeRoutePolicy;
       placement?: KicadLayoutOptimizationOptions; routing?: KicadRoutePlanOptions;
     }
@@ -1420,6 +1421,7 @@ export class KicadAdapter {
     const name = path.basename(pcb);
     const outcome = await runKicadCopyExperiments(original, {
       scenarios, routing: request.routing ?? {}, iterations: request.iterations, baseline,
+      previewPlacementOnly: request.previewPlacementOnly, placementOptions: request.placement,
       validate: async (id, candidate, round, trialId) => {
         const runFolder = [
           ...(round ? ['round-' + String(round).padStart(2, '0')] : []),
@@ -1451,9 +1453,6 @@ export class KicadAdapter {
       })),
       limitations: outcome.limitations
     };
-    // A successful isolation may finish in an intermediate trial directory.
-    // Materialize and independently re-validate the EXACT accepted board bytes
-    // before linking it in the candidate manifest. Rejected copper stays isolated.
     if (request.iterations?.recoverRejectedBatches === true) {
       for (const accepted of outcome.candidates.filter(item => item.status === 'candidate-accepted' && item.source)) {
         const validatedPath = path.join(relativeOutput, accepted.id, 'accepted', name);

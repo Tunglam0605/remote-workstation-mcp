@@ -7,6 +7,8 @@
  * (and strictly improved connectivity). Originals are never written.
  */
 import { patchKicadDocument } from './kicad-edit.js';
+import { buildKicadMechanicalPlacementPreview } from './kicad-mechanical-preview.js';
+import type { KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
 import { type KicadRoutePlanOptions } from './kicad-route-plan.js';
 import { runKicadIterativeRouteTrials, type IterativeRoutePolicy } from './kicad-route-iterations.js';
 
@@ -44,6 +46,8 @@ export interface KicadExperimentRequest {
   scenarios: KicadExperimentScenario[];
   routing: KicadRoutePlanOptions;
   iterations?: IterativeRoutePolicy;
+  previewPlacementOnly?: boolean;
+  placementOptions?: KicadLayoutOptimizationOptions;
   baseline: KicadExperimentDrc;
   // The caller validates via the official KiCad CLI on its own isolated board copy.
   validate: (id: string, boardSource: string, round?: number, trialId?: string) => Promise<KicadExperimentDrc>;
@@ -71,6 +75,9 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     throw new Error('KiCad autoexperiment requires 1..3 bounded scenarios.');
   }
   validCounts(request.baseline);
+  if (request.previewPlacementOnly && !request.placementOptions?.alignmentGroups?.length) {
+    throw Error('Placement-only preview requires native Edge.Cuts and explicit alignmentGroups.');
+  }
   const seen = new Set<string>();
   const candidates: Array<{
     id: string;
@@ -88,6 +95,9 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     roundsAttempted?: number;
     routeAttempts?: Array<{ round: number; phase?: string; trialId?: string; status: string; attemptedNetNames: string[]; reasons: string[]; operationCount: number }>;
     acceptedRound?: number;
+    previewOnly?: boolean;
+    previewMoves?: Array<{reference:string; from:{x:number;y:number};to:{x:number;y:number}}>;
+    previewGeometry?: {status:string; areaMm2?:number|null; nativeArcCount:number; minEdgeClearanceMm:number};
     source?: string;
   }> = [];
   for (const scenario of request.scenarios) {
@@ -111,6 +121,26 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     }
     try {
       let board = originalSource;
+      if (request.previewPlacementOnly) {
+        const planned=buildKicadMechanicalPlacementPreview(originalSource,{
+          scenarioId: scenario.id as 'scenario-1' | 'scenario-2' | 'scenario-3',
+          placement: request.placementOptions!
+        });
+        const candidateDrc=await request.validate(scenario.id, planned.modifiedBoard);
+        validCounts(candidateDrc);
+        const reasons: string[]=[];
+        if(candidateDrc.violations>request.baseline.violations)reasons.push('drc-violations-regression');
+        if(candidateDrc.unconnected>request.baseline.unconnected)reasons.push('unconnected-regression');
+        if(candidateDrc.schematicParity>request.baseline.schematicParity)reasons.push('schematic-parity-regression');
+        if(candidateDrc.errors>request.baseline.errors)reasons.push('drc-errors-regression');
+        candidates.push({...base, status:reasons.length?'candidate-rejected':'candidate-accepted',
+          reasons, candidateDrc, routeComplete:false, routingSkippedCount:0,
+          previewOnly:true,
+          previewMoves:planned.proposedMoves,
+          previewGeometry:planned.mechanicalEvidence,
+          ...(reasons.length?{}:{source:planned.modifiedBoard})});
+        continue;
+      }
       if (scenario.proposals.length) {
         const moved = new Set<string>();
         const edits = scenario.proposals.map(p => {

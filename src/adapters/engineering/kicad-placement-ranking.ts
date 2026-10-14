@@ -5,6 +5,7 @@
  * length and via counts are immutable baseline context, never simulated gains.
  * No scenario is manufacturing-approved without rerouting and official DRC.
  */
+import { rectWithinBoardOutline } from './kicad-board-outline.js';
 import {
   planConstrainedPlacement, connectorAccessEnvelope
 } from './kicad-placement-constraints.js';
@@ -124,6 +125,16 @@ export function rankConstrainedPlacementScenarios(input: PlacementRankingInput) 
       const accessRect = access ? connectorAccessEnvelope(rect, access) : undefined;
       if (accessRect && !access!.allowOutsideBoard && constraints.boardBounds && !contained(accessRect, constraints.boardBounds)) {
         blockers.push(first.reference + ':connector-access-outside-board');
+      }
+      if (constraints.nativeOutline?.status === 'unsupported') blockers.push(first.reference + ':unverified-native-edgecuts');
+      if (constraints.nativeOutline?.status === 'verified-contour' &&
+        !rectWithinBoardOutline(rect, constraints.nativeOutline, constraints.minEdgeClearanceMm ?? 0)) {
+        blockers.push(first.reference + ':outside-native-edgecuts');
+      }
+      if (accessRect && access && !access.allowOutsideBoard &&
+        constraints.nativeOutline?.status === 'verified-contour' &&
+        !rectWithinBoardOutline(accessRect, constraints.nativeOutline, 0)) {
+        blockers.push(first.reference + ':connector-access-outside-native-edgecuts');
       }
       if (constraints.boardBounds && !contained(rect, constraints.boardBounds)) {
         blockers.push(first.reference + ':outside-board');

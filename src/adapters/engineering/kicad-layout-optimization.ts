@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { planConstrainedPlacement } from './kicad-placement-constraints.js';
 import { rankConstrainedPlacementScenarios } from './kicad-placement-ranking.js';
+import { readKicadBoardOutline } from './kicad-board-outline.js';
 import type { PlacementConstraintOptions, PlacementRect } from './kicad-placement-constraints.js';
 
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
@@ -41,6 +42,7 @@ export interface KicadLayoutOptimizationOptions extends PlacementConstraintOptio
   fixedReferences?: string[];
   rankScenarios?: boolean;
   maxHpwlRegressionMm?: number;
+  minEdgeClearanceMm?: number;
 }
 
 function sha256Text(value: string): string {
@@ -528,6 +530,8 @@ export function analyzeKicadLayoutOptimization(
     }
   }
 
+  const nativeOutline = readKicadBoardOutline(input.board);
+  const placementOptions: KicadLayoutOptimizationOptions = { ...options, nativeOutline };
   const constraintMode = Boolean(options.alignmentGroups?.length || options.keepouts?.length || options.connectorAccess?.length || options.boardBounds);
   const rankScenarios = options.rankScenarios ?? false;
   if (rankScenarios && !options.alignmentGroups?.length) {
@@ -541,7 +545,7 @@ export function analyzeKicadLayoutOptimization(
   }));
   const constraintPlan = constraintMode ? planConstrainedPlacement(
     placementParts,
-    options,
+    placementOptions,
     fixedReferences,
     maxSuggestedStepMm,
     placementGridMm
@@ -549,7 +553,7 @@ export function analyzeKicadLayoutOptimization(
 
   const rankedPlacement = constraintMode && rankScenarios ? rankConstrainedPlacementScenarios({
     parts: placementParts,
-    constraints: options,
+    constraints: placementOptions,
     fixedReferences,
     maxStepMm: maxSuggestedStepMm,
     gridMm: placementGridMm,
@@ -737,6 +741,14 @@ export function analyzeKicadLayoutOptimization(
       gridMm: placementGridMm,
       candidates: placementCandidates,
       affinityPairs
+    },
+    boardMechanicalOutline: {
+      status: nativeOutline.status,
+      reason: nativeOutline.reason ?? null,
+      lineCount: nativeOutline.lineCount, arcCount: nativeOutline.arcCount,
+      bounds: nativeOutline.bounds ?? null, areaMm2: nativeOutline.areaMm2 ?? null,
+      exactOutlineCheckUsed: nativeOutline.status === 'verified-contour' && constraintMode,
+      minEdgeClearanceMm: options.minEdgeClearanceMm ?? 0
     },
     ...(constraintPlan ? { constraintPlacement: constraintPlan } : {}),
     ...(rankedPlacement ? { rankedPlacement } : {}),

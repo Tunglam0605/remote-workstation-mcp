@@ -1378,6 +1378,7 @@ export class KicadAdapter {
       board: string; schematic?: string; outputDir: string; expectedBoardSha256: string;
       routingTrials?: 1 | 2 | 3;
       previewPlacementOnly?: boolean;
+      repairAttachedTracks?: boolean;
       iterations?: IterativeRoutePolicy;
       placement?: KicadLayoutOptimizationOptions; routing?: KicadRoutePlanOptions;
     }
@@ -1421,7 +1422,8 @@ export class KicadAdapter {
     const name = path.basename(pcb);
     const outcome = await runKicadCopyExperiments(original, {
       scenarios, routing: request.routing ?? {}, iterations: request.iterations, baseline,
-      previewPlacementOnly: request.previewPlacementOnly, placementOptions: request.placement,
+      previewPlacementOnly: request.previewPlacementOnly, repairAttachedTracks: request.repairAttachedTracks,
+      placementOptions: request.placement,
       validate: async (id, candidate, round, trialId) => {
         const runFolder = [
           ...(round ? ['round-' + String(round).padStart(2, '0')] : []),

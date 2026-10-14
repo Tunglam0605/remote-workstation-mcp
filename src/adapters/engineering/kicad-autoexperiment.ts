@@ -47,6 +47,7 @@ export interface KicadExperimentRequest {
   routing: KicadRoutePlanOptions;
   iterations?: IterativeRoutePolicy;
   previewPlacementOnly?: boolean;
+  repairAttachedTracks?: boolean;
   placementOptions?: KicadLayoutOptimizationOptions;
   baseline: KicadExperimentDrc;
   // The caller validates via the official KiCad CLI on its own isolated board copy.
@@ -75,6 +76,9 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     throw new Error('KiCad autoexperiment requires 1..3 bounded scenarios.');
   }
   validCounts(request.baseline);
+  if(request.repairAttachedTracks && !request.previewPlacementOnly) {
+    throw Error('Copper endpoint repair requires previewPlacementOnly true.');
+  }
   if (request.previewPlacementOnly && !request.placementOptions?.alignmentGroups?.length) {
     throw Error('Placement-only preview requires native Edge.Cuts and explicit alignmentGroups.');
   }
@@ -97,6 +101,7 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     acceptedRound?: number;
     previewOnly?: boolean;
     previewMoves?: Array<{reference:string; from:{x:number;y:number};to:{x:number;y:number}}>;
+    copperRepair?: {adjustedSegments:number; adjustedPadCount:number; changedNets:string[]; holdReasons:string[]; requiresOfficialDrc:boolean};
     previewGeometry?: {status:string; areaMm2?:number|null; nativeArcCount:number; minEdgeClearanceMm:number};
     source?: string;
   }> = [];
@@ -124,7 +129,8 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
       if (request.previewPlacementOnly) {
         const planned=buildKicadMechanicalPlacementPreview(originalSource,{
           scenarioId: scenario.id as 'scenario-1' | 'scenario-2' | 'scenario-3',
-          placement: request.placementOptions!
+          placement: request.placementOptions!,
+          repairAttachedTracks: request.repairAttachedTracks
         });
         const candidateDrc=await request.validate(scenario.id, planned.modifiedBoard);
         validCounts(candidateDrc);
@@ -137,6 +143,7 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
           reasons, candidateDrc, routeComplete:false, routingSkippedCount:0,
           previewOnly:true,
           previewMoves:planned.proposedMoves,
+          ...(planned.copperRepair ? {copperRepair:planned.copperRepair} : {}),
           previewGeometry:planned.mechanicalEvidence,
           ...(reasons.length?{}:{source:planned.modifiedBoard})});
         continue;

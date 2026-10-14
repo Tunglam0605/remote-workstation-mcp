@@ -57,7 +57,8 @@ async function fixture(fn:(opts:{
       const u=drcCalls===1?5:candidateImproves?4:5;
       return{report:{counts:{active:{violations:0,unconnected:u,schematicParity:0,bySeverity:{error:u}}}}};
     }};
-    const adapter=new KicadSpecctraImportAdapter(policy,new PathGuard(policy),runner as never,kicad as never);
+    const adapter=new KicadSpecctraImportAdapter(policy,new PathGuard(policy),runner as never,kicad as never,
+      async()=>process.execPath);
     await fn({root,adapter,request:{
       board:boardName,ses:'dsn/shield.ses',exportManifest:'dsn/specctra-export-manifest.json',
       outputDir:'accepted',expectedBoardSha256:sha(BOARD),expectedSessionSha256:sha(SES)

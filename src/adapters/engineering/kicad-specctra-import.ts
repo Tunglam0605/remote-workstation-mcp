@@ -154,7 +154,8 @@ async function sourceBoundProof(paths:PathGuard,workspace:string,projectPath:str
 }
 export class KicadSpecctraImportAdapter {
   constructor(private readonly policy:PolicyEngine,private readonly paths:PathGuard,
-    private readonly runner:EngineeringCommandRunner,private readonly kicad:KicadAdapter){}
+    private readonly runner:EngineeringCommandRunner,private readonly kicad:KicadAdapter,
+    private readonly pythonResolver:()=>Promise<string>=bundledPython){}
   async importCopy(workspace:string,projectPath:string,input:KicadSpecctraImportRequest){
     this.policy.assertEngineeringExecute();
     this.policy.assertWrite(workspace);
@@ -186,7 +187,7 @@ export class KicadSpecctraImportAdapter {
     relative(root,parent);
     if(await fs.stat(output).catch(()=>undefined))throw Error('Specctra SES output folder already exists.');
     const before=counts((await this.kicad.drc(workspace,projectPath,input.board,Boolean(sch))).report);
-    const python=await bundledPython();
+    const python=await this.pythonResolver();
     const probe=await this.runner.run(python,['-c','import pcbnew; print(pcbnew.Version())'],root,10000);
     if(probe.exitCode!==0||probe.timedOut||!/^(10|1[1-9])\./.test(probe.stdout.trim()))
       throw Error('KiCad bundled pcbnew version mismatch.');

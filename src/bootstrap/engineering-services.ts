@@ -12,6 +12,7 @@ import { Stm32SvdAdapter } from '../adapters/engineering/stm32-svd.js';
 import { FirmwareAdapter } from '../adapters/engineering/firmware.js';
 import { HardwareDiscoveryAdapter } from '../adapters/engineering/hardware-discovery.js';
 import { KicadAdapter } from '../adapters/engineering/kicad.js';
+import { KicadSpecctraExportAdapter } from '../adapters/engineering/kicad-specctra-export.js';
 import { PlatformioAdapter } from '../adapters/engineering/platformio.js';
 import { EngineeringProjectProfileStore } from '../adapters/engineering/project-profile.js';
 import type { EngineeringResourceManager } from '../adapters/engineering/resource-manager.js';
@@ -68,6 +69,7 @@ export function createEngineeringServices(deps: EngineeringServicesDependencies)
   const docker = new DockerAdapter(policy, paths, runner);
   const systemd = new SystemdAdapter(policy, paths, runner);
   const kicad = new KicadAdapter(policy, paths, runner, resources);
+  const kicadSpecctra = new KicadSpecctraExportAdapter(policy, paths, runner);
   const platformio = new PlatformioAdapter(policy, paths, runner, resources);
   const workflows = new EngineeringWorkflowEngine(
     policy,
@@ -110,6 +112,7 @@ export function createEngineeringServices(deps: EngineeringServicesDependencies)
     docker,
     systemd,
     kicad,
+    kicadSpecctra,
     platformio
   };
 }

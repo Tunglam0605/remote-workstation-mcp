@@ -768,6 +768,20 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       ))
     )));
 
+  server.registerTool('kicad_specctra_export', {
+    description: 'Windows KiCad 10+ bundled pcbnew: export a Specctra DSN for an exact-SHA source PCB into a fresh authorized project-local COPY with local KiCad footprint libraries, then return immutable PCB/DSN SHA manifests. Does not run Freerouting, import SES, modify the source board, certify manufacturing, or authorize an external solver. Requires Work Session ownership.',
+    inputSchema:kicadProject.extend({
+      workSessionId:z.string().uuid(),
+      board:z.string().min(1).max(1024),
+      outputDir:z.string().min(1).max(600),
+      expectedBoardSha256:z.string().regex(/^[0-9a-fA-F]{64}$/)
+    }),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+  },async({workSessionId,...request})=>result(await audited(ctx.audit,
+    'kicad_specctra_export',request.workspace,()=>ctx.runInWorkSession(workSessionId,
+      ()=>ctx.engineering.kicadSpecctra.exportCopy(request.workspace,request.projectPath,request)
+    ))));
+
   server.registerTool('kicad_constraints_review', {
     description: 'Review KiCad Board Setup and routing constraints without source mutation. Reads explicit .kicad_pro + .kicad_pcb and optional .kicad_dru, summarizes hard manufacturing/routing minimums, net classes/defaults, stackup, zones, differential-pair evidence and custom-rule catalog, then compares explicit routing against hard minimums. Net-class defaults are never mislabeled as DRC violations and custom-rule expressions are not re-evaluated by RWMCP; KiCad DRC remains authoritative.',
     inputSchema: kicadProject.extend({

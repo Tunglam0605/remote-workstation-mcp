@@ -82,3 +82,89 @@ test('adapter rejects stale SHA without modifying source or making any experimen
     assert.equal(await fs.readFile(path.join(dir,'board.kicad_pcb'),'utf8'),BOARD);
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
+
+const BISECT_BOARD = `(kicad_pcb
+  (version 20241229) (generator "rwmcp-test") (general (thickness 1.6))
+  (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (44 "Edge.Cuts" user))
+  (setup (pad_to_mask_clearance 0))
+  (net 0 "") (net 1 "/SIG") (net 2 "/AUX")
+  (footprint "Test:A" (layer "F.Cu") (at 6 10) (property "Reference" "J1")
+    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 1 "/SIG")))
+  (footprint "Test:B" (layer "F.Cu") (at 32 10) (property "Reference" "J2")
+    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 1 "/SIG")))
+  (footprint "Test:C" (layer "F.Cu") (at 6 30) (property "Reference" "J3")
+    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 2 "/AUX")))
+  (footprint "Test:D" (layer "F.Cu") (at 32 30) (property "Reference" "J4")
+    (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (net 2 "/AUX")))
+  (gr_rect (start 0 0) (end 40 40) (stroke (width 0.05) (type default)) (fill none) (layer "Edge.Cuts"))
+  (embedded_fonts no))`;
+
+test('adapter independently revalidates the final recovered PCB and links exactly that file',async()=>{
+  const root = await fs.mkdtemp(path.join(os.tmpdir(),'rwmcp-accepted-copper-'));
+  try {
+    await fs.writeFile(path.join(root,'board.kicad_pcb'),BISECT_BOARD);
+    const policy=new PolicyEngine(config(root));
+    const adapter=new KicadAdapter(policy,new PathGuard(policy),{run:async()=>{throw Error('unexpected runner')}} as never);
+    (adapter as any).drc=async (_w:string,_p:string,file:string)=>{
+      const pcb=await fs.readFile(path.join(root,file),'utf8');
+      const sig=/\(segment[\s\S]*?\(net 1\)/.test(pcb);
+      const aux=/\(segment[\s\S]*?\(net 2\)/.test(pcb);
+      const unresolved=[...(aux?[]:['/AUX']),...(sig?[]:['/SIG'])];
+      return {report:{
+        counts:{active:{violations:Number(aux),unconnected:unresolved.length,
+          schematicParity:0,bySeverity:{error:unresolved.length}}},
+        violations:unresolved.map(net=>({type:'unconnected_items',items:[
+          {description:'Pad 1 ['+net+'] of J1'}, {description:'Pad 1 ['+net+'] of J2'}]}))
+      }};
+    };
+    const result=await adapter.autoexperimentRun('w','.',{
+      board:'board.kicad_pcb',expectedBoardSha256:sha(BISECT_BOARD),
+      outputDir:'generated/recovery',
+      routing:{maxOperations:48,gridMm:0.5},
+      iterations:{maxRounds:1,maxNetsPerRound:2,autoSelectUnconnected:true,
+        recoverRejectedBatches:true,maxRecoveryChecks:4}
+    });
+    assert.equal(result.selectedCandidateId,'routing-only');
+    const selected=result.candidates.find(x=>x.id===result.selectedCandidateId);
+    assert.ok(selected);
+    assert.equal(selected.status,'candidate-accepted');
+    assert.equal(selected.candidateDrc?.unconnected,1);
+    assert.equal(selected.candidateDrc?.violations,0);
+    assert.match(selected.candidateBoard??'',/\/accepted\/board\.kicad_pcb$/);
+    const exact=await fs.readFile(path.join(root,selected.candidateBoard!),'utf8');
+    assert.equal(sha(exact),selected.candidateSha256);
+    assert.equal(/\(segment[\s\S]*?\(net 1\)/.test(exact),true);
+    assert.equal(/\(segment[\s\S]*?\(net 2\)/.test(exact),false);
+    assert.equal(await fs.readFile(path.join(root,'board.kicad_pcb'),'utf8'),BISECT_BOARD);
+    const files=JSON.parse(await fs.readFile(path.join(root,'generated/recovery/experiment-manifest.json'),'utf8'));
+    assert.equal(files.candidates[0].candidateSha256,sha(exact));
+  } finally {await fs.rm(root,{recursive:true,force:true});}
+});
+
+test('final recovered PCB DRC mismatch refuses manifest even if an earlier trial looked good',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'rwmcp-recovery-mismatch-'));
+  try {
+    await fs.writeFile(path.join(root,'board.kicad_pcb'),BISECT_BOARD);
+    const policy=new PolicyEngine(config(root));
+    const adapter=new KicadAdapter(policy,new PathGuard(policy),{run:async()=>{throw Error('unexpected')}} as never);
+    (adapter as any).drc=async (_w:string,_p:string,file:string)=>{
+      const content=await fs.readFile(path.join(root,file),'utf8');
+      const sig=/\(segment[\s\S]*?\(net 1\)/.test(content);
+      const aux=/\(segment[\s\S]*?\(net 2\)/.test(content);
+      const unconnected=2-Number(sig)-Number(aux);
+      return {report:{counts:{active:{violations: file.includes('accepted')?1:Number(aux),
+        unconnected,schematicParity:0,bySeverity:{error:unconnected}}},
+        violations:(!sig?['/SIG']:[]).concat(!aux?['/AUX']:[]).map(net=>({
+          type:'unconnected_items',items:[{description:'Pad ['+net+'] x'},{description:'Pad ['+net+'] y'}]}))
+      }};
+    };
+    await assert.rejects(adapter.autoexperimentRun('w','.',{
+      board:'board.kicad_pcb',expectedBoardSha256:sha(BISECT_BOARD),
+      outputDir:'generated/recovery-mismatch',
+      iterations:{maxRounds:1,maxNetsPerRound:2,autoSelectUnconnected:true,
+        recoverRejectedBatches:true,maxRecoveryChecks:4},routing:{maxOperations:48}
+    }),/final-board DRC disagrees/);
+    await assert.rejects(fs.stat(path.join(root,'generated/recovery-mismatch/experiment-manifest.json')),{code:'ENOENT'});
+    assert.equal(await fs.readFile(path.join(root,'board.kicad_pcb'),'utf8'),BISECT_BOARD);
+  }finally{await fs.rm(root,{recursive:true,force:true});}
+});

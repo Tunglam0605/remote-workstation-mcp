@@ -10,6 +10,17 @@ import { patchKicadDocument } from './kicad-edit.js';
 import { type KicadRoutePlanOptions } from './kicad-route-plan.js';
 import { runKicadIterativeRouteTrials, type IterativeRoutePolicy } from './kicad-route-iterations.js';
 
+export function defaultKicadRoutingTrials(routing?: KicadRoutePlanOptions) {
+  const grid = routing?.gridMm ?? 0.5;
+  return [
+    { id: 'routing-only', status: 'review-only' as const, score: 0, proposals: [] },
+    { id: 'routing-fine', status: 'review-only' as const, score: 0, proposals: [],
+      routing: { gridMm: Math.max(0.1, Number((grid / 2).toFixed(3))) } },
+    { id: 'routing-low-via', status: 'review-only' as const, score: 0, proposals: [],
+      routing: { viaCostMm: Math.min(1000, (routing?.viaCostMm ?? 8) * 2) } }
+  ];
+}
+
 export interface KicadExperimentDrc {
   violations: number;
   unconnected: number;
@@ -35,7 +46,7 @@ export interface KicadExperimentRequest {
   iterations?: IterativeRoutePolicy;
   baseline: KicadExperimentDrc;
   // The caller validates via the official KiCad CLI on its own isolated board copy.
-  validate: (id: string, boardSource: string, round?: number) => Promise<KicadExperimentDrc>;
+  validate: (id: string, boardSource: string, round?: number, trialId?: string) => Promise<KicadExperimentDrc>;
 }
 function validCounts(x: KicadExperimentDrc): void {
   for (const key of ['violations','unconnected','schematicParity','errors'] as const) {
@@ -75,7 +86,7 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     routeComplete?: boolean;
     routingSkippedCount?: number;
     roundsAttempted?: number;
-    routeAttempts?: Array<{ round: number; status: string; attemptedNetNames: string[]; reasons: string[]; operationCount: number }>;
+    routeAttempts?: Array<{ round: number; phase?: string; trialId?: string; status: string; attemptedNetNames: string[]; reasons: string[]; operationCount: number }>;
     acceptedRound?: number;
     source?: string;
   }> = [];
@@ -115,12 +126,12 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
         board = patchKicadDocument(originalSource, edits, '.kicad_pcb').text;
       }
       const routing = { ...request.routing, ...scenario.routing };
-      const multiRound = (request.iterations?.maxRounds ?? 1) > 1;
+      const multiRound = (request.iterations?.maxRounds ?? 1) > 1 || request.iterations?.recoverRejectedBatches === true;
       const routed = await runKicadIterativeRouteTrials({
         board, routing, baseline: request.baseline,
         policy: request.iterations,
-        validate: async (candidate, round) =>
-          request.validate(scenario.id, candidate, multiRound ? round : undefined)
+        validate: async (candidate, round, trialId) =>
+          request.validate(scenario.id, candidate, multiRound ? round : undefined, trialId)
       });
       const candidateDrc = routed.drc;
       validCounts(candidateDrc);

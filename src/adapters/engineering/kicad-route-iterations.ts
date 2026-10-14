@@ -1,15 +1,21 @@
 import { applyKicadRouteBatch } from './kicad-route-batch.js';
 import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.js';
 import type { KicadExperimentDrc } from './kicad-autoexperiment.js';
+import { recoverKicadRejectedRouteBatch } from './kicad-route-recovery.js';
 
 export interface IterativeRoutePolicy {
   maxRounds?: number;
   maxNetsPerRound?: number;
   autoSelectUnconnected?: boolean;
   includePowerNets?: boolean;
+  /** Opt-in bounded DRC failure isolation; never auto-commits a rejected trace. */
+  recoverRejectedBatches?: boolean;
+  maxRecoveryChecks?: number;
 }
 export interface IterativeRouteAttempt {
   round: number;
+  phase?: 'batch' | 'recovery';
+  trialId?: string;
   status: 'accepted' | 'rejected' | 'no-route' | 'failed-validation';
   attemptedNetNames: string[];
   operationCount: number;
@@ -25,7 +31,7 @@ export interface IterativeRouteInput {
   baseline: KicadExperimentDrc;
   routing: KicadRoutePlanOptions;
   policy?: IterativeRoutePolicy;
-  validate: (board: string, round: number) => Promise<KicadExperimentDrc>;
+  validate: (board: string, round: number, trialId?: string) => Promise<KicadExperimentDrc>;
 }
 /** Return verified official DRC unconnected net names (no inference from raw PCB names). */
 export function listUnconnectedNetsFromKiCadReport(report: {
@@ -81,6 +87,9 @@ export async function runKicadIterativeRouteTrials(input: IterativeRouteInput) {
   const policy = input.policy ?? {};
   const maxRounds = policy.maxRounds ?? 1;
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 4) throw new Error('maxRounds must be 1..4.');
+  const maxRecoveryChecks = policy.maxRecoveryChecks ?? 6;
+  if (!Number.isInteger(maxRecoveryChecks) || maxRecoveryChecks < 1 || maxRecoveryChecks > 8)
+    throw new Error('maxRecoveryChecks must be 1..8.');
   if (policy.autoSelectUnconnected && !input.baseline.unconnectedNetNames?.length && !input.routing.selectedNets?.length) {
     throw new Error('Auto-selection needs real KiCad DRC unconnected net names.');
   }
@@ -143,6 +152,36 @@ export async function runKicadIterativeRouteTrials(input: IterativeRouteInput) {
       addedStraightTrackLengthMm += patched.summary.totalStraightLengthMm;
       addedViaCount += patched.summary.vias;
       if (currentDrc.unconnected === 0) break;
+    } else if (policy.recoverRejectedBatches === true &&
+      plan.routed.length >= 2 && !reasons.includes('invalid-official-drc-count')) {
+      const recovery = await recoverKicadRejectedRouteBatch({
+        source: currentSource,
+        before: currentDrc,
+        failedNetNames: plan.routed.map(net => net.netName),
+        routing,
+        maxChecks: maxRecoveryChecks,
+        validate: (candidate, trialId) => input.validate(candidate, round, trialId)
+      });
+      for (const trace of recovery.traces) attempts.push({
+        round, phase: 'recovery', trialId: trace.trialId,
+        status: trace.status === 'blocked-budget' ? 'no-route' : trace.status,
+        attemptedNetNames: trace.netNames,
+        operationCount: trace.operationCount,
+        addedStraightTrackLengthMm: trace.addedStraightTrackLengthMm,
+        addedViaCount: trace.addedViaCount,
+        beforeUnconnected: trace.beforeUnconnected,
+        ...(trace.afterUnconnected === undefined ? {} : { afterUnconnected: trace.afterUnconnected }),
+        ...(trace.drcViolations === undefined ? {} : { activeViolations: trace.drcViolations }),
+        reasons: trace.reasons
+      });
+      if (recovery.improved) {
+        currentSource = recovery.board;
+        currentDrc = recovery.drc;
+        totalOperations += recovery.operationCount;
+        addedStraightTrackLengthMm += recovery.addedStraightTrackLengthMm;
+        addedViaCount += recovery.addedViaCount;
+        if (currentDrc.unconnected === 0) break;
+      }
     }
   }
   return { board:currentSource, drc:currentDrc, roundsAttempted:roundCount, attempts,

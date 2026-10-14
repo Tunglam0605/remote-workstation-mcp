@@ -344,6 +344,7 @@ const TOOL_SCOPES: Record<string, WorkstationScope> = {
   kicad_autoexperiment_run: 'workstation.write',
   kicad_specctra_export: 'workstation.write',
   kicad_specctra_import: 'workstation.write',
+  kicad_zone_refill_copy: 'workstation.write',
   kicad_constraints_review: 'workstation.read',
   kicad_visual_export: 'workstation.write',
   kicad_bom_report: 'workstation.read',

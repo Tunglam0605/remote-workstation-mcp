@@ -14,6 +14,7 @@ import { HardwareDiscoveryAdapter } from '../adapters/engineering/hardware-disco
 import { KicadAdapter } from '../adapters/engineering/kicad.js';
 import { KicadSpecctraExportAdapter } from '../adapters/engineering/kicad-specctra-export.js';
 import { KicadSpecctraImportAdapter } from '../adapters/engineering/kicad-specctra-import.js';
+import { KicadZoneRefillAdapter } from '../adapters/engineering/kicad-zone-refill.js';
 import { PlatformioAdapter } from '../adapters/engineering/platformio.js';
 import { EngineeringProjectProfileStore } from '../adapters/engineering/project-profile.js';
 import type { EngineeringResourceManager } from '../adapters/engineering/resource-manager.js';
@@ -72,6 +73,7 @@ export function createEngineeringServices(deps: EngineeringServicesDependencies)
   const kicad = new KicadAdapter(policy, paths, runner, resources);
   const kicadSpecctra = new KicadSpecctraExportAdapter(policy, paths, runner);
   const kicadSpecctraImport = new KicadSpecctraImportAdapter(policy, paths, runner, kicad);
+  const kicadZoneRefill = new KicadZoneRefillAdapter(policy, paths, runner, kicad);
   const platformio = new PlatformioAdapter(policy, paths, runner, resources);
   const workflows = new EngineeringWorkflowEngine(
     policy,
@@ -116,6 +118,7 @@ export function createEngineeringServices(deps: EngineeringServicesDependencies)
     kicad,
     kicadSpecctra,
     kicadSpecctraImport,
+    kicadZoneRefill,
     platformio
   };
 }

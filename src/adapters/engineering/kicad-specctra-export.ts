@@ -23,7 +23,7 @@ if not pcbnew.ExportSpecctraDSN(board,destination): raise RuntimeError("Native p
 if not os.path.isfile(destination): raise RuntimeError("Native Specctra output missing")
 print(json.dumps({"kicadVersion":pcbnew.Version(),"exported":True,"fileBytes":os.path.getsize(destination)}))`;
 
-async function bundledPython():Promise<string>{
+export async function bundledPython():Promise<string>{
   if(os.platform()!=='win32')throw Error('Specctra export prototype is Windows-only.');
   const roots=[
     process.env.LOCALAPPDATA?path.join(process.env.LOCALAPPDATA,'Programs','KiCad'):undefined,
@@ -42,7 +42,7 @@ async function bundledPython():Promise<string>{
   }
   throw Error('No supported bundled KiCad 10+ Python/pcbnew toolchain found on this Windows host.');
 }
-function safeDestination(root:string,requested:string){
+export function safeDestination(root:string,requested:string){
   if(!requested||requested.length>600||path.isAbsolute(requested))throw Error('Specctra output directory must be project-relative.');
   const parts=requested.split(/[\\/]+/);
   if(parts.some(part=>!part||part==='.'||part==='..'||! /^[A-Za-z0-9_.-]{1,80}$/.test(part)))

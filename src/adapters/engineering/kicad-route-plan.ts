@@ -1,4 +1,5 @@
 import type { KicadRouteBatchOperation } from './kicad-route-batch.js';
+import { buildKicadRoutingBoundary } from './kicad-routing-boundary.js';
 
 const MAX_BOARD_BYTES = 128 * 1024 * 1024;
 const MAX_FOOTPRINTS = 512;
@@ -336,7 +337,8 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const hasViaBan=/\(vias\s+not_allowed\)/.test(area);
     if(hasTrackBan||hasViaBan)throw new Error('KiCad route planner does not yet model track/via copper keepout rule areas; refuse unsafe candidate routing.');
   }
-  const board=parseBoardBounds(source);
+  const routingBoundary=buildKicadRoutingBoundary(source);
+  const board=routingBoundary.outline.bounds ?? parseBoardBounds(source);
   const parsed=parseFootprints(source);
   const availableLayers=parseCopperLayers(source);
   const layers=options.layers??(['F.Cu','B.Cu'] as [string,string]);
@@ -397,6 +399,10 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
 
   const toGrid=(p:Point)=>({x:Math.max(0,Math.min(nx-1,Math.round((p.x-minX)/gridMm))),y:Math.max(0,Math.min(ny-1,Math.round((p.y-minY)/gridMm)))});
   const toPoint=(x:number,y:number):Point=>({x:Number((minX+x*gridMm).toFixed(4)),y:Number((minY+y*gridMm).toFixed(4))});
+  // Native Edge.Cuts takes precedence over rectangular clipping for corners,
+  // slots and non-rectangular boards. Include track radius in edge clearance.
+  const pointInsideCopper=(x:number,y:number,radius:number)=>
+    routingBoundary.pointAllowed(toPoint(x,y),edgeInset+radius);
   const layerAccess=(pad:Pad,layer:string)=>pad.layers.includes(layer)||pad.layers.includes('*.Cu')||pad.layers.includes('F&B.Cu');
   const padBuckets=layers.map(()=>new Map<string,Pad[]>());
   for(const pad of parsed.pads)for(let li=0;li<layers.length;li++){
@@ -480,6 +486,8 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     const startLayers=layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(start,x.layer)).map(x=>x.index);
     const endLayers=new Set(layers.map((layer,index)=>({layer,index})).filter(x=>layerAccess(end,x.layer)).map(x=>x.index));
     if(!startLayers.length||!endLayers.size)return undefined;
+    if(!routingBoundary.pointAllowed(start.position,edgeInset+width/2)||
+       !routingBoundary.pointAllowed(end.position,edgeInset+width/2))return undefined;
     const inflate=clearance+width/2;
     const dirs=[[1,0],[-1,0],[0,1],[0,-1]] as const;
     let expandedTotal=0;
@@ -507,7 +515,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         }
         for(let di=0;di<dirs.length;di++){
           const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
-          if(x<left||y<top||x>right||y>bottom)continue;
+          if(x<left||y<top||x>right||y>bottom || !pointInsideCopper(x,y,width/2))continue;
           const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
           if(nearDrilledHole(x,y,width/2,netName,false)||nearForeignPad(cur.layer,x,y,inflate,netName))continue;
           if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)))continue;
@@ -518,6 +526,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
           if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(x,y),next);}
         }
         const other=cur.layer===0?1:0;
+        if(!pointInsideCopper(cur.x,cur.y,viaDiameter/2))continue;
         const viaInflate=Math.max(inflate,viaDiameter/2+clearance);
         const viaForeignPadBlocked=nearDrilledHole(cur.x,cur.y,viaDrill/2,netName,true)||[cur.layer,other].some(li=>nearForeignPad(li,cur.x,cur.y,viaInflate,netName));
         const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName));
@@ -610,6 +619,11 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       const path=findPath(netName,a,b,width,clearance,style?.preferredLayer);
       if(!path){failed=true;failureReason = lastSearchBudgetExceeded ? 'search-budget-exhausted' : 'no-obstacle-safe-grid-path';break;}
       const edgeOps=pathToOperations(netName,path,a,b,width);
+      if(edgeOps.some(op=>op.kind==='segment'
+          ? !routingBoundary.segmentAllowed(op.start,op.end,edgeInset+op.widthMm/2)
+          : !routingBoundary.pointAllowed(op.position,edgeInset+op.diameterMm/2))){
+        failed=true;failureReason='outside-native-edgecuts';break;
+      }
       for(const op of edgeOps){
         const key=routeOperationKey(op);
         if(netOpKeys.has(key))continue;
@@ -652,7 +666,8 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
 
   return {
     schemaVersion:1,
-    board:{bounds:board,widthMm:Number((board.maxX-board.minX).toFixed(4)),heightMm:Number((board.maxY-board.minY).toFixed(4)),availableCopperLayers:availableLayers,routingLayers:layers,gridMm},
+    board:{bounds:board,widthMm:Number((board.maxX-board.minX).toFixed(4)),heightMm:Number((board.maxY-board.minY).toFixed(4)),availableCopperLayers:availableLayers,routingLayers:layers,gridMm,
+      nativeOutlineStatus:routingBoundary.outline.status,nativeOutlineArcCount:routingBoundary.outline.arcCount,nativeOutlineAreaMm2:routingBoundary.outline.areaMm2},
     options:{edgeInsetMm:edgeInset,defaultWidthMm:defaultWidth,defaultClearanceMm:defaultClearance,viaDiameterMm:viaDiameter,viaDrillMm:viaDrill,viaCostMm:viaCost,turnPenaltyMm:turnPenalty,wrongWayPenaltyMm:wrongWayPenalty,maxPadsPerNet:maxPads,maxOperations},
     nets:{totalNamed:byNet.size,routableCandidateCount:candidateNets.length,routedCount:routed.length,skippedCount:skipped.length},
     routed,

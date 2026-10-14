@@ -14,6 +14,7 @@ import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-desig
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
 import { runKicadCopyExperiments, type KicadExperimentDrc } from './kicad-autoexperiment.js';
 import { copyKicadProjectSupport } from './kicad-autoexperiment-support.js';
+import { listUnconnectedNetsFromKiCadReport, type IterativeRoutePolicy } from './kicad-route-iterations.js';
 import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './kicad-constraints-review.js';
 import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprint, resolveKicadSymbol, searchKicadFootprints, searchKicadSymbols } from './kicad-library.js';
 import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicNetlist, type KicadSchematicNetSpec, type KicadSchematicSynthesisOptions } from './kicad-schematic-synthesis.js';
@@ -1375,6 +1376,7 @@ export class KicadAdapter {
     request: {
       board: string; schematic?: string; outputDir: string; expectedBoardSha256: string;
       routingTrials?: 1 | 2 | 3;
+      iterations?: IterativeRoutePolicy;
       placement?: KicadLayoutOptimizationOptions; routing?: KicadRoutePlanOptions;
     }
   ) {
@@ -1398,7 +1400,8 @@ export class KicadAdapter {
     const baseReport = await this.drc(workspace, projectPath, request.board, Boolean(sch));
     const counts = (r: typeof baseReport.report): KicadExperimentDrc => ({
       violations: Number(r.counts.active.violations), unconnected: Number(r.counts.active.unconnected),
-      schematicParity: Number(r.counts.active.schematicParity), errors: Number(r.counts.active.bySeverity.error ?? 0)
+      schematicParity: Number(r.counts.active.schematicParity), errors: Number(r.counts.active.bySeverity.error ?? 0),
+      unconnectedNetNames: listUnconnectedNetsFromKiCadReport(r)
     });
     const baseline = counts(baseReport.report);
     const ranked = request.placement?.alignmentGroups?.length
@@ -1422,15 +1425,16 @@ export class KicadAdapter {
     const output = await prepareNewOutputDirectory(root, relativeOutput);
     const name = path.basename(pcb);
     const outcome = await runKicadCopyExperiments(original, {
-      scenarios, routing: request.routing ?? {}, baseline,
-      validate: async (id, candidate) => {
-        const folder = path.join(output, id);
-        await fs.mkdir(folder);
+      scenarios, routing: request.routing ?? {}, iterations: request.iterations, baseline,
+      validate: async (id, candidate, round) => {
+        const folder = path.join(output, id, ...(round ? ['round-' + String(round).padStart(2, '0')] : []));
+        await fs.mkdir(folder, { recursive: true });
         await fs.writeFile(path.join(folder, name), candidate, 'utf8');
         if (hasPro) await fs.copyFile(pro, path.join(folder, path.basename(pro)));
         if (sch) await fs.copyFile(sch, path.join(folder, path.basename(sch)));
         await copyKicadProjectSupport(path.dirname(pcb), folder);
-        const validation = await this.drc(workspace, projectPath, path.join(relativeOutput, id, name), Boolean(sch));
+        const validation = await this.drc(workspace, projectPath,
+          path.join(relativeOutput, id, ...(round ? ['round-' + String(round).padStart(2, '0')] : []), name), Boolean(sch));
         return counts(validation.report);
       }
     });
@@ -1442,7 +1446,8 @@ export class KicadAdapter {
       candidates: outcome.candidates.map(({ source, ...candidate }) => ({
         ...candidate,
         ...(source ? {
-          candidateBoard: path.join(relativeOutput, candidate.id, name).split(path.sep).join('/'),
+          candidateBoard: path.join(relativeOutput, candidate.id,
+            ...(candidate.acceptedRound ? ['round-' + String(candidate.acceptedRound).padStart(2, '0')] : []), name).split(path.sep).join('/'),
           candidateSha256: sha256Text(source)
         } : {})
       })),

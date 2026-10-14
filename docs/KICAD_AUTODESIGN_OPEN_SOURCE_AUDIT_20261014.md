@@ -37,6 +37,38 @@ Original official DRC: **0 violations**, 85 unconnected, parity 0.
 - Path: `Mega2560-Jack-Shield-V12/design/V12_2L/review/V19_FUNCTIONAL_COMPACT_WIP_20261014/review/RWMCP_AUTOEXPERIMENT_A8_3TRIALS_20261014/`.
 - No original PCB, original application version or Windows service was modified.
 
+
+## Incremental milestone: bounded multi-round DRC-targeted routing, 2026-10-14
+
+`kicad_autoexperiment_run` now accepts `iterations`:
+```json
+{
+  "maxRounds": 3,
+  "maxNetsPerRound": 4,
+  "autoSelectUnconnected": true,
+  "includePowerNets": false
+}
+```
+Every round:
+1. Extract unconnected named nets from matching pad descriptions in the **official KiCad DRC JSON**, not invented PCB geometry.
+2. Select no more than 24 bounded nets/round, avoid repeats, and never auto-route GND, IOREF, VCC/VIN, 3V3/5V, buck/eFuse/switching/return supply nets without an explicit `includePowerNets` override.
+3. Run bounded 2-layer A* and apply typed segments/vias **in memory only**. Save each attempted round in a fresh project-local `candidate/round-NN` directory with copied project libraries/schematic.
+4. Re-run official KiCad DRC and parity. Preserve only a round with **strictly fewer unconnected** and non-increasing active design violations/parity/errors. Roll back all failed rounds in the candidate's working source.
+5. Carry forward accepted copper and re-read remaining unconnected net names; produce per-round trace, net list, before/after metrics, failure reasons, exact candidate and original SHA.
+
+**Measured KiCad 10.0.6 V19 copy test:**
+- Original authoritative PCB SHA: `f7a5e1ba82b0c43b553c0bdac674b47735be46dffd88cc11b2f75c48d7cd1def`, unchanged after run.
+- Baseline official DRC: **85 unconnected, 0 active geometric violations, 0 schematic parity**.
+- Round 1: nets A12/A13/A14/A15; 22 operations; official DRC unconnected 85 -> 82, 0 violations.
+- Round 2: A8/D2/D22/D23; 27 operations; 82 -> 79, 0 violations.
+- Round 3: D3/D34/D38/D39; 25 operations; 79 -> 76, 0 violations.
+- Total **74 accepted routing operations**, **9 fewer unconnected items**, original unchanged, no manufacturing approval.
+- Copy path: `Mega2560-Jack-Shield-V12/design/V12_2L/review/V19_FUNCTIONAL_COMPACT_WIP_20261014/review/RWMCP_AUTOROUTE_3PASS_20261014_V1/`.
+
+Note: DRC may report a net still partially unconnected after one attempt; this bounded version deliberately avoids blindly retrying the same net repeatedly. Improving multi-terminal topology, deterministic targeted escape reattempts and rip-up/zone refill are separate subsequent engineering tasks.
+
+No release-runtime update was carried out. Windows v0.70.0-dev.10 remains untouched, and this experimental branch requires CI/review before deployment.
+
 ## Engineering gates still open
 
 1. KiCad 10 exact Edge.Cuts rounded polygon and true 3D/cable/mechanical-fit collision checks (current courtyard AABB only).

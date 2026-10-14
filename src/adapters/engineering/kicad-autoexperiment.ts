@@ -7,14 +7,15 @@
  * (and strictly improved connectivity). Originals are never written.
  */
 import { patchKicadDocument } from './kicad-edit.js';
-import { applyKicadRouteBatch } from './kicad-route-batch.js';
-import { planKicadRoutes, type KicadRoutePlanOptions } from './kicad-route-plan.js';
+import { type KicadRoutePlanOptions } from './kicad-route-plan.js';
+import { runKicadIterativeRouteTrials, type IterativeRoutePolicy } from './kicad-route-iterations.js';
 
 export interface KicadExperimentDrc {
   violations: number;
   unconnected: number;
   schematicParity: number;
   errors: number;
+  unconnectedNetNames?: string[];
 }
 
 export interface KicadExperimentScenario {
@@ -31,9 +32,10 @@ export interface KicadExperimentScenario {
 export interface KicadExperimentRequest {
   scenarios: KicadExperimentScenario[];
   routing: KicadRoutePlanOptions;
+  iterations?: IterativeRoutePolicy;
   baseline: KicadExperimentDrc;
   // The caller validates via the official KiCad CLI on its own isolated board copy.
-  validate: (id: string, boardSource: string) => Promise<KicadExperimentDrc>;
+  validate: (id: string, boardSource: string, round?: number) => Promise<KicadExperimentDrc>;
 }
 function validCounts(x: KicadExperimentDrc): void {
   for (const key of ['violations','unconnected','schematicParity','errors'] as const) {
@@ -72,6 +74,9 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
     scenarioScore: number;
     routeComplete?: boolean;
     routingSkippedCount?: number;
+    roundsAttempted?: number;
+    routeAttempts?: Array<{ round: number; status: string; attemptedNetNames: string[]; reasons: string[]; operationCount: number }>;
+    acceptedRound?: number;
     source?: string;
   }> = [];
   for (const scenario of request.scenarios) {
@@ -110,23 +115,33 @@ export async function runKicadCopyExperiments(originalSource: string, request: K
         board = patchKicadDocument(originalSource, edits, '.kicad_pcb').text;
       }
       const routing = { ...request.routing, ...scenario.routing };
-      const routePlan = planKicadRoutes(board, { ...routing, maxOperations: Math.min(64, routing.maxOperations ?? 32) });
-      const applied = routePlan.operations.length ? applyKicadRouteBatch(board, routePlan.operations) : undefined;
-      if (applied) board = applied.source;
-      const candidateDrc = await request.validate(scenario.id, board);
+      const multiRound = (request.iterations?.maxRounds ?? 1) > 1;
+      const routed = await runKicadIterativeRouteTrials({
+        board, routing, baseline: request.baseline,
+        policy: request.iterations,
+        validate: async (candidate, round) =>
+          request.validate(scenario.id, candidate, multiRound ? round : undefined)
+      });
+      const candidateDrc = routed.drc;
       validCounts(candidateDrc);
       const gate = evaluate(request.baseline, candidateDrc);
+      const acceptedRound = routed.attempts.filter(item => item.status === 'accepted').at(-1)?.round;
       candidates.push({
         ...base,
         status: gate.accepted ? 'candidate-accepted' : 'candidate-rejected',
-        reasons: gate.reasons,
-        operationCount: routePlan.operationCount,
-        addedStraightTrackLengthMm: applied?.summary.totalStraightLengthMm ?? 0,
-        addedViaCount: applied?.summary.vias ?? 0,
+        reasons: gate.accepted ? [] : [...new Set([
+          ...gate.reasons, ...routed.attempts.filter(x => x.status === 'rejected' || x.status === 'failed-validation').flatMap(x => x.reasons)
+        ])],
+        operationCount: routed.totalOperations,
+        addedStraightTrackLengthMm: routed.addedStraightTrackLengthMm,
+        addedViaCount: routed.addedViaCount,
         candidateDrc,
-        routeComplete: routePlan.complete,
-        routingSkippedCount: routePlan.nets.skippedCount,
-        source: board
+        routeComplete: routed.routeComplete,
+        routingSkippedCount: routed.routingSkippedCount,
+        roundsAttempted: routed.roundsAttempted,
+        routeAttempts: routed.attempts,
+        ...(multiRound && acceptedRound ? { acceptedRound } : {}),
+        ...(acceptedRound ? { source: routed.board } : {})
       });
     } catch (error) {
       candidates.push({

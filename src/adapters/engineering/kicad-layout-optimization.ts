@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { planConstrainedPlacement } from './kicad-placement-constraints.js';
+import { rankConstrainedPlacementScenarios } from './kicad-placement-ranking.js';
 import type { PlacementConstraintOptions, PlacementRect } from './kicad-placement-constraints.js';
 
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
@@ -38,6 +39,8 @@ export interface KicadLayoutOptimizationOptions extends PlacementConstraintOptio
   maxSuggestedStepMm?: number;
   placementGridMm?: number;
   fixedReferences?: string[];
+  rankScenarios?: boolean;
+  maxHpwlRegressionMm?: number;
 }
 
 function sha256Text(value: string): string {
@@ -523,19 +526,45 @@ export function analyzeKicadLayoutOptimization(
     }
   }
 
-  const constraintMode = Boolean(options.alignmentGroups?.length || options.keepouts?.length || options.boardBounds);
+  const constraintMode = Boolean(options.alignmentGroups?.length || options.keepouts?.length || options.connectorAccess?.length || options.boardBounds);
+  const rankScenarios = options.rankScenarios ?? false;
+  if (rankScenarios && !options.alignmentGroups?.length) {
+    throw new Error('rankScenarios requires at least one explicit alignmentGroup.');
+  }
+  const placementParts = footprints.filter((item): item is BoardFootprint & { reference: string } => Boolean(item.reference)).map(item => ({
+    reference: item.reference,
+    position: item.position,
+    locked: item.locked,
+    ...(item.courtyard ? { courtyard: item.courtyard } : {})
+  }));
   const constraintPlan = constraintMode ? planConstrainedPlacement(
-    footprints.filter((item): item is BoardFootprint & { reference: string } => Boolean(item.reference)).map(item => ({
-      reference: item.reference,
-      position: item.position,
-      locked: item.locked,
-      ...(item.courtyard ? { courtyard: item.courtyard } : {})
-    })),
+    placementParts,
     options,
     fixedReferences,
     maxSuggestedStepMm,
     placementGridMm
   ) : undefined;
+
+  const rankedPlacement = constraintMode && rankScenarios ? rankConstrainedPlacementScenarios({
+    parts: placementParts,
+    constraints: options,
+    fixedReferences,
+    maxStepMm: maxSuggestedStepMm,
+    gridMm: placementGridMm,
+    terminals: [...netPads.entries()].flatMap(([netId, pads]) => pads
+      .filter(item => item.reference)
+      .map(item => ({
+        netName: netNames.get(netId) ?? item.pad.netName ?? '#' + netId,
+        reference: item.reference!,
+        position: item.pad.position
+      }))),
+    maxHpwlRegressionMm: options.maxHpwlRegressionMm,
+    routeBaseline: {
+      trackLengthMm: [...routes.values()].reduce((sum, route) => sum + route.trackLengthMm, 0),
+      segmentCount: [...routes.values()].reduce((sum, route) => sum + route.segmentCount, 0),
+      viaCount: [...routes.values()].reduce((sum, route) => sum + route.viaCount, 0)
+    }
+  }) : undefined;
 
   const placementCandidates = [...placementVectors.entries()]
     .map(([reference, vector]) => {
@@ -708,6 +737,7 @@ export function analyzeKicadLayoutOptimization(
       affinityPairs
     },
     ...(constraintPlan ? { constraintPlacement: constraintPlan } : {}),
+    ...(rankedPlacement ? { rankedPlacement } : {}),
     ...(schematicConnectivity ? { schematicConnectivity } : {}),
     recommendations
   };

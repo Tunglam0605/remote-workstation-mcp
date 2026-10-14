@@ -83,3 +83,48 @@ Acceptance evidence:
 - All new code is in the isolated worktree `remote-workstation-mcp.kicad10-layout-parser-20261014`.
 - Remaining P1 work: physical mating-envelope checks beyond footprint courtyard (Mega USB/DC, ICSP, cable bend and header orientation), connector-edge alignment legalizer, continuous DRC-gated copy-based experiments, and curved exact Edge.Cuts containment.
 - Current runtime stays v0.70.0-dev.10 until feature is reviewed/merged/released. No automated manufacturing approval.
+
+## Second Windows P1 milestone — ranked alternatives and connector cable clearance (2026-10-14)
+
+The same **read-only** `kicad_layout_optimize_plan` now accepts:
+- `rankScenarios: true` to evaluate three deterministic bounded alignment-step candidates (33%, 66%, 100% of `maxSuggestedStepMm`) against declared courtyard, keepout and board-bounds constraints.
+- `maxHpwlRegressionMm: 0` by default. Scenarios increasing the half-perimeter wire-length proxy are tagged `tradeoff-review` and cannot be automatically recommended. A deliberate positive tolerance unlocks reviewed alternatives but never changes actual copper.
+- `connectorAccess` entries: `{reference, direction: "left"|"right"|"top"|"bottom", depthMm, widthMm?, allowOutsideBoard?}` for a conservative rectangular plug/cable corridor adjacent to the footprint courtyard. Collision checks include moved parts, anchored parts, keepouts and optional board limits.
+- `rankedPlacement` output: stable ranked scenarios, explicit status (`review-only` / `tradeoff-review` / `blocked`), alignment improvement, **HPWL proxy** before/after, total translation, blockers and physical holds.
+- Whole-scenario conflict checks evaluate simultaneous moving footprints against one another, not only against the original PCB.
+
+The report expressly distinguishes a **geometric HPWL estimate** from actually re-routed copper. PCB area is unchanged because Edge.Cuts is untouched. Existing track length, via count, and segment count are **baseline evidence only** and must not be called improvements. Without a fresh KiCad PCB copy, re-route, DRC, ERC/parity, physical connector-mating check and power integrity review, nothing is manufacturing-approved.
+
+Example request:
+```json
+{
+  "workspace": "projects",
+  "projectPath": "Mega2560-Jack-Shield-V12/design/V12_2L/review/V19_FUNCTIONAL_COMPACT_WIP_20261014",
+  "board": "Mega2560_Robotics_Jack_Shield_V12_2L.kicad_pcb",
+  "fixedReferences": ["A1"],
+  "alignmentGroups": [
+    { "id": "output-connector-row", "axis": "row", "anchorReference": "J13", "references": ["J13", "J14", "J15"] }
+  ],
+  "connectorAccess": [
+    { "reference": "J15", "direction": "bottom", "depthMm": 10, "widthMm": 18, "allowOutsideBoard": true }
+  ],
+  "minCourtyardGapMm": 0.2,
+  "maxSuggestedStepMm": 5,
+  "rankScenarios": true,
+  "maxHpwlRegressionMm": 0,
+  "runRuleChecks": true
+}
+```
+
+**V19 direct input evidence** (PCB SHA-256 `f7a5e1ba82b0c43b553c0bdac674b47735be46dffd88cc11b2f75c48d7cd1def`, before = after): 37 footprints, 251 pads, 97 nets, 235 net-assigned pads. With output J13/J14/J15 alignment and fixed A1, three step candidates were compared. Their alignment gains are 1.5 / 3 / 5 mm; HPWL proxy increases by about 4.5 / 9 / 15 mm. **Default recommendation is null**, and all candidates are `tradeoff-review`. Mechanical access direction for a real JST plug must be verified from the exact connector manufacturer's drawing and orientation; the sample corridor is illustrative, not production-approved.
+
+Next production gates still outstanding: automatic functional-block inference, precise Edge.Cuts and 3D plug clearance, copper-preserving board-copy legalization, optional isolated Freerouting DSN/SES experiments, fresh official DRC and controlled manufacturing approval. RWMCP Windows runtime is not modified by this branch.
+
+## Verification of the multi-scenario milestone
+
+- Windows KiCad v10 real V19 PCB **SHA-256 unchanged** after a three-scenario dry run.
+- Without an approved wiring-length tradeoff, moving J15 toward the row aligned with J13/J14 increases HPWL proxy by 4.5 / 9 / 15 mm across the scenarios. Output is `recommendedScenarioId: null` and all three are `tradeoff-review`; the optimizer does not blindly maximize visual alignment.
+- Connector-access tests validate mechanical clearance corridors in declared orientations, including blocked existing harness access, body collisions, keepout and board envelope constraints.
+- Entire Windows RWMCP suite: **1055 tests, 1053 pass, 0 fail, 2 skipped**.
+- All KiCad-specific tests: **128 pass, 0 fail**; TypeScript build, architecture check, project-growth check and git whitespace validation passed.
+- Production RWMCP runtime not replaced, restarted or modified; no board file changed. PR review and release gates still required.

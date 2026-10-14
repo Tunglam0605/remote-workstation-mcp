@@ -28,11 +28,21 @@ export interface PlacementKeepout {
   bounds: PlacementRect;
 }
 
+export interface PlacementConnectorAccess {
+  reference: string;
+  direction: 'left' | 'right' | 'top' | 'bottom';
+  depthMm: number;
+  widthMm?: number;
+  // Connectors at a PCB edge often need a plug/cable envelope outside the board.
+  allowOutsideBoard?: boolean;
+}
+
 export interface PlacementConstraintOptions {
   alignmentGroups?: PlacementAlignmentGroup[];
   keepouts?: PlacementKeepout[];
   boardBounds?: PlacementRect;
   minCourtyardGapMm?: number;
+  connectorAccess?: PlacementConnectorAccess[];
 }
 
 export interface PlacementCandidate {
@@ -68,6 +78,21 @@ function overlap(a: PlacementRect, b: PlacementRect, gap: number): boolean {
     a.minY < b.maxY + gap - epsilon && a.maxY > b.minY - gap + epsilon;
 }
 
+/** Conservative rectangular plug/harness access corridor adjacent to the component courtyard. */
+export function connectorAccessEnvelope(courtyard: PlacementRect, spec: PlacementConnectorAccess): PlacementRect {
+  const centerX = (courtyard.minX + courtyard.maxX) / 2;
+  const centerY = (courtyard.minY + courtyard.maxY) / 2;
+  const transverse = spec.widthMm ?? (spec.direction === 'left' || spec.direction === 'right'
+    ? courtyard.maxY - courtyard.minY : courtyard.maxX - courtyard.minX);
+  const half = transverse / 2;
+  switch (spec.direction) {
+    case 'left': return { minX: courtyard.minX - spec.depthMm, maxX: courtyard.minX, minY: centerY - half, maxY: centerY + half };
+    case 'right': return { minX: courtyard.maxX, maxX: courtyard.maxX + spec.depthMm, minY: centerY - half, maxY: centerY + half };
+    case 'top': return { minX: centerX - half, maxX: centerX + half, minY: courtyard.minY - spec.depthMm, maxY: courtyard.minY };
+    case 'bottom': return { minX: centerX - half, maxX: centerX + half, minY: courtyard.maxY, maxY: courtyard.maxY + spec.depthMm };
+  }
+}
+
 function inside(a: PlacementRect, bounds: PlacementRect): boolean {
   const epsilon = 1e-6;
   return a.minX >= bounds.minX - epsilon && a.minY >= bounds.minY - epsilon &&
@@ -90,8 +115,9 @@ export function planConstrainedPlacement(
 ) {
   const groups = opts.alignmentGroups ?? [];
   const keepouts = opts.keepouts ?? [];
+  const connectorAccess = opts.connectorAccess ?? [];
   const minGap = opts.minCourtyardGapMm ?? 0;
-  if (groups.length > 32 || keepouts.length > 64) throw new Error('Too many placement groups or keepouts.');
+  if (groups.length > 32 || keepouts.length > 64 || connectorAccess.length > 128) throw new Error('Too many placement constraints.');
   if (!Number.isFinite(minGap) || minGap < 0 || minGap > 20) throw new Error('Invalid minCourtyardGapMm.');
   if (!Number.isFinite(maxStepMm) || maxStepMm <= 0 || !Number.isFinite(gridMm) || gridMm <= 0) {
     throw new Error('Invalid placement step or grid.');
@@ -105,6 +131,17 @@ export function planConstrainedPlacement(
   }
   const byRef = new Map(parts.map(part => [normalizedRef(part.reference), part]));
   if (byRef.size !== parts.length) throw new Error('Duplicate footprint references in placement analysis.');
+  const accesses = new Map<string, PlacementConnectorAccess>();
+  for (const spec of connectorAccess) {
+    const ref = normalizedRef(spec.reference);
+    if (!byRef.has(ref) || accesses.has(ref)) throw new Error('Unknown or duplicate connector access reference ' + ref);
+    if (!['left', 'right', 'top', 'bottom'].includes(spec.direction)) throw new Error('Invalid connector access direction.');
+    if (!Number.isFinite(spec.depthMm) || spec.depthMm <= 0 || spec.depthMm > 100 ||
+        (spec.widthMm !== undefined && (!Number.isFinite(spec.widthMm) || spec.widthMm <= 0 || spec.widthMm > 100))) {
+      throw new Error('Invalid connector access envelope dimensions.');
+    }
+    accesses.set(ref, spec);
+  }
   const touched = new Set<string>();
   const groupIds = new Set<string>();
   const candidates: PlacementCandidate[] = [];
@@ -172,6 +209,16 @@ export function planConstrainedPlacement(
         for (const keepout of keepouts) {
           if (overlap(footprintBox, keepout.bounds, minGap)) blockers.push('keepout:' + keepout.id);
         }
+        const ownAccess = accesses.get(ref);
+        const ownEnvelope = ownAccess ? connectorAccessEnvelope(footprintBox, ownAccess) : undefined;
+        if (ownEnvelope) {
+          if (opts.boardBounds && !ownAccess!.allowOutsideBoard && !inside(ownEnvelope, opts.boardBounds)) {
+            blockers.push('connector-access-outside-board:' + ref);
+          }
+          for (const keepout of keepouts) {
+            if (overlap(ownEnvelope, keepout.bounds, minGap)) blockers.push('connector-access-keepout:' + keepout.id);
+          }
+        }
         for (const other of parts) {
           if (other.reference.toUpperCase() === ref) continue;
           if (!other.courtyard) {
@@ -179,10 +226,15 @@ export function planConstrainedPlacement(
             // Separate mechanical approval is always required, even with 0 blockers.
             continue;
           }
-          if (overlap(footprintBox, other.courtyard, minGap)) {
-            blockers.push('courtyard:' + other.reference);
-            if (blockers.length >= 16) break;
+          if (overlap(footprintBox, other.courtyard, minGap)) blockers.push('courtyard:' + other.reference);
+          if (ownEnvelope && overlap(ownEnvelope, other.courtyard, minGap)) {
+            blockers.push('connector-access-blocked:' + ref + ':' + other.reference);
           }
+          const otherAccess = accesses.get(other.reference.toUpperCase());
+          if (otherAccess && overlap(footprintBox, connectorAccessEnvelope(other.courtyard, otherAccess), minGap)) {
+            blockers.push('blocks-existing-connector-access:' + other.reference);
+          }
+          if (blockers.length >= 16) break;
         }
       }
       if (Math.hypot(proposed.x - target.x, proposed.y - target.y) > gridMm * 0.71) {
@@ -214,7 +266,7 @@ export function planConstrainedPlacement(
   return {
     mode: 'read-only-constraint-first' as const,
     requiresFreshCopperAndMechanicalReview: true,
-    constraints: { alignmentGroups: groups, keepouts, boardBounds: opts.boardBounds ?? null, minCourtyardGapMm: minGap },
+    constraints: { alignmentGroups: groups, keepouts, connectorAccess, boardBounds: opts.boardBounds ?? null, minCourtyardGapMm: minGap },
     groups: groupReports,
     candidates,
     counts: {

@@ -93,3 +93,46 @@ test('invalid references, duplicate group membership and geometry are rejected',
   ] }), /Overlapping placement groups/);
   assert.throws(() => analyze({ keepouts: [{ id: 'broken', bounds: { minX: 10, minY: 0, maxX: 0, maxY: 1 } }] }), /Invalid placement rectangle/);
 });
+
+test('connector harness access corridor blocks a visually aligned but mechanically obstructed header', () => {
+  const three: PlacementPart[] = [
+    parts[0]!, parts[1]!, {
+      reference: 'J3', position: { x: 50, y: 10 }, locked: true,
+      courtyard: { minX: 48, minY: 8, maxX: 52, maxY: 12 }
+    }
+  ];
+  const result = analyze({
+    alignmentGroups: [{ id: 'JST', axis: 'row', anchorReference: 'J1', references: ['J1', 'J2'] }],
+    connectorAccess: [{ reference: 'J2', direction: 'right', depthMm: 20, widthMm: 4 }]
+  }, three);
+  assert.equal(result.candidates[0]?.status, 'blocked');
+  assert.ok(result.candidates[0]?.blockers.includes('connector-access-blocked:J2:J3'));
+});
+
+test('moving another footprint into an anchored connector exit envelope is blocked', () => {
+  const result = analyze({
+    alignmentGroups: [{ id: 'IO', axis: 'row', references: ['J1', 'J2'] }],
+    connectorAccess: [{ reference: 'J1', direction: 'right', depthMm: 24, widthMm: 5 }]
+  });
+  assert.ok(result.candidates[0]?.blockers.includes('blocks-existing-connector-access:J1'));
+});
+
+test('connector access envelope can be required to fit within declared board bounds', () => {
+  const result = analyze({
+    alignmentGroups: [{ id: 'plugs', axis: 'row', references: ['J1', 'J2'] }],
+    boardBounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+    connectorAccess: [{ reference: 'J2', direction: 'top', depthMm: 20, allowOutsideBoard: false }]
+  });
+  assert.ok(result.candidates[0]?.blockers.includes('connector-access-outside-board:J2'));
+  const allowedOutside = analyze({
+    alignmentGroups: [{ id: 'plugs', axis: 'row', references: ['J1', 'J2'] }],
+    boardBounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+    connectorAccess: [{ reference: 'J2', direction: 'top', depthMm: 20, allowOutsideBoard: true }]
+  });
+  assert.equal(allowedOutside.candidates[0]?.blockers.includes('connector-access-outside-board:J2'), false);
+});
+
+test('invalid connector exit reference or access corridor dimensions are rejected', () => {
+  assert.throws(() => analyze({ connectorAccess: [{ reference: 'J99', direction: 'right', depthMm: 8 }] }), /Unknown or duplicate connector access reference/);
+  assert.throws(() => analyze({ connectorAccess: [{ reference: 'J2', direction: 'right', depthMm: -8 }] }), /Invalid connector access envelope dimensions/);
+});

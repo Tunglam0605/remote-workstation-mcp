@@ -689,7 +689,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
   });
 
   server.registerTool('kicad_layout_optimize_plan', {
-    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Explicit fixedReferences protect mechanical anchors. Optional alignment groups, courtyard-gap checks, rectangular keepouts and declared board bounds generate bounded read-only placement candidates or blockers; no PCB changes or automatic DRC certification and never bypass the existing typed IPC/DRC mutation gates.',
+    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Explicit fixedReferences protect mechanical anchors. Optional alignment groups, courtyard-gap checks, rectangular keepouts and declared board bounds generate bounded read-only placement candidates or blockers; optional rankScenarios compares three bounded, read-only hypotheses using alignment and HPWL proxies, retaining original copper metrics as immutable evidence; no PCB changes or automatic DRC certification and never bypass the existing typed IPC/DRC mutation gates.',
     inputSchema: kicadProject.extend({
       board: z.string().min(1).max(1024),
       schematic: z.string().min(1).max(1024).optional(),
@@ -702,13 +702,22 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       alignmentGroups: z.array(alignmentGroupSchema).max(32).default([]),
       keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
       boardBounds: placementRectSchema.optional(),
-      minCourtyardGapMm: z.number().finite().min(0).max(20).default(0)
+      minCourtyardGapMm: z.number().finite().min(0).max(20).default(0),
+      connectorAccess: z.array(z.object({
+        reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+        direction: z.enum(['left', 'right', 'top', 'bottom']),
+        depthMm: z.number().finite().gt(0).max(100),
+        widthMm: z.number().finite().gt(0).max(100).optional(),
+        allowOutsideBoard: z.boolean().optional()
+      })).max(128).default([]),
+      rankScenarios: z.boolean().default(false),
+      maxHpwlRegressionMm: z.number().finite().min(0).max(1000).default(0)
     }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, boardBounds, minCourtyardGapMm }) =>
+  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, boardBounds, minCourtyardGapMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }) =>
     result(await audited(ctx.audit, 'kicad_layout_optimize_plan', workspace, () => ctx.engineering.kicad.layoutOptimizePlan(
       workspace, projectPath, board, schematic,
-      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm }
+      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }
     ))));
 
   server.registerTool('kicad_constraints_review', {

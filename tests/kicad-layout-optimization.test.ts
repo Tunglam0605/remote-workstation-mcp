@@ -208,6 +208,7 @@ test('KiCad board optimizer exposes an explicit courtyard-aware constrained grou
   const result = analyzeKicadLayoutOptimization({ board: pcb }, {
     fixedReferences: ['J1'],
     alignmentGroups: [{ id: 'UART', axis: 'row', anchorReference: 'J1', references: ['J1', 'J2', 'J3'] }],
+    rankScenarios: true,
     keepouts: [{ id: 'USB', bounds: { minX: 90, minY: 90, maxX: 95, maxY: 95 } }],
     boardBounds: { minX: 0, minY: 0, maxX: 60, maxY: 60 }
   });
@@ -218,6 +219,16 @@ test('KiCad board optimizer exposes an explicit courtyard-aware constrained grou
   assert.deepEqual(result.constraintPlacement?.candidates[0]?.proposedPositionMm, { x: 30, y: 10 });
   assert.equal(result.constraintPlacement?.candidates[0]?.status, 'review');
   assert.equal(result.constraintPlacement?.candidates.some(item => item.reference === 'J1'), false);
+  assert.equal(result.rankedPlacement?.hypothesisCount, 3);
+  assert.equal(result.rankedPlacement?.evidenceLimits.noCopperOrKiCadDrcOnHypotheses, true);
+  assert.equal(result.rankedPlacement?.rankedScenarios.length, 3);
+});
+
+test('scenario ranking refuses empty constraint groups rather than returning a false no-op result', () => {
+  assert.throws(
+    () => analyzeKicadLayoutOptimization({ board: BOARD }, { rankScenarios: true }),
+    /rankScenarios requires at least one explicit alignmentGroup/
+  );
 });
 
 test('KiCad layout optimizer suppresses high-fanout nets from placement pressure without dropping routing evidence', () => {

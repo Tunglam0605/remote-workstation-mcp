@@ -12,6 +12,9 @@ import { resolveExistingProjectPath } from './project-path.js';
 import { parseKicadBomCsv } from './kicad-bom.js';
 import { analyzeKicadDesign, type KicadDesignReviewOptions } from './kicad-design-review.js';
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
+import { runKicadCopyExperiments, type KicadExperimentDrc } from './kicad-autoexperiment.js';
+import { copyKicadProjectSupport } from './kicad-autoexperiment-support.js';
+import { listUnconnectedNetsFromKiCadReport, type IterativeRoutePolicy } from './kicad-route-iterations.js';
 import { analyzeKicadConstraints, type KicadConstraintsReviewOptions } from './kicad-constraints-review.js';
 import { defaultKicadLibraryPaths, footprintMatchesFilters, resolveKicadFootprint, resolveKicadSymbol, searchKicadFootprints, searchKicadSymbols } from './kicad-library.js';
 import { parseKicadSexprNetlist, synthesizeKicadSchematic, verifyKicadSchematicNetlist, type KicadSchematicNetSpec, type KicadSchematicSynthesisOptions } from './kicad-schematic-synthesis.js';
@@ -1365,6 +1368,96 @@ export class KicadAdapter {
       if (current !== beforeSource) await atomicReplace(boardPath, beforeSource).catch(() => undefined);
       throw error;
     }
+  }
+
+  /** Run copy-only placement and autorouting experiments, DRC-gated per candidate. */
+  async autoexperimentRun(
+    workspace: string, projectPath: string,
+    request: {
+      board: string; schematic?: string; outputDir: string; expectedBoardSha256: string;
+      routingTrials?: 1 | 2 | 3;
+      iterations?: IterativeRoutePolicy;
+      placement?: KicadLayoutOptimizationOptions; routing?: KicadRoutePlanOptions;
+    }
+  ) {
+    this.policy.assertEngineeringExecute();
+    this.policy.assertWrite(workspace);
+    if (!/^[0-9a-f]{64}$/i.test(request.expectedBoardSha256)) throw new Error('Autoexperiment needs an exact board SHA-256.');
+    const root = await fs.realpath(await this.paths.resolveExisting(workspace, projectPath));
+    const pcb = await resolveExistingProjectPath(this.paths, workspace, projectPath, request.board, 'Autoexperiment source PCB');
+    if (path.extname(pcb).toLowerCase() !== '.kicad_pcb') throw new Error('Autoexperiment requires a PCB source.');
+    const stat = await fs.stat(pcb);
+    if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error('Autoexperiment PCB exceeds 32 MiB.');
+    const original = await fs.readFile(pcb, 'utf8');
+    const sourceSha256 = sha256Text(original);
+    if (sourceSha256.toLowerCase() !== request.expectedBoardSha256.toLowerCase()) throw new Error('Autoexperiment source SHA mismatch.');
+    const stem = path.basename(pcb, '.kicad_pcb');
+    const sch = request.schematic
+      ? await resolveExistingProjectPath(this.paths, workspace, projectPath, request.schematic, 'Autoexperiment schematic') : undefined;
+    if (sch && path.basename(sch) !== stem + '.kicad_sch') throw new Error('PCB and schematic basenames must match for parity checks.');
+    const pro = path.join(path.dirname(pcb), stem + '.kicad_pro');
+    const hasPro = (await fs.stat(pro).catch(() => undefined))?.isFile() ?? false;
+    const baseReport = await this.drc(workspace, projectPath, request.board, Boolean(sch));
+    const counts = (r: typeof baseReport.report): KicadExperimentDrc => ({
+      violations: Number(r.counts.active.violations), unconnected: Number(r.counts.active.unconnected),
+      schematicParity: Number(r.counts.active.schematicParity), errors: Number(r.counts.active.bySeverity.error ?? 0),
+      unconnectedNetNames: listUnconnectedNetsFromKiCadReport(r)
+    });
+    const baseline = counts(baseReport.report);
+    const ranked = request.placement?.alignmentGroups?.length
+      ? analyzeKicadLayoutOptimization({ board: original }, { ...request.placement, rankScenarios: true }).rankedPlacement
+      : undefined;
+    const trials = request.routingTrials ?? 1;
+    if (![1, 2, 3].includes(trials)) throw new Error('routingTrials must be 1, 2 or 3.');
+    const grid = request.routing?.gridMm ?? 0.5;
+    const routeVariants = [
+      { id: 'routing-only', status: 'review-only' as const, score: 0, proposals: [] },
+      { id: 'routing-fine', status: 'review-only' as const, score: 0, proposals: [],
+        routing: { gridMm: Math.max(0.1, Number((grid / 2).toFixed(3))) } },
+      { id: 'routing-low-via', status: 'review-only' as const, score: 0, proposals: [],
+        routing: { viaCostMm: Math.min(1000, (request.routing?.viaCostMm ?? 8) * 2) } }
+    ];
+    const scenarios = ranked?.rankedScenarios.map(x => ({
+      id: x.id, status: x.status, score: x.score,
+      proposals: x.proposals.map(p => ({ reference: p.reference, from: p.from, to: p.to }))
+    })) ?? routeVariants.slice(0, trials);
+    const relativeOutput = safeOutputDirectory(request.outputDir);
+    const output = await prepareNewOutputDirectory(root, relativeOutput);
+    const name = path.basename(pcb);
+    const outcome = await runKicadCopyExperiments(original, {
+      scenarios, routing: request.routing ?? {}, iterations: request.iterations, baseline,
+      validate: async (id, candidate, round) => {
+        const folder = path.join(output, id, ...(round ? ['round-' + String(round).padStart(2, '0')] : []));
+        await fs.mkdir(folder, { recursive: true });
+        await fs.writeFile(path.join(folder, name), candidate, 'utf8');
+        if (hasPro) await fs.copyFile(pro, path.join(folder, path.basename(pro)));
+        if (sch) await fs.copyFile(sch, path.join(folder, path.basename(sch)));
+        await copyKicadProjectSupport(path.dirname(pcb), folder);
+        const validation = await this.drc(workspace, projectPath,
+          path.join(relativeOutput, id, ...(round ? ['round-' + String(round).padStart(2, '0')] : []), name), Boolean(sch));
+        return counts(validation.report);
+      }
+    });
+    const report = {
+      schemaVersion: 1, sourceBoard: request.board, sourceSha256,
+      outputDir: relativeOutput.split(path.sep).join('/'),
+      selectedCandidateId: outcome.selectedCandidateId, originalPreserved: true, manufacturingApproved: false,
+      baseline,
+      candidates: outcome.candidates.map(({ source, ...candidate }) => ({
+        ...candidate,
+        ...(source ? {
+          candidateBoard: path.join(relativeOutput, candidate.id,
+            ...(candidate.acceptedRound ? ['round-' + String(candidate.acceptedRound).padStart(2, '0')] : []), name).split(path.sep).join('/'),
+          candidateSha256: sha256Text(source)
+        } : {})
+      })),
+      limitations: outcome.limitations
+    };
+    await fs.writeFile(path.join(output, 'experiment-manifest.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
+    if (sha256Text(await fs.readFile(pcb, 'utf8')) !== sourceSha256) {
+      throw new Error('Source PCB changed during autoexperiment. Refuse results.');
+    }
+    return report;
   }
 
   async electricalReview(

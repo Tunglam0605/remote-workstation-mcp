@@ -8,9 +8,11 @@
  */
 import { analyzeKicadLayoutOptimization, type KicadLayoutOptimizationOptions } from './kicad-layout-optimization.js';
 import { patchKicadDocument } from './kicad-edit.js';
+import { reanchorMovedPadCopperEndpoints } from './kicad-placement-copper-repair.js';
 export interface MechanicalPreviewRequest {
   scenarioId: 'scenario-1' | 'scenario-2' | 'scenario-3';
   placement: KicadLayoutOptimizationOptions;
+  repairAttachedTracks?: boolean;
 }
 export function buildKicadMechanicalPlacementPreview(board: string, request: MechanicalPreviewRequest) {
   if (!request.placement.alignmentGroups?.length) throw Error('Placement preview requires explicit alignmentGroups.');
@@ -34,12 +36,27 @@ export function buildKicadMechanicalPlacementPreview(board: string, request: Mec
     if (Math.hypot(p.to.x-p.from.x,p.to.y-p.from.y)<1e-8) throw Error('Empty movement is not a placement preview.');
     return { kind:'pcb_footprint_move' as const, reference:p.reference, x:p.to.x, y:p.to.y };
   });
-  const modified=patchKicadDocument(board,edits,'.kicad_pcb').text;
+  const repairs=request.repairAttachedTracks
+    ? reanchorMovedPadCopperEndpoints(board,item.proposals.map(p=>({
+      reference:p.reference,from:p.from,to:p.to
+    })),3)
+    : undefined;
+  if (repairs?.holdReasons.length) {
+    throw Error('Copper endpoint repair needs manual review: '+repairs.holdReasons.join('; ').slice(0,300));
+  }
+  const modified=patchKicadDocument(repairs?.source ?? board,edits,'.kicad_pcb').text;
   return {
     modifiedBoard:modified,
     selectedScenarioId:item.id,
     score:item.score,
     proposedMoves:item.proposals.map(p=>({reference:p.reference,from:p.from,to:p.to})),
+    ...(repairs ? { copperRepair: {
+      adjustedSegments: repairs.adjustedSegments,
+      adjustedPadCount: repairs.adjustedPadCount,
+      changedNets: repairs.changedNets,
+      holdReasons: repairs.holdReasons,
+      requiresOfficialDrc: true
+    }} : {}),
     geometricEvidence:{
       hpwlBeforeMm:item.metrics.hpwlBeforeMm,
       hpwlAfterMm:item.metrics.hpwlProxyAfterMm,

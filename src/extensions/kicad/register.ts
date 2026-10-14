@@ -722,7 +722,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     ))));
 
   server.registerTool('kicad_autoexperiment_run', {
-    description: 'Run bounded KiCad PCB layout/autoroute hypotheses strictly on NEW project-local board copies, preserving source SHA, applying optional typed alignment/keepout/connector constraints, then routing with the built-in A* planner. Official KiCad DRC with optional schematic parity validates each copy. Routed candidates must reduce unconnected copper; opt-in previewPlacementOnly writes layout-only PCB copies after exact native Edge.Cuts clearance checks and accepts only non-regressing official KiCad DRC/parity. Never edits the original PCB, merges a candidate, authorizes Gerbers or claims impedance/thermal signoff. Requires Work Session ownership.',
+    description: 'Run bounded KiCad PCB layout/autoroute hypotheses strictly on NEW project-local board copies, preserving source SHA, applying optional typed alignment/keepout/connector constraints, then routing with the built-in A* planner. Official KiCad DRC with optional schematic parity validates each copy. Routed candidates must reduce unconnected copper; opt-in previewPlacementOnly writes layout-only PCB copies after exact native Edge.Cuts clearance checks and accepts only non-regressing official KiCad DRC/parity. Optional repairAttachedTracks applies only with previewPlacementOnly: it conservatively reanchors exact single straight signal-track endpoints at moved pad centers on the copied PCB, rejecting power nets, zones, vias, branching/locked/ambiguous copper and any DRC regression; this is NOT rip-up-and-reroute or fabrication approval. Never edits the original PCB, merges a candidate, authorizes Gerbers or claims impedance/thermal signoff. Requires Work Session ownership.',
     inputSchema: kicadProject.extend({
       workSessionId: z.string().uuid(),
       board: z.string().min(1).max(1024),
@@ -731,6 +731,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
       routingTrials: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
       previewPlacementOnly: z.boolean().default(false),
+      repairAttachedTracks: z.boolean().default(false),
       iterations: z.object({
         maxRounds: z.number().int().min(1).max(4).default(1),
         maxNetsPerRound: z.number().int().min(1).max(24).default(6),

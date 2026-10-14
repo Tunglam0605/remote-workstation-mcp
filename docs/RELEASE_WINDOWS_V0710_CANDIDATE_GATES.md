@@ -8,7 +8,7 @@ Date: 2026-10-14 | Candidate source branch: `release/windows-v0.71.0-candidate-2
 - Current installed runtime: `v0.70.0-dev.10` — keep running throughout candidate qualification.
 - Candidate package: `0.71.0`; it is **not yet a GitHub Release or an installed runtime** until official gates pass.
 - Existing RWMCP Work Session, owner authority, scoped tool permissions and update/rollback mechanisms must remain intact.
-- Changes aggregated from development PRs **#259 → #267**. The aggregate candidate PR is the delivery/review boundary, and stacked draft PRs are background change histories.
+- Changes aggregated from development PRs **#259 → #267**. ChatGPT Action Schema advances **73 → 74** because four new top-level MCP tool definitions require client catalog refresh. The aggregate candidate PR is the delivery/review boundary, and stacked draft PRs are background change histories.
 - Releasing RWMCP does not imply fully autonomous manufacture-quality PCB design; KiCad automation remains **experimental / review-only** with DRC and design-authority gates.
 
 ## Candidate functionality (implemented)

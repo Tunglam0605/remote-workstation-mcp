@@ -290,7 +290,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
     if (width !== undefined) item.widths.add(width);
     if (length <= shortSegmentMm) { item.shortSegments += 1; shortSegments += 1; }
     angleBuckets[segmentAngleBucket(start, end)] += 1;
-    turnSegments.push({ netId, netName: item.name, layer, start, end });
+    turnSegments.push({ netId, netName: item.name, layer, start, end, ...(width !== undefined ? { widthMm: width } : {}) });
     segmentCount += 1;
     totalTrackLengthMm += length;
   }

@@ -1,3 +1,4 @@
+import { createBoardNetResolver } from './kicad-board-net-resolver.js';
 const COPPER_RESISTIVITY_OHM_M_20C = 1.724e-8;
 const MAX_BLOCKS = 250000;
 
@@ -23,7 +24,6 @@ function* blocks(text:string,token:string,limit=MAX_BLOCKS):Generator<string>{co
 function num(block:string,token:string):number|undefined{const m=block.match(new RegExp('\\('+token+'\\s+(-?\\d+(?:\\.\\d+)?)'));return m?.[1]!==undefined?Number(m[1]):undefined;}
 function point(block:string,token:string):Point|undefined{const m=block.match(new RegExp('\\('+token+'\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)'));return m?.[1]&&m[2]?{x:Number(m[1]),y:Number(m[2])}:undefined;}
 function layer(block:string):string|undefined{return block.match(/\(layer\s+"([^"]+)"\)/)?.[1];}
-function netNames(source:string):Map<number,string>{const map=new Map<number,string>();for(const m of source.matchAll(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/g)){if(m[1]&&m[2]!==undefined&&!map.has(Number(m[1])))map.set(Number(m[1]),m[2].replace(/\\(["\\])/g,'$1'));}return map;}
 function normalizeSweep(v:number){let x=v%(Math.PI*2);if(x<0)x+=Math.PI*2;return x;}
 function arcLength(a:Point,m:Point,c:Point):number{const d=2*(a.x*(m.y-c.y)+m.x*(c.y-a.y)+c.x*(a.y-m.y));if(Math.abs(d)<1e-9)return Math.hypot(m.x-a.x,m.y-a.y)+Math.hypot(c.x-m.x,c.y-m.y);const ux=((a.x*a.x+a.y*a.y)*(m.y-c.y)+(m.x*m.x+m.y*m.y)*(c.y-a.y)+(c.x*c.x+c.y*c.y)*(a.y-m.y))/d;const uy=((a.x*a.x+a.y*a.y)*(c.x-m.x)+(m.x*m.x+m.y*m.y)*(a.x-c.x)+(c.x*c.x+c.y*c.y)*(m.x-a.x))/d;const r=Math.hypot(a.x-ux,a.y-uy);const angle=(p:Point)=>Math.atan2(p.y-uy,p.x-ux);const a0=normalizeSweep(angle(a)),am=normalizeSweep(angle(m)),a1=normalizeSweep(angle(c));const ccw=normalizeSweep(a1-a0),mid=normalizeSweep(am-a0);return r*(mid<=ccw+1e-9?ccw:Math.PI*2-ccw);}
 function copperThicknessByLayer(source:string):Map<string,number>{const out=new Map<string,number>();const setup=[...blocks(source,'setup',4)][0];if(!setup)return out;const stack=[...blocks(setup,'stackup',4)][0];if(!stack)return out;for(const b of blocks(stack,'layer',128)){const name=b.match(/^\(layer\s+(?:"([^"]+)"|([^\s()]+))/)?.slice(1).find(Boolean);const type=b.match(/\(type\s+"([^"]+)"\)/)?.[1];const t=num(b.split(/\baddsublayer\b/)[0]??b,'thickness');if(name&&t!==undefined&&(name.endsWith('.Cu')||type?.toLowerCase()==='copper'))out.set(name,t);}return out;}
@@ -32,12 +32,12 @@ function canonicalCandidates(name:string):string[]{const n=name.trim();return [.
 export function analyzeKicadElectrical(boardSource:string,intents:KicadElectricalNetIntent[]){
   if(!boardSource||Buffer.byteLength(boardSource,'utf8')>128*1024*1024)throw new Error('KiCad electrical review board must be 1..128 MiB.');
   if(!intents.length||intents.length>128)throw new Error('KiCad electrical review requires 1..128 net intents.');
-  const names=netNames(boardSource),thickness=copperThicknessByLayer(boardSource);const routes=new Map<number,Route>();
+  const resolver=createBoardNetResolver(boardSource),names=resolver.names,thickness=copperThicknessByLayer(boardSource);const routes=new Map<number,Route>();
   const get=(id:number)=>{let r=routes.get(id);if(!r){r={name:names.get(id)??'#'+id,segments:0,arcs:0,vias:0,lengthMm:0,layers:new Set(),resistanceCoverageLengthMm:0,widths:new Set()};routes.set(id,r);}return r;};
   const addResistance=(r:Route,lenMm:number,widthMm:number,layerName:string)=>{const t=thickness.get(layerName);if(t===undefined||t<=0||widthMm<=0)return;const resistance=COPPER_RESISTIVITY_OHM_M_20C*1000*lenMm/(widthMm*t);r.resistanceOhm=(r.resistanceOhm??0)+resistance;r.resistanceCoverageLengthMm+=lenMm;};
-  for(const b of blocks(boardSource,'segment')){const id=num(b,'net'),w=num(b,'width'),l=layer(b),a=point(b,'start'),c=point(b,'end');if(id===undefined||w===undefined||!l||!a||!c)continue;const len=Math.hypot(c.x-a.x,c.y-a.y),r=get(id);r.segments++;r.lengthMm+=len;r.layers.add(l);r.widths.add(w);addResistance(r,len,w,l);}
-  for(const b of blocks(boardSource,'arc')){const id=num(b,'net'),w=num(b,'width'),l=layer(b),a=point(b,'start'),m=point(b,'mid'),c=point(b,'end');if(id===undefined||w===undefined||!l||!a||!m||!c)continue;const len=arcLength(a,m,c),r=get(id);r.arcs++;r.lengthMm+=len;r.layers.add(l);r.widths.add(w);addResistance(r,len,w,l);}
-  for(const b of blocks(boardSource,'via')){const id=num(b,'net');if(id===undefined)continue;const r=get(id);r.vias++;for(const m of b.matchAll(/"((?:F|B|In\d+)\.Cu)"/g))if(m[1])r.layers.add(m[1]);}
+  for(const b of blocks(boardSource,'segment')){const id=resolver.resolveId(b),w=num(b,'width'),l=layer(b),a=point(b,'start'),c=point(b,'end');if(id===undefined||w===undefined||!l||!a||!c)continue;const len=Math.hypot(c.x-a.x,c.y-a.y),r=get(id);r.segments++;r.lengthMm+=len;r.layers.add(l);r.widths.add(w);addResistance(r,len,w,l);}
+  for(const b of blocks(boardSource,'arc')){const id=resolver.resolveId(b),w=num(b,'width'),l=layer(b),a=point(b,'start'),m=point(b,'mid'),c=point(b,'end');if(id===undefined||w===undefined||!l||!a||!m||!c)continue;const len=arcLength(a,m,c),r=get(id);r.arcs++;r.lengthMm+=len;r.layers.add(l);r.widths.add(w);addResistance(r,len,w,l);}
+  for(const b of blocks(boardSource,'via')){const id=resolver.resolveId(b);if(id===undefined)continue;const r=get(id);r.vias++;for(const m of b.matchAll(/"((?:F|B|In\d+)\.Cu)"/g))if(m[1])r.layers.add(m[1]);}
   const byName=new Map([...routes.values()].map(r=>[r.name,r]));
   const results=intents.map(intent=>{
     if(!intent.netName||intent.netName.length>128)throw new Error('Electrical intent netName must contain 1..128 characters.');
@@ -45,6 +45,7 @@ export function analyzeKicadElectrical(boardSource:string,intents:KicadElectrica
     const length=route?.lengthMm??0,resistance=route?.resistanceOhm;const drop=intent.currentA!==undefined&&resistance!==undefined?intent.currentA*resistance:undefined;const power=intent.currentA!==undefined&&resistance!==undefined?intent.currentA*intent.currentA*resistance:undefined;const dropPct=drop!==undefined&&intent.voltageV!==undefined&&intent.voltageV>0?drop/intent.voltageV*100:undefined;
     const findings:Array<{severity:'high'|'review'|'info';code:string;message:string}>=[];
     if(!route)findings.push({severity:'high',code:'net-not-routed',message:'No explicit track/arc/via routing evidence was found for this net.'});
+    if(route&&route.lengthMm>0&&intent.currentA!==undefined&&resistance===undefined)findings.push({severity:'review',code:'copper-thickness-unknown',message:'Current is specified but no routed copper layer thickness is declared; DC resistance and voltage drop cannot be estimated.'});
     if(intent.maxLengthMm!==undefined&&length>intent.maxLengthMm)findings.push({severity:'review',code:'length-over-intent',message:`Explicit route length ${length.toFixed(3)} mm exceeds design-intent limit ${intent.maxLengthMm} mm.`});
     if(intent.maxViaCount!==undefined&&(route?.vias??0)>intent.maxViaCount)findings.push({severity:'review',code:'via-count-over-intent',message:`Via count ${route?.vias??0} exceeds design-intent limit ${intent.maxViaCount}.`});
     if(intent.maxVoltageDropPct!==undefined&&dropPct!==undefined&&dropPct>intent.maxVoltageDropPct)findings.push({severity:'high',code:'dc-drop-over-intent',message:`Estimated copper-only DC drop ${dropPct.toFixed(3)}% exceeds design-intent limit ${intent.maxVoltageDropPct}%.`});

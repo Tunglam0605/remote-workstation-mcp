@@ -74,3 +74,56 @@ test('KiCad electrical review reports partial resistance coverage when routed co
   assert.equal(clk.dcCopper20C.resistanceOhm,undefined);
   assert.ok(clk.findings.some(item=>item.code==='critical-net-layer-transition'));
 });
+
+
+test('KiCad 10 named-only nets retain explicit electrical track/via evidence',()=>{
+
+  const named=BOARD.replace(/\(net \d+ "[^"]*"\)/g,'')
+
+    .replace(/\(net 1\)/g,'(net "PWR")')
+
+    .replace(/\(net 2\)/g,'(net "CLK")')
+
+    .replace(/\(net 3\)/g,'(net "USB_P")')
+
+    .replace(/\(net 4\)/g,'(net "USB_N")');
+
+  const analysis=analyzeKicadElectrical(named,[{netName:'PWR',kind:'power',currentA:2,voltageV:5},{netName:'CLK',kind:'clock'}]);
+
+  assert.equal(analysis.nets[0]?.route.lengthMm,100);
+
+  assert.equal(analysis.nets[0]?.matchedBoardNet,'PWR');
+
+  assert.equal(analysis.nets[1]?.route.vias,1);
+
+  assert.equal(analysis.findings.high,0);
+
+});
+
+test('KiCad 10 mixed numeric and named references resolve to one net',()=>{
+
+  const mixed=BOARD.replace('(start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1)',
+
+    '(start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net "PWR")')
+
+    .replace('(start 0 10) (end 20 10) (width 0.2) (layer "F.Cu") (net 2)',
+
+      '(start 0 10) (end 20 10) (width 0.2) (layer "F.Cu") (net "CLK")');
+
+  const analysis=analyzeKicadElectrical(mixed,[{netName:'PWR',kind:'power'},{netName:'CLK',kind:'clock'}]);
+
+  assert.equal(analysis.nets[0]?.route.lengthMm,100);
+
+  assert.equal(analysis.nets[1]?.route.lengthMm,20);
+
+  assert.equal(analysis.nets[1]?.route.vias,1);
+
+});
+
+test('Electrical review refuses to invent DC voltage drop without declared copper thickness',()=> {
+  const missingStackup=BOARD.replace(/\(setup[\s\S]*?\n  \(net 0/, '(net 0');
+  const result=analyzeKicadElectrical(missingStackup,[{netName:'PWR',kind:'power',currentA:2,voltageV:5}]);
+  assert.equal(result.nets[0]?.route.lengthMm,100);
+  assert.equal(result.nets[0]?.dcCopper20C.voltageDropV,undefined);
+  assert.ok(result.nets[0]?.findings.some(f=>f.code==='copper-thickness-unknown'));
+});

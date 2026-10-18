@@ -1,3 +1,4 @@
+import { createBoardNetResolver, type BoardNetResolver } from './kicad-board-net-resolver.js';
 import { createHash } from 'node:crypto';
 
 const MAX_TEXT_BYTES = 128 * 1024 * 1024;
@@ -144,17 +145,6 @@ function layerName(block: string): string | undefined {
   return block.match(/\(layer\s+"([^"]+)"\)/i)?.[1];
 }
 
-function boardNetNames(source: string): Map<number, string> {
-  const result = new Map<number, string>();
-  for (const match of source.matchAll(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/g)) {
-    if (!match[1] || match[2] === undefined) continue;
-    const id = Number(match[1]);
-    if (!Number.isSafeInteger(id) || id < 0) continue;
-    if (!result.has(id)) result.set(id, match[2].replace(/\\(["\\])/g, '$1'));
-  }
-  return result;
-}
-
 function arcLength(start: { x: number; y: number }, mid: { x: number; y: number }, end: { x: number; y: number }): number {
   const d = 2 * (start.x * (mid.y - end.y) + mid.x * (end.y - start.y) + end.x * (start.y - mid.y));
   if (Math.abs(d) < 1e-9) {
@@ -205,12 +195,12 @@ function routeFor(map: Map<number, RouteNet>, id: number, names: Map<number, str
   return route;
 }
 
-function parseRoutes(source: string) {
-  const names = boardNetNames(source);
+function parseRoutes(source: string, resolver: BoardNetResolver) {
+  const names = resolver.names;
   const routes = new Map<number, RouteNet>();
   const tracks: Array<{ netId: number; netName: string; widthMm: number; layer: string; kind: 'segment' | 'arc' }> = [];
   for (const block of iterateBlocks(source, 'segment')) {
-    const netId = numberToken(block, 'net');
+    const netId = resolver.resolveId(block);
     const width = numberToken(block, 'width');
     const layer = layerName(block);
     const start = pointToken(block, 'start');
@@ -224,7 +214,7 @@ function parseRoutes(source: string) {
     tracks.push({ netId, netName: route.name, widthMm: width, layer, kind: 'segment' });
   }
   for (const block of iterateBlocks(source, 'arc')) {
-    const netId = numberToken(block, 'net');
+    const netId = resolver.resolveId(block);
     const width = numberToken(block, 'width');
     const layer = layerName(block);
     const start = pointToken(block, 'start');
@@ -239,7 +229,7 @@ function parseRoutes(source: string) {
     tracks.push({ netId, netName: route.name, widthMm: width, layer, kind: 'arc' });
   }
   for (const block of iterateBlocks(source, 'via')) {
-    const netId = numberToken(block, 'net');
+    const netId = resolver.resolveId(block);
     const size = numberToken(block, 'size');
     const drill = numberToken(block, 'drill');
     if (netId === undefined || size === undefined || drill === undefined) continue;
@@ -404,7 +394,7 @@ function parseStackup(boardSource: string) {
   };
 }
 
-function parseZones(boardSource: string, maxDetails: number) {
+function parseZones(boardSource: string, maxDetails: number, resolver: BoardNetResolver) {
   const byLayer: Record<string, number> = {};
   const byNet: Record<string, number> = {};
   const examples: Array<{
@@ -423,8 +413,8 @@ function parseZones(boardSource: string, maxDetails: number) {
     const cutoffCandidates = [polygonIndex, filledIndex].filter(index => index >= 0);
     const cutoff = cutoffCandidates.length ? Math.min(...cutoffCandidates) : fullBlock.length;
     const block = fullBlock.slice(0, cutoff);
-    const netId = numberToken(block, 'net');
-    const netName = quotedToken(block, 'net_name');
+    const netId = resolver.resolveId(block);
+    const netName = quotedToken(block, 'net_name') ?? (netId !== undefined ? resolver.names.get(netId) : undefined);
     const singleLayer = layerName(block);
     const layerList = block.match(/\(layers\s+([^\r\n()]+)\)/)?.[1];
     const layers = singleLayer
@@ -606,9 +596,10 @@ export function analyzeKicadConstraints(
 
   const settings = designSettings(project);
   const netSettings = parseNetClasses(project);
-  const routeData = parseRoutes(input.board);
+  const resolver = createBoardNetResolver(input.board);
+  const routeData = parseRoutes(input.board, resolver);
   const stackup = parseStackup(input.board);
-  const zones = parseZones(input.board, maxDetails);
+  const zones = parseZones(input.board, maxDetails, resolver);
   const customRules = parseCustomRules(input.customRules, maxDetails);
 
   const hardMinimumFindings = {

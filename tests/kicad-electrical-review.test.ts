@@ -127,3 +127,29 @@ test('Electrical review refuses to invent DC voltage drop without declared coppe
   assert.equal(result.nets[0]?.dcCopper20C.voltageDropV,undefined);
   assert.ok(result.nets[0]?.findings.some(f=>f.code==='copper-thickness-unknown'));
 });
+
+test('Current on a branched net is not incorrectly multiplied through every branch as a serial load',()=>{
+ const branched=BOARD.replace('(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))',
+    '(segment (start 0 0) (end 50 0) (width 0.5) (layer "F.Cu") (net 1))'+
+    '(segment (start 50 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))'+
+    '(segment (start 50 0) (end 50 40) (width 0.5) (layer "F.Cu") (net 1))');
+ const pwr=analyzeKicadElectrical(branched,[{netName:'PWR',kind:'power',currentA:2,voltageV:5,maxVoltageDropPct:1}]).nets[0]!;
+ assert.equal(pwr.route.segments,3);
+ assert.equal(pwr.dcPath.eligible,false);
+ assert.equal(pwr.dcCopper20C.voltageDropV,undefined);
+ assert.ok(pwr.findings.some(f=>f.code==='dc-path-topology-unverified'));
+ assert.ok(!pwr.findings.some(f=>f.code==='dc-drop-over-intent'));
+});
+test('Filled copper zones or vias prevent unsupported aggregate-net DC drop calculation',()=>{
+ const zoned=BOARD.replace('(net 1 "PWR")','(net 1 "PWR") (zone (net 1) (net_name "PWR") (layer "F.Cu"))');
+ const route=analyzeKicadElectrical(zoned,[{netName:'PWR',kind:'power',currentA:2,voltageV:5}]).nets[0]!;
+ assert.equal(route.dcPath.eligible,false);
+ assert.equal(route.dcCopper20C.voltageDropV,undefined);
+ assert.equal(route.dcPath.reason,'zone-or-parallel-current-distribution-unknown');
+});
+
+test('Electrical review fails closed on unreadable copper-net encoding instead of returning a false empty net',()=>{
+ const unreadable=BOARD.replace('(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))',
+ '(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net invalid))');
+ assert.throws(()=>analyzeKicadElectrical(unreadable,[{netName:'PWR',kind:'power'}]),/parser coverage failed for segment/);
+});

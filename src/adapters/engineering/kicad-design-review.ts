@@ -1,3 +1,5 @@
+import { createBoardNetResolver } from './kicad-board-net-resolver.js';
+import { inspectRoutingTurns, type RoutingSegmentEvidence, type RoutingViaEvidence } from './kicad-route-quality.js';
 import { createHash } from 'node:crypto';
 
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
@@ -188,17 +190,6 @@ function duplicateValues(values: Array<string | undefined>): Array<{ value: stri
     .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
 }
 
-function netNames(source: string): Map<number, string> {
-  const result = new Map<number, string>();
-  for (const match of source.matchAll(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/g)) {
-    if (!match[1] || match[2] === undefined) continue;
-    const id = Number(match[1]);
-    if (!Number.isSafeInteger(id) || id < 0) continue;
-    if (!result.has(id)) result.set(id, unquote(match[2]));
-  }
-  return result;
-}
-
 function arcLength(start: Point, mid: Point, end: Point): number {
   const ax = start.x;
   const ay = start.y;
@@ -271,23 +262,11 @@ function segmentAngleBucket(start: Point, end: Point): 'orthogonal' | 'diagonal4
 }
 
 function parseRouting(source: string, shortSegmentMm: number) {
-  const names = netNames(source);
+  const resolver = createBoardNetResolver(source);
+  const names = resolver.names;
   const nets = new Map<number, RoutedNet>();
-  // KiCad 10 pcbnew also emits (net "/NAME") without numeric net IDs.
-  // Allocate deterministic negative internal IDs only for inspection; never
-  // write these synthetic IDs into a PCB or treat them as KiCad net codes.
-  const namedIds = new Map<string,number>();
-  const resolveNetId = (block:string):number|undefined => {
-    const numeric = firstNumberToken(block,'net');
-    if(numeric!==undefined)return numeric;
-    const match=block.match(/\(net\s+"((?:\\.|[^"\\])*)"\)/);
-    if(!match?.[1])return undefined;
-    const name=unquote(match[1]);
-    if(!name)return undefined;
-    let id=namedIds.get(name);
-    if(id===undefined){id=-(namedIds.size+1);namedIds.set(name,id);names.set(id,name);}
-    return id;
-  };
+  const turnSegments: RoutingSegmentEvidence[] = [];
+  const turnVias: RoutingViaEvidence[] = [];
   let segmentCount = 0;
   let arcCount = 0;
   let viaCount = 0;
@@ -299,7 +278,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
   for (const block of segmentBlocks) {
     const start = pointToken(block, 'start');
     const end = pointToken(block, 'end');
-    const netId = resolveNetId(block);
+    const netId = resolver.resolveId(block);
     const layer = layerName(block);
     const width = firstNumberToken(block, 'width');
     if (!start || !end || netId === undefined || !layer?.endsWith('.Cu')) continue;
@@ -311,6 +290,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
     if (width !== undefined) item.widths.add(width);
     if (length <= shortSegmentMm) { item.shortSegments += 1; shortSegments += 1; }
     angleBuckets[segmentAngleBucket(start, end)] += 1;
+    turnSegments.push({ netId, netName: item.name, layer, start, end });
     segmentCount += 1;
     totalTrackLengthMm += length;
   }
@@ -320,7 +300,7 @@ function parseRouting(source: string, shortSegmentMm: number) {
     const start = pointToken(block, 'start');
     const mid = pointToken(block, 'mid');
     const end = pointToken(block, 'end');
-    const netId = resolveNetId(block);
+    const netId = resolver.resolveId(block);
     const layer = layerName(block);
     const width = firstNumberToken(block, 'width');
     if (!start || !mid || !end || netId === undefined || !layer?.endsWith('.Cu')) continue;
@@ -336,13 +316,15 @@ function parseRouting(source: string, shortSegmentMm: number) {
 
   const viaBlocks = blocks(source, 'via');
   for (const block of viaBlocks) {
-    const netId = resolveNetId(block);
+    const netId = resolver.resolveId(block);
     if (netId === undefined) continue;
     const item = routeNet(nets, netId, names);
     item.viaCount += 1;
-    for (const layer of block.matchAll(/"((?:F|B|In\d+)\.Cu)"/g)) {
-      if (layer[1]) item.layers.add(layer[1]);
-    }
+    const viaLayers = [...block.matchAll(/"((?:F|B|In\d+)\.Cu)"/g)]
+      .map(match => match[1]!).filter(Boolean);
+    for (const layer of viaLayers) item.layers.add(layer);
+    const at = pointToken(block, 'at');
+    if (at) turnVias.push({ netId, at, layers: viaLayers });
     viaCount += 1;
   }
 
@@ -364,7 +346,9 @@ function parseRouting(source: string, shortSegmentMm: number) {
     viaCount,
     totalTrackLengthMm,
     shortSegments,
-    angleBuckets
+    angleBuckets,
+    turnSegments,
+    turnVias
   };
 }
 
@@ -563,6 +547,7 @@ export function analyzeKicadDesign(
       shortSegments: item.shortSegments
     }))
     : [];
+  const turnEvidence = routing ? inspectRoutingTurns(routing.turnSegments, routing.turnVias, maxDetails) : undefined;
   const topLongestNets = [...perNet]
     .sort((a, b) => b.trackLengthMm - a.trackLengthMm || a.name.localeCompare(b.name))
     .slice(0, maxDetails);
@@ -642,7 +627,12 @@ export function analyzeKicadDesign(
     'Review the highest-via nets first when optimizing layer transitions and route complexity; ranking is evidence-only, not a DRC violation.',
     topViaNets.length, ['kicad_ipc_routing_inspect', 'kicad_ipc_via_update', 'kicad_ipc_track_update']
   );
-  if (topLongestNets.length) addRecommendation(
+  if (turnEvidence && (turnEvidence.rightAngleCount > 0 || turnEvidence.reversalCount > 0)) addRecommendation(
+    'routing', 'review', 'right-angle-and-reversal-candidates',
+    'Geometric right-angle and near-reversal junctions merit manual route-quality review; not a DRC violation or guaranteed safe simplification.',
+    turnEvidence.rightAngleCount + turnEvidence.reversalCount, ['kicad_ipc_routing_inspect', 'kicad_ipc_track_update']
+  );
+    if (topLongestNets.length) addRecommendation(
     'routing', 'review', 'longest-routed-net-ranking',
     'Review the longest routed nets first when looking for detours or placement-driven route reductions; length alone is not an error.',
     topLongestNets.length, ['kicad_ipc_routing_inspect', 'kicad_ipc_batch_place', 'kicad_ipc_track_update']
@@ -686,6 +676,7 @@ export function analyzeKicadDesign(
       shortSegmentThresholdMm: shortSegmentMm,
       shortSegmentCount: routing.shortSegments,
       straightSegmentAngles: routing.angleBuckets,
+      turnEvidence,
       topLongestNets,
       topViaNets,
       multipleWidthNets

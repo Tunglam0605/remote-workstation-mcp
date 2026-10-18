@@ -51,3 +51,62 @@ test('Candidate sorting is deterministic across multiple nets',()=>{
   const r=inspectRoutingTurns(a,[],5);
   assert.deepEqual(r.topCandidates.map(n=>n.netName),['A','B']);
 });
+
+test('Route junction diagnostics emit exact PCB coordinates and bounded 45-degree chamfer preview', () => {
+  const a = [
+    { ...edge('/D12',0,0,10,0), widthMm:0.3 },
+    { ...edge('/D12',10,0,10,10), widthMm:0.3 }
+  ];
+  const r = inspectRoutingTurns(a,[]);
+  assert.equal(r.topJunctions.length,1);
+  const j=r.topJunctions[0]!;
+  assert.equal(j.kind,'right-angle');
+  assert.deepEqual(j.at,{x:10,y:0});
+  assert.equal(j.layer,'F.Cu');
+  assert.deepEqual(j.segmentIndices,[0,1]);
+  assert.deepEqual(j.chamferPreview?.from,{x:9,y:0});
+  assert.deepEqual(j.chamferPreview?.to,{x:10,y:1});
+  assert.equal(j.chamferPreview?.estimatedLengthSavingMm,0.5858);
+  assert.match(r.methodology,/DRC are not checked/);
+});
+
+test('Collinear fragments report precise review points while unequal widths cannot preview chamfers', () => {
+  const a = [
+    { ...edge('LINE',0,0,10,0), widthMm:0.3 },
+    { ...edge('LINE',10,0,20,0), widthMm:0.3 },
+    { ...edge('DIFF',0,20,10,20,2), widthMm:0.3 },
+    { ...edge('DIFF',10,20,10,30,2), widthMm:0.6 }
+  ];
+  const r=inspectRoutingTurns(a,[]);
+  assert.equal(r.collinearJoinCount,1);
+  assert.deepEqual(r.topCollinearJoins[0]?.at,{x:10,y:0});
+  assert.equal(r.topJunctions[0]?.kind,'right-angle');
+  assert.equal(r.topJunctions[0]?.chamferPreview,undefined);
+});
+
+test('Preview candidates exclude corners at vias, branches and arbitrary short stubs', () => {
+  const vias=[{netId:1,layers:['F.Cu','B.Cu'],at:{x:1,y:0}}];
+  const a=[
+    { ...edge('A',0,0,1,0),widthMm:0.3 },
+    { ...edge('A',1,0,1,1),widthMm:0.3 },
+    { ...edge('B',0,10,0.1,10,2),widthMm:0.3 },
+    { ...edge('B',0.1,10,0.1,10.1,2),widthMm:0.3 }
+  ];
+  const r=inspectRoutingTurns(a,vias);
+  assert.equal(r.topJunctions.length,1);
+  assert.equal(r.topJunctions[0]?.netName,'B');
+  assert.equal(r.topJunctions[0]?.chamferPreview,undefined);
+});
+
+test('Ranked junction evidence is bounded and deterministic',()=>{
+  const a=[
+    { ...edge('Z',0,0,10,0,1),widthMm:0.3 },
+    { ...edge('Z',10,0,10,10,1),widthMm:0.3 },
+    { ...edge('A',0,20,10,20,2),widthMm:0.3 },
+    { ...edge('A',10,20,10,30,2),widthMm:0.3 }
+  ];
+  const r=inspectRoutingTurns(a,[],1);
+  assert.equal(r.rightAngleCount,2);
+  assert.equal(r.topJunctions.length,1);
+  assert.equal(r.topJunctions[0]?.netName,'A');
+});

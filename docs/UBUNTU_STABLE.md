@@ -37,3 +37,16 @@ Production intent: a predictable **Direct Node** on Ubuntu 24.04 LTS and Ubuntu 
 ## Development note
 
 The upstream platform support policy currently freezes Ubuntu. This branch explicitly overrides that policy **only for the separate Linux maintenance line**; the Windows release train and Windows code remain unchanged. Publish Ubuntu-specific release artifacts and verification evidence separately; never overwrite a canonical Windows release tag.
+
+
+## Owner-local health watchdog (SSD + Vision)
+
+Install from the source checkout with `bash scripts/install-ubuntu-watchdog.sh`. It deploys only a Python standard-library script and **two user systemd units** (`rwmcp-ubuntu-watchdog.service` and `rwmcp-ubuntu-watchdog.timer`); it never restarts an unrelated camera, ROS 2, rendering or project service. A new owner-local monitor runs every **two minutes** with bounded loopback HTTP checks of `/healthz`, the current runtime version and the tunnel client's `/readyz`. Its JSON state file lives at `~/.local/state/remote-workstation-mcp/ubuntu-watchdog.json`, mode 0600.
+
+When there are **three consecutive failed checks**, automatic repair is limited to restarting **only** `remote-workstation-mcp-openai.service`. A 30-minute cooldown and maximum three restarts in a rolling 24-hour period prevent crash loops. Active Work Session interlock processes or malformed/unreadable interlock records block recovery (fail closed). The script never reads tunnel API keys, never opens internet addresses from the health URL and never enables broader access.
+
+Pause automatic repair by creating the owner hold file with `touch ~/.config/remote-workstation-mcp/ubuntu-watchdog.hold`; health checks and journal reports continue. Remove it with `rm ~/.config/remote-workstation-mcp/ubuntu-watchdog.hold` to resume. For manual diagnosis run `python3 ~/.local/libexec/rwmcp/rwmcp-ubuntu-watchdog.py --check`, `systemctl --user list-timers rwmcp-ubuntu-watchdog.timer` and `journalctl --user -u rwmcp-ubuntu-watchdog.service -n 40`.
+
+**Reboot persistence:** the user service needs a running systemd user manager. Both observed nodes currently report `Linger=no`: automatic launch at boot *before interactive login* is **not yet certified**. Enabling linger requires authorized local admin action (`sudo loginctl enable-linger <local-user>`); the RWMCP Full Control policy does not grant sudo. A real reboot smoke test is required before declaring unattended cold-boot support.
+
+Linux runtime update policy is `RWMCP_UPDATE_MODE=notify`. Do not silently install Windows-only upstream releases. Keep one tested rollback slot in `previous` and independent signed/source evidence for any future Ubuntu package.

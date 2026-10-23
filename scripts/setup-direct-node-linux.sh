@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"
 
 usage() {
   cat <<'EOF'
@@ -69,6 +70,9 @@ Description=Remote Workstation MCP - OpenAI Direct Node
 After=network-online.target
 Wants=network-online.target
 
+StartLimitIntervalSec=120
+StartLimitBurst=20
+
 [Service]
 Type=simple
 WorkingDirectory=$CURRENT
@@ -82,8 +86,6 @@ Environment=RWMCP_CLIENT_TYPE=openai-secure-mcp-tunnel
 ExecStart=$NODE_BIN $CURRENT/dist/openai-tunnel-cli.js
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=120
-StartLimitBurst=20
 UMask=0077
 NoNewPrivileges=true
 

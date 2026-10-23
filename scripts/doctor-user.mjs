@@ -21,6 +21,16 @@ const directServiceName = 'remote-workstation-mcp-openai.service';
 const directServicePath = path.join(home, '.config/systemd/user', directServiceName);
 const timerName = 'remote-workstation-mcp-update.timer';
 const checks = [];
+// Use the managed per-user binaries even in non-interactive SSH sessions.
+const managedEnv = { ...process.env, PATH: [path.join(home, '.local/bin'), process.env.PATH ?? ''].join(path.delimiter) };
+const runtimeDir = process.env.XDG_RUNTIME_DIR ?? (process.getuid ? `/run/user/${process.getuid()}` : undefined);
+if (runtimeDir) {
+  try {
+    await fs.access(path.join(runtimeDir, 'bus'));
+    managedEnv.XDG_RUNTIME_DIR = runtimeDir;
+    managedEnv.DBUS_SESSION_BUS_ADDRESS ||= `unix:path=${runtimeDir}/bus`;
+  } catch { /* No user bus; let systemctl return a clear warning. */ }
+}
 
 function add(id, ok, level, detail) {
   checks.push({ id, ok, level, detail });
@@ -48,7 +58,7 @@ async function managedMcpPort() {
 
 async function commandExists(command) {
   try {
-    const { stdout } = await exec('which', [command], { timeout: 3000 });
+    const { stdout } = await exec('which', [command], { timeout: 3000, env: managedEnv });
     return stdout.trim() || true;
   } catch {
     return false;
@@ -117,7 +127,7 @@ const systemctl = await commandExists('systemctl');
 if (systemctl) {
   for (const [id, unit] of [['service', serviceName], ['update_timer', timerName]]) {
     try {
-      const { stdout } = await exec('systemctl', ['--user', 'is-active', unit], { timeout: 5000 });
+      const { stdout } = await exec('systemctl', ['--user', 'is-active', unit], { timeout: 5000, env: managedEnv });
       const state = stdout.trim();
       add(`systemd.${id}`, state === 'active', state === 'active' ? 'ok' : 'warn', `${unit}: ${state}`);
     } catch (error) {

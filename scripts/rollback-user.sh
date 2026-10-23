@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+if [[ -z "${XDG_RUNTIME_DIR:-}" && -d "/run/user/$(id -u)" ]]; then
+  export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+fi
+if [[ -n "${XDG_RUNTIME_DIR:-}" && -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "$XDG_RUNTIME_DIR/bus" ]]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
 DATA_HOME="${RWMCP_HOME:-$HOME/.local/share/remote-workstation-mcp}"
 CURRENT="$DATA_HOME/current"
 PREVIOUS="$DATA_HOME/previous"
@@ -29,7 +36,7 @@ if [[ -f "$HOME/.config/systemd/user/remote-workstation-mcp-openai.service" ]]; 
 fi
 systemctl --user restart "$SERVICE"
 sleep 1
-curl --fail --silent "http://127.0.0.1:${PORT}/healthz" || {
+node -e 'fetch("http://127.0.0.1:" + process.argv[1] + "/healthz", { signal: AbortSignal.timeout(5000) }).then(async r => { const b = await r.json(); if (!r.ok || b.ok !== true) process.exitCode = 1; else console.log(JSON.stringify(b)); }).catch(() => process.exitCode = 1)' "$PORT" || {
   echo "Rollback target failed health check." >&2
   exit 1
 }

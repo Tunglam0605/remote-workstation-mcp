@@ -56,7 +56,7 @@ Avoid multiplying public MCP tools. Prefer current typed `engineering_workflow_p
 ### Activation
 - Available only in owner-local loopback Control Center with authenticated local owner session, origin/CSRF checks, and explicit human click.
 - Cannot be created, widened, or renewed through MCP, chat prompt, API key, Work Session, incoming transfer, or another workstation.
-- Each node has its own independent session and local grant policy; one node cannot activate another.
+- Each node that implements Ultimate has its own independent session; **Phase 1 activates Ultimate only on Windows**, while frozen Ubuntu nodes participate only through already supported principal scopes and bilateral grants. One node never activates another.
 - One activation duration selected by owner: 30/60/120/240 minutes; server rejects values outside [10 minutes, 4 hours]. Absolute expiry is set once; no automatic renewal, extending, sliding TTL, or client-driven refresh.
 - Session bound to exact node identity, tunnel principal, selected authorized workspaces, specific named task profiles and transfer grant IDs/directions, start/expires timestamp. No secret shown in MCP status.
 - In-memory authorization is preferred for fail-closed restart: runtime crash/restart cancels outstanding Ultimate consent. Persist bounded non-secret audit history only. Use monotonic deadline for in-process enforcement in addition to UTC expiration; clock rollback cannot extend permission.
@@ -101,10 +101,10 @@ The illustrative relative directories must be resolved and approved against real
 
 ## 6. Example: Ubuntu SSD -> Windows build -> Ubuntu SSD
 
-1. Controller verifies both node identities, scopes, Ultimate status and two bilateral grants. If any missing, show a precise blocker.
+1. Controller verifies both node identities, scopes, **Windows Ultimate status**, both ordinary node permissions, and two bilateral grants. Ubuntu SSD remains a legacy transfer endpoint without a new Ultimate session during the frozen-Linux phase. If any missing, show a precise blocker.
 2. SSD builds an approved source package/manifest from authorized project workspace, hashes it; no firmware flash at this step.
 3. Controller invokes `platform.transfer_prepare`, `platform.transfer_receive_offer` and `platform.transfer_push` for reachable private routes, or existing `platform.relay_*` resumable fallback for <=32 MiB. Both nodes reauthorize.
-4. Windows receives package in an isolated Work Session staging/project directory, verifies hashes, then runs an exact owner-approved STM32 build profile in installed Keil/STM32CubeIDE/CMake; runtime/CPU/memory limits and process cleanup apply.
+4. Windows receives package in an isolated Work Session staging/project directory, verifies hashes, checks the project/revision against an owner-approved trusted-source registry, and runs an exact owner-approved STM32 build profile in installed Keil/STM32CubeIDE/CMake. Pre/post build hooks are inspected and denied unless individually approved in the profile; toolchain runtime/output/environment restrictions and process cleanup apply. Arbitrary untrusted source requires an OS/VM isolation design outside this initial rollout.
 5. Build acceptance records exit code, target, toolchain/version, warnings/errors, source digest and `.hex/.bin/.elf/.map` hashes; no "success" with missing output.
 6. Windows packages the verified artifacts and manifest, sends back through the reverse direction grant; SSD verifies before acceptance to `incoming/windows-builds`.
 7. Flashing on SSD remains a separate named hardware operation requiring probe/board/port validation and the corresponding explicit owner/device approval.
@@ -152,7 +152,7 @@ Control Center new owner-local card:
 **Integration / acceptance**
 11. Windows CI: TypeScript, boundaries, security checks, tests, build, plugin validation and control-center permission UI.
 12. Local Windows disposable workspace: timed consent, build, revoke, restart and audit.
-13. Opt-in pair: Windows laptop + SSD Ubuntu using existing compatible v0.67.2 interfaces, source package to Windows, deterministic STM32 build, artifact return and SHA-256 equality. Never flash real hardware in acceptance.
+13. Opt-in pair: Windows laptop + SSD Ubuntu using existing compatible v0.67.2 interfaces, source package to Windows, deterministic STM32 build, artifact return and SHA-256 equality. Verify scope and grant support before enabling; if legacy compatibility fails, block this phase and request an explicit Linux-policy decision rather than silently updating Ubuntu. Never flash real hardware in acceptance.
 14. Existing Ubuntu Vision services and legacy packages untouched. No Windows production upgrade before review/CI.
 15. Measure precheck/transfer/build/return latency and max RSS; report rather than invent performance numbers.
 
@@ -174,3 +174,16 @@ No unrestricted autonomous root/Administrator mode; no automatic Windows UAC byp
 ## 12. Approval request
 
 Owner should approve or correct this design before writing implementation code. On approval, create an execution plan with file-by-file tasks and tests, then implement/review in a development branch without merging/deploying until acceptance.
+
+## 13. Builder-review decisions / remaining owner choice
+
+A separate builder-feasibility review identified six execution-sensitive boundaries. This section resolves five by design and makes the one Linux-policy choice explicit.
+
+1. **Ultimate enforcement semantics (builder decision):** The hard four-hour gate applies to new opt-in automated workflow IDs and their internal typed operations. Legacy RWMCP MCP calls remain governed by their own authenticated principal, existing policy and ChatGPT confirmations, even when Ultimate is inactive. The system must never market this as a universal post-expiry denial of normal access. Entry and every mutating transition inside the new coordinator validate the consent. No "automatic" request flag supplied by the model is trusted. To impose an actual four-hour ceiling on all full-control actions requires a separately approved base-policy migration and review of legacy endpoints.
+2. **Build trust (builder decision):** Initial native Windows builds accept only explicitly owner-approved trusted project IDs/revisions and named fixed toolchain profiles. Inspect imported build scripts/hooks and forbid unexpected pre/post commands; strip secret environment variables; use isolated working folders and current-user permissions, never Administrator. Untrusted external repositories or arbitrary script builds require OS/VM sandbox approval as a later capability.
+3. **Ubuntu policy (owner choice):** Phase 1–5 implement new Ultimate consent only on Windows. Existing Ubuntu nodes can act as transfer endpoints after owner-local bilateral grants when their frozen version supports the protocol. **If either Ubuntu endpoint cannot support the tested scope/grant/workflow contract, cross-node production acceptance stops**, and any Linux security backport or version upgrade requires a separate owner decision. This satisfies a Windows-first, non-invasive rollout; it does not offer a four-hour Ultimate consent toggle on frozen Ubuntu.
+4. **Disconnect/restart (builder decision):** No autonomous server-side continuation of new handoff phases without an authenticated controller. In-flight managed operations may finish within existing local timeouts and record results; next phase requires controller reconnection, reauthentication and still-valid consent. Persist job metadata and non-secret status for resume; runtime restart revokes Ultimate, and resumption requiring mutation needs a new owner-local activation.
+5. **First acceptance project (builder decision):** Use a purpose-built disposable STM32 fixture and exact temporary paths for the initial two-node dry run. No real owner project, probe, USB target, source overwrite or production service is selected automatically. A real project/profile/grant is chosen locally by the owner from verified workspace inventories before production testing; do not guess them.
+6. **Tunnel principal sharing (risk disclosure):** `openai-tunnel` is authenticated, but a shared principal may represent more than one chat/client. Work Session ID binding reduces accidental cross-session use, not strong authentication. Until reliable distinct authenticated user/client identity is available, the active Ultimate allowance should be understood as granted to that tunnel principal for exact operation categories and project scope, not cryptographically private to a particular conversation.
+
+**Approval question:** Does the owner approve this Windows-first scope with Ubuntu frozen as legacy transfer endpoints, and the explicit stop condition if the old Linux versions cannot participate without an update?

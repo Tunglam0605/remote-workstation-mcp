@@ -76,7 +76,7 @@ function readIds() { try { return new Set(JSON.parse(localStorage.getItem(readKe
 function saveRead(ids) { try { localStorage.setItem(readKey, JSON.stringify([...ids])); } catch {} }
 function toast(message) { const node = $('#toast'); node.textContent = message; node.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { node.hidden = true; }, 3400); }
 
-const unavailableResources = () => Object.fromEntries(['status', 'capabilities', 'runtime', 'execution', 'antigravity', 'pairing', 'multiNode', 'permissions', 'updates', 'admin', 'console'].map((key) => [key, { data: null, error: new Error('Setup token unavailable'), loading: false, loadedAt: null }]));
+const unavailableResources = () => Object.fromEntries(['status', 'capabilities', 'runtime', 'execution', 'antigravity', 'pairing', 'multiNode', 'permissions', 'ultimate', 'updates', 'admin', 'console'].map((key) => [key, { data: null, error: new Error('Setup token unavailable'), loading: false, loadedAt: null }]));
 const api = usableToken ? createApi(usableToken) : null;
 const store = api ? createStore(api, { consolePath: '/api/execution' }) : { getState: unavailableResources, subscribe: () => () => {}, refresh: async () => {}, start: () => {}, stop: () => {} };
 

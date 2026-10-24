@@ -34,6 +34,21 @@ export const legacyWorkflowOverridesSchema = z.object({
 }).strict().default({});
 
 export const workflowRuntimeParametersSchema = z.object({
+  handoffFiles: z.array(z.string().min(1).max(512)).min(1).max(2048).optional(),
+  handoffOutputRelativePath: z.string().min(1).max(512).optional(),
+  handoffSourceRevision: z.string().min(1).max(200).optional(),
+  handoffDestinationNodeId: z.string().min(1).max(128).optional(),
+  handoffDestinationWorkspace: z.string().min(1).max(128).optional(),
+  handoffCreatedAt: z.iso.datetime({ offset: true }).optional(),
+  handoffProfileId: z.string().min(1).max(128).optional(),
+  handoffJobId: z.string().min(1).max(128).optional(),
+  handoffProjectId: z.string().min(1).max(128).optional(),
+  handoffRole: z.enum(['source', 'build_artifacts']).optional(),
+  handoffArchiveRelativePath: z.string().min(1).max(512).optional(),
+  handoffDestinationRelativeBase: z.string().min(1).max(512).optional(),
+  handoffExpectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  handoffSourceNodeId: z.string().min(1).max(128).optional(),
+  handoffTransport: z.enum(['direct', 'relay']).optional(),
   file: z.string().min(1).max(1024).optional(),
   fileName: z.string().min(1).max(180).regex(/^[A-Za-z0-9._-]+$/).optional(),
   artifact: z.string().optional(),

@@ -66,6 +66,7 @@ function fakeContext(): AppContext {
 
 test('chatgpt_web_status is classified as read-only', () => {
   assert.equal(requiredScopeForTool('chatgpt_web_status'), 'workstation.read');
+  assert.equal(requiredScopeForTool('ultimate_control_status'), 'workstation.read');
 });
 
 test('ChatGPT Web status does not claim an authenticated tunnel for local calls', () => {

@@ -47,6 +47,7 @@ import {
   setOwnerMultiNodeEnabled,
   upsertOwnerMultiNodeGrant
 } from './multi-node.js';
+import { activateOwnerUltimate, readOwnerUltimateState, revokeOwnerUltimate } from './ultimate-control.js';
 import {
   ensureDefaultPolicy,
   executionTargetModePreset,
@@ -1763,6 +1764,22 @@ export async function startSetupServer(options: SetupServerOptions = {}): Promis
 
       if (url.pathname === '/api/multi-node' && req.method === 'GET') {
         json(res, 200, await readOwnerMultiNodeState(repoRoot));
+        return;
+      }
+
+      if (url.pathname === '/api/ultimate' && req.method === 'GET') {
+        json(res, 200, await readOwnerUltimateState(repoRoot));
+        return;
+      }
+
+      if (url.pathname === '/api/ultimate/activate' && req.method === 'POST') {
+        json(res, 200, await activateOwnerUltimate(repoRoot, await readJsonBody(req) as { durationMinutes?: unknown; scope?: unknown }));
+        return;
+      }
+
+      if (url.pathname === '/api/ultimate' && req.method === 'DELETE') {
+        await revokeOwnerUltimate();
+        json(res, 200, { ok: true });
         return;
       }
 

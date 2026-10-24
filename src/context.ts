@@ -6,6 +6,7 @@ import { DeviceRegistryAdapter } from './adapters/devices.js';
 import { EngineeringCommandRunner } from './adapters/engineering/command-runner.js';
 import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
 import { createEngineeringServices } from './bootstrap/engineering-services.js';
+import { createHandoffWorkflowContributions } from './adapters/engineering/handoff-workflows.js';
 import { createWebServices } from './bootstrap/web-services.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
@@ -58,6 +59,10 @@ import { ExecutionPolicyService } from './execution-policy.js';
 import { loadSetupSettings } from './setup/settings.js';
 import { DesktopNotificationService } from './desktop-notification.js';
 import { SocialPublishingService } from './web/social-publishing.js';
+import { UltimateConsentManager } from './security/ultimate-consent.js';
+import { UltimateActionPolicy } from './security/ultimate-action-policy.js';
+import { startRuntimeEpoch } from './security/ultimate-runtime-epoch.js';
+import { setupConfigDir } from './setup/settings.js';
 
 export async function createContext() {
   const actor = {
@@ -118,6 +123,15 @@ export async function createContext() {
     return await scopeWorkSession(workSessionId, operation);
   };
   const policy = new PolicyEngine(config, lease, currentClientId);
+  const ultimateEpochPath = path.join(setupConfigDir(), 'runtime', 'ultimate-runtime-epoch.json');
+  const ultimateConsent = new UltimateConsentManager({
+    filePath: path.join(setupConfigDir(), 'runtime', 'ultimate-consent.json'),
+    epochPath: ultimateEpochPath
+  });
+  // Consent belongs to this one Windows runtime generation. A restart makes
+  // the previous owner approval unusable even when its wall-time has not ended.
+  if (process.platform === 'win32') await startRuntimeEpoch(ultimateEpochPath);
+  const ultimateActions = new UltimateActionPolicy(ultimateConsent, policy, identity.id);
   const paths = new PathGuard(policy);
   const git = new GitAdapter(policy, paths);
   const worktreeManager = new WorktreeManager(git, workSessions);
@@ -165,6 +179,11 @@ export async function createContext() {
     resources: engineeringResources,
     runner: engineeringRunner
   });
+  if (process.platform === 'win32') {
+    for (const contribution of createHandoffWorkflowContributions({ paths, actions: ultimateActions, nodeId: identity.id, multiNodeAuthorization })) {
+      engineering.workflows.registerContribution(contribution);
+    }
+  }
   const web = createWebServices(setupSettings);
   const social = new SocialPublishingService(setupSettings.social, setupSettings.browser, web.browser);
   const workSessionLifecycle = new WorkSessionLifecycleService(
@@ -228,6 +247,8 @@ export async function createContext() {
     notebooklm: web.notebooklm,
     social,
     multiNodeAuthorization,
+    ultimateConsent,
+    ultimateActions,
     workSessions,
     workSessionLifecycle,
     reconciledWorkSessions,

@@ -16,6 +16,7 @@ test('Ultimate activation stays owner-local and handoff contributions are Window
   assert.match(server, /'\/api\/ultimate' && req\.method === 'DELETE'/);
   assert.match(tools, /registerTool\('ultimate_control_status'/);
   assert.doesNotMatch(tools, /registerTool\('ultimate_(?:activate|renew|revoke)'/);
-  assert.match(context, /if \(process\.platform === 'win32'\) \{\s*for \(const contribution of createHandoffWorkflowContributions/);
+  assert.match(context, /if \(process\.platform === 'win32'\) \{\s*const ownerBuildProfiles = new OwnerHandoffBuildProfiles\([\s\S]*?for \(const contribution of createHandoffWorkflowContributions/);
+  assert.match(context, /receiptLedger: transferReceipts/);
   assert.match(setup, /runtimePlatform !== 'win32'/);
 });

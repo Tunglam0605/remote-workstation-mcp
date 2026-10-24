@@ -7,6 +7,7 @@ export interface OwnerTrustedBuildProfile {
   sourceNodeId: string;
   sourceRevision: string;
   allowed: boolean;
+  destinationWorkspace?: string;
 }
 
 export interface HandoffBuildIntent {
@@ -38,7 +39,8 @@ export function validateHandoffBuildIntent(intent: HandoffBuildIntent): {
   const approved = intent.ownerProfiles.find(profile => profile.allowed &&
     profile.id === intent.requestedProfileId && profile.id === manifest.toolchainProfileId &&
     profile.projectId === manifest.projectId && profile.sourceNodeId === manifest.sourceNodeId &&
-    profile.sourceRevision === manifest.sourceRevision);
+    profile.sourceRevision === manifest.sourceRevision &&
+    (profile.destinationWorkspace === undefined || profile.destinationWorkspace === intent.workspaceId));
   if (!approved) throw new Error('No matching receiver owner-approved build profile exists.');
   if (approved.target !== intent.requestedTarget) throw new Error('Requested toolchain target does not match owner profile.');
   return { eligible: true, profileId: approved.id, target: approved.target };

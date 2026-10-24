@@ -7,6 +7,7 @@ import { EngineeringCommandRunner } from './adapters/engineering/command-runner.
 import { EngineeringResourceManager } from './adapters/engineering/resource-manager.js';
 import { createEngineeringServices } from './bootstrap/engineering-services.js';
 import { createHandoffWorkflowContributions } from './adapters/engineering/handoff-workflows.js';
+import { OwnerHandoffBuildProfiles } from './adapters/engineering/handoff-trusted-preflight.js';
 import { createWebServices } from './bootstrap/web-services.js';
 import { FilesystemAdapter } from './adapters/filesystem.js';
 import { FullControlAdapter } from './adapters/full-control.js';
@@ -33,6 +34,7 @@ import { PolicyEngine } from './policy.js';
 import { AuditLogger } from './security/audit.js';
 import { PathGuard } from './security/path-guard.js';
 import { MultiNodeAuthorization } from './security/multi-node-authorization.js';
+import { CrossNodeReceiptLedger } from './security/cross-node-receipt-ledger.js';
 import { currentPrincipal } from './security/request-principal.js';
 import { runWithWorkSession } from './security/execution-context.js';
 import { WorkSessionStore } from './work-session.js';
@@ -141,11 +143,12 @@ export async function createContext() {
   const auditPath = path.resolve(process.env.RWMCP_AUDIT ?? 'runtime/audit.jsonl');
   const audit = new AuditLogger(auditPath, actor);
   const multiNodeAuthorization = new MultiNodeAuthorization(policy, identity, audit);
+  const transferReceipts = new CrossNodeReceiptLedger();
   const processes = new ProcessManager(policy, paths, currentClientId);
   const ssh = new SshAdapter(policy, hostsConfig);
   const pairing = new PairingStore();
-  const dataPlane = new DataPlaneAdapter(policy, paths);
-  const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane);
+  const dataPlane = new DataPlaneAdapter(policy, paths, { receiptLedger: transferReceipts });
+  const controlPlaneRelay = new ControlPlaneRelayAdapter(policy, paths, dataPlane, { receiptLedger: transferReceipts });
   const engineeringResources = new EngineeringResourceManager(currentClientId);
   const engineeringRunner = new EngineeringCommandRunner(policy);
   registerConfiguredCodexWorker(
@@ -180,7 +183,8 @@ export async function createContext() {
     runner: engineeringRunner
   });
   if (process.platform === 'win32') {
-    for (const contribution of createHandoffWorkflowContributions({ paths, actions: ultimateActions, nodeId: identity.id, multiNodeAuthorization })) {
+    const ownerBuildProfiles = new OwnerHandoffBuildProfiles(path.join(setupConfigDir(), 'ultimate-build-profiles.json'));
+    for (const contribution of createHandoffWorkflowContributions({ paths, actions: ultimateActions, nodeId: identity.id, multiNodeAuthorization, receipts: transferReceipts, ownerBuildProfiles })) {
       engineering.workflows.registerContribution(contribution);
     }
   }

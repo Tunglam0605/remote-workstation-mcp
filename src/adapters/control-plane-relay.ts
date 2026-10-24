@@ -5,6 +5,7 @@ import { DataPlaneAdapter, type DataPlaneAcceptedFile } from './data-plane.js';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import type { CrossNodeTransferIntent } from '../security/multi-node-authorization.js';
+import type { CrossNodeReceiptLedger } from '../security/cross-node-receipt-ledger.js';
 
 const MAX_RELAY_BYTES = 32 * 1024 * 1024;
 const MAX_RELAY_CHUNK_BYTES = 64 * 1024;
@@ -13,6 +14,7 @@ const MAX_RELAY_TTL_MS = 60 * 60 * 1000;
 
 interface RelayOptions {
   now?: () => number;
+  receiptLedger?: CrossNodeReceiptLedger;
 }
 
 interface RelaySessionStateV2 {
@@ -111,6 +113,7 @@ function decodeBase64(value: string): Buffer {
 
 export class ControlPlaneRelayAdapter {
   private readonly now: () => number;
+  private readonly receiptLedger?: CrossNodeReceiptLedger;
 
   constructor(
     private readonly policy: PolicyEngine,
@@ -119,6 +122,7 @@ export class ControlPlaneRelayAdapter {
     options: RelayOptions = {}
   ) {
     this.now = options.now ?? (() => Date.now());
+    this.receiptLedger = options.receiptLedger;
   }
 
   status() {
@@ -432,6 +436,9 @@ export class ControlPlaneRelayAdapter {
       file: relativePayload,
       expectedSha256: loaded.state.expectedSha256,
       expectedSize: loaded.state.expectedSize
+    });
+    this.receiptLedger?.recordReceived({
+      authorization: loaded.state.authorization, verifiedPath: accepted.verifiedPath
     });
     await fs.rm(loaded.sessionDir, { recursive: true, force: true });
     return {

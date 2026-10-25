@@ -20,6 +20,7 @@ $versionsRoot = Join-Path $installBase 'versions'
 $currentPointer = Join-Path $installBase 'current.txt'
 $previousPointer = Join-Path $installBase 'previous.txt'
 $originalLocalAppData = $env:LOCALAPPDATA
+$originalNpmCache = $env:npm_config_cache
 
 function Assert-Equals([string]$Actual, [string]$Expected, [string]$Description) {
   if (-not [string]::Equals($Actual.Trim(), $Expected.Trim(), [StringComparison]::OrdinalIgnoreCase)) {
@@ -53,7 +54,7 @@ function Stage-DisposableReleaseSlot([string]$Archive, [string]$Version) {
   Move-Item -LiteralPath $packageDir -Destination $slot
   Push-Location $slot
   try {
-    & npm.cmd install --omit=dev --no-audit --no-fund --ignore-scripts
+    & npm.cmd install --omit=dev --no-audit --no-fund --ignore-scripts | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Production dependency install failed for v$Version." }
     $versionOutput = (& node (Join-Path $slot 'dist\cli.js') --version 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch [regex]::Escape($Version)) {
@@ -64,6 +65,17 @@ function Stage-DisposableReleaseSlot([string]$Archive, [string]$Version) {
   }
   Write-Host "Staged and smoke-checked disposable v$Version runtime slot."
   return $slot
+}
+function Assert-RuntimeExecutable([string]$Slot, [string]$Version, [string]$Phase) {
+  $entrypoint = Join-Path $Slot 'dist\cli.js'
+  if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) {
+    throw "Runtime executable missing after $Phase for v$Version."
+  }
+  $reported = (& node $entrypoint --version 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $reported -notmatch [regex]::Escape($Version)) {
+    throw "Runtime v$Version failed executable smoke after $Phase: $reported."
+  }
+  Write-Host "Verified executable v$Version after $Phase."
 }
 function Invoke-ProductionRollback {
   $out = Join-Path $testRoot ('rollback-out-' + [Guid]::NewGuid().ToString('N') + '.txt')
@@ -97,12 +109,13 @@ try {
   } finally { Pop-Location }
   $candidateArchive = Join-Path $testRoot "remote-workstation-mcp-$CandidateVersion.tgz"
   if (-not (Test-Path -LiteralPath $candidateArchive)) { throw "Missing local candidate pack: $($packed -join ', ')" }
+  $env:LOCALAPPDATA = $isolatedLocalAppData
+  $env:npm_config_cache = Join-Path $testRoot 'npm-cache'
   $stableSlot = Stage-DisposableReleaseSlot $stableArchive $BaselineVersion
   $candidateSlot = Stage-DisposableReleaseSlot $candidateArchive $CandidateVersion
   if (-not $stableSlot.StartsWith($versionsRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or -not $candidateSlot.StartsWith($versionsRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Slot escaped disposable versions root.'
   }
-  $env:LOCALAPPDATA = $isolatedLocalAppData
   Set-Content -LiteralPath $currentPointer -Value $stableSlot -Encoding UTF8
   $negative = Invoke-ProductionRollback
   if ($negative.Code -eq 0) { throw 'Rollback succeeded without previous slot.' }
@@ -114,14 +127,17 @@ try {
   if ($first.Code -ne 0) { throw "Candidate rollback failed: $($first.Err) $($first.Out)" }
   Assert-Equals (Get-Content -LiteralPath $currentPointer -Raw) $stableSlot 'candidate to stable'
   Assert-Equals (Get-Content -LiteralPath $previousPointer -Raw) $candidateSlot 'preserve candidate'
+  Assert-RuntimeExecutable $stableSlot $BaselineVersion 'production rollback'
   if (-not (Test-Path -LiteralPath (Join-Path $installBase 'bin\rwmcp.ps1'))) { throw 'Stable launcher missing.' }
   $second = Invoke-ProductionRollback
   if ($second.Code -ne 0) { throw "Reverse rollback failed: $($second.Err) $($second.Out)" }
   Assert-Equals (Get-Content -LiteralPath $currentPointer -Raw) $candidateSlot 'restore candidate'
   Assert-Equals (Get-Content -LiteralPath $previousPointer -Raw) $stableSlot 'preserve stable'
+  Assert-RuntimeExecutable $candidateSlot $CandidateVersion 'reverse rollback'
   Write-Host "PASS: published $tag integrity, local candidate pack, missing-previous rejection, real rollback, reverse rollback."
 } finally {
   $env:LOCALAPPDATA = $originalLocalAppData
+  $env:npm_config_cache = $originalNpmCache
   $fullRoot = [IO.Path]::GetFullPath($testRoot)
   if ($fullRoot.StartsWith($runnerRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and [IO.Path]::GetFileName($fullRoot).StartsWith('rwmcp-rc-rollback-', [StringComparison]::Ordinal)) {
     Remove-Item -LiteralPath $fullRoot -Recurse -Force

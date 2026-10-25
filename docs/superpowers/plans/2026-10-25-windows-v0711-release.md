@@ -67,6 +67,26 @@
 - [ ] Verify Windows CI success on exact PR SHA and run independent code review.
 - [ ] Record `main` merge-only divergence (commit `2a07b91`, empty tree delta versus merge base); prepare separate non-force reconciliation route.
 
+### Task 5 — Owner-approved disposable Windows candidate/rollback rehearsal
+
+**Files:**
+- Create: `tests/ci-release-candidate-rehearsal-windows.ps1` (CI-only, not packed into distribution)
+- Modify: `.github/workflows/ci.yml` (one new Windows runner acceptance step)
+- Modify: `docs/WINDOWS_V0711_RELEASE_ACCEPTANCE_20261025.md` (results and precise limitations)
+- Existing production under test: `scripts/install-windows-release.ps1 -Rollback`, no change.
+
+**Interfaces:** CI PowerShell step creates local candidate archive from checked-out `0.71.1` PR source; test script fetches and hashes *published* `v0.71.0` assets, stages two disposable runtime slots, runs real rollback entrypoint under temporary `LOCALAPPDATA`, and exits nonzero for any mismatch. No live GitHub release of candidate.
+
+- [ ] **RED contract:** Add test and CI call with explicit assertions for missing previous pointer (must fail safely), baseline/current pointer promotion, two packaged CLI versions, real rollback pointer swap, launcher recreation, second reversible rollback. Initially CI step fails until complete disposable staging is implemented.
+- [ ] **GREEN implementation:** Stage checksum-verified v0.71.0 and candidate archive under GUID temp; invoke production rollback with overridden temporary `LOCALAPPDATA`; validate `RUNNER_OS=Windows`, `CI=true`; cleanup only GUID temp in finally.
+- [ ] Run PR exact-head GitHub Windows CI, inspect script step and 44+ other steps for failures.
+- [ ] Run source native Windows `npm run verify`, packaging and audit on the final branch; no permission/policy/tunnel changes.
+- [ ] Commit and push only `release/windows-v0.71.1-candidate-20261025`, keep PR #274 Draft; record artifacts, CI link and limitations. No tag/release/main merge.
+
+**Expected:** Verified public `v0.71.0` tar + locally packed `0.71.1` both execute; no missing/mismatched SHA accepted; real `-Rollback` restores baseline pointer, retains reverse pointer and regenerates launcher; CI green. The unpublished **online v0.71.1 download/install path remains untested** and must be assessed after signoff. Deployment/signoff still held.
+
+---
+
 ### Task 4 — Owner release decision (explicit hold)
 
 **Files:** Only approved release metadata/workflow, after new authorization.

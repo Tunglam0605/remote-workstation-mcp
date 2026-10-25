@@ -35,6 +35,24 @@ Keep `release/windows-v0.71.1-candidate-20261025` in a separate native worktree 
 4. Investigate and preserve one main-only merge commit `2a07b91`: GitHub diff to its merge-base is empty; ensure the accepted stable code line is eventually reconciled to `main` without rewriting history.
 5. PR review and explicit owner confirmation for actual release/tag/publish/deploy. Current `release.yml` automatically publishes a Release after the tag, so tagging cannot be an implicit acceptance step.
 
+
+## Owner-approved ephemeral Windows release rehearsal (2026-10-25)
+
+The owner approved expanding candidate acceptance on **GitHub Actions `windows-latest` only**. The installed Windows `v0.71.0` service, its updater policy (`enabled=true`, `channel=stable`, `automaticPolicy=patch`, 12-hour interval), and all Ubuntu nodes must remain untouched.
+
+### Approaches and tradeoffs
+1. **Selected:** Stage published, SHA-256-verified `v0.71.0` and a locally packed `v0.71.1` from the exact PR commit under a unique Windows runner temporary profile. Simulate the installer's current/previous runtime-pointer promotion and invoke the **real production `install-windows-release.ps1 -Rollback`** against only that disposable profile. This verifies both packaged runtimes and the real rollback entrypoint without exposing unreleased code to auto-updaters.
+2. Publish a temporary `v0.71.1` release to exercise the online installer: rejected because tagging automatically publishes and can trigger unattended owner upgrades.
+3. Add a local-unverified-package bypass to the production installer: rejected because it expands a trusted release boundary merely for testing.
+
+### Rehearsal contract
+- Use existing `.github/workflows/ci.yml` on the PR's exact SHA, not a shared Windows workstation, and no installed-owner permissions or credentials.
+- Download both `remote-workstation-mcp-v0.71.0.tgz` and `SHA256SUMS.txt` from the immutable published v0.71.0 release assets, check version, checksum and package contents before staging. Fail closed on unavailable/mismatched assets; never substitute a synthetic old runtime.
+- Create a unique `$env:TEMP` scoped `LOCALAPPDATA`, install production dependencies under two disposable slots, and verify `node dist/cli.js --version` for `0.71.0` and `0.71.1`.
+- Establish baseline `current.txt`, simulate only the version-slot pointer promotion (`previous.txt` to v0.71.0, `current.txt` to v0.71.1), invoke the existing installer with `-Rollback` in a child PowerShell whose LOCALAPPDATA points inside that unique temp tree, and assert both pointers reversed, launcher recreated and v0.71.0 still executable. A negative test with a missing previous pointer must fail without changing current.
+- Cleanup only the unique disposable tree in a `finally` block. Include the exact-head CI link and observations in PR #274. The real online release-download and owner-machine upgrade remain untested and must not be claimed as tested.
+- A **release tag still requires an explicit owner decision** because real owner Windows automatic patch updates are enabled.
+
 ## Risk notes
 - `npm` resolver must retain policy validation and `shell:false`; generic .cmd execution stays forbidden.
 - KiCad has 5 ignored DRC checks, and V185 fabricator ZIP/manifest has a documented IOREF revision split; fabrication requires separate correct-file/hash acceptance.

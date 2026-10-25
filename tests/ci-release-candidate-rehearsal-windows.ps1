@@ -73,7 +73,7 @@ function Assert-RuntimeExecutable([string]$Slot, [string]$Version, [string]$Phas
   }
   $reported = (& node $entrypoint --version 2>&1 | Out-String).Trim()
   if ($LASTEXITCODE -ne 0 -or $reported -notmatch [regex]::Escape($Version)) {
-    throw "Runtime v$Version failed executable smoke after $Phase: $reported."
+    throw "Runtime v$Version failed executable smoke after $($Phase): $reported."
   }
   Write-Host "Verified executable v$Version after $Phase."
 }

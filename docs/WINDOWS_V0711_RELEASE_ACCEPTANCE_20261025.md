@@ -24,10 +24,10 @@ Date: 2026-10-25. Candidate worktree: `release/windows-v0.71.1-candidate-2026102
 | Reviewer DC ambiguity regression | PASS | Overlapping same-layer copper, midpoint T-junctions and track crossings are denied; electrical path withholds computed resistance/drop. 1,024-track geometry complexity cap fails closed. |
 | Owner original V185 SHA | PASS | `6da153750d08a3a5e71557c5136a08c829f400a8c4d4b87addd0782408842c3e` before and after analysis |
 | Isolated package pack | PASS | Native `npm pack --pack-destination ...` exit 0; generated `remote-workstation-mcp-0.71.1.tgz` (~27.0 MB) in owner-authorized build-artifact folder. SHA-256 to be attached to PR after final pack. |
-| Windows packed runtime smoke | PENDING CI | Local `powershell.exe` is not process-allowlisted; RWMCP `process_start` returned `INVALID_ARGUMENT`. No bypass attempted. Existing Windows CI executes packed smoke in controlled runner. |
-| GitHub Windows candidate CI | PENDING | Must be green on exact candidate SHA after commit/push |
-| Isolated installer/update/rollback rehearsal | PENDING | Run only on disposable profile/runtime slot, never active Windows owner profile |
-| Independent code and release review | IN PROGRESS | Independent review identified a real overlapping-track bug and incorrect docs count; addressed in candidate, final-head re-review required. |
+| Windows packed runtime smoke | PASS (prior CI SHA) | GitHub Windows CI #815, #816, #817 and #818 passed this step; the last release commit must also pass it. Owner workstation PowerShell permission was not bypassed. |
+| GitHub Windows candidate CI | EXACT-HEAD GATE | A passing Windows workflow on the final candidate SHA is mandatory. Historical runs and new rollback evidence are tracked in draft PR #274; prior-SHA success alone is insufficient. |
+| Isolated installer/update/rollback rehearsal | EXACT-HEAD GATE | Windows CI retrieves official v0.71.0 and verifies SHA-256; builds local unpublished v0.71.1 slot; rejects missing-previous rollback and tests both real installer rollback directions and restored executable versions in disposable RUNNER_TEMP. It does not test online installation of an unpublished tag. |
+| Independent code and release review | REVIEWED WITH FOLLOW-UP | Independent review on rehearsal range `c7ebaf9..7aeb43c` found no Critical issue, identified missing post-rollback runtime execution (fixed in subsequent candidate), and recommended npm-cache isolation (also fixed). Exact-head CI is still mandatory. |
 | GitHub Release / tagged publication | HOLD | Tag triggers automatic publication in `release.yml`; explicit owner sign-off required before tag |
 | Installed production runtime | PRESERVED | No upgrade, restart or release performed |
 
@@ -42,6 +42,13 @@ The V185 `V185_RELEASE_MANIFEST.json` records a pre-IOREF-alignment board hash. 
 
 ## Automatic patch-update exposure
 The Windows updater defaults to `enabled=true`, `channel=stable`, `automaticPolicy=patch` and a 12-hour check interval (`scripts/update-windows.ps1`). A new `v0.71.1` tag and public GitHub Release can therefore initiate **unattended upgrades on already-configured Windows nodes**, not just create an optional download. Verify the live node's actual update policy, prove staging/rollback and receive owner authorization **before** tagging or publishing.
+
+## Windows candidate CI rehearsal evidence
+
+- CI [#816](https://github.com/Tunglam0605/remote-workstation-mcp/actions/runs/40203245554), `69a672a`: expected RED; the CI-only stage function intentionally stopped at the unimplemented stage contract.
+- CI [#817](https://github.com/Tunglam0605/remote-workstation-mcp/actions/runs/40203796414), `7aeb43c`: verified and staged real v0.71.0 and locally packed v0.71.1; exposed native npm stdout contaminating the PowerShell slot return value.
+- CI [#818](https://github.com/Tunglam0605/remote-workstation-mcp/actions/runs/40204318604), `ae1c1bb`: full prior gate passed through packed Windows smoke; found a syntax error in the new post-rollback diagnostic string. Corrected and reordered the existing PowerShell syntax gate ahead of rehearsal.
+- Final acceptance evidence must be attached to [draft PR #274](https://github.com/Tunglam0605/remote-workstation-mcp/pull/274) using the exact final commit SHA and a **passing** Windows job. Red runs are preserved as engineering evidence, not counted as release passes.
 
 ## Release decision
 Candidate packaging, independent review, exact-head Windows CI, isolated rollback proof and owner authorization remain mandatory before publication/deployment. **Status: HOLD.**

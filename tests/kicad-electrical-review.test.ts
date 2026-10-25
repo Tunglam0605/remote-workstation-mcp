@@ -140,6 +140,18 @@ test('Current on a branched net is not incorrectly multiplied through every bran
  assert.ok(pwr.findings.some(f=>f.code==='dc-path-topology-unverified'));
  assert.ok(!pwr.findings.some(f=>f.code==='dc-drop-over-intent'));
 });
+test('Electrical intent with overlapping copper withholds numeric DC drop instead of summing resistances',()=>{
+ const overlapping=BOARD.replace('(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))',
+    '(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))'+
+    '(segment (start 0 0) (end 50 0) (width 0.5) (layer "F.Cu") (net 1))');
+ const pwr=analyzeKicadElectrical(overlapping,[{netName:'PWR',kind:'power',currentA:2,voltageV:5,maxVoltageDropPct:1}]).nets[0]!;
+ assert.equal(pwr.dcPath.eligible,false);
+ assert.equal(pwr.dcPath.reason,'track-geometric-intersection-or-overlap');
+ assert.equal(pwr.dcCopper20C.resistanceOhm,undefined);
+ assert.equal(pwr.dcCopper20C.voltageDropV,undefined);
+ assert.ok(pwr.findings.some(f=>f.code==='dc-path-topology-unverified'));
+ assert.ok(!pwr.findings.some(f=>f.code==='dc-drop-over-intent'));
+});
 test('Filled copper zones or vias prevent unsupported aggregate-net DC drop calculation',()=>{
  const zoned=BOARD.replace('(net 1 "PWR")','(net 1 "PWR") (zone (net 1) (net_name "PWR") (layer "F.Cu"))');
  const route=analyzeKicadElectrical(zoned,[{netName:'PWR',kind:'power',currentA:2,voltageV:5}]).nets[0]!;

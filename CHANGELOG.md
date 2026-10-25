@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.71.1 — Windows KiCad analysis correctness and npm launch hardening (candidate; not yet published)
+
+- Fixes Windows `process_start('npm', …)` after explicit owner allowlisting by resolving only the collocated Node npm CLI; preserves argv isolation, `shell:false` and the original executable policy check. Generic `.cmd` execution is not enabled.
+- Normalizes KiCad 10 named-only, numeric and mixed copper net references across design, constraints and electrical analyses, preventing false zero-route/zero-zone reports.
+- Adds bounded, deterministic read-only routing geometry evidence (near-right angles, reversals and preview-only 45-degree corners); these are review candidates, not DRC failures or implicit track edits.
+- Suppresses unsupported DC voltage-drop estimates for branched, via/zone-bearing or thickness-unknown power nets; does not assert current capacity, thermal behavior or EMC compliance.
+- Updates the locked production dependency graph to address audited vulnerabilities. Retains MCP Action Schema 74 and Engineering API 5; no new exposed tools or permissions.
+- Windows-only release candidate: Ubuntu distributions remain frozen, and real PCB manufacturing output is unchanged. Installed v0.71.0 remains active until packed-runtime, rollback and explicit owner release gates pass.
+
+
 ## 0.71.0 — Windows-only KiCad Agent engineering tools (release candidate, stable channel; not yet published)
 
 - Enhances the KiCad 10 agent with source-aware net parsing, ranked functional placement scenarios and revision-locked, project-local PCB autoexperiments; rejects any routing/placement attempt that regresses official KiCad DRC, unconnected counts or schematic parity.

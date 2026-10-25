@@ -35,7 +35,35 @@ function Assert-ReleaseDigest([string]$Archive, [string]$ChecksumFile, [string]$
   Assert-Equals (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash $Matches[1] 'published asset digest'
 }
 function Stage-DisposableReleaseSlot([string]$Archive, [string]$Version) {
-  throw 'Disposable candidate slot staging not implemented.'
+  $slot = Join-Path $versionsRoot "v$Version"
+  $extract = Join-Path $testRoot ('extract-' + $Version.Replace('.', '-'))
+  if (Test-Path -LiteralPath $slot) { throw "Disposable slot already exists: $slot" }
+  New-Item -ItemType Directory -Path $extract -Force | Out-Null
+  & tar.exe -xzf $Archive -C $extract
+  if ($LASTEXITCODE -ne 0) { throw "Cannot extract archive for v$Version." }
+  $packageDir = Join-Path $extract 'package'
+  $packageManifestPath = Join-Path $packageDir 'package.json'
+  if (-not (Test-Path -LiteralPath $packageManifestPath -PathType Leaf)) {
+    throw "v$Version archive does not contain npm package/package.json."
+  }
+  $packedManifest = Get-Content -LiteralPath $packageManifestPath -Raw | ConvertFrom-Json
+  if ([string]$packedManifest.version -ne $Version) {
+    throw "v$Version package manifest version does not match the archive."
+  }
+  Move-Item -LiteralPath $packageDir -Destination $slot
+  Push-Location $slot
+  try {
+    & npm.cmd install --omit=dev --no-audit --no-fund --ignore-scripts
+    if ($LASTEXITCODE -ne 0) { throw "Production dependency install failed for v$Version." }
+    $versionOutput = (& node (Join-Path $slot 'dist\cli.js') --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch [regex]::Escape($Version)) {
+      throw "v$Version runtime entrypoint failed version smoke: $versionOutput"
+    }
+  } finally {
+    Pop-Location
+  }
+  Write-Host "Staged and smoke-checked disposable v$Version runtime slot."
+  return $slot
 }
 function Invoke-ProductionRollback {
   $out = Join-Path $testRoot ('rollback-out-' + [Guid]::NewGuid().ToString('N') + '.txt')

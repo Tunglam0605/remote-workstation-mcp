@@ -58,6 +58,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $files = @(
             'scripts/install-windows-release.ps1',
+            'tests/ci-release-candidate-rehearsal-windows.ps1',
             'scripts/update-windows.ps1',
             'scripts/update-handoff-windows.ps1',
             'scripts/test-update-handoff-windows.ps1',

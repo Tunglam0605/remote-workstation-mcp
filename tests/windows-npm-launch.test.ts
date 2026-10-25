@@ -15,7 +15,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }): Promise
   return { directory, cli };
 }
 
-test('owner-authorized Windows npm runs through npm-cli.js without a shell', async t => {
+test('owner-authorized Windows npm runs through npm-cli.js without a shell', { skip: process.platform !== 'win32' }, async t => {
   const { directory, cli } = await fixture(t);
   const args = ['run', 'verify', '--', 'x&y', 'two words', '%PATH%', 'a"b'];
   const resolved = resolveAuthorizedNpmLaunch('npm', args, {
@@ -27,7 +27,7 @@ test('owner-authorized Windows npm runs through npm-cli.js without a shell', asy
   assert.deepEqual(args, ['run', 'verify', '--', 'x&y', 'two words', '%PATH%', 'a"b']);
 });
 
-test('explicit owner-authorized npm.cmd uses the same no-shell launch', async t => {
+test('explicit owner-authorized npm.cmd uses the same no-shell launch', { skip: process.platform !== 'win32' }, async t => {
   const { directory, cli } = await fixture(t);
   const resolved = resolveAuthorizedNpmLaunch(path.join(directory, 'npm.cmd'), ['--version'], {
     platform: 'win32',

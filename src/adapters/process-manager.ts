@@ -7,6 +7,7 @@ import { PathGuard } from '../security/path-guard.js';
 import { resolveResourceOwner, type ResourceOwnerSource } from '../security/execution-context.js';
 import { buildSafeEnvironment } from '../security/env-filter.js';
 import { ProcessTreeSupervisor, type ProcessTreeTerminationResult } from './process-tree-supervisor.js';
+import { resolveAuthorizedNpmLaunch } from './windows-npm-launch.js';
 
 type Managed = ProcessSnapshot & {
   child: ChildProcessWithoutNullStreams;
@@ -65,12 +66,18 @@ export class ProcessManager {
     else this.policy.assertExecute(program);
     const cwd = await this.paths.resolveExisting(workspace, cwdRelative);
     const ownerId = this.ownerId();
-    const child = spawn(program, args, {
+    const env = buildSafeEnvironment(this.policy.config.process.inheritEnv);
+    const launch = resolveAuthorizedNpmLaunch(program, args, {
+      platform: process.platform,
+      env,
+      nodeExecutable: process.execPath
+    });
+    const child = spawn(launch.program, launch.args, {
       cwd,
       shell: false,
       windowsHide: true,
       detached: this.treeSupervisor.spawnDetached(),
-      env: buildSafeEnvironment(this.policy.config.process.inheritEnv)
+      env
     });
     const id = randomUUID();
     const managed: Managed = {

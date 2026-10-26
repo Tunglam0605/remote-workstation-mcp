@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { NodeInterlockStore } from '../node-interlock.js';
@@ -26,6 +27,8 @@ export interface TuiAdminOptions {
   env?: NodeJS.ProcessEnv;
   privilegeMode?: 'sudo' | 'pkexec';
   runPrivileged?: (program: string, args: string[], env: NodeJS.ProcessEnv) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** Test-only process status injection; never grants elevation. */
+  privilegeStatusText?: string;
 }
 
 function platformOf(options: TuiAdminOptions): NodeJS.Platform {
@@ -49,6 +52,34 @@ function defaultRunPrivileged(program: string, args: string[], env: NodeJS.Proce
     child.once('error', reject);
     child.once('close', code => resolve({ code: code ?? 1, stdout: '', stderr: '' }));
   });
+}
+
+/**
+ * Linux PR_SET_NO_NEW_PRIVS forbids gaining privileges through setuid or
+ * file capabilities, so both sudo and pkexec will fail from this process.
+ * Diagnose before consuming an exact owner-approved request.
+ */
+export function linuxNoNewPrivilegesSet(statusText: string): boolean {
+  return statusText.split('\n').some(line => {
+    const [label, value] = line.trim().split(':', 2);
+    return label === 'NoNewPrivs' && value?.trim() === '1';
+  });
+}
+
+async function assertLinuxPrivilegeEnvironment(options: TuiAdminOptions): Promise<void> {
+  if (platformOf(options) !== 'linux') return;
+  // A synthetic runner in unit tests does not launch an actual privileged
+  // command; the injected status override explicitly exercises this guard.
+  if (options.runPrivileged && options.privilegeStatusText === undefined) return;
+  if (options.privilegeStatusText === undefined && process.platform !== 'linux') return;
+  const status = options.privilegeStatusText ?? await fs.readFile('/proc/self/status', 'utf8').catch(() => '');
+  if (linuxNoNewPrivilegesSet(status)) {
+    throw new Error(
+      'LINUX_PRIVILEGE_NO_NEW_PRIVS: RWMCP is running under NoNewPrivs=1; sudo/pkexec cannot elevate in this process. ' +
+      'Keep the request pending and use an owner-approved host-side administrator helper outside the restricted service. ' +
+      'Full Control in RWMCP does not override the Linux kernel.'
+    );
+  }
 }
 
 export function isLinuxHostRebootRequest(request: AdminRequest): boolean {
@@ -104,6 +135,7 @@ export async function approveLinuxHostRebootRequest(
   }
 
   await assertPrivilegedInterlockClear(options, 'host reboot');
+  await assertLinuxPrivilegeEnvironment(options);
   const approved = await approveAdminRequest(requestId, expectedCommandHash);
   if (!isLinuxHostRebootRequest(approved.request)) {
     throw new Error('Approved request no longer matches the typed host reboot action.');
@@ -156,6 +188,7 @@ export async function approveLinuxAptInstallRequest(
   }
 
   await assertPrivilegedInterlockClear(options, 'package installation');
+  await assertLinuxPrivilegeEnvironment(options);
   const approved = await approveAdminRequest(requestId, expectedCommandHash);
   if (!isLinuxAptInstallRequest(approved.request)) {
     throw new Error('Approved request no longer matches the typed package-install action.');

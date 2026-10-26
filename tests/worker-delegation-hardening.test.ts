@@ -223,9 +223,20 @@ test('Antigravity production dispatch fails fast unless sandbox automation polic
 
   const settingsDir = path.join(temp, '.gemini', 'antigravity-cli');
   await fs.mkdir(settingsDir, { recursive: true });
-  await fs.writeFile(path.join(settingsDir, 'settings.json'), JSON.stringify({
+  const settingsPath = path.join(settingsDir, 'settings.json');
+  await fs.writeFile(settingsPath, JSON.stringify({
     enableTerminalSandbox: true,
     toolPermission: 'proceed-in-sandbox'
+  }), 'utf8');
+  const missingGrant = await makeProvider().dispatch(request());
+  assert.equal(missingGrant.status, 'blocked');
+  assert.match(missingGrant.summary ?? '', /ANTIGRAVITY_WORKTREE_READ_SCOPE_REQUIRED/);
+  assert.equal(invoked, false);
+
+  await fs.writeFile(settingsPath, JSON.stringify({
+    enableTerminalSandbox: true,
+    toolPermission: 'proceed-in-sandbox',
+    permissions: { allow: [`read_file(${repo})`] }
   }), 'utf8');
   const succeeded = await makeProvider().dispatch(request());
   assert.equal(succeeded.status, 'succeeded');

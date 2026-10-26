@@ -30,7 +30,23 @@ interface AntigravityAutomationPolicy {
   detail: string;
 }
 
-async function antigravityAutomationPolicy(env: NodeJS.ProcessEnv): Promise<AntigravityAutomationPolicy> {
+/** Report only; never create a new Antigravity permission. Explicit directory-scoped
+ * read_file rules must already cover the current isolated worktree. */
+export function antigravityReadScopeCoversWorktree(grants: unknown, worktreePath: string): boolean {
+  if (!Array.isArray(grants)) return false;
+  const worktree = path.resolve(worktreePath);
+  return grants.some(rule => {
+    if (typeof rule !== 'string') return false;
+    const match = /^read_file\(([^()\r\n]+)\)$/.exec(rule.trim());
+    if (!match) return false;
+    const granted = match[1]!.trim();
+    if (!path.isAbsolute(granted)) return false;
+    const relative = path.relative(path.resolve(granted), worktree);
+    return !relative || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  });
+}
+
+async function antigravityAutomationPolicy(env: NodeJS.ProcessEnv, worktreePath?: string): Promise<AntigravityAutomationPolicy> {
   const home = env.USERPROFILE?.trim() || env.HOME?.trim() || os.homedir();
   const settingsPath = path.resolve(home, '.gemini', 'antigravity-cli', 'settings.json');
   try {
@@ -44,6 +60,18 @@ async function antigravityAutomationPolicy(env: NodeJS.ProcessEnv): Promise<Anti
     }
     if (parsed.toolPermission !== 'proceed-in-sandbox') {
       return { ready: false, detail: 'toolPermission=proceed-in-sandbox is required for headless RWMCP dispatch.' };
+    }
+    if (worktreePath) {
+      const permissions = parsed.permissions;
+      const allow = permissions && typeof permissions === 'object' && !Array.isArray(permissions)
+        ? (permissions as { allow?: unknown }).allow
+        : undefined;
+      if (!antigravityReadScopeCoversWorktree(allow, worktreePath)) {
+        return {
+          ready: false,
+          detail: 'ANTIGRAVITY_WORKTREE_READ_SCOPE_REQUIRED: no owner-approved read_file scope covers the assigned worktree; ask the owner to approve a narrow directory-scoped rule before retrying.'
+        };
+      }
     }
     return { ready: true, detail: 'sandboxed headless automation policy is configured' };
   } catch (error) {
@@ -656,9 +684,11 @@ export class AntigravityWorkerProvider implements WorkerProvider {
       return { status: 'blocked', summary: 'Assigned Antigravity worker path is not a Git worktree.' };
     }
     if (this.requireSandboxAutomationPolicy) {
-      const automation = await antigravityAutomationPolicy(this.env);
+      const automation = await antigravityAutomationPolicy(this.env, cwd);
       if (!automation.ready) {
-        return { status: 'blocked', summary: `ANTIGRAVITY_SANDBOX_POLICY_REQUIRED; ${automation.detail}` };
+        const code = automation.detail.startsWith('ANTIGRAVITY_WORKTREE_READ_SCOPE_REQUIRED')
+          ? '' : 'ANTIGRAVITY_SANDBOX_POLICY_REQUIRED; ';
+        return { status: 'blocked', summary: `${code}${automation.detail}` };
       }
     }
 

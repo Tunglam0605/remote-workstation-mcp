@@ -7,6 +7,7 @@ import type { EngineeringCommandResult } from '../src/engineering/types.js';
 import { WorkerProviderRegistry, type WorkerDispatchRequest } from '../src/worker-provider.js';
 import {
   AntigravityWorkerProvider,
+  antigravityReadScopeCoversWorktree,
   probeAntigravityCli,
   registerConfiguredAntigravityWorker
 } from '../src/workers/antigravity-worker-provider.js';
@@ -360,5 +361,70 @@ test('Antigravity quota/rate-limit errors fail closed as blocked work', async ()
     assert.match(result.summary ?? '', /ANTIGRAVITY_LIMIT_REACHED/);
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
+  }
+});
+
+test('Antigravity preflight requires a bounded read_file grant covering the assigned worktree', () => {
+  const root = path.resolve('C:/Temp/rwmcp-scope-root');
+  const worktree = path.join(root, 'session-a');
+  const sibling = path.join(root, 'session-b');
+  assert.equal(antigravityReadScopeCoversWorktree([`read_file(${worktree})`], worktree), true);
+  assert.equal(antigravityReadScopeCoversWorktree([`read_file(${root})`], worktree), true);
+  assert.equal(antigravityReadScopeCoversWorktree([`read_file(${sibling})`], worktree), false);
+  assert.equal(antigravityReadScopeCoversWorktree(['read_file(../relative)', 'read_file(*)'], worktree), false);
+  assert.equal(antigravityReadScopeCoversWorktree(['write_file('+worktree+')'], worktree), false);
+  assert.equal(antigravityReadScopeCoversWorktree(undefined, worktree), false);
+  assert.equal(antigravityReadScopeCoversWorktree([`read_file(${root}-evil)`], worktree), false);
+});
+
+test('Antigravity headless dispatch blocks before agent launch when read_file scope excludes the worktree', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-agy-read-scope-'));
+  try {
+    const worktree = path.join(root, 'assigned');
+    await fs.mkdir(path.join(worktree, '.git'), { recursive: true });
+    const settingsDir = path.join(root, '.gemini', 'antigravity-cli');
+    await fs.mkdir(settingsDir, { recursive: true });
+    const config = (allowed: string[]) => JSON.stringify({
+      enableTerminalSandbox: true,
+      toolPermission: 'proceed-in-sandbox',
+      permissions: { allow: allowed }
+    });
+    const settingsPath = path.join(settingsDir, 'settings.json');
+    await fs.writeFile(settingsPath, config([`read_file(${path.join(root, 'other-session')})`]));
+
+    let launched = 0;
+    const provider = new AntigravityWorkerProvider(
+      fakePolicy(),
+      { resolveExisting: async () => worktree } as any,
+      { run: async () => commandResult() } as any,
+      {
+        env: { ...process.env, USERPROFILE: root, HOME: root },
+        requireSandboxAutomationPolicy: true,
+        resolveExecutable: async command => command === 'git' ? 'git' : 'agy',
+        processRunner: async () => {
+          launched++;
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({ event: 'result', result: {
+              status: 'SUCCESS', response: 'Completed bounded read-only review',
+              usage: { total_tokens: 50 }
+            } }) + '\n',
+            stderr: '', timedOut: false, durationMs: 3
+          };
+        }
+      }
+    );
+    const denied = await provider.dispatch(request('assigned'));
+    assert.equal(denied.status, 'blocked');
+    assert.match(denied.summary ?? '', /ANTIGRAVITY_WORKTREE_READ_SCOPE_REQUIRED/);
+    assert.doesNotMatch(denied.summary ?? '', /other-session/);
+    assert.equal(launched, 0);
+
+    await fs.writeFile(settingsPath, config([`read_file(${worktree})`]));
+    const allowed = await provider.dispatch(request('assigned'));
+    assert.equal(allowed.status, 'succeeded');
+    assert.equal(launched, 1);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
   }
 });

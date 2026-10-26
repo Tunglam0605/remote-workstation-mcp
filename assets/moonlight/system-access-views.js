@@ -49,6 +49,7 @@ export function createSystemAccessViews({
     const pendingRequests = requests.filter((item) => item.state === 'pending');
     const lease = state.lease;
     const modeLabel = t({ read_only: 'Read only', workspace: 'Workspace', full_control: 'Full control' }[state.mode] || state.mode);
+    const ownerFullControl = state.mode === 'full_control';
   
     const summary = el('div', { class: 'security-summary moon-page-full' },
       el('div', { class: 'security-summary-item' },
@@ -109,7 +110,24 @@ export function createSystemAccessViews({
           }, 'primary-button'))
     );
   
-    primary.append(modeSection, leaseSection);
+    if (ownerFullControl) {
+      // An owner who already configured full_control does not need to select
+      // it again or request an additional lease for ordinary work. The
+      // downgrade/recovery control remains available, but tucked away.
+      const ownerPolicy = el('details', { class: 'security-advanced security-advanced-full moon-page-full' },
+        el('summary', { text: t('Owner policy changes') })
+      );
+      ownerPolicy.append(modeSection);
+      content.append(ownerPolicy);
+      const ready = section('Ready for delegated work',
+        'Full control is already configured on this workstation. RWMCP will use the authorized local policy; ChatGPT Allow and OS administrator approvals remain separate.',
+        'security-primary-card');
+      primary.append(ready);
+      // An old lease may still be active; keep explicit revocation visible.
+      if (lease?.active) primary.append(leaseSection);
+    } else {
+      primary.append(modeSection, leaseSection);
+    }
     content.append(primary);
   
     const scopeChoices = [['workstation.read', 'Read'], ['workstation.write', 'Write'], ['workstation.execute', 'Execute'], ['workstation.admin_request', 'Admin request'], ['workstation.full_control', 'Full control'], ['workstation.cross_node_transfer', 'Cross-node transfer']];

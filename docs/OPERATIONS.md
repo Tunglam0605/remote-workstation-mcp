@@ -331,3 +331,22 @@ Confirm the client is using the correct transport. A cloud client cannot connect
 - Use VM/container isolation for untrusted repositories or build scripts.
 - Do not expose port 8683 directly to the Internet.
 - Run the doctor after installation, updates, or configuration changes.
+
+
+### Linux administrator requests under NoNewPrivs (2026-10-26)
+
+`full_control` authorizes bounded RWMCP tools within the owner policy;
+it **does not grant OS root**. Some restricted services/containers have
+`NoNewPrivs: 1` in `/proc/self/status`, preventing `sudo` and `pkexec`
+from gaining privilege even after owner approval. Linux typed TUI/Control
+Center reboot and apt-install approval now checks the actual local process
+flag **before approving or marking the request running**. When restricted,
+it raises `LINUX_PRIVILEGE_NO_NEW_PRIVS`, keeps the exact request pending,
+and does not invoke the privileged program.
+
+For an approved system operation, use a separately owner-authorized
+host-side administrator helper running outside the restricted RWMCP service.
+Do **not** disable kernel restrictions, use privileged containers, cache
+passwords, or silently bypass UAC/ChatGPT Allow. In tests, the
+`privilegeStatusText` input simulates Linux kernel status so CI can verify
+both sudo and pkexec guards on Windows without ever invoking root.

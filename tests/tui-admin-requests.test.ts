@@ -9,7 +9,8 @@ import {
   isLinuxAptInstallCommand,
   isLinuxAptInstallRequest,
   isLinuxHostRebootRequest,
-  linuxHostRebootCommand
+  linuxHostRebootCommand,
+  linuxNoNewPrivilegesSet
 } from '../src/tui/admin-requests.js';
 import { createAdminRequest, readAdminRequest } from '../src/privileged/approval-store.js';
 import { setupConfigDir } from '../src/setup/settings.js';
@@ -177,4 +178,30 @@ test('active Work Session interlock blocks host reboot before approval is consum
     /NODE_BUSY/
   );
   assert.equal((await readAdminRequest(request.id)).state, 'pending');
+});
+
+test('Ubuntu detects NoNewPrivs before sudo/pkexec approval is consumed', async t => {
+  assert.equal(linuxNoNewPrivilegesSet('Name:\tnode\nNoNewPrivs:\t1\n'), true);
+  assert.equal(linuxNoNewPrivilegesSet('Name:\tnode\nNoNewPrivs:\t0\n'), false);
+  assert.equal(linuxNoNewPrivilegesSet('NoNewPrivs:\t10\n'), false);
+  const fx = await fixture(t);
+  const reboot = linuxHostRebootCommand();
+  const rebootReq = await createAdminRequest({ program: reboot.program, args: reboot.args,
+    reason: 'Owner requested safe reboot approval preflight' });
+  let called = false;
+  await assert.rejects(approveLinuxHostRebootRequest(rebootReq.id, rebootReq.commandHash, {
+    ...fx.options, privilegeStatusText: 'NoNewPrivs:\t1\n',
+    runPrivileged: async () => { called = true; return { code: 0, stdout: '', stderr: '' }; }
+  }), /LINUX_PRIVILEGE_NO_NEW_PRIVS/);
+  assert.equal(called, false);
+  assert.equal((await readAdminRequest(rebootReq.id)).state, 'pending');
+  const apt = await createAdminRequest({ program: '/usr/bin/apt-get',
+    args: ['install', '-y', 'smbclient'], cwd: '/', reason: 'Owner approved bounded apt package' });
+  await assert.rejects(approveLinuxAptInstallRequest(apt.id, apt.commandHash, {
+    ...fx.options, privilegeStatusText: 'NoNewPrivs:\t1\n',
+    privilegeMode: 'pkexec',
+    runPrivileged: async () => { called = true; return { code: 0, stdout: '', stderr: '' }; }
+  }), /LINUX_PRIVILEGE_NO_NEW_PRIVS/);
+  assert.equal(called, false);
+  assert.equal((await readAdminRequest(apt.id)).state, 'pending');
 });

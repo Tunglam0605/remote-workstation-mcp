@@ -24,6 +24,24 @@ test('Moonlight views retain documented owner-control routes', async () => {
   ]) assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
 });
 
+test('Ultimate Control uses explicit owner-local scoped activation and revoke UI', async () => {
+  const [access, store] = await Promise.all([
+    readFile(systemAccessViewsPath, 'utf8'),
+    readFile(path.resolve(import.meta.dirname, '../assets/moonlight/store.js'), 'utf8')
+  ]);
+  assert.match(store, /ultimate: \{ path: '\/api\/ultimate'/);
+  assert.match(access, /Ultimate Control 4H/);
+  assert.match(access, /permanentFullAccessWarning/);
+  assert.match(access, /remainingSeconds/);
+  assert.match(access, /setInterval\(\(\) =>/);
+  assert.match(access, /content\.isConnected/);
+  assert.match(access, /durationMinutes: Number\(ultimateDuration\.value\)/);
+  assert.match(access, /'\/api\/ultimate\/activate'/);
+  assert.match(access, /'\/api\/ultimate'/);
+  assert.match(access, /'DELETE'/);
+  assert.doesNotMatch(access, /'\/api\/permissions\/config'.*ultimateDuration/);
+});
+
 test('Moonlight views use actual workstation scope names and transient secret inputs', async () => {
   const [source, primitives, executionSource] = await Promise.all([readFile(viewsPath, 'utf8'), readFile(primitivesPath, 'utf8'), readFile(executionViewPath, 'utf8')]);
   for (const scope of ['workstation.read', 'workstation.write', 'workstation.execute', 'workstation.admin_request', 'workstation.full_control', 'workstation.cross_node_transfer']) assert.match(source, new RegExp(scope.replace('.', '\\.')));

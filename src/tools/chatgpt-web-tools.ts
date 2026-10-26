@@ -152,4 +152,18 @@ export function registerChatGptWebTools(server: McpServer, ctx: AppContext): voi
     inputSchema: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async () => result(await audited(ctx.audit, 'chatgpt_web_status', undefined, async () => buildChatGptWebStatus(ctx))));
+
+  server.registerTool('ultimate_control_status', {
+    description: 'Read-only status of an owner-local, time-bounded Ultimate project automation consent. Cannot activate or renew it; permanent base Full control and ChatGPT app approvals are independent.',
+    inputSchema: z.object({}),
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
+  }, async () => result(await audited(ctx.audit, 'ultimate_control_status', undefined, async () => ({
+    ...(await ctx.ultimateConsent.status()),
+    recentEvents: await ctx.ultimateConsent.recentEvents(),
+    baseMode: ctx.policy.status().configuredMode,
+    effectiveMode: ctx.policy.effectiveMode(),
+    permanentFullAccessWarning: ctx.policy.status().configuredMode === 'full_control',
+    activation: 'owner-local-control-center-only',
+    chatgptApprovals: 'independent'
+  }))));
 }

@@ -1,5 +1,7 @@
 # Multi-device control
 
+> Windows development feature: the [verified two-way project handoff](ULTIMATE_CONTROL_HANDOFF.md) layers a versioned ZIP/SHA-256 manifest and short-lived owner-local consent over the existing bilateral direct/relay grants. The existing frozen Ubuntu releases do not automatically gain the new workflow IDs.
+
 Remote Workstation MCP v0.14.3 uses **Direct Multi-Node** as the default topology: every workstation remains independently reachable and reports its own health. ChatGPT coordinates nodes independently; the nodes do not gain command authority over one another. Cross-node payloads are default-deny and require matching directional owner grants on both nodes before choosing a direct peer path or bounded control-plane relay.
 
 ## Preferred topology: every workstation connects directly

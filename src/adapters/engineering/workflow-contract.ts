@@ -71,6 +71,21 @@ export interface EngineeringProfileInitOptions {
 }
 
 export interface EngineeringWorkflowOverrides {
+  handoffFiles?: string[];
+  handoffOutputRelativePath?: string;
+  handoffSourceRevision?: string;
+  handoffDestinationNodeId?: string;
+  handoffDestinationWorkspace?: string;
+  handoffCreatedAt?: string;
+  handoffProfileId?: string;
+  handoffJobId?: string;
+  handoffProjectId?: string;
+  handoffRole?: 'source' | 'build_artifacts';
+  handoffArchiveRelativePath?: string;
+  handoffDestinationRelativeBase?: string;
+  handoffExpectedSha256?: string;
+  handoffSourceNodeId?: string;
+  handoffTransport?: 'direct' | 'relay';
   file?: string;
   fileName?: string;
   artifact?: string;

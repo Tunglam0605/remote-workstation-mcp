@@ -39,6 +39,7 @@ export function createSystemAccessViews({
 
   function openAccess() {
     const state = live('permissions');
+    const ultimate = live('ultimate');
     const admin = live('admin');
     const platform = live('status')?.platform;
     const content = pageRoot('Access', 'Security & access', 'Control permissions, temporary full-control sessions, and administrative approvals without exposing advanced scopes unless you need them.');
@@ -111,6 +112,105 @@ export function createSystemAccessViews({
   
     primary.append(modeSection, leaseSection);
     content.append(primary);
+
+    const ultimateSection = section(
+      'Ultimate Control 4H',
+      'Owner-local, scoped automation consent for approved project workflows. It does not provide OS Administrator/root rights or bypass ChatGPT app approvals.',
+      'moon-page-full security-ultimate-section'
+    );
+    if (!ultimate) {
+      ultimateSection.append(el('p', { class: 'moon-muted', text: t('Ultimate status unavailable; activation is disabled.') }));
+      unavailable('ultimate', ultimateSection);
+    } else if (ultimate.platformSupported === false) {
+      ultimateSection.append(el('p', { class: 'moon-status warning', text: t('Ultimate Control activation is available on Windows only. This Linux runtime remains on its existing release.') }));
+    } else {
+      const ultimateLabel = el('strong', { text: t(ultimate.active ? 'Ultimate active' : 'Ultimate inactive') });
+      const ultimateRemaining = el('span', { text: ultimate.active
+          ? t('{seconds} seconds remaining', { seconds: text(ultimate.remainingSeconds) })
+          : t('Maximum session is four hours. No automatic renewal.') });
+      const ultimateBanner = el('div', { class: ultimate.active ? 'moon-status active' : 'moon-status inactive' }, ultimateLabel, ultimateRemaining);
+      ultimateSection.append(ultimateBanner);
+      // Store refreshes every five seconds; keep the open Access page accurate
+      // without replacing its form fields or resetting the owner's selections.
+      const statusTimer = setInterval(() => {
+        if (!content.isConnected) { clearInterval(statusTimer); return; }
+        const status = live('ultimate');
+        if (!status) return;
+        const wallRemaining = status.expiresAt ? Math.max(0, Math.ceil((Date.parse(status.expiresAt) - Date.now()) / 1000)) : 0;
+        const remaining = status.active ? Math.min(Math.max(0, Number(status.remainingSeconds) || 0), wallRemaining) : 0;
+        const active = status.active && remaining > 0;
+        ultimateBanner.className = active ? 'moon-status active' : 'moon-status inactive';
+        ultimateLabel.textContent = t(active ? 'Ultimate active' : 'Ultimate inactive');
+        ultimateRemaining.textContent = active
+          ? t('{seconds} seconds remaining', { seconds: text(remaining) })
+          : t('Expired or revoked; no new protected workflow may start.');
+      }, 1000);
+      if (ultimate.permanentFullAccessWarning) ultimateSection.append(el('p', {
+        class: 'moon-status warning',
+        text: t('Warning: persistent Full control remains enabled in the base policy after Ultimate expires or is revoked. Change Permission mode separately if necessary.')
+      }));
+      if (ultimate.active) {
+        const activeScope = ultimate.scope || {};
+        ultimateSection.append(
+          el('p', { class: 'moon-muted', text: t('Approved operations: {value}', { value: (activeScope.operations || []).join(', ') }) }),
+          el('p', { class: 'moon-muted', text: t('Approved workspaces: {value}', { value: (activeScope.workspaces || []).join(', ') }) }),
+          actions(button('Revoke Ultimate immediately', async () => {
+            if (!confirm(t('Revoke this exact Ultimate automation consent now?'))) return;
+            await mutate('/api/ultimate', undefined, ['ultimate'], 'Ultimate revoked.', 'DELETE');
+            openAccess();
+          }, 'secondary-button danger-button'))
+        );
+      } else {
+        const allowedWorkspaces = Array.isArray(ultimate.availableWorkspaces) ? ultimate.availableWorkspaces : [];
+        const allowedGrants = Array.isArray(ultimate.availableTransferGrants) ? ultimate.availableTransferGrants : [];
+        const ultimateDuration = selectValue('30', [['30', '30 minutes'], ['60', '1 hour'], ['120', '2 hours'], ['240', '4 hours']]);
+        const ultimateWorkspace = selectValue(allowedWorkspaces[0]?.id || '', allowedWorkspaces.map(item => [item.id, `${item.name} (${item.id})`]));
+        const ultimateOperation = selectValue('artifact_verify', [
+          ['artifact_verify', 'Verify artifact'], ['workspace_add', 'Import project'],
+          ['build', 'Approved build'], ['test', 'Approved test'], ['transfer', 'Authorized cross-node transfer']
+        ]);
+        const ultimateProfile = el('input', { type: 'text', maxlength: '128', placeholder: t('Owner-approved profile ID (build/test only)') });
+        const ultimateGrant = selectValue(allowedGrants[0]?.id || '', allowedGrants.map(item => [item.id, `${item.id} (${item.sourceNodeId} → ${item.destinationNodeId})`]));
+        const ultimateWorkSession = el('input', { type: 'text', maxlength: '128', placeholder: t('Optional exact Work Session ID') });
+        const operationNote = el('small', { class: 'moon-muted', text: t('Choose one typed operation. Existing workspace permissions, workflow profiles and transfer grants still apply.') });
+        ultimateSection.append(
+          field('Duration (hard maximum 4h)', ultimateDuration),
+          field('Allowed workspace', ultimateWorkspace),
+          field('Allowed operation', ultimateOperation),
+          field('Approved toolchain profile ID', ultimateProfile),
+          field('Existing bilateral transfer grant', ultimateGrant),
+          field('Work Session restriction', ultimateWorkSession),
+          operationNote
+        );
+        const activate = button('Activate scoped Ultimate', async () => {
+          const operation = ultimateOperation.value;
+          const profileId = ultimateProfile.value.trim();
+          const grantId = ultimateGrant.value;
+          const sessionId = ultimateWorkSession.value.trim();
+          if ((operation === 'build' || operation === 'test') && !profileId) {
+            alert(t('Enter an existing approved profile ID.')); return;
+          }
+          if (operation === 'transfer' && !grantId) {
+            alert(t('Configure a bilateral transfer grant locally before activation.')); return;
+          }
+          const scope = {
+            operations: [operation],
+            workspaces: [ultimateWorkspace.value],
+            profileIds: operation === 'build' || operation === 'test' ? [profileId] : [],
+            transferGrantIds: operation === 'transfer' ? [grantId] : [],
+            ...(sessionId ? { workSessionId: sessionId } : {})
+          };
+          if (!confirm(t('Activate bounded Ultimate for exactly {operation} in workspace {workspace} for {minutes} minutes?', {
+            operation, workspace: ultimateWorkspace.value, minutes: ultimateDuration.value
+          }))) return;
+          await mutate('/api/ultimate/activate', { durationMinutes: Number(ultimateDuration.value), scope }, ['ultimate'], 'Ultimate activated.');
+          openAccess();
+        }, 'primary-button');
+        activate.disabled = allowedWorkspaces.length === 0;
+        ultimateSection.append(actions(activate));
+      }
+    }
+    content.append(ultimateSection);
   
     const scopeChoices = [['workstation.read', 'Read'], ['workstation.write', 'Write'], ['workstation.execute', 'Execute'], ['workstation.admin_request', 'Admin request'], ['workstation.full_control', 'Full control'], ['workstation.cross_node_transfer', 'Cross-node transfer']];
     const scopes = new Set(state.httpScopes || []);

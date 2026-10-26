@@ -7,6 +7,7 @@ const DEFINITIONS = {
   pairing: { path: '/api/devices/pairing', intervalMs: 60_000 },
   multiNode: { path: '/api/multi-node', intervalMs: 60_000 },
   permissions: { path: '/api/permissions', intervalMs: 60_000 },
+  ultimate: { path: '/api/ultimate', intervalMs: 5_000 },
   updates: { path: '/api/update/status', intervalMs: 60_000 },
   admin: { path: '/api/admin/requests', intervalMs: 15_000 }
 };

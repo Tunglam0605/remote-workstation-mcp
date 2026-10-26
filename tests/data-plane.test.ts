@@ -8,6 +8,7 @@ import { DataPlaneAdapter } from '../src/adapters/data-plane.js';
 import type { PolicyConfig } from '../src/model.js';
 import { PolicyEngine } from '../src/policy.js';
 import { PathGuard } from '../src/security/path-guard.js';
+import { CrossNodeReceiptLedger } from '../src/security/cross-node-receipt-ledger.js';
 
 function config(root: string): PolicyConfig {
   return {
@@ -39,16 +40,49 @@ function directAuthorization(fileName: string, size: number, digest: string) {
   };
 }
 
-async function fixture() {
+async function fixture(receiptLedger?: CrossNodeReceiptLedger) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-data-plane-'));
   await fs.mkdir(path.join(root, 'source', 'project'), { recursive: true });
   await fs.mkdir(path.join(root, 'dest', 'project'), { recursive: true });
   const policy = new PolicyEngine(config(root));
   const paths = new PathGuard(policy);
   const source = new DataPlaneAdapter(policy, paths, { bindAddress: '127.0.0.1', allowLoopbackForTests: true });
-  const dest = new DataPlaneAdapter(policy, paths, { bindAddress: '127.0.0.1', allowLoopbackForTests: true });
+  const dest = new DataPlaneAdapter(policy, paths, { bindAddress: '127.0.0.1', allowLoopbackForTests: true, receiptLedger });
   return { root, source, dest };
 }
+
+test('successful ticket-bound direct ingress creates private handoff provenance; local accept does not', async () => {
+  const ledger = new CrossNodeReceiptLedger();
+  const f = await fixture(ledger);
+  try {
+    const body = 'handoff-body';
+    await fs.writeFile(path.join(f.root, 'source', 'project', 'source.zip'), body);
+    const sha256 = createHash('sha256').update(body).digest('hex');
+    const authorization = directAuthorization('source.zip', Buffer.byteLength(body), sha256);
+    const verifiedPath = `.rwmcp/transfers/verified/${sha256}-source.zip`;
+    const receipt = { authorization, verifiedPath };
+    assert.throws(() => ledger.assertReceived(receipt), /receipt/i);
+    await fs.copyFile(path.join(f.root, 'source', 'project', 'source.zip'), path.join(f.root, 'dest', 'project', 'source.zip'));
+    await f.dest.accept({ workspace: 'dest', basePath: 'project', file: 'source.zip', expectedSha256: sha256, expectedSize: Buffer.byteLength(body) });
+    assert.throws(() => ledger.assertReceived(receipt), /receipt/i);
+    const offer = await f.dest.createReceiveOffer({
+      workspace: 'dest', basePath: 'project', fileName: 'source.zip', expectedSha256: sha256,
+      expectedSize: Buffer.byteLength(body), authorization
+    });
+    const pushed = await f.source.push({
+      workspace: 'source', basePath: 'project', file: 'source.zip', endpoint: offer.endpoint,
+      ticket: offer.ticket, expectedSha256: sha256, expectedSize: Buffer.byteLength(body), authorization
+    });
+    assert.equal(pushed.accepted.verifiedPath, verifiedPath);
+    assert.deepEqual(offer.authorization, authorization);
+    assert.doesNotThrow(() => ledger.assertReceived({ authorization: offer.authorization, verifiedPath: pushed.accepted.verifiedPath }));
+    assert.doesNotThrow(() => ledger.assertReceived(receipt));
+  } finally {
+    await f.source.closeAllForTests();
+    await f.dest.closeAllForTests();
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
 
 test('generic data plane transfers a non-firmware file while engineering tools are disabled', async () => {
   const f = await fixture();

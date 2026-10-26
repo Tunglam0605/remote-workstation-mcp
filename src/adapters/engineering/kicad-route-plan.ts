@@ -505,6 +505,22 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     if(!routingBoundary.pointAllowed(start.position,edgeInset+width/2)||
        !routingBoundary.pointAllowed(end.position,edgeInset+width/2))return undefined;
     const inflate=clearance+width/2;
+    // Direction is part of the A* state for turn penalties, but copper
+    // clearance at a grid point is direction-independent. Cache it per
+    // net-edge search: reservations do not change until findPath returns.
+    const walkClearance=new Map<string,boolean>();
+    const pointBlocked=(layer:number,x:number,y:number,endpoint:boolean)=>{
+      const key=layer+':'+x+':'+y+':'+(endpoint?1:0);
+      const hit=walkClearance.get(key);
+      if(hit!==undefined)return hit;
+      const blocked=!pointInsideCopper(x,y,width/2)
+        ||nearDrilledHole(x,y,width/2,netName,false)
+        ||nearForeignPad(layer,x,y,inflate,netName)
+        ||(!endpoint&&(nearExistingCopper(layer,x,y,width/2,clearance,netName)
+          ||nearPlanned(layer,x,y,width/2,clearance,netName)));
+      if(walkClearance.size<120_000)walkClearance.set(key,blocked);
+      return blocked;
+    };
     const cardinalDirs = [[1,0],[-1,0],[0,1],[0,-1]] as const;
     const diagonalDirs = [[1,1],[1,-1],[-1,1],[-1,-1]] as const;
     const dirs = options.allowDiagonal45 ? [...cardinalDirs,...diagonalDirs] : [...cardinalDirs];
@@ -533,18 +549,13 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         }
         for(let di=0;di<dirs.length;di++){
           const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
-          if(x<left||y<top||x>right||y>bottom || !pointInsideCopper(x,y,width/2))continue;
+          if(x<left||y<top||x>right||y>bottom)continue;
           const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
-          if(nearDrilledHole(x,y,width/2,netName,false)||nearForeignPad(cur.layer,x,y,inflate,netName))continue;
-          if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)))continue;
+          if(pointBlocked(cur.layer,x,y,endpoint))continue;
           // A diagonal may not cut between two blocked orthogonal neighbors:
           // its swept copper must clear the adjacent grid cells as well.
           if(dx!==0&&dy!==0){
-            const cornerBlocked=(cx:number,cy:number)=>
-              nearDrilledHole(cx,cy,width/2,netName,false)||
-              nearForeignPad(cur.layer,cx,cy,inflate,netName)||
-              nearExistingCopper(cur.layer,cx,cy,width/2,clearance,netName)||
-              nearPlanned(cur.layer,cx,cy,width/2,clearance,netName);
+            const cornerBlocked=(cx:number,cy:number)=>pointBlocked(cur.layer,cx,cy,false);
             if(cornerBlocked(cur.x+dx,cur.y)||cornerBlocked(cur.x,cur.y+dy))continue;
           }
           const horizontal=dy===0,layerName=layers[cur.layer]!;
@@ -560,7 +571,9 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName));
         // Endpoint vias must meet foreign-net copper clearance too.
         if(!viaForeignPadBlocked&&!viaBlocked){
-          const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
+          // A via is not a compass direction. For 8-direction A*, index 4
+          // would collide with the first 45-degree step direction.
+          const next:GridState={x:cur.x,y:cur.y,layer:other,dir:dirs.length},key=stateKey(next),ng=curG+viaCost;
           if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(cur.x,cur.y),next);}
         }
       }

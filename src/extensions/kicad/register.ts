@@ -507,7 +507,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     result(await audited(ctx.audit, 'kicad_route_plan', workspace, () => ctx.engineering.kicad.routePlan(workspace, projectPath, board, options))));
 
   server.registerTool('kicad_route_batch_apply', {
-    description: 'Apply 1..256 typed straight-track/through-via routing operations to one authorized KiCad PCB in a single transaction. Requires Work Session ownership and exact board SHA, validates net/layer identity, backs up and writes atomically, runs KiCad DRC plus schematic parity before/after, and rolls the entire batch back on regression. No raw scripts, deletion, arcs, blind/micro vias or implicit autorouting.',
+    description: 'Apply 1..256 typed straight-track/through-via routing operations to one authorized KiCad PCB in a single transaction. Requires Work Session ownership and exact board SHA, validates net/layer identity, backs up and writes atomically, runs KiCad DRC plus schematic parity before/after (optional explicit zone refill and saved-zone recheck), and rolls the entire batch back on regression. No raw scripts, deletion, arcs, blind/micro vias or implicit autorouting.',
     inputSchema: kicadProject.extend({
       workSessionId: z.string().uuid(),
       board: z.string().min(1).max(1024),
@@ -515,7 +515,8 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       operations: z.array(routeOperation).min(1).max(256),
       requireNoNewViolations: z.boolean().default(true),
       requireUnconnectedNonIncrease: z.boolean().default(true),
-      requireParityNonIncrease: z.boolean().default(true)
+      requireParityNonIncrease: z.boolean().default(true),
+      refillZones: z.boolean().default(false)
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workSessionId, ...request }) =>

@@ -13,7 +13,7 @@ import type { WorkSession } from '../src/work-session.js';
 
 const SESSION = '90909090-9090-4090-8090-909090909090';
 
-async function fixture(t: test.TestContext, mode: 'all-three' | 'rwmcp-only' = 'all-three') {
+async function fixture(t: test.TestContext, mode: 'all-three' | 'rwmcp-only' = 'all-three', codexSessionLimit = 0, antigravitySessionLimit = 0) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-decomposition-'));
   t.after(async () => fs.rm(root, { recursive: true, force: true }));
   const settings = normalizeSetupSettings({
@@ -23,7 +23,17 @@ async function fixture(t: test.TestContext, mode: 'all-three' | 'rwmcp-only' = '
       defaultMode: mode === 'rwmcp-only' ? 'rwmcp-only' : 'both',
       codexEnabled: mode !== 'rwmcp-only',
       antigravityEnabled: mode !== 'rwmcp-only',
-      workerRoutingProfile: 'smart'
+      workerRoutingProfile: 'smart',
+      maxCodexTasksPerSession: codexSessionLimit,
+      targetPolicy: {
+        enabledTargets: mode === 'rwmcp-only' ? ['rwmcp-direct'] : ['rwmcp-direct', 'codex-local', 'antigravity-local'],
+        fallback: 'rwmcp-direct',
+        budgets: {
+          'rwmcp-direct': { maxTasksPerSession: 0, maxTasksPerDay: 0 },
+          'codex-local': { maxTasksPerSession: codexSessionLimit, maxTasksPerDay: 0 },
+          'antigravity-local': { maxTasksPerSession: antigravitySessionLimit, maxTasksPerDay: 0 }
+        }
+      }
     }
   });
   const graphs = new TaskGraphStore('openai-tunnel', { file: path.join(root, 'objectives.json') });
@@ -47,7 +57,7 @@ async function fixture(t: test.TestContext, mode: 'all-three' | 'rwmcp-only' = '
   } as WorkSession;
   const sessions = { list: async () => [session] };
   const service = new ObjectiveDecompositionService(graphs, policy, providers, sessions, { loadSettings: async () => settings });
-  return { graphs, service, worktree };
+  return { graphs, service, policy, worktree };
 }
 
 test('Objective decomposition assigns Antigravity to frontend and Codex to coding while resolving the DAG atomically', async t => {
@@ -99,5 +109,69 @@ test('Objective decomposition rejects a local-key cycle before Task Graph mutati
       /DECOMPOSITION_CYCLE/
     );
     assert.equal((await graphs.get(objective.id)).tasks.length, 0);
+  });
+});
+
+
+test('auto-worker uses healthy alternate when preferred Codex session budget is exhausted', async t => {
+  const { graphs, service, policy } = await fixture(t, 'all-three', 1);
+  await policy.beforeTargetDispatch('codex-local', SESSION, { deferFallback: true });
+  const exhausted = await policy.status(SESSION);
+  assert.equal(exhausted.targetPolicy.targets['codex-local'].maxTasksPerSession, 1);
+  assert.equal(exhausted.targetPolicy.targets['codex-local'].tasksThisSession, 1);
+  await runWithWorkSession(SESSION, async () => {
+    const objective = await graphs.create({ name: 'Fallback', objective: 'Assign coding to available budgeted worker' });
+    const result = await service.decompose(objective.id, {
+      tasks: [{ key: 'code', title: 'Implement bounded change', intent: 'coding', execution: { kind: 'auto-worker' } }]
+    });
+    assert.deepEqual(result.tasks[0]?.execution, { kind: 'worker-provider', providerId: 'antigravity-local' });
+    assert.equal(result.assignments[0]?.routePlan?.selected, 'antigravity-local');
+  });
+});
+
+test('batch auto-worker reserves budget across sibling tasks before atomic persistence', async t => {
+  const { graphs, service } = await fixture(t, 'all-three', 1, 1);
+  await runWithWorkSession(SESSION, async () => {
+    const objective = await graphs.create({ name: 'Parallel roles', objective: 'Share coding work within provider budgets' });
+    const result = await service.decompose(objective.id, {
+      tasks: [
+        { key: 'backend', title: 'Implement backend', intent: 'coding', execution: { kind: 'auto-worker' } },
+        { key: 'review', title: 'Review independent module', intent: 'review', execution: { kind: 'auto-worker' } }
+      ]
+    });
+    assert.deepEqual(result.tasks.map(item => item.execution), [
+      { kind: 'worker-provider', providerId: 'codex-local' },
+      { kind: 'worker-provider', providerId: 'antigravity-local' }
+    ]);
+    assert.equal(result.assignments[1]?.routePlan?.selected, 'antigravity-local');
+  });
+});
+
+test('batch auto-worker fails atomically when every allowed worker budget is reserved', async t => {
+  const { graphs, service } = await fixture(t, 'all-three', 1, 1);
+  await runWithWorkSession(SESSION, async () => {
+    const objective = await graphs.create({ name: 'Capacity bound', objective: 'Never overbook provider budget' });
+    await assert.rejects(service.decompose(objective.id, {
+      tasks: ['taska', 'taskb', 'taskc'].map((key) => ({
+        key, title: key, intent: 'coding' as const, execution: { kind: 'auto-worker' as const }
+      }))
+    }), /NO_AI_TARGET_CAPACITY/);
+    assert.equal((await graphs.get(objective.id)).tasks.length, 0);
+  });
+});
+
+test('explicit Codex binding reserves capacity before auto-routing a sibling task', async t => {
+  const { graphs, service } = await fixture(t, 'all-three', 1, 0);
+  await runWithWorkSession(SESSION, async () => {
+    const objective = await graphs.create({ name: 'Explicit plus auto', objective: 'Avoid overbooking the already reserved worker' });
+    const result = await service.decompose(objective.id, {
+      tasks: [
+        { key: 'explicit', title: 'Explicit Codex', intent: 'coding', execution: { kind: 'worker-provider', providerId: 'codex-local' } },
+        { key: 'auto', title: 'Auto review', intent: 'review', execution: { kind: 'auto-worker' } }
+      ]
+    });
+    assert.equal(result.tasks[1]?.execution?.kind, 'worker-provider');
+    assert.deepEqual(result.tasks[1]?.execution, { kind: 'worker-provider', providerId: 'antigravity-local' });
+    assert.equal(result.assignments[1]?.routePlan?.selected, 'antigravity-local');
   });
 });

@@ -94,3 +94,15 @@ verification reports a new violation. Other V186 nets and silkscreen warnings
 remain outstanding: this is **one-net engineering acceptance, not PCB
 manufacturing approval**. Do not silently enable refill for unrelated tools,
 alter the owner's original board, or publish Gerbers before full acceptance.
+
+**Strict connectivity gate:** `kicad_route_batch_apply` also accepts optional
+`requireUnconnectedDecrease: true` (default false). Use it when the
+objective is to resolve ratsnest connections: a candidate must reduce the
+official KiCad unconnected count after the DRC checks, including after zone
+fill persistence. It rolls back otherwise, even if new DRC violations are
+zero. A sequential V186-only copy test demonstrated why: `/D48` added
+15 segments + 1 via but left the count at 17, while `/D41` reduced it to
+16. Neither operation changed the source PCB. This opt-in gate prevents
+such non-improving `/D48` proposals from being accepted as routing
+completion; legitimate track repairs that do not change ratsnest counts can
+continue with the original default gate.

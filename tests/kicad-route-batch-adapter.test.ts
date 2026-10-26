@@ -204,3 +204,27 @@ test('KiCad route batch zone-refill acceptance persists filled zones and rolls b
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('strict connection-improvement gate rolls back a DRC-clean route that fixes no ratsnest', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-route-strict-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin);
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const board = path.join(root, 'strict.kicad_pcb');
+  await fs.writeFile(board, BOARD);
+  try {
+    const adapter = await makeAdapter(root, false);
+    await assert.rejects(() => adapter.routeBatchApply('w', '.', {
+      board: 'strict.kicad_pcb', expectedBoardSha256: sha256(BOARD),
+      operations: [{kind:'segment',netName:'/SIG',layer:'F.Cu',
+        start:{x:10,y:10},end:{x:20,y:10},widthMm:0.25}],
+      requireUnconnectedDecrease: true
+    }), /unconnected did not decrease 0->0/);
+    assert.equal(await fs.readFile(board, 'utf8'), BOARD);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

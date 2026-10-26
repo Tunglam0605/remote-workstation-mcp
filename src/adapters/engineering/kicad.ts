@@ -1319,6 +1319,8 @@ export class KicadAdapter {
       operations: KicadRouteBatchOperation[];
       requireNoNewViolations?: boolean;
       requireUnconnectedNonIncrease?: boolean;
+      /** Require a net-connectivity improvement, not merely zero regression. */
+      requireUnconnectedDecrease?: boolean;
       requireParityNonIncrease?: boolean;
       /** Explicitly include zone refill in acceptance DRC and persist accepted fills. */
       refillZones?: boolean;
@@ -1354,6 +1356,7 @@ export class KicadAdapter {
       const reasons: string[] = [];
       if (request.requireNoNewViolations !== false && afterViolations > beforeViolations) reasons.push(`violations ${beforeViolations}->${afterViolations}`);
       if (request.requireUnconnectedNonIncrease !== false && afterUnconnected > beforeUnconnected) reasons.push(`unconnected ${beforeUnconnected}->${afterUnconnected}`);
+      if (request.requireUnconnectedDecrease === true && afterUnconnected >= beforeUnconnected) reasons.push(`unconnected did not decrease ${beforeUnconnected}->${afterUnconnected}`);
       if (request.requireParityNonIncrease !== false && afterParity > beforeParity) reasons.push(`schematicParity ${beforeParity}->${afterParity}`);
       if (reasons.length) {
         await atomicReplace(boardPath, beforeSource);
@@ -1372,6 +1375,8 @@ export class KicadAdapter {
           persistedReasons.push(`persisted violations ${beforeViolations}->${counts.violations}`);
         if (request.requireUnconnectedNonIncrease !== false && Number(counts.unconnected) > beforeUnconnected)
           persistedReasons.push(`persisted unconnected ${beforeUnconnected}->${counts.unconnected}`);
+        if (request.requireUnconnectedDecrease === true && Number(counts.unconnected) >= beforeUnconnected)
+          persistedReasons.push(`persisted unconnected did not decrease ${beforeUnconnected}->${counts.unconnected}`);
         if (request.requireParityNonIncrease !== false && Number(counts.schematicParity) > beforeParity)
           persistedReasons.push(`persisted schematicParity ${beforeParity}->${counts.schematicParity}`);
         if (persistedReasons.length)

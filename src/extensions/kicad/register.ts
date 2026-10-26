@@ -515,6 +515,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       operations: z.array(routeOperation).min(1).max(256),
       requireNoNewViolations: z.boolean().default(true),
       requireUnconnectedNonIncrease: z.boolean().default(true),
+      requireUnconnectedDecrease: z.boolean().default(false),
       requireParityNonIncrease: z.boolean().default(true),
       refillZones: z.boolean().default(false)
     }),

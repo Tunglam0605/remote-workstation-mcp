@@ -1,1 +1,3 @@
 scripts/*.sh text eol=lf
+# Preserve source-size budget across Git for Windows checkout line endings.
+src/adapters/engineering/kicad.ts text eol=lf

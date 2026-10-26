@@ -173,3 +173,17 @@ Published checksums protect against accidental/corrupt downloads and mismatches 
 ## Vulnerability reporting
 
 For issues that could enable policy bypass, secret disclosure, unauthorized command execution, SSH policy escape, authentication/scope bypass, update compromise, setup/control-token bypass, managed-process identity bypass or permission-elevation bypass, use a GitHub Security Advisory rather than a public issue.
+
+
+### Owner-configured Full Control — reduced-friction Control Center (2026-10-26)
+
+When the local owner **already configured** `full_control`, the Security
+page surfaces status and pending administrator requests instead of making
+them select Full Control again or request a redundant lease. A collapsed
+**Owner policy changes** section preserves explicit downgrade/recovery
+controls. Temporary active leases remain revocable; the raw HTTP-scope and
+filesystem/shell gates remain in Advanced access scopes. The feature does
+not modify policy, permissions, SSH keys, UAC, sudo, ChatGPT approval prompts,
+or server-side authority. `read_only`/`workspace` installations still
+display ordinary mode and time-limited lease controls. Regression tests
+cover both owner policy states on the shared Windows/Ubuntu Moonlight UI.

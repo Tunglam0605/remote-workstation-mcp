@@ -4,7 +4,6 @@ import type { PersistedWorkflowParameters } from './engineering-workflow-contrac
 import type { SetupSettings, ExecutionTargetId } from './setup/settings.js';
 import { loadSetupSettings } from './setup/settings.js';
 import {
-  affinityOrderForIntent,
   allowedExecutionTargets,
   planWorkerRoute,
   type WorkerRoutePlan,
@@ -105,29 +104,54 @@ function validateLocalGraph(tasks: ObjectiveDecompositionTaskInput[]): void {
   for (const key of keys) visit(key);
 }
 
-function providerReady(statuses: WorkerProviderStatus[], providerId: string): boolean {
-  const status = statuses.find(item => item.provider.id === providerId);
-  return Boolean(status && status.dispatchCapable && status.availability === 'available');
-}
-
 function autoWorkerTarget(
   intent: WorkerRoutingIntent,
   settings: SetupSettings,
   policy: Awaited<ReturnType<ExecutionPolicyService['status']>>,
-  providers: WorkerProviderStatus[]
+  providers: WorkerProviderStatus[],
+  reserved: Readonly<Partial<Record<'codex-local' | 'antigravity-local', number>>>
 ): { target: 'codex-local' | 'antigravity-local'; routePlan: WorkerRoutePlan } {
   const routePlan = planWorkerRoute({ settings: settings.execution, status: policy, providers, intent });
-  const allowed = new Set(allowedExecutionTargets(settings.execution, policy));
-  const workerOrder = affinityOrderForIntent(intent).filter(
-    (target): target is 'codex-local' | 'antigravity-local' =>
-      target === 'codex-local' || target === 'antigravity-local'
+  // Share the planner's owner/session capacity decisions. Do not persist an
+  // assignment to a preferred worker whose allowed budget is exhausted.
+  const candidates = routePlan.candidates.filter(
+    (candidate): candidate is typeof candidate & { target: 'codex-local' | 'antigravity-local' } =>
+      candidate.target === 'codex-local' || candidate.target === 'antigravity-local'
   );
-  const target = workerOrder.find(candidate => allowed.has(candidate) && providerReady(providers, candidate))
-    ?? workerOrder.find(candidate => allowed.has(candidate));
-  if (!target) {
+  if (candidates.length === 0) {
     throw new Error(`NO_AI_TARGET_ALLOWED: task intent '${intent}' has no Codex/Antigravity target allowed by the effective Work Session policy.`);
   }
-  return { target, routePlan };
+  // An offline but otherwise permitted worker can be persisted as
+  // waiting-provider. Disabled/over-budget targets cannot be selected.
+  const hasRemainingCapacity = (target: 'codex-local' | 'antigravity-local'): boolean => {
+    const runtime = policy.targetPolicy.targets[target];
+    const pending = reserved[target] ?? 0;
+    return (runtime.maxTasksPerSession === 0 || runtime.tasksThisSession + pending < runtime.maxTasksPerSession)
+      && (runtime.maxTasksPerDay === 0 || runtime.tasksToday + pending < runtime.maxTasksPerDay);
+  };
+  const capacityCandidates = routePlan.candidates.map(item => {
+    if ((item.target === 'codex-local' || item.target === 'antigravity-local') && !hasRemainingCapacity(item.target)) {
+      return { ...item, ready: false, reason: 'Worker capacity reserved or exhausted by this Work Session objective batch.' };
+    }
+    return item;
+  });
+  const candidate = candidates.find(item => item.ready && hasRemainingCapacity(item.target))
+    ?? candidates.find(item => item.reason.includes('unavailable or not dispatch-capable.') && hasRemainingCapacity(item.target));
+  if (!candidate) {
+    throw new Error(`NO_AI_TARGET_CAPACITY: task intent '${intent}' has no enabled AI worker with remaining budget.`);
+  }
+  const available = capacityCandidates.find(item => item.ready);
+  const selected = available?.target ?? 'stop';
+  const reservedRoutePlan: WorkerRoutePlan = {
+    ...routePlan,
+    candidates: capacityCandidates,
+    selected,
+    canDispatchWorker: selected === 'codex-local' || selected === 'antigravity-local',
+    note: reserved[candidate.target]
+      ? 'Route reflects remaining capacity reserved by earlier tasks in this atomic objective batch.'
+      : routePlan.note
+  };
+  return { target: candidate.target, routePlan: reservedRoutePlan };
 }
 
 export class ObjectiveDecompositionService {
@@ -156,6 +180,7 @@ export class ObjectiveDecompositionService {
       this.workerProviders.listStatus()
     ]);
     const allowedTargets = new Set(allowedExecutionTargets(settings.execution, policy));
+    const reservedWorkerCapacity: Partial<Record<'codex-local' | 'antigravity-local', number>> = {};
     const prepared: Array<{
       source: ObjectiveDecompositionTaskInput;
       execution: WorkTaskExecutionBinding;
@@ -168,7 +193,8 @@ export class ObjectiveDecompositionService {
       let execution: WorkTaskExecutionBinding;
       let routePlan: WorkerRoutePlan | undefined;
       if (source.execution.kind === 'auto-worker') {
-        const routed = autoWorkerTarget(source.intent, settings, policy, providers);
+        const routed = autoWorkerTarget(source.intent, settings, policy, providers, reservedWorkerCapacity);
+        reservedWorkerCapacity[routed.target] = (reservedWorkerCapacity[routed.target] ?? 0) + 1;
         execution = { kind: 'worker-provider', providerId: routed.target };
         routePlan = routed.routePlan;
       } else if (source.execution.kind === 'worker-provider') {
@@ -179,6 +205,10 @@ export class ObjectiveDecompositionService {
           throw new Error(`WORKER_PROVIDER_NOT_ALLOWED: '${providerId}' is excluded by the effective target policy.`);
         }
         execution = { kind: 'worker-provider', providerId };
+        if (providerId === 'codex-local' || providerId === 'antigravity-local') {
+          // An explicitly bound task still consumes a future worker slot.
+          reservedWorkerCapacity[providerId] = (reservedWorkerCapacity[providerId] ?? 0) + 1;
+        }
       } else {
         execution = {
           kind: 'engineering-workflow',

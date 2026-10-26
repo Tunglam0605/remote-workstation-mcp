@@ -183,3 +183,75 @@ Owner / lead agent
 ```
 
 The orchestrator may decide who should do work, but every workstation action is still constrained by local policy. Delegation must never imply permission escalation.
+
+## ChatGPT Web multi-agent workflow (Windows v0.71.x)
+
+ChatGPT Web is the **lead planner and acceptance reviewer**. RWMCP is the
+deterministic execution and state control plane, not a second undisclosed LLM
+planner. `full_control` does **not** bypass ChatGPT's own Allow confirmation.
+
+Use this read-only readiness sequence before promising parallel AI work:
+
+1. `chatgpt_web_status` for secure tunnel, principal and runtime health.
+2. `worker_provider_list` for actual Codex and Antigravity readiness.
+3. `codex_account_broker_status` for Cockpit pool constraints, without secrets.
+4. `worker_route_plan(intent="coding")` and
+   `worker_route_plan(intent="frontend-ui")` for advisory fallback paths.
+5. `project_status(workspace="projects", projectPath="<repository>")`
+   to spot conflicting sessions/worktrees and concurrent engineering work.
+
+For one **bounded** objective:
+
+```text
+ChatGPT Web
+  -> work_session_create(projectPath=..., workspace="projects")
+  -> work_session_worktree_prepare(sessionId, startPoint=<verified release>)
+  -> work_objective_create(sessionId, name=..., objective=...)
+  -> work_objective_decompose(
+       objectiveId, workSessionId,
+       tasks=[
+         {key:"backend", intent:"coding", execution:{kind:"auto-worker"}},
+         {key:"ui", intent:"frontend-ui", execution:{kind:"auto-worker"}},
+         {key:"review", intent:"review", dependsOn:["backend","ui"],
+          execution:{kind:"auto-worker"}}
+       ])
+  -> work_objective_dispatch_wave(objectiveId, workSessionId, maxParallel=2)
+  -> work_objective_summary(objectiveId, workSessionId)
+  -> work_objective_attempts(workSessionId, objectiveId)
+  -> inspect diffs, build/tests, human approval for irreversible operations
+```
+
+**Do not assume all tasks in this example run at once.** AI worker-provider
+tasks are serialized within the **same** Work Session because they share one
+writable worktree. `maxParallel` (1-4) applies to compatible independent
+deterministic operations and does not authorize simultaneous writers.
+To truly execute independent coding agents simultaneously, create **separate**
+owner-scoped Work Sessions with separate worktrees, dispatch each objective
+independently, and aggregate their commits/diffs only after review.
+`project_session_group_create` groups coordination metadata but does not
+acquire new execution rights or implicitly schedule work.
+
+**Capacity/availability behavior:** `auto-worker` uses current owner/session
+target policy and provider status; within a single decomposition batch, each
+planned assignment reserves one slot of the configured session/daily target
+budget. A ready alternate can replace an exhausted preferred worker; if all
+allowed AI targets are disabled or over budget, decomposition fails atomically
+(`NO_AI_TARGET_CAPACITY`) rather than persisting an impossible assignment.
+Offline but otherwise permitted providers may remain waiting until available.
+This is planning protection, not a concurrency or spend guarantee: the
+authoritative dispatch-time policy rechecks live limits before execution.
+
+If `codex_account_broker_status` reports a blocked Cockpit native gateway,
+do not retry a failed Codex task indefinitely. Fix the owner's API gateway
+configuration and recheck health, or allow bounded Antigravity/direct work as
+configured. Never print credentials or silently switch to a different account.
+
+For progress efficiency, use detached `work_objective_dispatch_wave` and
+periodic `work_objective_summary` rather than keeping a long ChatGPT/MCP call
+open for an entire worker run. Respect each task's durable attempts, resource
+leases, retry/cancellation policy and approval boundaries.
+
+**Limitations:** RWMCP does not spawn additional ChatGPT conversations,
+control the ChatGPT product's own agent execution, or click Allow for the user.
+A separate optional Chrome Approval Voice Alert can *notify* the owner when
+a visible UI confirmation appears; that is independent of worker orchestration.

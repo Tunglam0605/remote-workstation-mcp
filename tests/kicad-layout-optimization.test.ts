@@ -145,6 +145,108 @@ test('KiCad layout optimizer derives pad geometry, routing efficiency, affinity 
   assert.equal(codes.has('net-weighted-placement-candidates'), true);
 });
 
+test('rotated KiCad PCB pad positions use clockwise-positive board coordinates', () => {
+  const source = `(kicad_pcb
+    (net 1 "/SIGNAL")
+    (footprint "Conn:A" (at 30 25 0)
+      (property "Reference" "J1")
+      (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net 1 "/SIGNAL")))
+    (footprint "Conn:B" (at 30 30 90)
+      (property "Reference" "J2")
+      (pad "1" smd rect (at 5 0) (size 1 1) (layers "F.Cu") (net 1 "/SIGNAL")))
+  )`;
+  const output = analyzeKicadLayoutOptimization({ board: source });
+  assert.equal(output.boardConnectivity.netCount, 1);
+  assert.equal(output.routingEfficiency.noExplicitCopper[0]?.euclideanMstMm, 0);
+  assert.equal(output.routingEfficiency.noExplicitCopper[0]?.hpwlMm, 0);
+});
+
+test('KiCad 10 named-only nets remain connected for layout and routing optimization', () => {
+  const namedBoard = BOARD
+    .replaceAll('(net 0 "")', '(net "")')
+    .replaceAll('(net 1 "VCC")', '(net "VCC")')
+    .replaceAll('(net 2 "SIG")', '(net "SIG")')
+    .replaceAll('(net 1)', '(net "VCC")')
+    .replaceAll('(net 2)', '(net "SIG")');
+  const out = analyzeKicadLayoutOptimization(
+    { board: namedBoard, schematicNetlist: NETLIST },
+    { maxDetails: 20, maxPlacementNetPads: 8 }
+  );
+  assert.equal(out.boardConnectivity.footprintCount, 3);
+  assert.equal(out.boardConnectivity.connectedPadCount, 5);
+  assert.equal(out.boardConnectivity.netCount, 2);
+  assert.ok(out.routingEfficiency.topDetourNets.some(item => item.name === 'VCC' && item.viaCount === 1));
+  assert.ok(out.placementOptimization.candidates.length > 0);
+  assert.equal(out.schematicConnectivity?.matchingPins, 4);
+  assert.deepEqual(out.schematicConnectivity?.netMismatches, [{
+    reference: 'C1', pin: '1', schematicNet: 'GND', boardNet: 'VCC'
+  }]);
+});
+
+test('KiCad 10 mixed numeric and named-only nets use one coherent connection graph', () => {
+  const mixedBoard = BOARD
+    // Keep numeric global net declarations and numeric tracks/vias;
+    // only pad declarations switch to KiCad 10 named-only notation.
+    .replaceAll('(net 1 "VCC"))', '(net "VCC"))')
+    .replaceAll('(net 2 "SIG"))', '(net "SIG"))');
+  const out = analyzeKicadLayoutOptimization({ board: mixedBoard, schematicNetlist: NETLIST });
+  assert.equal(out.boardConnectivity.connectedPadCount, 5);
+  assert.equal(out.boardConnectivity.netCount, 2);
+  assert.ok(out.routingEfficiency.topViaNets.some(item => item.name === 'VCC'));
+  assert.equal(out.schematicConnectivity?.matchingPins, 4);
+});
+
+test('layout planner honors explicitly fixed mechanical footprint references', () => {
+  const out = analyzeKicadLayoutOptimization(
+    { board: BOARD }, { maxDetails: 20, fixedReferences: ['u1', 'C1'] }
+  );
+  assert.deepEqual(out.placementOptimization.fixedReferences, ['C1', 'U1']);
+  assert.deepEqual(out.options.fixedReferences, ['C1', 'U1']);
+  assert.equal(out.placementOptimization.candidates.some(item => item.reference === 'U1'), false);
+  assert.equal(out.placementOptimization.candidates.some(item => item.reference === 'C1'), false);
+  assert.equal(out.placementOptimization.candidates.some(item => item.reference === 'U2'), true);
+  assert.throws(() => analyzeKicadLayoutOptimization({ board: BOARD }, { fixedReferences: ['J404'] }), /Unknown fixedReferences/);
+  assert.throws(() => analyzeKicadLayoutOptimization({ board: BOARD }, { fixedReferences: ['../../bad'] }), /Invalid fixedReferences/);
+});
+
+test('KiCad board optimizer exposes an explicit courtyard-aware constrained group plan', () => {
+  const pcb = `(kicad_pcb
+    (footprint "Connector:J1" (layer "F.Cu") (at 10 10)
+      (property "Reference" "J1")
+      (fp_rect (start -2 -2) (end 2 2) (layer "F.CrtYd")))
+    (footprint "Connector:J2" (layer "F.Cu") (at 30 14)
+      (property "Reference" "J2")
+      (fp_rect (start -2 -2) (end 2 2) (layer "F.CrtYd")))
+    (footprint "Connector:J3" (layer "F.Cu") (at 50 18)
+      (property "Reference" "J3")
+      (fp_rect (start -2 -2) (end 2 2) (layer "F.CrtYd")))
+  )`;
+  const result = analyzeKicadLayoutOptimization({ board: pcb }, {
+    fixedReferences: ['J1'],
+    alignmentGroups: [{ id: 'UART', axis: 'row', anchorReference: 'J1', references: ['J1', 'J2', 'J3'] }],
+    rankScenarios: true,
+    keepouts: [{ id: 'USB', bounds: { minX: 90, minY: 90, maxX: 95, maxY: 95 } }],
+    boardBounds: { minX: 0, minY: 0, maxX: 60, maxY: 60 }
+  });
+  assert.equal(result.placementOptimization.legacyGeometricProposalsSuppressed, true);
+  assert.deepEqual(result.placementOptimization.candidates, []);
+  assert.equal(result.constraintPlacement?.counts.proposals, 2);
+  assert.equal(result.constraintPlacement?.counts.blocked, 0);
+  assert.deepEqual(result.constraintPlacement?.candidates[0]?.proposedPositionMm, { x: 30, y: 10 });
+  assert.equal(result.constraintPlacement?.candidates[0]?.status, 'review');
+  assert.equal(result.constraintPlacement?.candidates.some(item => item.reference === 'J1'), false);
+  assert.equal(result.rankedPlacement?.hypothesisCount, 3);
+  assert.equal(result.rankedPlacement?.evidenceLimits.noCopperOrKiCadDrcOnHypotheses, true);
+  assert.equal(result.rankedPlacement?.rankedScenarios.length, 3);
+});
+
+test('scenario ranking refuses empty constraint groups rather than returning a false no-op result', () => {
+  assert.throws(
+    () => analyzeKicadLayoutOptimization({ board: BOARD }, { rankScenarios: true }),
+    /rankScenarios requires at least one explicit alignmentGroup/
+  );
+});
+
 test('KiCad layout optimizer suppresses high-fanout nets from placement pressure without dropping routing evidence', () => {
   const analysis = analyzeKicadLayoutOptimization(
     { board: BOARD },

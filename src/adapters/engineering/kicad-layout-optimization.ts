@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import { planConstrainedPlacement } from './kicad-placement-constraints.js';
+import { rankConstrainedPlacementScenarios } from './kicad-placement-ranking.js';
+import { readKicadBoardOutline } from './kicad-board-outline.js';
+import type { PlacementConstraintOptions, PlacementRect } from './kicad-placement-constraints.js';
 
 const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 const MAX_BLOCKS = 200_000;
@@ -19,6 +23,7 @@ type BoardFootprint = {
   rotationDeg: number;
   locked: boolean;
   pads: BoardPad[];
+  courtyard?: PlacementRect;
 };
 
 type RouteEvidence = {
@@ -29,11 +34,15 @@ type RouteEvidence = {
   layers: Set<string>;
 };
 
-export interface KicadLayoutOptimizationOptions {
+export interface KicadLayoutOptimizationOptions extends PlacementConstraintOptions {
   maxDetails?: number;
   maxPlacementNetPads?: number;
   maxSuggestedStepMm?: number;
   placementGridMm?: number;
+  fixedReferences?: string[];
+  rankScenarios?: boolean;
+  maxHpwlRegressionMm?: number;
+  minEdgeClearanceMm?: number;
 }
 
 function sha256Text(value: string): string {
@@ -99,12 +108,6 @@ function quotedToken(block: string, token: string): string | undefined {
   return match?.[1] !== undefined ? unquote(match[1]) : undefined;
 }
 
-function numberToken(block: string, token: string): number | undefined {
-  const escaped = token.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
-  const match = block.match(new RegExp('\\(' + escaped + '\\s+(-?\\d+(?:\\.\\d+)?)\\)', 'i'));
-  return match?.[1] !== undefined ? Number(match[1]) : undefined;
-}
-
 function pointToken(block: string, token: string): Point | undefined {
   const escaped = token.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
   const match = block.match(new RegExp('\\(' + escaped + '\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)', 'i'));
@@ -125,10 +128,12 @@ function firstQuotedArg(block: string, token: string): string | undefined {
 }
 
 function rotate(point: Point, degrees: number): Point {
+  // KiCad PCB Y increases downward: positive footprint rotation is clockwise.
+  // Match route-plan's coordinate transform, including rectangular courtyards.
   const radians = degrees * Math.PI / 180;
   const c = Math.cos(radians);
   const s = Math.sin(radians);
-  return { x: point.x * c - point.y * s, y: point.x * s + point.y * c };
+  return { x: point.x * c + point.y * s, y: -point.x * s + point.y * c };
 }
 
 function boardNetNames(source: string): Map<number, string> {
@@ -142,10 +147,41 @@ function boardNetNames(source: string): Map<number, string> {
   return names;
 }
 
-function padNet(block: string): { id?: number; name?: string } {
-  const match = block.match(/\(net\s+(\d+)\s+"((?:\\.|[^"\\])*)"\)/);
-  if (!match?.[1]) return {};
-  return { id: Number(match[1]), ...(match[2] !== undefined ? { name: unquote(match[2]) } : {}) };
+// KiCad 10 can store net identity as (net "/NAME") without numeric codes.
+// Synthetic negative IDs are analysis-only and MUST NEVER be written to CAD files.
+function boardNetResolver(source: string): {
+  names: Map<number, string>;
+  resolve: (block: string) => { id?: number; name?: string };
+} {
+  const names = boardNetNames(source);
+  const idByName = new Map<string, number>();
+  for (const [id, name] of names) {
+    if (id !== 0 && name && !idByName.has(name)) idByName.set(name, id);
+  }
+  let nextSyntheticId = -1;
+  const resolve = (block: string): { id?: number; name?: string } => {
+    const numbered = block.match(/\(net\s+(\d+)(?:\s+"((?:\\.|[^"\\])*)")?\)/);
+    if (numbered?.[1]) {
+      const id = Number(numbered[1]);
+      if (!Number.isSafeInteger(id)) return {};
+      const name = numbered[2] !== undefined ? unquote(numbered[2]) : names.get(id);
+      if (name && !names.has(id)) names.set(id, name);
+      if (name && id !== 0 && !idByName.has(name)) idByName.set(name, id);
+      return { id, ...(name !== undefined ? { name } : {}) };
+    }
+    const named = block.match(/\(net\s+"((?:\\.|[^"\\])*)"\)/);
+    if (!named) return {};
+    const name = unquote(named[1] ?? '');
+    if (!name) return {};
+    let id = idByName.get(name);
+    if (id === undefined) {
+      id = nextSyntheticId--;
+      idByName.set(name, id);
+      names.set(id, name);
+    }
+    return { id, name };
+  };
+  return { names, resolve };
 }
 
 function padLayers(block: string): string[] {
@@ -154,7 +190,48 @@ function padLayers(block: string): string[] {
   return [...match[1].matchAll(/"([^"]+)"/g)].map(item => item[1]!).slice(0, 32);
 }
 
-function parseBoardFootprints(source: string): BoardFootprint[] {
+/** Extract a conservative AABB from the native footprint courtyard lines,
+ * rectangles and circles. Unknown courtyard primitives fail closed.
+ */
+function footprintCourtyard(source: string, origin: Point, angleDeg: number): PlacementRect | undefined {
+  const localPoints: Point[] = [];
+  let unknown = false;
+  for (const token of ['fp_rect', 'fp_line', 'fp_circle', 'fp_arc', 'fp_poly']) {
+    for (const shape of blocks(source, token, 2048)) {
+      if (!/\(layer\s+"(?:F|B)\.CrtYd"\)/.test(shape)) continue;
+      if (token === 'fp_arc' || token === 'fp_poly') { unknown = true; continue; }
+      if (token === 'fp_circle') {
+        const center = pointToken(shape, 'center');
+        const end = pointToken(shape, 'end');
+        if (!center || !end) { unknown = true; continue; }
+        const radius = Math.hypot(center.x - end.x, center.y - end.y);
+        const rotatedCenter = rotate(center, angleDeg);
+        // Circle stays circular under footprint rotation.
+        localPoints.push(
+          { x: rotatedCenter.x - radius, y: rotatedCenter.y - radius },
+          { x: rotatedCenter.x + radius, y: rotatedCenter.y + radius }
+        );
+        continue;
+      }
+      const start = pointToken(shape, 'start');
+      const end = pointToken(shape, 'end');
+      if (!start || !end) { unknown = true; continue; }
+      const corners = token === 'fp_rect'
+        ? [start, end, { x: start.x, y: end.y }, { x: end.x, y: start.y }]
+        : [start, end];
+      for (const point of corners) localPoints.push(rotate(point, angleDeg));
+    }
+  }
+  if (unknown || localPoints.length === 0) return undefined;
+  return {
+    minX: Math.min(...localPoints.map(item => item.x)) + origin.x,
+    minY: Math.min(...localPoints.map(item => item.y)) + origin.y,
+    maxX: Math.max(...localPoints.map(item => item.x)) + origin.x,
+    maxY: Math.max(...localPoints.map(item => item.y)) + origin.y
+  };
+}
+
+function parseBoardFootprints(source: string, resolveNet: (block: string) => { id?: number; name?: string }): BoardFootprint[] {
   const result: BoardFootprint[] = [];
   for (const footprintBlock of blocks(source, 'footprint', 20_000)) {
     const at = atToken(footprintBlock);
@@ -166,7 +243,7 @@ function parseBoardFootprints(source: string): BoardFootprint[] {
       if (number === undefined) continue;
       const local = atToken(padBlock) ?? { x: 0, y: 0, rotationDeg: 0 };
       const rotated = rotate({ x: local.x, y: local.y }, at.rotationDeg);
-      const net = padNet(padBlock);
+      const net = resolveNet(padBlock);
       pads.push({
         number,
         ...(net.id !== undefined ? { netId: net.id } : {}),
@@ -176,12 +253,14 @@ function parseBoardFootprints(source: string): BoardFootprint[] {
       });
       if (pads.length > 4096) throw new Error('KiCad footprint exceeds the 4096-pad optimization bound.');
     }
+    const courtyard = footprintCourtyard(footprintBlock, { x: at.x, y: at.y }, at.rotationDeg);
     result.push({
       reference,
       position: { x: at.x, y: at.y },
       rotationDeg: at.rotationDeg,
       locked: /\(locked\b/.test(footprintBlock),
-      pads
+      pads,
+      ...(courtyard ? { courtyard } : {})
     });
   }
   return result;
@@ -222,10 +301,10 @@ function routeEvidenceForNet(map: Map<number, RouteEvidence>, id: number): Route
   return value;
 }
 
-function parseRouteEvidence(source: string): Map<number, RouteEvidence> {
+function parseRouteEvidence(source: string, resolveNet: (block: string) => { id?: number; name?: string }): Map<number, RouteEvidence> {
   const map = new Map<number, RouteEvidence>();
   for (const block of blocks(source, 'segment')) {
-    const net = numberToken(block, 'net');
+    const net = resolveNet(block).id;
     const start = pointToken(block, 'start');
     const end = pointToken(block, 'end');
     const layer = block.match(/\(layer\s+"([^"]+)"\)/)?.[1];
@@ -236,7 +315,7 @@ function parseRouteEvidence(source: string): Map<number, RouteEvidence> {
     evidence.layers.add(layer);
   }
   for (const block of blocks(source, 'arc')) {
-    const net = numberToken(block, 'net');
+    const net = resolveNet(block).id;
     const start = pointToken(block, 'start');
     const mid = pointToken(block, 'mid');
     const end = pointToken(block, 'end');
@@ -248,7 +327,7 @@ function parseRouteEvidence(source: string): Map<number, RouteEvidence> {
     evidence.layers.add(layer);
   }
   for (const block of blocks(source, 'via')) {
-    const net = numberToken(block, 'net');
+    const net = resolveNet(block).id;
     if (net === undefined) continue;
     const evidence = routeEvidenceForNet(map, net);
     evidence.viaCount += 1;
@@ -343,9 +422,22 @@ export function analyzeKicadLayoutOptimization(
     throw new Error('placementGridMm must be in range >0..10 mm.');
   }
 
-  const netNames = boardNetNames(input.board);
-  const footprints = parseBoardFootprints(input.board);
-  const routes = parseRouteEvidence(input.board);
+  const { names: netNames, resolve: resolveNet } = boardNetResolver(input.board);
+  const footprints = parseBoardFootprints(input.board, resolveNet);
+  const fixedRefsInput = options.fixedReferences ?? [];
+  if (fixedRefsInput.length > 256) throw new Error('fixedReferences exceeds the 256-reference limit.');
+  const fixedReferences = new Set<string>();
+  for (const value of fixedRefsInput) {
+    if (!/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/.test(value)) {
+      throw new Error('Invalid fixedReferences footprint reference: ' + value);
+    }
+    fixedReferences.add(value.toUpperCase());
+  }
+  const knownRefs = new Set(footprints.map(item => item.reference?.toUpperCase()).filter((item): item is string => Boolean(item)));
+  for (const reference of fixedReferences) {
+    if (!knownRefs.has(reference)) throw new Error('Unknown fixedReferences footprint reference: ' + reference);
+  }
+  const routes = parseRouteEvidence(input.board, resolveNet);
   const netPads = new Map<number, Array<{ reference?: string; pad: BoardPad }>>();
   for (const footprint of footprints) {
     for (const pad of footprint.pads) {
@@ -438,6 +530,48 @@ export function analyzeKicadLayoutOptimization(
     }
   }
 
+  const nativeOutline = readKicadBoardOutline(input.board);
+  const placementOptions: KicadLayoutOptimizationOptions = { ...options, nativeOutline };
+  const constraintMode = Boolean(options.alignmentGroups?.length || options.keepouts?.length || options.connectorAccess?.length || options.boardBounds);
+  const rankScenarios = options.rankScenarios ?? false;
+  if (rankScenarios && !options.alignmentGroups?.length) {
+    throw new Error('rankScenarios requires at least one explicit alignmentGroup.');
+  }
+  const placementParts = footprints.filter((item): item is BoardFootprint & { reference: string } => Boolean(item.reference)).map(item => ({
+    reference: item.reference,
+    position: item.position,
+    locked: item.locked,
+    ...(item.courtyard ? { courtyard: item.courtyard } : {})
+  }));
+  const constraintPlan = constraintMode ? planConstrainedPlacement(
+    placementParts,
+    placementOptions,
+    fixedReferences,
+    maxSuggestedStepMm,
+    placementGridMm
+  ) : undefined;
+
+  const rankedPlacement = constraintMode && rankScenarios ? rankConstrainedPlacementScenarios({
+    parts: placementParts,
+    constraints: placementOptions,
+    fixedReferences,
+    maxStepMm: maxSuggestedStepMm,
+    gridMm: placementGridMm,
+    terminals: [...netPads.entries()].flatMap(([netId, pads]) => pads
+      .filter(item => item.reference)
+      .map(item => ({
+        netName: netNames.get(netId) ?? item.pad.netName ?? '#' + netId,
+        reference: item.reference!,
+        position: item.pad.position
+      }))),
+    maxHpwlRegressionMm: options.maxHpwlRegressionMm,
+    routeBaseline: {
+      trackLengthMm: [...routes.values()].reduce((sum, route) => sum + route.trackLengthMm, 0),
+      segmentCount: [...routes.values()].reduce((sum, route) => sum + route.segmentCount, 0),
+      viaCount: [...routes.values()].reduce((sum, route) => sum + route.viaCount, 0)
+    }
+  }) : undefined;
+
   const placementCandidates = [...placementVectors.entries()]
     .map(([reference, vector]) => {
       const footprint = footprintByReference.get(reference);
@@ -460,7 +594,7 @@ export function analyzeKicadLayoutOptimization(
         } : {})
       };
     })
-    .filter(item => !item.locked && item.pullDistanceMm > placementGridMm / 2)
+    .filter(item => !constraintMode && !item.locked && !fixedReferences.has(item.reference.toUpperCase()) && item.pullDistanceMm > placementGridMm / 2)
     .sort((a, b) => b.pullDistanceMm - a.pullDistanceMm || b.incidentNetCount - a.incidentNetCount)
     .slice(0, maxDetails);
 
@@ -584,7 +718,7 @@ export function analyzeKicadLayoutOptimization(
       board: { sha256: sha256Text(input.board), bytes: Buffer.byteLength(input.board, 'utf8') },
       ...(input.schematicNetlist ? { schematicNetlist: { sha256: sha256Text(input.schematicNetlist), bytes: Buffer.byteLength(input.schematicNetlist, 'utf8') } } : {})
     },
-    options: { maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm },
+    options: { maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences: [...fixedReferences].sort() },
     boardConnectivity: {
       footprintCount: footprints.length,
       padCount: footprints.reduce((sum, footprint) => sum + footprint.pads.length, 0),
@@ -600,12 +734,24 @@ export function analyzeKicadLayoutOptimization(
     placementOptimization: {
       method: 'net-weighted-centroid-pull',
       geometryOnly: true,
+      fixedReferences: [...fixedReferences].sort(),
+      legacyGeometricProposalsSuppressed: constraintMode,
       highFanoutThresholdPads: maxPlacementNetPads,
       maxSuggestedStepMm,
       gridMm: placementGridMm,
       candidates: placementCandidates,
       affinityPairs
     },
+    boardMechanicalOutline: {
+      status: nativeOutline.status,
+      reason: nativeOutline.reason ?? null,
+      lineCount: nativeOutline.lineCount, arcCount: nativeOutline.arcCount,
+      bounds: nativeOutline.bounds ?? null, areaMm2: nativeOutline.areaMm2 ?? null,
+      exactOutlineCheckUsed: nativeOutline.status === 'verified-contour' && constraintMode,
+      minEdgeClearanceMm: options.minEdgeClearanceMm ?? 0
+    },
+    ...(constraintPlan ? { constraintPlacement: constraintPlan } : {}),
+    ...(rankedPlacement ? { rankedPlacement } : {}),
     ...(schematicConnectivity ? { schematicConnectivity } : {}),
     recommendations
   };

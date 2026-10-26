@@ -674,8 +674,22 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       { runRuleChecks, maxDetails, shortSegmentMm }
     ))));
 
+  const placementRectSchema = z.object({
+    minX: z.number().finite(),
+    minY: z.number().finite(),
+    maxX: z.number().finite(),
+    maxY: z.number().finite()
+  });
+  const alignmentGroupSchema = z.object({
+    id: z.string().min(1).max(64),
+    references: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).min(2).max(64),
+    axis: z.enum(['row', 'column']),
+    anchorReference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/).optional(),
+    pitchMm: z.number().finite().gt(0).max(100).optional()
+  });
+
   server.registerTool('kicad_layout_optimize_plan', {
-    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Suggested moves are geometry-only review candidates and never bypass the existing typed IPC/DRC mutation gates.',
+    description: 'Build a bounded read-only KiCad layout optimization plan from one explicit PCB and optional schematic. Uses official KiCad schematic netlist export, computes PCB pad/net topology, Euclidean-MST/HPWL geometric proxies, explicit route length, via/layer-transition evidence, footprint affinity and bounded net-weighted placement pull candidates. Explicit fixedReferences protect mechanical anchors. Optional alignment groups, courtyard-gap checks, rectangular keepouts and declared board bounds generate bounded read-only placement candidates or blockers; optional rankScenarios compares three bounded, read-only hypotheses using alignment and HPWL proxies, retaining original copper metrics as immutable evidence; no PCB changes or automatic DRC certification and never bypass the existing typed IPC/DRC mutation gates.',
     inputSchema: kicadProject.extend({
       board: z.string().min(1).max(1024),
       schematic: z.string().min(1).max(1024).optional(),
@@ -683,13 +697,122 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       maxDetails: z.number().int().min(1).max(100).default(25),
       maxPlacementNetPads: z.number().int().min(2).max(128).default(24),
       maxSuggestedStepMm: z.number().finite().gt(0).max(50).default(5),
-      placementGridMm: z.number().finite().gt(0).max(10).default(0.5)
+      placementGridMm: z.number().finite().gt(0).max(10).default(0.5),
+      fixedReferences: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).max(256).default([]),
+      alignmentGroups: z.array(alignmentGroupSchema).max(32).default([]),
+      keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
+      boardBounds: placementRectSchema.optional(),
+      minCourtyardGapMm: z.number().finite().min(0).max(20).default(0),
+      minEdgeClearanceMm: z.number().finite().min(0).max(20).default(0),
+      connectorAccess: z.array(z.object({
+        reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+        direction: z.enum(['left', 'right', 'top', 'bottom']),
+        depthMm: z.number().finite().gt(0).max(100),
+        widthMm: z.number().finite().gt(0).max(100).optional(),
+        allowOutsideBoard: z.boolean().optional()
+      })).max(128).default([]),
+      rankScenarios: z.boolean().default(false),
+      maxHpwlRegressionMm: z.number().finite().min(0).max(1000).default(0)
     }),
     annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: false }
-  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm }) =>
+  }, async ({ workspace, projectPath, board, schematic, runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, boardBounds, minCourtyardGapMm, minEdgeClearanceMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }) =>
     result(await audited(ctx.audit, 'kicad_layout_optimize_plan', workspace, () => ctx.engineering.kicad.layoutOptimizePlan(
       workspace, projectPath, board, schematic,
-      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm }
+      { runRuleChecks, maxDetails, maxPlacementNetPads, maxSuggestedStepMm, placementGridMm, fixedReferences, alignmentGroups, keepouts, ...(boardBounds ? { boardBounds } : {}), minCourtyardGapMm, minEdgeClearanceMm, connectorAccess, rankScenarios, maxHpwlRegressionMm }
+    ))));
+
+  server.registerTool('kicad_autoexperiment_run', {
+    description: 'Run bounded KiCad PCB layout/autoroute hypotheses strictly on NEW project-local board copies, preserving source SHA, applying optional typed alignment/keepout/connector constraints, then routing with the built-in A* planner. Official KiCad DRC with optional schematic parity validates each copy. Routed candidates must reduce unconnected copper; opt-in previewPlacementOnly writes layout-only PCB copies after exact native Edge.Cuts clearance checks and accepts only non-regressing official KiCad DRC/parity. Optional repairAttachedTracks applies only with previewPlacementOnly: it conservatively reanchors exact single straight signal-track endpoints at moved pad centers on the copied PCB, rejecting power nets, zones, vias, branching/locked/ambiguous copper and any DRC regression; this is NOT rip-up-and-reroute or fabrication approval. Never edits the original PCB, merges a candidate, authorizes Gerbers or claims impedance/thermal signoff. Requires Work Session ownership.',
+    inputSchema: kicadProject.extend({
+      workSessionId: z.string().uuid(),
+      board: z.string().min(1).max(1024),
+      schematic: z.string().min(1).max(1024).optional(),
+      outputDir: z.string().min(1).max(1024),
+      expectedBoardSha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
+      routingTrials: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+      previewPlacementOnly: z.boolean().default(false),
+      repairAttachedTracks: z.boolean().default(false),
+      iterations: z.object({
+        maxRounds: z.number().int().min(1).max(4).default(1),
+        maxNetsPerRound: z.number().int().min(1).max(24).default(6),
+        autoSelectUnconnected: z.boolean().default(false),
+        includePowerNets: z.boolean().default(false),
+        recoverRejectedBatches: z.boolean().default(false),
+        maxRecoveryChecks: z.number().int().min(1).max(8).default(6)
+      }).strict().optional(),
+      placement: z.object({
+        fixedReferences: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/)).max(256).default([]),
+        alignmentGroups: z.array(alignmentGroupSchema).min(1).max(32),
+        keepouts: z.array(z.object({ id: z.string().min(1).max(64), bounds: placementRectSchema })).max(64).default([]),
+        boardBounds: placementRectSchema.optional(),
+        minCourtyardGapMm: z.number().finite().min(0).max(20).default(0.2),
+        minEdgeClearanceMm: z.number().finite().min(0).max(20).default(0),
+        maxSuggestedStepMm: z.number().finite().gt(0).max(50).default(5),
+        placementGridMm: z.number().finite().gt(0).max(10).default(0.5),
+        maxHpwlRegressionMm: z.number().finite().min(0).max(1000).default(0),
+        connectorAccess: z.array(z.object({
+          reference: z.string().regex(/^[A-Za-z][A-Za-z0-9._+-]{0,31}$/),
+          direction: z.enum(['left', 'right', 'top', 'bottom']),
+          depthMm: z.number().finite().gt(0).max(100),
+          widthMm: z.number().finite().gt(0).max(100).optional(),
+          allowOutsideBoard: z.boolean().optional()
+        })).max(128).default([])
+      }).strict().optional(),
+      routing: routePlanOptions.optional()
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  }, async ({ workSessionId, ...request }) =>
+    result(await audited(ctx.audit, 'kicad_autoexperiment_run', request.workspace, () =>
+      ctx.runInWorkSession(workSessionId, () => ctx.engineering.kicad.autoexperimentRun(
+        request.workspace, request.projectPath, request
+      ))
+    )));
+
+  server.registerTool('kicad_zone_refill_copy', {
+    description: 'Native KiCad 10+ copper zone refill on a fresh SHA-bound project-local PCB copy. Preserves pad/net/footprint/track/zone-boundary/Edge.Cuts identity, opens candidate again, enforces official KiCad DRC/parity non-regression, and never changes source board or approves manufacturing.',
+    inputSchema:kicadProject.extend({
+      workSessionId:z.string().uuid(),
+      board:z.string().min(1).max(1024),
+      schematic:z.string().min(1).max(1024).optional(),
+      outputDir:z.string().min(1).max(600),
+      expectedBoardSha256:z.string().regex(/^[a-fA-F0-9]{64}$/)
+    }),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+  },async({workSessionId,...request})=>result(await audited(ctx.audit,
+    'kicad_zone_refill_copy',request.workspace,()=>ctx.runInWorkSession(workSessionId,
+      ()=>ctx.engineering.kicadZoneRefill.refillCopy(request.workspace,request.projectPath,request)
+    ))));
+
+  server.registerTool('kicad_specctra_import', {
+    description: 'Windows KiCad 10+ owner-authorized Specctra SES import, strictly bound to original board SHA, original native DSN export manifest/DSN SHA, supplied SES SHA. Native KiCad imports onto a fresh isolated PCB copy, compares all footprints/pads/net names/board Edge.Cuts/zones, then requires strict unconnected improvement with no official DRC/parity/error regression. Original PCB never modified; candidate is review-only, NOT manufacturing approval.',
+    inputSchema:kicadProject.extend({
+      workSessionId:z.string().uuid(),
+      board:z.string().min(1).max(1024),
+      schematic:z.string().min(1).max(1024).optional(),
+      ses:z.string().min(1).max(1024),
+      exportManifest:z.string().min(1).max(1024),
+      outputDir:z.string().min(1).max(600),
+      expectedBoardSha256:z.string().regex(/^[0-9a-fA-F]{64}$/),
+      expectedSessionSha256:z.string().regex(/^[0-9a-fA-F]{64}$/)
+    }),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+  },async({workSessionId,...request})=>result(await audited(ctx.audit,
+    'kicad_specctra_import',request.workspace,()=>ctx.runInWorkSession(workSessionId,
+      ()=>ctx.engineering.kicadSpecctraImport.importCopy(request.workspace,request.projectPath,request)
+    ))));
+
+  server.registerTool('kicad_specctra_export', {
+    description: 'Windows KiCad 10+ bundled pcbnew: export a Specctra DSN for an exact-SHA source PCB into a fresh authorized project-local COPY with local KiCad footprint libraries, then return immutable PCB/DSN SHA manifests. Does not run Freerouting, import SES, modify the source board, certify manufacturing, or authorize an external solver. Requires Work Session ownership.',
+    inputSchema:kicadProject.extend({
+      workSessionId:z.string().uuid(),
+      board:z.string().min(1).max(1024),
+      outputDir:z.string().min(1).max(600),
+      expectedBoardSha256:z.string().regex(/^[0-9a-fA-F]{64}$/)
+    }),
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+  },async({workSessionId,...request})=>result(await audited(ctx.audit,
+    'kicad_specctra_export',request.workspace,()=>ctx.runInWorkSession(workSessionId,
+      ()=>ctx.engineering.kicadSpecctra.exportCopy(request.workspace,request.projectPath,request)
     ))));
 
   server.registerTool('kicad_constraints_review', {

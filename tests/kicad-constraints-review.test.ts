@@ -272,3 +272,44 @@ test('KiCad adapter constraints review is source-read-only and can skip DRC', as
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('KiCad 10 named-only copper nets produce track/via and zone evidence',()=>{
+
+  const named=BOARD.replace(/\(net \d+ "[^"]*"\)/g,'')
+
+    .replace(/\(net 1\)/g,'(net "USB_P")')
+
+    .replace(/\(net 2\)/g,'(net "USB_N")')
+
+    .replace(/\(net 3\)/g,'(net "PWR")');
+
+  const review=analyzeKicadConstraints({project:PROJECT,board:named});
+
+  assert.equal(review.board.routeNetCount,3);
+
+  assert.equal(review.board.segmentOrArcCount,3);
+
+  assert.equal(review.board.viaCount,2);
+
+  assert.equal(review.board.zones.byNet.PWR,1);
+
+  assert.equal(review.complianceEvidence.hardMinimumFindings.trackWidthBelowMinimum[0]?.net,'USB_P');
+
+});
+
+test('KiCad 10 mixed numeric/name copper references share the same net',()=>{
+
+  const mixed=BOARD.replace('(start 0 0) (end 10 0) (width 0.18) (layer "F.Cu") (net 1)',
+
+    '(start 0 0) (end 10 0) (width 0.18) (layer "F.Cu") (net "USB_P")');
+
+  const review=analyzeKicadConstraints({project:PROJECT,board:mixed});
+
+  assert.equal(review.board.routeNetCount,3);
+
+  assert.equal(review.board.segmentOrArcCount,3);
+
+  assert.equal(review.board.viaCount,2);
+
+});

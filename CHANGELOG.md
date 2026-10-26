@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.71.1 — Windows KiCad analysis correctness and npm launch hardening (candidate; not yet published)
+
+- Fixes Windows `process_start('npm', …)` after explicit owner allowlisting by resolving only the collocated Node npm CLI; preserves argv isolation, `shell:false` and the original executable policy check. Generic `.cmd` execution is not enabled.
+- Normalizes KiCad 10 named-only, numeric and mixed copper net references across design, constraints and electrical analyses, preventing false zero-route/zero-zone reports.
+- Adds bounded, deterministic read-only routing geometry evidence (near-right angles, reversals and preview-only 45-degree corners); these are review candidates, not DRC failures or implicit track edits.
+- Suppresses unsupported DC voltage-drop estimates for branched, overlapping/intersecting, via/zone-bearing or thickness-unknown power nets; rejects oversized ambiguous geometry; does not assert current capacity, thermal behavior or EMC compliance.
+- Updates the locked production dependency graph to address audited vulnerabilities. Retains MCP Action Schema 74 and Engineering API 5; no new exposed tools or permissions.
+- Windows-only release candidate: Ubuntu distributions remain frozen, and real PCB manufacturing output is unchanged. Installed v0.71.0 remains active until packed-runtime, rollback and explicit owner release gates pass.
+
+
+## 0.71.0 — Windows-only KiCad Agent engineering tools (published Windows stable baseline)
+
+- Enhances the KiCad 10 agent with source-aware net parsing, ranked functional placement scenarios and revision-locked, project-local PCB autoexperiments; rejects any routing/placement attempt that regresses official KiCad DRC, unconnected counts or schematic parity.
+- Adds bounded multi-round A* routing and DRC-guided failure isolation, preserving previously validated copper while keeping the original PCB immutable.
+- Validates native rounded/concave Edge.Cuts for both component placement and complete copper-segment/via routing clearance, not just rectangular board bounds.
+- Enables opt-in mechanically constrained footprint placement previews and exact signal-track pad endpoint repair, refusing ambiguous junctions, protected power nets, vias and unsafe zones.
+- Adds owner-authorized Specctra DSN export, source/provenance-hash-bound native SES import, and official KiCad 10 zone refill on isolated PCB copies with design-identity preservation and before/after DRC acceptance.
+- Bumps ChatGPT Action Schema from **73 → 74** for four new top-level KiCad MCP actions; after deployment, refresh the connected app's action catalog to discover them. Preserves Work Session ownership, scoped permissions, audit trails and production-install isolation. All PCB workflows remain **review-only**, not automatic PCB fabrication or production DFM approval.
+- Live KiCad 10 Windows tests exercised a 4-round V19 routing copy (85 → 75 unconnected, no new geometry DRC violations) and an archived GND-zone unfill/refill copy (37 → 15 unconnected, no new geometry violations). Original board bytes were preserved.
+- **Release conditions:** Windows CI, packed-artifact smoke, install/rollback rehearsal and owner release approval are still required. No Freerouting-generated valid SES has completed full end-to-end Windows acceptance; do not market automatic full-board routing or 3D mechanical/EMI certification as finished.
+- Ubuntu legacy, Ubuntu Vision and SSD distributions remain frozen and unmodified.
+
 This file records shipped RWMCP release milestones. Future work belongs in `docs/ROADMAP.md`.
 
 

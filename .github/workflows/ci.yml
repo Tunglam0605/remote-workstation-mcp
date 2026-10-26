@@ -52,6 +52,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $files = @(
             'scripts/install-windows-release.ps1',
+            'tests/ci-release-candidate-rehearsal-windows.ps1',
             'scripts/update-windows.ps1',
             'scripts/update-handoff-windows.ps1',
             'scripts/test-update-handoff-windows.ps1',
@@ -98,6 +99,12 @@ jobs:
               throw "PowerShell parse failed for ${file}: $messages"
             }
           }
+      - name: Rehearse v0.71.1 release slots and rollback in disposable Windows CI profile
+        if: github.event_name == 'pull_request' && github.head_ref == 'release/windows-v0.71.1-candidate-20261025'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .\tests\ci-release-candidate-rehearsal-windows.ps1 -BaselineVersion '0.71.0' -CandidateVersion '0.71.1'
       - name: Test Windows Control Center watchdog recovery
         shell: pwsh
         run: .\scripts\test-control-center-watchdog-windows.ps1

@@ -74,3 +74,94 @@ test('KiCad electrical review reports partial resistance coverage when routed co
   assert.equal(clk.dcCopper20C.resistanceOhm,undefined);
   assert.ok(clk.findings.some(item=>item.code==='critical-net-layer-transition'));
 });
+
+
+test('KiCad 10 named-only nets retain explicit electrical track/via evidence',()=>{
+
+  const named=BOARD.replace(/\(net \d+ "[^"]*"\)/g,'')
+
+    .replace(/\(net 1\)/g,'(net "PWR")')
+
+    .replace(/\(net 2\)/g,'(net "CLK")')
+
+    .replace(/\(net 3\)/g,'(net "USB_P")')
+
+    .replace(/\(net 4\)/g,'(net "USB_N")');
+
+  const analysis=analyzeKicadElectrical(named,[{netName:'PWR',kind:'power',currentA:2,voltageV:5},{netName:'CLK',kind:'clock'}]);
+
+  assert.equal(analysis.nets[0]?.route.lengthMm,100);
+
+  assert.equal(analysis.nets[0]?.matchedBoardNet,'PWR');
+
+  assert.equal(analysis.nets[1]?.route.vias,1);
+
+  assert.equal(analysis.findings.high,0);
+
+});
+
+test('KiCad 10 mixed numeric and named references resolve to one net',()=>{
+
+  const mixed=BOARD.replace('(start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1)',
+
+    '(start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net "PWR")')
+
+    .replace('(start 0 10) (end 20 10) (width 0.2) (layer "F.Cu") (net 2)',
+
+      '(start 0 10) (end 20 10) (width 0.2) (layer "F.Cu") (net "CLK")');
+
+  const analysis=analyzeKicadElectrical(mixed,[{netName:'PWR',kind:'power'},{netName:'CLK',kind:'clock'}]);
+
+  assert.equal(analysis.nets[0]?.route.lengthMm,100);
+
+  assert.equal(analysis.nets[1]?.route.lengthMm,20);
+
+  assert.equal(analysis.nets[1]?.route.vias,1);
+
+});
+
+test('Electrical review refuses to invent DC voltage drop without declared copper thickness',()=> {
+  const missingStackup=BOARD.replace(/\(setup[\s\S]*?\n  \(net 0/, '(net 0');
+  const result=analyzeKicadElectrical(missingStackup,[{netName:'PWR',kind:'power',currentA:2,voltageV:5}]);
+  assert.equal(result.nets[0]?.route.lengthMm,100);
+  assert.equal(result.nets[0]?.dcCopper20C.voltageDropV,undefined);
+  assert.ok(result.nets[0]?.findings.some(f=>f.code==='copper-thickness-unknown'));
+});
+
+test('Current on a branched net is not incorrectly multiplied through every branch as a serial load',()=>{
+ const branched=BOARD.replace('(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))',
+    '(segment (start 0 0) (end 50 0) (width 0.5) (layer "F.Cu") (net 1))'+
+    '(segment (start 50 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))'+
+    '(segment (start 50 0) (end 50 40) (width 0.5) (layer "F.Cu") (net 1))');
+ const pwr=analyzeKicadElectrical(branched,[{netName:'PWR',kind:'power',currentA:2,voltageV:5,maxVoltageDropPct:1}]).nets[0]!;
+ assert.equal(pwr.route.segments,3);
+ assert.equal(pwr.dcPath.eligible,false);
+ assert.equal(pwr.dcCopper20C.voltageDropV,undefined);
+ assert.ok(pwr.findings.some(f=>f.code==='dc-path-topology-unverified'));
+ assert.ok(!pwr.findings.some(f=>f.code==='dc-drop-over-intent'));
+});
+test('Electrical intent with overlapping copper withholds numeric DC drop instead of summing resistances',()=>{
+ const overlapping=BOARD.replace('(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))',
+    '(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))'+
+    '(segment (start 0 0) (end 50 0) (width 0.5) (layer "F.Cu") (net 1))');
+ const pwr=analyzeKicadElectrical(overlapping,[{netName:'PWR',kind:'power',currentA:2,voltageV:5,maxVoltageDropPct:1}]).nets[0]!;
+ assert.equal(pwr.dcPath.eligible,false);
+ assert.equal(pwr.dcPath.reason,'track-geometric-intersection-or-overlap');
+ assert.equal(pwr.dcCopper20C.resistanceOhm,undefined);
+ assert.equal(pwr.dcCopper20C.voltageDropV,undefined);
+ assert.ok(pwr.findings.some(f=>f.code==='dc-path-topology-unverified'));
+ assert.ok(!pwr.findings.some(f=>f.code==='dc-drop-over-intent'));
+});
+test('Filled copper zones or vias prevent unsupported aggregate-net DC drop calculation',()=>{
+ const zoned=BOARD.replace('(net 1 "PWR")','(net 1 "PWR") (zone (net 1) (net_name "PWR") (layer "F.Cu"))');
+ const route=analyzeKicadElectrical(zoned,[{netName:'PWR',kind:'power',currentA:2,voltageV:5}]).nets[0]!;
+ assert.equal(route.dcPath.eligible,false);
+ assert.equal(route.dcCopper20C.voltageDropV,undefined);
+ assert.equal(route.dcPath.reason,'zone-or-parallel-current-distribution-unknown');
+});
+
+test('Electrical review fails closed on unreadable copper-net encoding instead of returning a false empty net',()=>{
+ const unreadable=BOARD.replace('(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net 1))',
+ '(segment (start 0 0) (end 100 0) (width 0.5) (layer "F.Cu") (net invalid))');
+ assert.throws(()=>analyzeKicadElectrical(unreadable,[{netName:'PWR',kind:'power'}]),/parser coverage failed for segment/);
+});

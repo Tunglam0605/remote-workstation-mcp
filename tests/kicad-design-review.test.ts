@@ -230,3 +230,19 @@ test('KiCad review supports mixed numeric and KiCad 10 named copper net declarat
   assert.equal(result.routing?.netCount, 2);
   assert.equal(result.routing?.topViaNets[0]?.name, '/SPI_CLK');
 });
+
+
+test('KiCad routing quality recognizes mixed numeric/name nets and ranks right-angle routing for review',()=>{
+  const board=`(kicad_pcb (net 0 "") (net 1 "SIG")
+    (segment (start 0 0) (end 10 0) (width 0.3) (layer "F.Cu") (net 1))
+    (segment (start 10 0) (end 10 10) (width 0.3) (layer "F.Cu") (net "SIG"))
+    (segment (start 10 10) (end 20 20) (width 0.3) (layer "F.Cu") (net "SIG"))
+  )`;
+  const result=analyzeKicadDesign({board});
+  assert.equal(result.routing?.netCount,1);
+  assert.equal(result.routing?.segmentCount,3);
+  assert.equal(result.routing?.turnEvidence.rightAngleCount,1);
+  assert.equal(result.routing?.turnEvidence.diagonalTurnCount,1);
+  assert.equal(result.routing?.turnEvidence.topCandidates[0]?.netName,'SIG');
+  assert.ok(result.recommendations.some(r=>r.code==='right-angle-and-reversal-candidates'));
+});

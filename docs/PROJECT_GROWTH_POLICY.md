@@ -27,6 +27,10 @@ Run **npm run architecture:growth**, included in **npm run verify** and prepack.
 
 Config source: **config/project-growth-budget.json**. Budget increases must be reviewed with a reason and impact statement. Do not add an auto-rebaseline action.
 
+### Candidate review request — Windows v0.71.1 (2026-10-25)
+
+Request a narrowly scoped **docs/ count budget 97 → 99**, with the byte budget unchanged at 4,450,000 bytes. The published v0.71.0 Git tree contains 90 tracked docs. Six KiCad/npm design, test-evidence and integration records from preceding draft PRs plus three v0.71.1 release records (design, plan, acceptance) bring the candidate to 99: a net increase of nine. The existing 97-file ceiling had seven spare slots, so only two additional slots are requested. The alternative would delete historical acceptance evidence or omit the release checklist, neither acceptable for traceable Windows release control. No source, test, scripts, assets, plugin or config count/byte budgets are raised. The growth checker still fails on a 100th docs file. This is a proposed reviewed budget extension in the candidate PR, **not** an automatic rebaseline or approval of production publication.
+
 ## Module ownership
 
 - **src/adapters/**: protocol, OS, KiCad and hardware primitives; typed transport and geometry. Do not register public tools here.

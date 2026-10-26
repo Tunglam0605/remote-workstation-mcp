@@ -285,9 +285,15 @@ test('Security page balances primary controls and keeps advanced scopes full-wid
     assert.match(rendered, /Full-control lease/);
     assert.match(rendered, /1 pending request/);
     assert.match(rendered, /Advanced access scopes/);
+    assert.match(rendered, /Owner policy changes/);
+    assert.match(rendered, /Ready for delegated work/);
     assert.match(rendered, /Read-only diagnostic/);
     assert.match(rendered, /Show command hash/);
     assert.equal(dom.descendants(page).filter((node) => node.className.includes('security-primary-card')).length, 2);
+    assert.equal(dom.descendants(page).filter((node) => node.textContent === 'Ready for delegated work').length, 1);
+    assert.equal(dom.descendants(page).some((node) => node.textContent === 'Request lease'), false);
+    const modeChanger = dom.descendants(page).find((node) => node.textContent === 'Apply mode' && node.listeners.has('click'));
+    assert.ok(modeChanger, 'owner can still explicitly downgrade via advanced controls');
     assert.ok(dom.descendants(page).some((node) => node.className.includes('security-admin-section')));
   } finally { dom.restore(); }
 });
@@ -466,5 +472,25 @@ test('Work page explains bounded multi-agent objective orchestration without exp
     assert.ok(openConsole);
     openConsole.listeners.get('click')!({ currentTarget: openConsole });
     assert.equal(consoleOpens, 1);
+  } finally { dom.restore(); }
+});
+
+test('Security page still offers mode and temporary lease when owner did not configure full_control', () => {
+  const dom = installDom();
+  const pages: Array<InstanceType<typeof dom.Node>> = [];
+  const state = { permissions: { data: {
+    mode: 'workspace', httpScopes: ['workstation.read'], allowHostFilesystem: false, allowRawShell: false
+  } }, admin: { data: { requests: [] } }, status: { data: { platform: 'linux' } } };
+  try {
+    setLanguage('en');
+    const views = createViews({ api: { request: async () => ({}) }, store: { getState: () => state },
+      openModal: () => {}, openPage: (_page: string, _title: string, page: InstanceType<typeof dom.Node>) => pages.push(page),
+      toast: () => {}, refresh: async () => {} });
+    views.open('Access');
+    const page = pages[0]!;
+    assert.equal(dom.descendants(page).filter((node) => node.className.includes('security-primary-card')).length, 2);
+    assert.ok(dom.descendants(page).some((node) => node.textContent === 'Request lease'));
+    assert.ok(dom.descendants(page).some((node) => node.textContent === 'Apply mode'));
+    assert.doesNotMatch(page.textContent, /Ready for delegated work/);
   } finally { dom.restore(); }
 });

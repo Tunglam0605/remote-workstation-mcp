@@ -290,3 +290,119 @@ npm run build
 ```
 
 Repository development is intentionally separate from the managed production installation.
+
+
+## Windows sudo-style commands through owner-approved elevation (experimental)
+
+Windows 11 has a native `sudo.exe`, but that OS component can be disabled by
+Windows Developer Settings. RWMCP does **not** enable Windows sudo, modify UAC,
+cache administrator credentials, or grant elevated rights because the owner
+selected `full_control`. The existing `privileged.allowSudo=false` setting
+is a separate direct-sudo policy gate, **not** a denial of the owner-approved
+Administrator request flow.
+
+When asking RWMCP from ChatGPT Web to run a sudo-style command on **Windows**,
+use the MCP tool `admin_request` with a **direct .exe target**:
+
+```text
+admin_request(
+  program="sudo",
+  args=["whoami.exe", "/groups"],
+  reason="Read-only verification of Windows elevated execution"
+)
+```
+
+Equivalent: `program="sudo.exe"` or `args=["--","whoami.exe","/groups"]`
+with `program="sudo"`. This is a **compatibility shorthand for RWMCP's
+Control Center + RunAs/UAC path**, **not** a call to Windows `sudo.exe`.
+
+The server stores the *resolved exact command* as a client-bound pending
+request, returning its request ID; it does **not** execute it immediately.
+The owner must separately open the local Control Center Admin requests,
+review the command and purpose, approve the specific hash-bound request,
+and accept the Windows UAC prompt if one appears. Then call
+`admin_request_status(requestId)` to inspect its final state/output.
+
+No chained command line, elevated terminal, PowerShell, CMD, script host,
+`.ps1/.cmd/.bat` target, nested `sudo`, or `sudo -E/-n/-v` flags are
+supported through this shorthand. Use typed RWMCP setup/update/reboot
+workflows where available. This path does **not** bypass either ChatGPT's
+tool approval UI or Windows UAC.
+
+For Linux hosts, generic sudo/root-shell requests remain unavailable
+through `admin_request`: the existing bounded owner-approved `apt-get
+install -y` and typed host-reboot paths are unchanged.
+
+## Windows v0.71.2 integration acceptance (2026-10-26)
+
+**Branch:** `feature/windows-v0712-integrated-candidate-20261026` (staging only)
+**Base:** verified published v0.71.1 code, commit `1a406ae7575be03bd527a7a93b92f8aaf083dfcd`.
+**Scope:** Windows platform exclusively. Ubuntu v0.67.2 frozen, ESP32 and other engineering project files untouched.
+
+## Integrated changes
+
+1. **ChatGPT approval voice alert** (PR #275, cherry-picked `7140f15`).
+   A separate Chrome extension at `assets/chatgpt-approval-voice-alert`.
+   Observe only permitted ChatGPT origins and visible permission modals;
+   on detection, speak fixed Vietnamese text if Chrome exposes a vi-VN voice.
+   Otherwise, English fallback. Local on/off, volume, test button; 30-second
+   reminder, maximum three attempts, cross-tab de-duplication. No auto-approval
+   and no extension installed silently as part of RWMCP upgrade.
+2. **Multi-agent batch routing** (PR #276, cherry-picked `468d424`).
+   Preserve owner/session execution target policy, provider availability,
+   per-session and daily dispatch budgets. Reserve in-batch target capacity
+   across auto and explicit provider assignments; report actual route. Use
+   independent Work Sessions/worktrees to run simultaneous writable agents.
+3. **Windows sudo-style compatibility** (PR #277, cherry-picked `a8fb9a8`).
+   `admin_request(program="sudo", args=["whoami.exe", "/groups"], reason=...)`
+   creates a local owner-approval request for the resolved direct executable.
+   Windows Sudo need not be enabled. Existing Control Center approval, exact
+   command hash, UAC and `admin_request_status` remain mandatory. No UAC
+   bypass, generic elevated shells, credentials capture or policy widening.
+
+## Windows local integration evidence
+
+- Full `npm run verify`: 1,164 tests, 1,162 passed, 0 failed, 2 skipped.
+- Typecheck, architecture boundaries, project growth, supply-chain policy,
+  secret scanner, runtime build and plugin package validation all passed.
+- `node tests/fixtures/approval-voice-alert-smoke.mjs`: PASS in disposable
+  isolated Chromium with synthetic ChatGPT-origin Allow modal and extension
+  popup; isolated Chromium exposes no vi-VN voice.
+- All three individual PRs: independent Windows GitHub CI SUCCESS, 44/44 steps.
+- Installed RWMCP runtime remains v0.71.1 and **is not updated by this PR**.
+
+## Required real-world acceptance before stable release
+
+- [ ] Owner Chrome: load extension and verify **Test voice** emits audible audio.
+- [ ] Windows: verify availability/installation of native Vietnamese TTS voice
+  without changing the user's interface language.
+- [ ] Real ChatGPT Allow/Always Allow modal observed by owner Chrome extension,
+  with reminder and stop-after-approval behavior confirmed.
+- [ ] Owner local Control Center: approve harmless read-only
+  `whoami.exe /groups` Admin request and acknowledge Windows UAC if prompted;
+  then inspect succeeded/denied/expired status. Old requests expire naturally.
+- [ ] Regression check multi-agent Codex/Antigravity readiness in actual owner
+  environment. Codex Cockpit `gatewayMode` requires separate preflight,
+  backup and owner-approved change; **do not** assume Codex available.
+- [ ] Independent review of integration and exact-head Windows CI.
+- [ ] Test install/rollback v0.71.1 -> candidate -> v0.71.1 in disposable
+  Windows environment with official installer policy.
+- [ ] Owner explicitly authorizes actual stable release and rollout. Do not
+  auto-upgrade production or create new release tag on this staging branch.
+
+## Risk boundaries
+
+ChatGPT's Allow confirmation is owned by OpenAI and may be rendered outside
+the page DOM. No guarantee of all prompt detection until real-browser
+acceptance. Owner Chrome profile and other browser tabs remain untouched by
+the isolated synthetic smoke test. Work Session worker tasks must be serialized
+when sharing one writable worktree. Windows `full_control` is not Windows
+Administrator, and the extra sudo shorthand never activates without the
+platform's separate consent flow.
+
+## Rollback
+
+Retain the installed stable `v0.71.1` slot and existing stable runtime
+control until a staged update is verified. Chrome extension is optional and
+can be disabled/removed independently. No unattended admin operation, silent
+credential change or Ubuntu update is part of this feature.

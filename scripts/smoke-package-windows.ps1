@@ -33,7 +33,12 @@ try {
     'assets\chrome-bridge-extension\content-script.js',
     'assets\moonlight\navigation.js',
     'dist\web\chrome-native-host.js',
-    'dist\web\chrome-bridge-protocol.js'
+    'dist\web\chrome-bridge-protocol.js',
+    'assets\chatgpt-approval-voice-alert\manifest.json',
+    'assets\chatgpt-approval-voice-alert\service-worker.js',
+    'assets\chatgpt-approval-voice-alert\content-script.js',
+    'assets\chatgpt-approval-voice-alert\popup.html',
+    'dist\privileged\windows-sudo-compat.js'
   )) {
     if (-not (Test-Path -LiteralPath (Join-Path $PackageDir $required))) { throw "Packed release is missing $required" }
   }

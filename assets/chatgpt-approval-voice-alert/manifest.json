@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "RWMCP Approval Voice Alert",
+  "version": "0.1.0",
+  "description": "Audible Vietnamese reminder for visible ChatGPT tool approval prompts; never approves automatically.",
+  "permissions": ["tts", "storage"],
+  "action": {"default_popup": "popup.html", "default_title": "RWMCP Approval Voice Alert"},
+  "background": {"service_worker": "service-worker.js"},
+  "content_scripts": [{
+    "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+    "js": ["detector.js", "content-script.js"],
+    "run_at": "document_idle",
+    "all_frames": false
+  }]
+}

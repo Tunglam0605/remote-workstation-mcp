@@ -255,3 +255,32 @@ leases, retry/cancellation policy and approval boundaries.
 control the ChatGPT product's own agent execution, or click Allow for the user.
 A separate optional Chrome Approval Voice Alert can *notify* the owner when
 a visible UI confirmation appears; that is independent of worker orchestration.
+
+
+### Antigravity headless read-scope preflight (Windows)
+
+An Antigravity CLI status of `available` confirms that the executable and
+sandbox automation mode are configured; it does **not** prove the CLI may read
+every future isolated Work Session. Before executing an Antigravity worker,
+RWMCP now checks that the owner's existing `permissions.allow` in
+`~/.gemini/antigravity-cli/settings.json` contains a directory-scoped
+`read_file(<absolute-worktree-or-ancestor-path>)` entry covering that exact
+assigned worktree. The check is read-only and precedes launching the model.
+If there is no matching grant, the worker fails immediately with
+`ANTIGRAVITY_WORKTREE_READ_SCOPE_REQUIRED`, without spending an agent turn.
+Other workers and direct RWMCP file tools retain their separate policies.
+
+When this occurs, the **owner** must review the requested project and,
+if appropriate, separately authorize the narrowest possible directory in
+the Antigravity CLI configuration. For example, only after reviewing a
+specific project, the owner may add a rule in the form
+`read_file(C:/Users/<owner>/Documents/RemoteWorkspaces/<specific-worktree>)`.
+Do **not** add a machine-wide rule, inject permissions on behalf of the owner,
+run `--dangerously-skip-permissions`, or change UAC/Administrator settings.
+A worker's actual CLI-side sandbox and allow rules remain authoritative;
+this is an early scope-coverage check, **not** permission issuance or a
+guarantee that all future file operations are authorized.
+
+For read-only audit tasks, the owner need only authorize read access,
+not `write_file` or unrestricted terminal execution. Keep Work Session
+isolation and independently review agent results even when dispatch succeeds.

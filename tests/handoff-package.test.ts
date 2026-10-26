@@ -54,8 +54,18 @@ test('handoff packs deterministic verified manifest+files and atomically accepts
 
 test('handoff denies symlinked files, default secret paths, mismatched digest and archive traversal', async t => {
   const { source, destination } = await fixture(t);
-  await fs.symlink(path.join(source, 'Core', 'Src', 'main.c'), path.join(source, 'linked.c'));
-  await assert.rejects(packageHandoff({ workspaceRoot: source, projectRelativePath: '.', manifestDraft: draft, includedFiles: ['linked.c'], outputRelativePath: 'out/symlink.zip' }), /symlink|reparse/i);
+  // Test a Windows reparse point without requiring the Administrator or
+  // Developer Mode privilege needed for file symlinks. On hosts supporting
+  // native file symlinks, retain the stronger original test as well.
+  let linkedPath = 'linked.c';
+  try {
+    await fs.symlink(path.join(source, 'Core', 'Src', 'main.c'), path.join(source, linkedPath));
+  } catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+    linkedPath = 'linked-dir/main.c';
+    await fs.symlink(path.join(source, 'Core', 'Src'), path.join(source, 'linked-dir'), 'junction');
+  }
+  await assert.rejects(packageHandoff({ workspaceRoot: source, projectRelativePath: '.', manifestDraft: draft, includedFiles: [linkedPath], outputRelativePath: 'out/symlink.zip' }), /symlink|reparse/i);
   await fs.writeFile(path.join(source, '.env'), 'TOKEN=secret');
   await assert.rejects(packageHandoff({ workspaceRoot: source, projectRelativePath: '.', manifestDraft: draft, includedFiles: ['.env'], outputRelativePath: 'out/secret.zip' }), /secret|excluded/i);
   const archive = zipSync({ 'manifest.json': strToU8(JSON.stringify({ ...draft, files: [{ relativePath: 'a.c', bytes: 1, sha256: 'a'.repeat(64) }] })), 'files/../evil': strToU8('x') }, { mtime: new Date('2000-01-01T00:00:00Z') });

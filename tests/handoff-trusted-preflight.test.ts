@@ -34,7 +34,15 @@ test('trusted build preflight detects modified, injected or symlinked received s
   await fs.writeFile(path.join(received, 'extra-build-hook.sh'), '#!/bin/sh');
   await assert.rejects(verifyAcceptedSourceSnapshot(dest, accepted.acceptedPath), /unexpected|unlisted/i);
   await fs.unlink(path.join(received, 'extra-build-hook.sh'));
-  await fs.symlink(path.join(source, 'main.c'), path.join(received, 'rogue.c'));
+  // Windows can always construct a directory junction without granting
+  // privileged file-symlink creation. Exercise the same fail-closed reparse
+  // guard even on locked-down non-administrator Windows CI agents.
+  try {
+    await fs.symlink(path.join(source, 'main.c'), path.join(received, 'rogue.c'));
+  } catch (error) {
+    if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+    await fs.symlink(source, path.join(received, 'rogue-dir'), 'junction');
+  }
   await assert.rejects(verifyAcceptedSourceSnapshot(dest, accepted.acceptedPath), /symlink|reparse/i);
 });
 

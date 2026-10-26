@@ -290,3 +290,45 @@ npm run build
 ```
 
 Repository development is intentionally separate from the managed production installation.
+
+
+## Windows sudo-style commands through owner-approved elevation (experimental)
+
+Windows 11 has a native `sudo.exe`, but that OS component can be disabled by
+Windows Developer Settings. RWMCP does **not** enable Windows sudo, modify UAC,
+cache administrator credentials, or grant elevated rights because the owner
+selected `full_control`. The existing `privileged.allowSudo=false` setting
+is a separate direct-sudo policy gate, **not** a denial of the owner-approved
+Administrator request flow.
+
+When asking RWMCP from ChatGPT Web to run a sudo-style command on **Windows**,
+use the MCP tool `admin_request` with a **direct .exe target**:
+
+```text
+admin_request(
+  program="sudo",
+  args=["whoami.exe", "/groups"],
+  reason="Read-only verification of Windows elevated execution"
+)
+```
+
+Equivalent: `program="sudo.exe"` or `args=["--","whoami.exe","/groups"]`
+with `program="sudo"`. This is a **compatibility shorthand for RWMCP's
+Control Center + RunAs/UAC path**, **not** a call to Windows `sudo.exe`.
+
+The server stores the *resolved exact command* as a client-bound pending
+request, returning its request ID; it does **not** execute it immediately.
+The owner must separately open the local Control Center Admin requests,
+review the command and purpose, approve the specific hash-bound request,
+and accept the Windows UAC prompt if one appears. Then call
+`admin_request_status(requestId)` to inspect its final state/output.
+
+No chained command line, elevated terminal, PowerShell, CMD, script host,
+`.ps1/.cmd/.bat` target, nested `sudo`, or `sudo -E/-n/-v` flags are
+supported through this shorthand. Use typed RWMCP setup/update/reboot
+workflows where available. This path does **not** bypass either ChatGPT's
+tool approval UI or Windows UAC.
+
+For Linux hosts, generic sudo/root-shell requests remain unavailable
+through `admin_request`: the existing bounded owner-approved `apt-get
+install -y` and typed host-reboot paths are unchanged.

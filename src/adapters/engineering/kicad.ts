@@ -1319,7 +1319,11 @@ export class KicadAdapter {
       operations: KicadRouteBatchOperation[];
       requireNoNewViolations?: boolean;
       requireUnconnectedNonIncrease?: boolean;
+      /** Require a net-connectivity improvement, not merely zero regression. */
+      requireUnconnectedDecrease?: boolean;
       requireParityNonIncrease?: boolean;
+      /** Explicitly include zone refill in acceptance DRC and persist accepted fills. */
+      refillZones?: boolean;
     }
   ) {
     this.policy.assertEngineeringExecute();
@@ -1334,12 +1338,15 @@ export class KicadAdapter {
     if (beforeSha.toLowerCase() !== request.expectedBoardSha256.toLowerCase()) {
       throw new Error(`KiCad route-batch SHA mismatch: expected ${request.expectedBoardSha256}, actual ${beforeSha}.`);
     }
-    const before = await this.drc(workspace, projectPath, request.board, true);
+    // Zone-fill updates change clearance geometry; this behavior must be
+    // requested explicitly rather than silently changing filled-zone data.
+    const refill = request.refillZones === true;
+    const before = await this.drc(workspace, projectPath, request.board, true, refill);
     const patched = applyKicadRouteBatch(beforeSource, request.operations);
     const backup = await createKicadBackup(boardPath);
     try {
       await atomicReplace(boardPath, patched.source);
-      const after = await this.drc(workspace, projectPath, request.board, true);
+      const after = await this.drc(workspace, projectPath, request.board, true, refill);
       const beforeViolations = Number(before.report.counts.active.violations ?? 0);
       const afterViolations = Number(after.report.counts.active.violations ?? 0);
       const beforeUnconnected = Number(before.report.counts.active.unconnected ?? 0);
@@ -1349,10 +1356,31 @@ export class KicadAdapter {
       const reasons: string[] = [];
       if (request.requireNoNewViolations !== false && afterViolations > beforeViolations) reasons.push(`violations ${beforeViolations}->${afterViolations}`);
       if (request.requireUnconnectedNonIncrease !== false && afterUnconnected > beforeUnconnected) reasons.push(`unconnected ${beforeUnconnected}->${afterUnconnected}`);
+      if (request.requireUnconnectedDecrease === true && afterUnconnected >= beforeUnconnected) reasons.push(`unconnected did not decrease ${beforeUnconnected}->${afterUnconnected}`);
       if (request.requireParityNonIncrease !== false && afterParity > beforeParity) reasons.push(`schematicParity ${beforeParity}->${afterParity}`);
       if (reasons.length) {
         await atomicReplace(boardPath, beforeSource);
         throw new Error(`KiCad route batch rejected and rolled back: ${reasons.join(', ')}.`);
+      }
+      // First accept candidate against an in-memory zone refill. Only then
+      // persist filled zones with KiCad and revalidate the saved file without
+      // --refill-zones, retaining the original full rollback on any error.
+      let durableAfter = after;
+      if (refill) {
+        await this.drc(workspace, projectPath, request.board, true, true, true);
+        durableAfter = await this.drc(workspace, projectPath, request.board, true);
+        const counts = durableAfter.report.counts.active;
+        const persistedReasons: string[] = [];
+        if (request.requireNoNewViolations !== false && Number(counts.violations) > beforeViolations)
+          persistedReasons.push(`persisted violations ${beforeViolations}->${counts.violations}`);
+        if (request.requireUnconnectedNonIncrease !== false && Number(counts.unconnected) > beforeUnconnected)
+          persistedReasons.push(`persisted unconnected ${beforeUnconnected}->${counts.unconnected}`);
+        if (request.requireUnconnectedDecrease === true && Number(counts.unconnected) >= beforeUnconnected)
+          persistedReasons.push(`persisted unconnected did not decrease ${beforeUnconnected}->${counts.unconnected}`);
+        if (request.requireParityNonIncrease !== false && Number(counts.schematicParity) > beforeParity)
+          persistedReasons.push(`persisted schematicParity ${beforeParity}->${counts.schematicParity}`);
+        if (persistedReasons.length)
+          throw new Error(`KiCad route batch saved-zone DRC rejected and rolled back: ${persistedReasons.join(', ')}.`);
       }
       const afterSource = await fs.readFile(boardPath, 'utf8');
       return {
@@ -1361,7 +1389,8 @@ export class KicadAdapter {
         afterSha256: sha256Text(afterSource),
         backup: path.relative(path.dirname(boardPath), backup).split(path.sep).join('/'),
         summary: patched.summary,
-        drc: { before: before.report.counts.active, after: after.report.counts.active },
+        zonesRefilledAndSaved: refill,
+        drc: { before: before.report.counts.active, after: durableAfter.report.counts.active },
         accepted: true
       };
     } catch (error) {
@@ -2131,11 +2160,15 @@ export class KicadAdapter {
     return { board, ...result };
   }
 
-  async drc(workspace: string, projectPath: string, board: string, schematicParity = false) {
+  async drc(workspace: string, projectPath: string, board: string, schematicParity = false, refillZones = false, saveBoard = false) {
+    if (saveBoard && !refillZones) throw new Error('KiCad zone saving requires an explicit refill request.');
     const result = await this.runJsonReport(
       workspace,
       projectPath,
-      ['pcb', 'drc', '--format', 'json', '--severity-all', ...(schematicParity ? ['--schematic-parity'] : [])],
+      ['pcb', 'drc', '--format', 'json', '--severity-all',
+        ...(schematicParity ? ['--schematic-parity'] : []),
+        ...(refillZones ? ['--refill-zones'] : []),
+        ...(saveBoard ? ['--save-board'] : [])],
       board,
       'drc.json'
     );

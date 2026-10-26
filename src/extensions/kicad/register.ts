@@ -485,6 +485,7 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
     viaCostMm: z.number().finite().min(0).max(1000).default(8),
     turnPenaltyMm: z.number().finite().min(0).max(100).default(0.25),
     wrongWayPenaltyMm: z.number().finite().min(0).max(100).default(0.15),
+    allowDiagonal45: z.boolean().default(false),
     maxPadsPerNet: z.number().int().min(2).max(128).default(32),
     maxOperations: z.number().int().min(1).max(8192).default(4096),
     selectedNets: z.array(z.string().min(1).max(128)).max(512).optional(),
@@ -499,14 +500,14 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
   }).strict();
 
   server.registerTool('kicad_route_plan', {
-    description: 'Plan bounded priority-ordered obstacle-aware orthogonal candidate routing for an explicit KiCad PCB without source mutation. Parses pad/net geometry, Edge.Cuts, footprint courtyard/pad envelopes and existing copper; uses a two-layer grid A* with via/turn/wrong-way costs and MST decomposition for multi-pad nets. Returns typed segment/via operations plus exact board SHA for kicad_route_batch_apply. KiCad DRC remains authoritative; controlled impedance, RF/DDR/differential coupling, return-path, EMI and thermal behavior are explicitly outside this planner.',
+    description: 'Plan bounded priority-ordered obstacle-aware candidate routing (orthogonal default, optional 45-degree diagonal) for an explicit KiCad PCB without source mutation. Parses pad/net geometry, Edge.Cuts, footprint courtyard/pad envelopes and existing copper; uses a two-layer grid A* with via/turn/wrong-way costs and MST decomposition for multi-pad nets. Returns typed segment/via operations plus exact board SHA for kicad_route_batch_apply. KiCad DRC remains authoritative; controlled impedance, RF/DDR/differential coupling, return-path, EMI and thermal behavior are explicitly outside this planner.',
     inputSchema: kicadProject.extend({ board: z.string().min(1).max(1024), ...routePlanOptions.shape }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   }, async ({ workspace, projectPath, board, ...options }) =>
     result(await audited(ctx.audit, 'kicad_route_plan', workspace, () => ctx.engineering.kicad.routePlan(workspace, projectPath, board, options))));
 
   server.registerTool('kicad_route_batch_apply', {
-    description: 'Apply 1..256 typed straight-track/through-via routing operations to one authorized KiCad PCB in a single transaction. Requires Work Session ownership and exact board SHA, validates net/layer identity, backs up and writes atomically, runs KiCad DRC plus schematic parity before/after, and rolls the entire batch back on regression. No raw scripts, deletion, arcs, blind/micro vias or implicit autorouting.',
+    description: 'Apply 1..256 typed straight-track/through-via routing operations to one authorized KiCad PCB in a single transaction. Requires Work Session ownership and exact board SHA, validates net/layer identity, backs up and writes atomically, runs KiCad DRC plus schematic parity before/after (optional explicit zone refill and saved-zone recheck), and rolls the entire batch back on regression. No raw scripts, deletion, arcs, blind/micro vias or implicit autorouting.',
     inputSchema: kicadProject.extend({
       workSessionId: z.string().uuid(),
       board: z.string().min(1).max(1024),
@@ -514,7 +515,9 @@ export function registerKicadTools(server: McpServer, ctx: AppContext): void {
       operations: z.array(routeOperation).min(1).max(256),
       requireNoNewViolations: z.boolean().default(true),
       requireUnconnectedNonIncrease: z.boolean().default(true),
-      requireParityNonIncrease: z.boolean().default(true)
+      requireUnconnectedDecrease: z.boolean().default(false),
+      requireParityNonIncrease: z.boolean().default(true),
+      refillZones: z.boolean().default(false)
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
   }, async ({ workSessionId, ...request }) =>

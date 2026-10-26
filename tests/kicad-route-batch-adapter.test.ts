@@ -130,3 +130,101 @@ test('KiCad route batch accepts a DRC-nonregressing batch and returns a new boar
     await fs.rm(root,{recursive:true,force:true});
   }
 });
+
+
+test('KiCad route batch zone-refill acceptance persists filled zones and rolls back a failed durable DRC', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-zone-route-'));
+  const bin = path.join(root, 'bin');
+  const previousPath = process.env.PATH;
+  await fakeExecutable(bin);
+  process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+  const board = path.join(root, 'route.kicad_pcb');
+  await fs.writeFile(board, BOARD);
+  const calls: string[][] = [];
+  let rejectSaved = false;
+  const runner = {
+    async run(program: string, args: string[], cwd: string): Promise<EngineeringCommandResult> {
+      calls.push([...args]);
+      const boardArg = args.at(-1)!;
+      const outputAt = args.indexOf('--output');
+      if (args.includes('drc') && outputAt >= 0) {
+        let content = await fs.readFile(boardArg, 'utf8');
+        const candidate = content.includes('(segment');
+        const refill = args.includes('--refill-zones');
+        const save = args.includes('--save-board');
+        if (save) {
+          assert.equal(refill, true);
+          await fs.appendFile(boardArg, '\n; saved-zone-fill-marker');
+          content += '\n; saved-zone-fill-marker';
+        }
+        const saved = content.includes('saved-zone-fill-marker');
+        const bad = candidate && (!refill && (!saved || rejectSaved));
+        await fs.writeFile(args[outputAt + 1]!, JSON.stringify({
+          violations: bad ? [{ severity: 'error', description: 'unrefilled GND copper collision', items: [] }] : [],
+          unconnected_items: [], schematic_parity: [], ignored_checks: []
+        }));
+      }
+      return commandResult(program, args, cwd);
+    }
+  };
+  const policy = new PolicyEngine(config(root));
+  const adapter = new KicadAdapter(policy, new PathGuard(policy), runner as never);
+  const operation = { kind: 'segment' as const, netName: '/SIG', layer: 'F.Cu',
+    start: { x: 10, y: 10 }, end: { x: 20, y: 10 }, widthMm: 0.25 };
+  try {
+    // Existing/default route behavior is unchanged: stale fill fails DRC.
+    await assert.rejects(() => adapter.routeBatchApply('w', '.', {
+      board: 'route.kicad_pcb', expectedBoardSha256: sha256(BOARD),
+      operations: [operation]
+    }), /rejected and rolled back/);
+    assert.equal(await fs.readFile(board, 'utf8'), BOARD);
+    calls.length = 0;
+
+    const accepted = await adapter.routeBatchApply('w', '.', {
+      board: 'route.kicad_pcb', expectedBoardSha256: sha256(BOARD),
+      operations: [operation], refillZones: true
+    });
+    assert.equal(accepted.accepted, true);
+    assert.equal(accepted.zonesRefilledAndSaved, true);
+    assert.ok(calls.some(args => args.includes('--refill-zones') && args.includes('--save-board')));
+    assert.equal(calls.at(-1)?.includes('--refill-zones'), false);
+    assert.match(await fs.readFile(board, 'utf8'), /saved-zone-fill-marker/);
+
+    // Even if in-memory refilling passed, a regression in saved fills
+    // must trigger a complete rollback of the source and zone state.
+    await fs.writeFile(board, BOARD);
+    rejectSaved = true;
+    await assert.rejects(() => adapter.routeBatchApply('w', '.', {
+      board: 'route.kicad_pcb', expectedBoardSha256: sha256(BOARD),
+      operations: [operation], refillZones: true
+    }), /saved-zone DRC rejected and rolled back/);
+    assert.equal(await fs.readFile(board, 'utf8'), BOARD);
+  } finally {
+    process.env.PATH = previousPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('strict connection-improvement gate rolls back a DRC-clean route that fixes no ratsnest', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rwmcp-kicad-route-strict-'));
+  const bin = path.join(root, 'bin');
+  const oldPath = process.env.PATH;
+  await fakeExecutable(bin);
+  process.env.PATH = `${bin}${path.delimiter}${oldPath ?? ''}`;
+  const board = path.join(root, 'strict.kicad_pcb');
+  await fs.writeFile(board, BOARD);
+  try {
+    const adapter = await makeAdapter(root, false);
+    await assert.rejects(() => adapter.routeBatchApply('w', '.', {
+      board: 'strict.kicad_pcb', expectedBoardSha256: sha256(BOARD),
+      operations: [{kind:'segment',netName:'/SIG',layer:'F.Cu',
+        start:{x:10,y:10},end:{x:20,y:10},widthMm:0.25}],
+      requireUnconnectedDecrease: true
+    }), /unconnected did not decrease 0->0/);
+    assert.equal(await fs.readFile(board, 'utf8'), BOARD);
+  } finally {
+    process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

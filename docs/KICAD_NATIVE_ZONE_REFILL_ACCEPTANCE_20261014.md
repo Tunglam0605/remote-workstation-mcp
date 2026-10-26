@@ -56,3 +56,53 @@ Tests cover stale source SHA refusal, output overwrite/traversal protections, ac
 - Zero unconnected with official ERC/DRC/parity and fabrication/assembly signoff on a current production PCB. Shield V19 original still has 85 unconnected; older CAD zone-fill acceptance does not imply V19 manufacturing readiness.
 
 No RWMCP runtime deployment or release, no Ubuntu/SSD/Vision development.
+
+
+## Windows PR #279 follow-up — opt-in DRC-gated route plus zone refill (2026-10-26)
+
+The typed `kicad_route_batch_apply` request now supports **`refillZones: true`**
+(default: **false**). This is an explicit opt-in because persisted filled
+copper changes beyond the requested route operations.
+
+1. Verify the exact input-board SHA and run native KiCad DRC on the
+   original, with `--refill-zones` in memory (no board save).
+2. Stage the bounded segment/via batch with a full backup and run the same
+   refilled DRC. Reject and restore the original if violations, unconnected
+   nets, or schematic parity regress under the configured acceptance gates.
+3. Only after in-memory DRC passes, use official KiCad CLI
+   `pcb drc --refill-zones --save-board` on the staged changes.
+4. Run **another official DRC on the saved PCB, without refill**, and apply
+   the same gates. Any failure or exception restores the previous board
+   content; accepted output reports the saved board SHA and DRC counts.
+
+**Real-board evidence (isolated QA copy only):** On a SHA-verified duplicate
+of Mega2560 V186, net `/A6` was routed with 11 segments + 1 via using the
+optional 45° A* planner; estimated track length 33.2605 mm. With stale zone
+fills, DRC identified four apparent copper clearance errors to the existing
+`/GND` B.Cu pour and correctly rolled the original candidate back.
+KiCad 10.0.6 `--refill-zones` recomputed the copper boundaries; native
+`routeBatchApply(..., refillZones: true)` then **accepted** the route with
+43 warnings before/after, unconnected **18 → 17**, parity 0 before/after,
+and no new clearance violations. The saved QA board SHA is
+`ab74a3fb8518eda2d9a6d30159b293e95cced90fd09856c5f1184b872695f688`.
+
+The source V186 board SHA remains
+`0a514cb3541b6c4b4ff925682f7b3762cd28c8950a05bc1605c979fb3cba9a9c`,
+unchanged by these experiments. Unit tests exercise default fail-closed DRC,
+successful refill/save plus durable recheck, and rollback when the saved-board
+verification reports a new violation. Other V186 nets and silkscreen warnings
+remain outstanding: this is **one-net engineering acceptance, not PCB
+manufacturing approval**. Do not silently enable refill for unrelated tools,
+alter the owner's original board, or publish Gerbers before full acceptance.
+
+**Strict connectivity gate:** `kicad_route_batch_apply` also accepts optional
+`requireUnconnectedDecrease: true` (default false). Use it when the
+objective is to resolve ratsnest connections: a candidate must reduce the
+official KiCad unconnected count after the DRC checks, including after zone
+fill persistence. It rolls back otherwise, even if new DRC violations are
+zero. A sequential V186-only copy test demonstrated why: `/D48` added
+15 segments + 1 via but left the count at 17, while `/D41` reduced it to
+16. Neither operation changed the source PCB. This opt-in gate prevents
+such non-improving `/D48` proposals from being accepted as routing
+completion; legitimate track repairs that do not change ratsnest counts can
+continue with the original default gate.

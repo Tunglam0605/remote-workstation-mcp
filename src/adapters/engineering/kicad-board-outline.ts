@@ -31,11 +31,20 @@ function blockEnd(src: string, start: number): number {
   throw new Error('Unbalanced KiCad Edge.Cuts shape.');
 }
 function scan(src:string,token:string):string[]{
-  const output:string[]=[]; let i=0; const match='('+token;
+  const output:string[]=[]; let i=0,scanned=0; const match='('+token;
   while((i=src.indexOf(match,i))>=0){
     if(!/[\s(]/.test(src[i+match.length]??' ')){i+=match.length;continue;}
-    const end=blockEnd(src,i);output.push(src.slice(i,end));i=end;
-    if(output.length>128)throw new Error('Too many Edge.Cuts primitives.');
+    const end=blockEnd(src,i);
+    // Silkscreen, Fab and user-drawing gr_* shapes may vastly outnumber the
+    // actual board outline; count only Edge.Cuts against the contour limit.
+    // Separately cap total scanned graphic blocks to bound parsing work.
+    if(++scanned>16384)throw new Error('KiCad board has too many graphic primitives to inspect safely.');
+    const shape=src.slice(i,end);
+    if(/\(layer\s+"Edge\.Cuts"\)/.test(shape)){
+      output.push(shape);
+      if(output.length>128)throw new Error('Too many Edge.Cuts primitives.');
+    }
+    i=end;
   }
   return output;
 }

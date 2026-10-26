@@ -29,6 +29,7 @@ export interface KicadRoutePlanOptions {
   viaCostMm?: number;
   turnPenaltyMm?: number;
   wrongWayPenaltyMm?: number;
+  allowDiagonal45?: boolean;
   maxPadsPerNet?: number;
   maxOperations?: number;
   selectedNets?: string[];
@@ -416,6 +417,14 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       bucket.push(pad);padBuckets[li]!.set(key,bucket);
     }
   }
+  // Index drill centers once; expanding every A* state against all PTH/NPTH
+  // holes is prohibitively slow on connector-dense boards.
+  const holeBuckets=new Map<string,DrillHole[]>();
+  const maxHoleRadius=parsed.holes.reduce((m,h)=>Math.max(m,h.radiusMm),0);
+  for(const hole of parsed.holes){
+    const point=toGrid(hole.position),key=cellKey(point.x,point.y),bucket=holeBuckets.get(key)??[];
+    bucket.push(hole);holeBuckets.set(key,bucket);
+  }
   const nearForeignPad=(layer:number,x:number,y:number,radiusMm:number,netName:string)=>{
     const radiusCells=Math.ceil(Math.max(0,radiusMm)/gridMm)+1;
     const point=toPoint(x,y),seen=new Set<Pad>();
@@ -468,14 +477,21 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
 
   const nearDrilledHole=(x:number,y:number,radiusMm:number,netName:string,isVia:boolean)=>{
     const position=toPoint(x,y);
-    // KiCad default hole clearance is 0.25 mm; never silently assume that
-    // NPTH/PTH holes can be crossed just because they have no copper net.
-    // Tracks may join their own plated pad; a new via must still clear
-    // existing drill holes regardless of net.
-    for(const hole of parsed.holes){
-      if(!isVia&&hole.netName===netName)continue;
-      const required=hole.radiusMm+radiusMm+0.25;
-      if(Math.hypot(position.x-hole.position.x,position.y-hole.position.y)<required-1e-9)return true;
+    // Keep KiCad's conservative 0.25 mm NPTH/PTH drill clearance.
+    // A drill center rounds to the nearest grid cell: include an extra cell
+    // so the spatial index cannot produce false negatives at cell boundaries.
+    const radiusCells=Math.ceil((maxHoleRadius+radiusMm+0.25)/gridMm)+1;
+    for(let dx=-radiusCells;dx<=radiusCells;dx++)for(let dy=-radiusCells;dy<=radiusCells;dy++){
+      const holes=holeBuckets.get(cellKey(x+dx,y+dy));
+      if(!holes)continue;
+      for(const hole of holes){
+        // Tracks can connect to their own plated holes; vias cannot overlap
+        // any existing drill, including a matching-net through-hole pad.
+        if(!isVia&&hole.netName===netName)continue;
+        const required=hole.radiusMm+radiusMm+0.25;
+        const ddx=position.x-hole.position.x,ddy=position.y-hole.position.y;
+        if(ddx*ddx+ddy*ddy<(required-1e-9)**2)return true;
+      }
     }
     return false;
   };
@@ -489,7 +505,25 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
     if(!routingBoundary.pointAllowed(start.position,edgeInset+width/2)||
        !routingBoundary.pointAllowed(end.position,edgeInset+width/2))return undefined;
     const inflate=clearance+width/2;
-    const dirs=[[1,0],[-1,0],[0,1],[0,-1]] as const;
+    // Direction is part of the A* state for turn penalties, but copper
+    // clearance at a grid point is direction-independent. Cache it per
+    // net-edge search: reservations do not change until findPath returns.
+    const walkClearance=new Map<string,boolean>();
+    const pointBlocked=(layer:number,x:number,y:number,endpoint:boolean)=>{
+      const key=layer+':'+x+':'+y+':'+(endpoint?1:0);
+      const hit=walkClearance.get(key);
+      if(hit!==undefined)return hit;
+      const blocked=!pointInsideCopper(x,y,width/2)
+        ||nearDrilledHole(x,y,width/2,netName,false)
+        ||nearForeignPad(layer,x,y,inflate,netName)
+        ||(!endpoint&&(nearExistingCopper(layer,x,y,width/2,clearance,netName)
+          ||nearPlanned(layer,x,y,width/2,clearance,netName)));
+      if(walkClearance.size<120_000)walkClearance.set(key,blocked);
+      return blocked;
+    };
+    const cardinalDirs = [[1,0],[-1,0],[0,1],[0,-1]] as const;
+    const diagonalDirs = [[1,1],[1,-1],[-1,1],[-1,-1]] as const;
+    const dirs = options.allowDiagonal45 ? [...cardinalDirs,...diagonalDirs] : [...cardinalDirs];
     let expandedTotal=0;
     // First search a short corridor around the pad pair; progressively widen to
     // the entire board. Each retry uses the same global per-path/plan budget.
@@ -500,7 +534,7 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
       const top=Math.max(0,Math.min(s.y,e.y)-margin),bottom=Math.min(ny-1,Math.max(s.y,e.y)+margin);
       const open=new MinHeap<GridState>(),g=new Map<string,number>(),parent=new Map<string,string>(),states=new Map<string,GridState>();
       const heuristic=(x:number,y:number)=>Math.hypot(e.x-x,e.y-y)*gridMm;
-      for(const li of startLayers){const state:GridState={x:s.x,y:s.y,layer:li,dir:4};const key=stateKey(state);g.set(key,0);states.set(key,state);open.push(heuristic(s.x,s.y),state);}
+      for(const li of startLayers){const state:GridState={x:s.x,y:s.y,layer:li,dir:dirs.length};const key=stateKey(state);g.set(key,0);states.set(key,state);open.push(heuristic(s.x,s.y),state);}
       let goalKey:string|undefined;
       while(open.size){
         const item=open.pop()!,cur=item.value,curKey=stateKey(cur),curG=g.get(curKey);
@@ -515,13 +549,18 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         }
         for(let di=0;di<dirs.length;di++){
           const [dx,dy]=dirs[di]!,x=cur.x+dx,y=cur.y+dy;
-          if(x<left||y<top||x>right||y>bottom || !pointInsideCopper(x,y,width/2))continue;
+          if(x<left||y<top||x>right||y>bottom)continue;
           const endpoint=(x===s.x&&y===s.y)||(x===e.x&&y===e.y);
-          if(nearDrilledHole(x,y,width/2,netName,false)||nearForeignPad(cur.layer,x,y,inflate,netName))continue;
-          if(!endpoint&&(nearExistingCopper(cur.layer,x,y,width/2,clearance,netName)||nearPlanned(cur.layer,x,y,width/2,clearance,netName)))continue;
+          if(pointBlocked(cur.layer,x,y,endpoint))continue;
+          // A diagonal may not cut between two blocked orthogonal neighbors:
+          // its swept copper must clear the adjacent grid cells as well.
+          if(dx!==0&&dy!==0){
+            const cornerBlocked=(cx:number,cy:number)=>pointBlocked(cur.layer,cx,cy,false);
+            if(cornerBlocked(cur.x+dx,cur.y)||cornerBlocked(cur.x,cur.y+dy))continue;
+          }
           const horizontal=dy===0,layerName=layers[cur.layer]!;
-          const preferred=preferredLayer?layerName===preferredLayer:(cur.layer===0?horizontal:!horizontal);
-          const step=gridMm+(preferred?0:wrongWayPenalty)+(cur.dir<4&&cur.dir!==di?turnPenalty:0);
+          const preferred=preferredLayer?layerName===preferredLayer:(dx!==0&&dy!==0?true:(cur.layer===0?horizontal:!horizontal));
+          const step=gridMm*Math.hypot(dx,dy)+(preferred?0:wrongWayPenalty)+(cur.dir<dirs.length&&cur.dir!==di?turnPenalty:0);
           const next:GridState={x,y,layer:cur.layer,dir:di},key=stateKey(next),ng=curG+step;
           if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(x,y),next);}
         }
@@ -532,7 +571,9 @@ export function planKicadRoutes(source:string,options:KicadRoutePlanOptions={}){
         const viaBlocked=[cur.layer,other].some(li=>nearExistingCopper(li,cur.x,cur.y,viaDiameter/2,clearance,netName)||nearPlanned(li,cur.x,cur.y,viaDiameter/2,clearance,netName));
         // Endpoint vias must meet foreign-net copper clearance too.
         if(!viaForeignPadBlocked&&!viaBlocked){
-          const next:GridState={x:cur.x,y:cur.y,layer:other,dir:4},key=stateKey(next),ng=curG+viaCost;
+          // A via is not a compass direction. For 8-direction A*, index 4
+          // would collide with the first 45-degree step direction.
+          const next:GridState={x:cur.x,y:cur.y,layer:other,dir:dirs.length},key=stateKey(next),ng=curG+viaCost;
           if(ng<(g.get(key)??Infinity)){g.set(key,ng);parent.set(key,curKey);states.set(key,next);open.push(ng+heuristic(cur.x,cur.y),next);}
         }
       }

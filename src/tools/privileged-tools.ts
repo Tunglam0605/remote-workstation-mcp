@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { AppContext } from '../context.js';
 import { createAdminRequest, readAdminRequest } from '../privileged/approval-store.js';
+import { normalizeWindowsSudoRequest } from '../privileged/windows-sudo-compat.js';
 import { audited } from '../security/audit.js';
 import { currentPrincipal } from '../security/request-principal.js';
 import { isLinuxAptInstallCommand, linuxHostRebootCommand } from '../tui/admin-requests.js';
@@ -13,7 +14,7 @@ const result = (value: unknown) => ({
 
 export function registerPrivilegedTools(server: McpServer, ctx: AppContext): void {
   server.registerTool('admin_request', {
-    description: 'Request one owner-approved privileged action. Windows retains the generic Administrator/UAC path. Linux accepts only a bounded apt-get install -y package request here; host reboot uses node_reboot_request. The request never elevates or executes by itself.',
+    description: 'Request one owner-approved privileged action. On Windows 11, program=sudo or sudo.exe with args=[direct .exe, ...argv] is normalized to the direct executable and held for local Control Center approval then RunAs/UAC; native Windows sudo.exe need not be enabled. No sudo flags, command shell, self-approval, or silent elevation. Linux remains limited to typed apt-get install -y here; use node_reboot_request for host reboot. The request never executes by itself.',
     inputSchema: z.object({
       program: z.string().min(1).max(4096),
       args: z.array(z.string().max(4096)).max(100).default([]),
@@ -28,7 +29,13 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
     if (process.platform !== 'linux' && process.platform !== 'win32') {
       throw new Error('admin_request is unavailable on this platform.');
     }
-    const request = await createAdminRequest({ program, args, cwd, reason });
+    const command = normalizeWindowsSudoRequest({ program, args, cwd }, process.platform);
+    const request = await createAdminRequest({
+      program: command.program,
+      args: command.args,
+      cwd: command.cwd,
+      reason
+    });
     await ctx.desktopNotifications.notify({
       title: 'RWMCP cần quyền Administrator',
       body: reason,
@@ -38,7 +45,11 @@ export function registerPrivilegedTools(server: McpServer, ctx: AppContext): voi
       requestId: request.id,
       state: request.state,
       expiresAt: request.expiresAt,
-      message: 'Waiting for local owner approval in Remote Workstation Control Center.'
+      sudoCompatibility: command.sudoCompatibility,
+      elevation: command.sudoCompatibility ? 'owner-approved-runas-uac' : 'platform-default',
+      message: command.sudoCompatibility
+        ? 'Windows sudo-compatible request normalized to a direct executable. Waiting for separate owner approval in Remote Workstation Control Center and Windows UAC; this did not run or bypass approval.'
+        : 'Waiting for local owner approval in Remote Workstation Control Center.'
     };
   })));
 

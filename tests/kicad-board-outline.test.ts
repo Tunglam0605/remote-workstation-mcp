@@ -81,3 +81,24 @@ test('rejects self-intersecting but otherwise closed board outlines',()=>{
   const result=readKicadBoardOutline(bad);
   assert.equal(result.status,'unsupported');
 });
+
+test('many unrelated graphic primitives do not consume the Edge.Cuts contour limit', () => {
+  const silkscreen = Array.from({ length: 512 }, (_, i) =>
+    `(gr_line (start ${i} 1) (end ${i} 2) (layer "F.Silkscreen"))`
+  ).join('\n');
+  const fab = Array.from({ length: 160 }, (_, i) =>
+    `(gr_rect (start ${i} 3) (end ${i+1} 4) (layer "F.Fab"))`
+  ).join('\n');
+  const text = ROUNDED.replace('(kicad_pcb', '(kicad_pcb\n' + silkscreen + '\n' + fab);
+  const outline = readKicadBoardOutline(text);
+  assert.equal(outline.status, 'verified-contour');
+  assert.equal(outline.lineCount, 4);
+  assert.equal(outline.arcCount, 4);
+});
+
+test('actual Edge.Cuts limit still fails closed above 128 primitives', () => {
+  const shapes = Array.from({ length: 129 }, (_, i) =>
+    `(gr_line (start ${i} 0) (end ${i+1} 0) (layer "Edge.Cuts"))`
+  ).join('\n');
+  assert.throws(() => readKicadBoardOutline('(kicad_pcb\n' + shapes + '\n)'), /Too many Edge.Cuts/);
+});

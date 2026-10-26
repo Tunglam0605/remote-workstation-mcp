@@ -19,6 +19,7 @@ const storage = new AsyncLocalStorage<RequestPrincipal>();
 
 const TOOL_SCOPES: Record<string, WorkstationScope> = {
   chatgpt_web_status: 'workstation.read',
+  ultimate_control_status: 'workstation.read',
   workstation_identity: 'workstation.read',
   capabilities_list: 'workstation.read',
   browser_capabilities: 'workstation.read',

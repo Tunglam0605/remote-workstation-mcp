@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import { PolicyEngine } from '../policy.js';
 import { PathGuard } from '../security/path-guard.js';
 import type { CrossNodeTransferIntent } from '../security/multi-node-authorization.js';
+import type { CrossNodeReceiptLedger } from '../security/cross-node-receipt-ledger.js';
 
 const MAX_TRANSFER_BYTES = 512 * 1024 * 1024;
 const DEFAULT_TTL_MS = 2 * 60 * 1000;
@@ -90,6 +91,7 @@ interface DataPlaneOptions {
   bindAddress?: string;
   allowLoopbackForTests?: boolean;
   now?: () => number;
+  receiptLedger?: CrossNodeReceiptLedger;
 }
 
 interface ActiveOffer {
@@ -419,6 +421,8 @@ export class DataPlaneAdapter {
     file: string;
     expectedSha256: string;
     expectedSize: number;
+    /** Receiver-private staging may use a UUID prefix; publish under the exact owner-authorized offer filename. */
+    destinationFileName?: string;
   }): Promise<DataPlaneAcceptedFile> {
     this.policy.assertWrite(options.workspace);
     const relative = assertRelativeFile(options.file);
@@ -431,7 +435,7 @@ export class DataPlaneAdapter {
 
     const verifiedDir = path.join(baseRoot, '.rwmcp', 'transfers', 'verified');
     await fs.mkdir(verifiedDir, { recursive: true });
-    const basename = path.basename(relative);
+    const basename = validateFileName(options.destinationFileName ?? path.basename(relative));
     const finalAbsolute = path.join(verifiedDir, `${expectedSha256}-${basename}`);
     const manifestAbsolute = `${finalAbsolute}.manifest.json`;
     const tempAbsolute = path.join(verifiedDir, `.${randomUUID()}.tmp`);
@@ -455,7 +459,21 @@ export class DataPlaneAdapter {
         await fs.unlink(tempAbsolute);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          await fs.rename(tempAbsolute, finalAbsolute);
+          // Hard-link publication is an atomic fail-if-exists operation; a
+          // competing writer may not replace a verified archive after the
+          // earlier ENOENT check. Keep the complete inode out of view until
+          // all bytes and both hashes have been checked.
+          try {
+            await fs.link(tempAbsolute, finalAbsolute);
+          } catch (linkError) {
+            if ((linkError as NodeJS.ErrnoException).code !== 'EEXIST') throw linkError;
+            const raced = await hashFile(finalAbsolute);
+            if (raced.sha256 !== copied.sha256 || raced.size !== copied.size) {
+              throw new Error('verified transfer destination already exists with different content.');
+            }
+            reused = true;
+          }
+          await fs.unlink(tempAbsolute);
         } else if (error instanceof Error && error.message === 'verified transfer destination already exists with different content.') {
           throw error;
         } else if (!reused) {
@@ -610,7 +628,11 @@ export class DataPlaneAdapter {
             basePath: offer.basePath,
             file: offer.incomingRelative,
             expectedSha256: offer.expectedSha256,
-            expectedSize: offer.expectedSize
+            expectedSize: offer.expectedSize,
+            destinationFileName: offer.fileName
+          });
+          this.options.receiptLedger?.recordReceived({
+            authorization: offer.authorization, verifiedPath: accepted.verifiedPath
           });
           await fs.unlink(incomingAbsolute).catch(() => undefined);
           offer.consumed = true;

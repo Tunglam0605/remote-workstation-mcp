@@ -4,7 +4,7 @@
     "src/": {"files": 285, "bytes": 3450000},
     "tests/": {"files": 240, "bytes": 1850000},
     "scripts/": {"files": 110, "bytes": 630000},
-    "docs/": {"files": 99, "bytes": 4450000},
+    "docs/": {"files": 103, "bytes": 4450000},
     "assets/": {"files": 55, "bytes": 26700000},
     "plugins/": {"files": 15, "bytes": 150000},
     "config/": {"files": 14, "bytes": 110000}

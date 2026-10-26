@@ -73,3 +73,17 @@ CI/PR review must remain the release boundary. This branch does not replace the 
 | P2 | Static seasonal graphics | Evaluate image compression and deduplication with visual regression checks; preserve UI fallback |
 
 A smaller repository or ZIP is not sufficient evidence of sound engineering. Avoid refactors introducing circular dependencies, fragmented ownership, blind routing, permission bypass, or loss of rollback.
+
+### Review request — Ultimate Control 4H source-only candidate (2026-10-26)
+
+Increase only the **docs/ file-count ceiling from 99 to 103** to preserve the
+four security-critical, independently reviewable design and acceptance files
+introduced by the unreleased Windows Ultimate 4H + cross-node handoff branch:
+`docs/ULTIMATE_CONTROL_HANDOFF.md`, both 2026-10-24 phase plans, and the
+2026-10-24 scoped consent specification. The four files together add about
+52 KiB, while total docs size remains below the unchanged 4,450,000-byte
+budget. No increase to source, tests, scripts, assets or total docs byte caps.
+Do not merge or publish the candidate until security and isolated Windows
+acceptance are complete. Future docs files beyond 103 will continue to fail
+closed without another explicit, justified review. This is a **requested
+budget exception**, not an automatic growth-budget reset.

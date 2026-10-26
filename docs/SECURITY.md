@@ -1,5 +1,7 @@
 # Security
 
+> Development feature: [Ultimate Control 4H and authenticated cross-node project handoff](ULTIMATE_CONTROL_HANDOFF.md) adds owner-local time-limited consent for exact typed project workflows. It does not bypass OS elevation, external ChatGPT permission prompts or existing base permissions. This feature is Windows-first and is not deployed by the documentation change.
+
 Remote Workstation MCP can read/write files and execute development tools. It can also reach owner-approved SSH hosts and, when the local owner selects Full access (or uses a legacy temporary lease), expose user-level host filesystem and raw shell capabilities. Administrator execution is a separate one-shot approval flow gated by Windows RunAs/UAC. Treat it as privileged local automation software.
 
 ## Security model

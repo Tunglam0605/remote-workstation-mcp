@@ -77,6 +77,9 @@ const defaultClock: Clock = {
 };
 
 export class UltimateConsentManager {
+  // Same-process Control Center callers may race across two manager instances.
+  // This locks owner-local consent mutation without broadening authority.
+  private static readonly activeMutations = new Set<string>();
   private readonly filePath: string;
   private readonly epochPath: string;
   private readonly revokedPath: string;
@@ -89,6 +92,19 @@ export class UltimateConsentManager {
     this.revokedPath = `${this.filePath}.revoked`;
     this.auditPath = `${this.filePath}.audit.jsonl`;
     this.clock = options.clock ?? defaultClock;
+  }
+
+  private async withExclusiveMutation<T>(action: () => Promise<T>): Promise<T> {
+    const key = process.platform === 'win32' ? this.filePath.toLowerCase() : this.filePath;
+    if (UltimateConsentManager.activeMutations.has(key)) {
+      throw new Error('Ultimate consent mutation is already in progress; retry after owner action completes.');
+    }
+    UltimateConsentManager.activeMutations.add(key);
+    try {
+      return await action();
+    } finally {
+      UltimateConsentManager.activeMutations.delete(key);
+    }
   }
 
   private async audit(event: UltimateLifecycleEvent): Promise<void> {
@@ -147,45 +163,47 @@ export class UltimateConsentManager {
   }
 
   async activate(rawInput: UltimateActivation): Promise<UltimateStatus> {
-    if (![30, 60, 120, 240].includes(rawInput?.durationMinutes)) {
-      throw new Error('Ultimate durationMinutes must be 30, 60, 120 or 240.');
-    }
-    const input = activationSchema.parse(rawInput);
-    if (await this.validRecord()) {
-      throw new Error('Ultimate consent is already active. Revoke before a new owner activation.');
-    }
-    const runtimeEpoch = await readRuntimeEpoch(this.epochPath);
-    if (!runtimeEpoch) throw new Error('The RWMCP runtime is not available for Ultimate activation.');
-    const issuedMs = this.clock.wallMs();
-    const issuedUptimeMs = this.clock.uptimeMs();
-    if (!Number.isFinite(issuedMs) || !Number.isFinite(issuedUptimeMs) || issuedUptimeMs < 0) {
-      throw new Error('Cannot establish a trustworthy Ultimate consent clock.');
-    }
-    const record = recordSchema.parse({
-      ...input,
-      id: crypto.randomUUID(),
-      runtimeEpoch,
-      issuedAt: new Date(issuedMs).toISOString(),
-      expiresAt: new Date(issuedMs + input.durationMinutes * 60_000).toISOString(),
-      issuedUptimeMs
+    return await this.withExclusiveMutation(async () => {
+      if (![30, 60, 120, 240].includes(rawInput?.durationMinutes)) {
+        throw new Error('Ultimate durationMinutes must be 30, 60, 120 or 240.');
+      }
+      const input = activationSchema.parse(rawInput);
+      if (await this.validRecord()) {
+        throw new Error('Ultimate consent is already active. Revoke before a new owner activation.');
+      }
+      const runtimeEpoch = await readRuntimeEpoch(this.epochPath);
+      if (!runtimeEpoch) throw new Error('The RWMCP runtime is not available for Ultimate activation.');
+      const issuedMs = this.clock.wallMs();
+      const issuedUptimeMs = this.clock.uptimeMs();
+      if (!Number.isFinite(issuedMs) || !Number.isFinite(issuedUptimeMs) || issuedUptimeMs < 0) {
+        throw new Error('Cannot establish a trustworthy Ultimate consent clock.');
+      }
+      const record = recordSchema.parse({
+        ...input,
+        id: crypto.randomUUID(),
+        runtimeEpoch,
+        issuedAt: new Date(issuedMs).toISOString(),
+        expiresAt: new Date(issuedMs + input.durationMinutes * 60_000).toISOString(),
+        issuedUptimeMs
+      });
+      const temporary = `${this.filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+      try {
+        await fs.writeFile(temporary, JSON.stringify(record), { mode: 0o600, flag: 'wx' });
+        await fs.rename(temporary, this.filePath);
+        await fs.chmod(this.filePath, 0o600);
+      } catch (error) {
+        await fs.rm(temporary, { force: true }).catch(() => {});
+        throw error;
+      }
+      await fs.rm(this.revokedPath, { force: true });
+      await this.audit({
+        action: 'activated', happenedAt: record.issuedAt, consentId: record.id,
+        nodeId: record.nodeId, durationMinutes: record.durationMinutes,
+        operations: record.scope.operations
+      });
+      return await this.status();
     });
-    const temporary = `${this.filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    try {
-      await fs.writeFile(temporary, JSON.stringify(record), { mode: 0o600, flag: 'wx' });
-      await fs.rename(temporary, this.filePath);
-      await fs.chmod(this.filePath, 0o600);
-    } catch (error) {
-      await fs.rm(temporary, { force: true }).catch(() => {});
-      throw error;
-    }
-    await fs.rm(this.revokedPath, { force: true });
-    await this.audit({
-      action: 'activated', happenedAt: record.issuedAt, consentId: record.id,
-      nodeId: record.nodeId, durationMinutes: record.durationMinutes,
-      operations: record.scope.operations
-    });
-    return await this.status();
   }
 
   async status(): Promise<UltimateStatus> {
@@ -207,11 +225,13 @@ export class UltimateConsentManager {
   }
 
   async revoke(): Promise<void> {
-    const previous = await this.readRecord();
-    await fs.rm(this.filePath, { force: true });
-    const happenedAt = new Date(this.clock.wallMs()).toISOString();
-    await fs.writeFile(this.revokedPath, JSON.stringify({ happenedAt }), { mode: 0o600 });
-    await this.audit({ action: 'revoked', happenedAt, consentId: previous?.id, nodeId: previous?.nodeId });
+    await this.withExclusiveMutation(async () => {
+      const previous = await this.readRecord();
+      await fs.rm(this.filePath, { force: true });
+      const happenedAt = new Date(this.clock.wallMs()).toISOString();
+      await fs.writeFile(this.revokedPath, JSON.stringify({ happenedAt }), { mode: 0o600 });
+      await this.audit({ action: 'revoked', happenedAt, consentId: previous?.id, nodeId: previous?.nodeId });
+    });
   }
 
   async assertAllowed(action: UltimateActionContext): Promise<void> {

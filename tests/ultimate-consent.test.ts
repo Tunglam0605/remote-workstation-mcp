@@ -26,16 +26,17 @@ async function fixture(t: test.TestContext) {
   const filePath = path.join(root, 'ultimate.json');
   let wallMs = Date.parse('2026-10-24T10:00:00.000Z');
   let uptimeMs = 100_000;
+  const clock = { wallMs: () => wallMs, uptimeMs: () => uptimeMs };
   const manager = new UltimateConsentManager({
     filePath,
     epochPath,
-    clock: { wallMs: () => wallMs, uptimeMs: () => uptimeMs }
+    clock
   });
   const move = (elapsedMs: number, wallShiftMs = elapsedMs) => {
     uptimeMs += elapsedMs;
     wallMs += wallShiftMs;
   };
-  return { manager, epochPath, filePath, move };
+  return { manager, epochPath, filePath, clock, move };
 }
 
 test('Ultimate lease accepts only four bounded choices and never extends from repeated status reads', async t => {
@@ -114,4 +115,28 @@ test('runtime epoch change, missing or malformed consent and explicit revoke fai
   const lifecycle = await manager.recentEvents();
   assert.deepEqual(lifecycle.map(item => item.action), ['activated', 'revoked']);
   assert.equal(JSON.stringify(lifecycle).includes('runtimeEpoch'), false);
+});
+
+test('Ultimate never accepts overlapping concurrent activation requests', async t => {
+  const { manager, epochPath, filePath, clock } = await fixture(t);
+  const otherManager = new UltimateConsentManager({ epochPath, filePath, clock });
+  const outcomes = await Promise.allSettled([
+    manager.activate(allowed),
+    otherManager.activate({ ...allowed, durationMinutes: 30 })
+  ]);
+  assert.equal(outcomes.filter(item => item.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter(item => item.status === 'rejected').length, 1);
+  assert.equal((await manager.status()).active, true);
+});
+
+test('Ultimate owner revoke and activation do not overlap across manager instances', async t => {
+  const { manager, epochPath, filePath, clock } = await fixture(t);
+  const otherManager = new UltimateConsentManager({ epochPath, filePath, clock });
+  const results = await Promise.allSettled([
+    manager.activate(allowed),
+    otherManager.revoke()
+  ]);
+  assert.equal(results.filter(item => item.status === 'fulfilled').length, 1);
+  assert.equal(results.filter(item => item.status === 'rejected').length, 1);
+  assert.equal((await manager.status()).active, true);
 });
